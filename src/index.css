@@ -1,0 +1,249 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap');
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* BPMN-JS Styles */
+@import 'bpmn-js/dist/assets/diagram-js.css';
+@import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  /* Theme Variables */
+  --color-theme-bg: var(--theme-bg);
+  --color-theme-surface: var(--theme-surface);
+  --color-theme-surface-hover: var(--theme-surface-hover);
+  --color-theme-primary: var(--theme-primary);
+  --color-theme-primary-hover: var(--theme-primary-hover);
+  --color-theme-primary-fg: var(--theme-primary-fg);
+  --color-theme-text: var(--theme-text);
+  --color-theme-text-muted: var(--theme-text-muted);
+  --color-theme-border: var(--theme-border);
+  --color-theme-glass: var(--theme-glass);
+  --color-theme-glass-border: var(--theme-glass-border);
+
+  @keyframes progress-indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
+
+  @keyframes swap-black {
+    0%, 100% { fill: var(--theme-text); }
+    50% { fill: var(--theme-surface); }
+  }
+
+  @keyframes swap-white {
+    0%, 100% { fill: var(--theme-surface); }
+    50% { fill: var(--theme-text); }
+  }
+}
+
+@layer utilities {
+  .animate-progress {
+    animation: progress-indeterminate 1.5s infinite linear;
+  }
+  .animate-swap-black {
+    animation: swap-black 1.5s infinite ease-in-out;
+  }
+  .animate-swap-white {
+    animation: swap-white 1.5s infinite ease-in-out;
+  }
+}
+
+@layer base {
+  :root {
+    /* Minimalist Dark (Stitch-like) */
+    --theme-bg: #0f0f0f;
+    --theme-surface: #1a1a1a;
+    --theme-surface-hover: #262626;
+    --theme-primary: #5c6fff; /* A nice blue/purple for AI */
+    --theme-primary-hover: #4a59cc;
+    --theme-primary-fg: #ffffff;
+    --theme-text: #f5f5f5;
+    --theme-text-muted: #a3a3a3;
+    --theme-border: #333333;
+    --theme-glass: rgba(26, 26, 26, 0.8);
+    --theme-glass-border: rgba(255, 255, 255, 0.05);
+  }
+
+  .theme-monochrome {
+    /* Kept for backwards compatibility if needed, but we default to dark */
+    --theme-bg: var(--color-zinc-50);
+    --theme-surface: var(--color-white);
+    --theme-surface-hover: var(--color-zinc-100);
+    --theme-primary: var(--color-zinc-900);
+    --theme-primary-hover: var(--color-black);
+    --theme-primary-fg: var(--color-white);
+    --theme-text: var(--color-zinc-900);
+    --theme-text-muted: var(--color-zinc-500);
+    --theme-border: var(--color-zinc-200);
+    --theme-glass: rgba(255, 255, 255, 0.9);
+    --theme-glass-border: rgba(228, 228, 231, 0.5);
+  }
+
+  .theme-energetic {
+    /* Energetic Glass (Nature Inspired Glassmorphism) */
+    --theme-bg: #e9edc9; /* Fallback solid color */
+    --theme-surface: rgba(255, 255, 255, 0.15); /* glass-panel */
+    --theme-surface-hover: rgba(255, 255, 255, 0.3); /* glass-card */
+    --theme-primary: #FFC600; /* Energisa Yellow */
+    --theme-primary-hover: #e6b300;
+    --theme-primary-fg: #1e293b; /* brand-dark */
+    --theme-text: #283618; /* brand-moss */
+    --theme-text-muted: #606c38; /* brand-sage */
+    --theme-border: rgba(255, 255, 255, 0.2);
+    --theme-glass: rgba(255, 255, 255, 0.15);
+    --theme-glass-border: rgba(255, 255, 255, 0.2);
+  }
+
+  .theme-ocean {
+    /* Deep Ocean / Dark Glass */
+    --theme-bg: var(--color-slate-950);
+    --theme-surface: rgba(15, 23, 42, 0.6);
+    --theme-surface-hover: rgba(30, 41, 59, 0.8);
+    --theme-primary: var(--color-sky-500);
+    --theme-primary-hover: var(--color-sky-400);
+    --theme-primary-fg: var(--color-white);
+    --theme-text: var(--color-slate-50);
+    --theme-text-muted: var(--color-slate-400);
+    --theme-border: rgba(51, 65, 85, 0.5);
+    --theme-glass: rgba(15, 23, 42, 0.6);
+    --theme-glass-border: rgba(255, 255, 255, 0.1);
+  }
+
+  body {
+    @apply antialiased text-theme-text bg-theme-bg transition-colors duration-300;
+  }
+
+  .theme-energetic body,
+  .theme-energetic #root,
+  .theme-energetic .bg-theme-bg {
+    background: linear-gradient(145deg, #d8e2dc 0%, #ffe5d9 30%, #f4f1de 60%, #e9edc9 85%, #ccd5ae 100%) !important;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .glass-panel {
+    @apply bg-theme-surface border border-theme-border shadow-sm transition-colors duration-300;
+  }
+
+  /* Tiptap / Word-like Styling */
+  .ProseMirror {
+    @apply min-h-[60vh] outline-none;
+  }
+
+  .ProseMirror p.is-editor-empty:first-child::before {
+    @apply text-zinc-400 content-[attr(data-placeholder)] float-left h-0 pointer-events-none;
+  }
+
+  .document-paper {
+    @apply bg-white shadow-[0_0_50px_-12px_rgba(0,0,0,0.12)] border border-zinc-200/60 rounded-[2rem] transition-all duration-500;
+  }
+
+  /* Tiptap Table Styling */
+  .ProseMirror table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+  .ProseMirror td,
+  .ProseMirror th {
+    min-width: 1em;
+    border: 2px solid var(--theme-border);
+    padding: 8px 12px;
+    vertical-align: top;
+    box-sizing: border-box;
+    position: relative;
+  }
+  .ProseMirror th {
+    font-weight: bold;
+    text-align: left;
+    background-color: var(--theme-surface-hover);
+  }
+  .ProseMirror .selectedCell:after {
+    z-index: 2;
+    position: absolute;
+    content: "";
+    left: 0; right: 0; top: 0; bottom: 0;
+    background: var(--theme-primary);
+    opacity: 0.1;
+    pointer-events: none;
+  }
+  .ProseMirror .column-resize-handle {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: -2px;
+    width: 4px;
+    background-color: var(--theme-primary);
+    pointer-events: none;
+  }
+  .ProseMirror img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  .document-paper, .document-paper * {
+    visibility: visible;
+  }
+  
+  .document-paper {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* Hide UI elements during print */
+  .document-paper header,
+  .document-paper button,
+  .document-paper .bg-gradient-to-r {
+    display: none !important;
+  }
+
+  /* Ensure text is black for printing */
+  .document-paper .prose {
+    color: black !important;
+  }
+  
+  .document-paper .prose h1,
+  .document-paper .prose h2,
+  .document-paper .prose h3,
+  .document-paper .prose strong {
+    color: black !important;
+  }
+  
+  /* Page breaks for printing */
+  h1, h2 {
+    page-break-before: auto;
+    page-break-after: avoid;
+  }
+  
+  p, li {
+    page-break-inside: avoid;
+  }
+}

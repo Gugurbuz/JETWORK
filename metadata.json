@@ -1,0 +1,5 @@
+{
+  "name": "JetWork",
+  "description": "Yapay zeka destekli iş ve fonksiyonel analiz uygulaması.",
+  "requestFramePermissions": ["microphone"]
+}
