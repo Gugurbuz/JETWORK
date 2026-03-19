@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import BpmnJS from 'bpmn-js/dist/bpmn-viewer.production.min.js';
-import { Maximize2, Minimize2, Download } from 'lucide-react';
+import { Maximize2, Minimize2, Download, AlertCircle } from 'lucide-react';
 
 interface BpmnViewerProps {
   xml: string;
@@ -9,6 +9,7 @@ interface BpmnViewerProps {
 export function BpmnViewer({ xml }: BpmnViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -29,12 +30,14 @@ export function BpmnViewer({ xml }: BpmnViewerProps) {
     const loadDiagram = async () => {
       if (!viewerRef.current || !xml) return;
       
+      setError(null);
       try {
         await viewerRef.current.importXML(xml);
         const canvas = viewerRef.current.get('canvas');
         canvas.zoom('fit-viewport');
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error rendering BPMN:', err);
+        setError(err.message || 'BPMN diyagramı oluşturulurken bir hata oluştu. Lütfen AI\'dan diyagramı görsel koordinatlarıyla (DI) birlikte yeniden üretmesini isteyin.');
       }
     };
 
@@ -65,7 +68,14 @@ export function BpmnViewer({ xml }: BpmnViewerProps) {
 
   return (
     <div className="relative w-full h-[600px] border border-theme-border rounded-xl bg-white overflow-hidden shadow-sm group">
-      <div ref={containerRef} className="w-full h-full" />
+      <div ref={containerRef} className={`w-full h-full ${error ? 'hidden' : 'block'}`} />
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-red-50/90 z-10">
+          <AlertCircle size={32} className="text-red-500 mb-4" />
+          <p className="text-sm font-medium text-red-800 mb-2">Diyagram Görüntülenemedi</p>
+          <p className="text-xs text-red-600 max-w-md">{error}</p>
+        </div>
+      )}
       
       {/* Controls */}
       <div className="absolute bottom-4 right-4 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

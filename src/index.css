@@ -125,6 +125,14 @@
 }
 
 @layer utilities {
+  .chat-scroll-container {
+    overflow-anchor: none;
+  }
+  .chat-scroll-anchor {
+    overflow-anchor: auto;
+    height: 1px;
+  }
+  
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }

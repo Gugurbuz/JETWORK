@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { FileText, Download, Play, CheckCircle2, Share2, Printer, Edit3, Save, Users, Bold, Italic, List, ListOrdered, Quote, Heading1, Heading2, Code, Undo, Redo, Table as TableIcon, Image as ImageIcon, Palette, Trello, Link2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { FileText, Download, Play, CheckCircle2, Share2, Printer, Edit3, Save, Users, Bold, Italic, List, ListOrdered, Quote, Heading1, Heading2, Code, Undo, Redo, Table as TableIcon, Image as ImageIcon, Palette, Trello, Link2, Activity, Bot, User, Briefcase, Bug, Sparkles, Terminal } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,7 +7,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Collaborator, DocumentData, Message } from '../types';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BpmnViewer } from './BpmnViewer';
-import { Brain, BarChart3, Clock, Coins, MessageSquare } from 'lucide-react';
+import { Brain, BarChart3, Clock, Coins, MessageSquare, Bookmark, Eye, RotateCcw } from 'lucide-react';
+import { DiffViewerModal } from './DiffViewerModal';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
@@ -25,6 +26,7 @@ interface DocumentPanelProps {
   documentContent: DocumentData | null;
   onGenerate: () => void;
   isGenerating: boolean;
+  isDiscussing?: boolean;
   hasMessages: boolean;
   collaborators?: Collaborator[];
   onUpdateDocument?: (content: DocumentData) => void;
@@ -32,6 +34,8 @@ interface DocumentPanelProps {
   score?: number;
   scoreExplanation?: string;
   messages?: Message[];
+  onRestoreDocument?: (doc: any) => void;
+  isLoadingWorkspace?: boolean;
 }
 
 const TABS = ['BA Analiz', 'IT Analiz', 'Test', 'FLOW', 'Review'];
@@ -159,49 +163,66 @@ const MenuBar = ({ editor }: { editor: any }) => {
   );
 };
 
+const stringToColor = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  let color = '#';
+  for (let i = 0; i < 3; i++) {
+    const value = (hash >> (i * 8)) & 0xFF;
+    color += ('00' + value.toString(16)).substr(-2);
+  }
+  return color;
+};
+
 export function DocumentPanel({ 
   activeTab, 
   setActiveTab, 
   documentContent, 
   onGenerate, 
   isGenerating, 
+  isDiscussing,
   hasMessages,
   collaborators = [],
   onUpdateDocument,
   onSelectionChange,
   score,
   scoreExplanation,
-  messages = []
+  messages = [],
+  onRestoreDocument,
+  isLoadingWorkspace
 }: DocumentPanelProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [isExportingJira, setIsExportingJira] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [diffModalData, setDiffModalData] = useState<{ oldDoc?: any, newDoc?: any } | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
 
-  const handleJiraExport = async () => {
-    if (!documentContent) return;
-    setIsExportingJira(true);
-    try {
-      const response = await fetch('/api/jira/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: 'Yeni Çalışma Alanı Talebi', // In a real app, this would come from the workspace title
-          description: documentContent.businessAnalysis
-        })
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        alert(`Jira'ya başarıyla aktarıldı! Issue: ${data.issueKey}`);
-        window.open(data.url, '_blank');
-      } else {
-        alert(`Hata: ${data.error}`);
-      }
-    } catch (error) {
-      console.error(error);
-      alert('Jira aktarımı sırasında bir hata oluştu.');
-    } finally {
-      setIsExportingJira(false);
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setIsAutoScrollEnabled(isNearBottom);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'Review' && isAutoScrollEnabled) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, activeTab, isAutoScrollEnabled]);
+
+  const getRoleConfig = (role?: string) => {
+    switch (role) {
+      case 'Moderatör': return { icon: Brain, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/20' };
+      case 'İş Analisti': return { icon: Briefcase, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' };
+      case 'Yazılım Mimarı': return { icon: Code, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' };
+      case 'Test Uzmanı': return { icon: Bug, color: 'text-green-500', bg: 'bg-green-500/10', border: 'border-green-500/20' };
+      case 'Product Owner': return { icon: Briefcase, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
+      case 'Scrum Master': return { icon: Users, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
+      case 'Kullanıcı': return { icon: User, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
+      default: return { icon: Bot, color: 'text-theme-text-muted', bg: 'bg-theme-surface-hover', border: 'border-theme-border' };
     }
   };
 
@@ -210,17 +231,17 @@ export function DocumentPanel({
     setIsSharing(true);
     try {
       const shareId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-      const response = await fetch('/api/share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: shareId, data: documentContent })
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      
+      await setDoc(doc(db, 'shared_analyses', shareId), {
+        data: documentContent,
+        createdAt: serverTimestamp()
       });
       
-      if (response.ok) {
-        const shareUrl = `${window.location.origin}?shareId=${shareId}`;
-        await navigator.clipboard.writeText(shareUrl);
-        alert('Paylaşım bağlantısı panoya kopyalandı!\n\n' + shareUrl);
-      }
+      const shareUrl = `${window.location.origin}?shareId=${shareId}`;
+      await navigator.clipboard.writeText(shareUrl);
+      alert('Paylaşım bağlantısı panoya kopyalandı!\n\n' + shareUrl);
     } catch (error) {
       console.error(error);
       alert('Paylaşım bağlantısı oluşturulurken hata oluştu.');
@@ -471,14 +492,6 @@ export function DocumentPanel({
                   <Share2 size={14} className={isSharing ? "animate-pulse" : ""} />
                 </button>
                 <button 
-                  onClick={handleJiraExport}
-                  disabled={isExportingJira}
-                  className="ml-2 flex items-center gap-2 px-3 py-1.5 bg-theme-surface text-theme-text text-[10px] font-bold uppercase tracking-widest hover:bg-theme-surface-hover transition-colors border border-theme-border disabled:opacity-50 rounded-md shadow-sm"
-                >
-                  <Trello size={12} className={isExportingJira ? "animate-bounce" : ""} />
-                  {isExportingJira ? "Aktarılıyor..." : "Jira'ya Aktar"}
-                </button>
-                <button 
                   onClick={handleDownload}
                   className="ml-2 flex items-center gap-2 px-3 py-1.5 bg-theme-primary text-theme-primary-fg text-[10px] font-bold uppercase tracking-widest hover:bg-theme-primary-hover transition-colors rounded-md shadow-sm"
                 >
@@ -495,7 +508,27 @@ export function DocumentPanel({
       <div className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-300">
         <div className="max-w-3xl mx-auto">
           <AnimatePresence mode="wait">
-            {!documentContent && !isGenerating ? (
+            {isLoadingWorkspace ? (
+              <motion.div 
+                key="loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-8 animate-pulse p-8 bg-theme-surface border border-theme-border/50 rounded-2xl shadow-sm"
+              >
+                <div className="h-8 w-1/3 bg-theme-border/50 rounded-lg" />
+                <div className="space-y-4">
+                  <div className="h-4 w-full bg-theme-border/30 rounded" />
+                  <div className="h-4 w-5/6 bg-theme-border/30 rounded" />
+                  <div className="h-4 w-4/6 bg-theme-border/30 rounded" />
+                </div>
+                <div className="space-y-4 pt-8">
+                  <div className="h-4 w-full bg-theme-border/30 rounded" />
+                  <div className="h-4 w-full bg-theme-border/30 rounded" />
+                  <div className="h-4 w-3/6 bg-theme-border/30 rounded" />
+                </div>
+              </motion.div>
+            ) : !documentContent && !isGenerating && !isDiscussing && activeTab !== 'Review' ? (
               <motion.div 
                 key="empty"
                 initial={{ opacity: 0, scale: 0.98 }}
@@ -536,8 +569,31 @@ export function DocumentPanel({
                   <div className="absolute inset-0 border-2 border-theme-border/50 rounded-full" />
                   <div className="absolute inset-0 border-2 border-theme-primary border-t-transparent animate-spin rounded-full" />
                 </div>
-                <h3 className="text-lg font-semibold text-theme-text tracking-tight">Doküman Hazırlanıyor</h3>
-                <p className="text-sm text-theme-text-muted mt-2">Yapay zeka analizleri derliyor ve yapılandırıyor...</p>
+                <h3 className="text-lg font-semibold text-theme-text tracking-tight">
+                  Doküman Hazırlanıyor
+                </h3>
+                <p className="text-sm text-theme-text-muted mt-2">
+                  Yapay zeka analizleri derliyor ve yapılandırıyor...
+                </p>
+              </motion.div>
+            ) : !documentContent && isDiscussing && activeTab !== 'Review' ? (
+              <motion.div 
+                key="discussing"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="h-[60vh] flex flex-col items-center justify-center text-center"
+              >
+                <div className="relative w-12 h-12 mb-6">
+                  <div className="absolute inset-0 border-2 border-theme-border/50 rounded-full" />
+                  <div className="absolute inset-0 border-2 border-theme-primary border-t-transparent animate-spin rounded-full" />
+                </div>
+                <h3 className="text-lg font-semibold text-theme-text tracking-tight">
+                  Ajanlar Tartışıyor
+                </h3>
+                <p className="text-sm text-theme-text-muted mt-2">
+                  Yapay zeka ajanları konuyu analiz ediyor ve tartışıyor...
+                </p>
               </motion.div>
             ) : (
               <motion.div 
@@ -551,10 +607,10 @@ export function DocumentPanel({
                 
                 <div className="mb-8 pb-4 border-b border-theme-border/50 flex justify-between items-center">
                   <h2 className="text-2xl font-semibold text-theme-text tracking-tight">{activeTab === 'Review' ? 'Değerlendirme' : activeTab} Raporu</h2>
-                  {isGenerating && (
+                  {(isGenerating || isDiscussing) && (
                     <div className="flex items-center gap-2 text-theme-primary text-xs font-medium animate-pulse">
                       <div className="w-4 h-4 rounded-full border-2 border-theme-primary border-t-transparent animate-spin" />
-                      Güncelleniyor...
+                      {isDiscussing ? 'Tartışılıyor...' : 'Güncelleniyor...'}
                     </div>
                   )}
                 </div>
@@ -583,18 +639,6 @@ export function DocumentPanel({
                             </p>
                           </div>
                         </div>
-                      </div>
-                    )}
-
-                    {documentContent.conflictAnalysis && (
-                      <div className="p-6 bg-theme-surface border border-theme-border rounded-xl">
-                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted mb-4">
-                          <Brain size={14} className="text-theme-primary" />
-                          Çatışma ve Tartışma Analizi
-                        </div>
-                        <p className="text-sm text-theme-text leading-relaxed italic">
-                          {documentContent.conflictAnalysis}
-                        </p>
                       </div>
                     )}
 
@@ -660,6 +704,138 @@ export function DocumentPanel({
                         </div>
                       </div>
                     </div>
+
+                    {/* Live Discussion Feed */}
+                    <div className="mt-8 bg-theme-surface rounded-2xl border border-theme-border/50 shadow-lg relative overflow-hidden">
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-theme-primary via-purple-500 to-theme-primary opacity-80" />
+                      
+                      <div className="p-6 border-b border-theme-border/50 flex items-center justify-between bg-theme-surface-hover/30">
+                        <h3 className="text-lg font-semibold text-theme-text flex items-center gap-2">
+                          <Activity className={cn("text-theme-primary", isDiscussing && "animate-pulse")} size={20} />
+                          Ajan Etkileşim Özeti
+                        </h3>
+                        {isDiscussing && (
+                          <span className="px-3 py-1 rounded-full bg-theme-primary/10 text-theme-primary text-xs font-medium flex items-center gap-2 border border-theme-primary/20">
+                            <span className="w-2 h-2 rounded-full bg-theme-primary animate-ping" />
+                            Ajanlar Analiz Ediyor
+                          </span>
+                        )}
+                      </div>
+
+                      <div 
+                        ref={scrollContainerRef}
+                        onScroll={handleScroll}
+                        className="p-6 max-h-[600px] overflow-y-auto custom-scrollbar"
+                      >
+                        <div className="relative border-l-2 border-theme-border/30 ml-4 space-y-8 pb-4">
+                          <AnimatePresence initial={false}>
+                            {messages.map((msg) => {
+                              const isUser = msg.role === 'user';
+                              const config = getRoleConfig(msg.senderRole || (isUser ? 'Kullanıcı' : undefined));
+                              const Icon = config.icon;
+                              const userColor = isUser && msg.senderName ? stringToColor(msg.senderName) : undefined;
+                              
+                              return (
+                                <motion.div 
+                                  key={msg.id}
+                                  initial={{ opacity: 0, x: -20, y: 10 }}
+                                  animate={{ opacity: 1, x: 0, y: 0 }}
+                                  className="relative pl-8"
+                                >
+                                  {/* Timeline Dot */}
+                                  <div 
+                                    className={cn("absolute -left-[17px] top-1 w-8 h-8 rounded-full flex items-center justify-center border-2 bg-theme-surface shadow-sm", !userColor && config.border, !userColor && config.color)}
+                                    style={userColor ? { borderColor: `${userColor}33`, color: userColor } : undefined}
+                                  >
+                                    <Icon size={14} />
+                                  </div>
+                                  
+                                  {/* Content Card */}
+                                  <div 
+                                    className={cn("p-4 rounded-xl border shadow-sm transition-all hover:shadow-md", !userColor && config.bg, !userColor && config.border)}
+                                    style={userColor ? { backgroundColor: `${userColor}1a`, borderColor: `${userColor}33` } : undefined}
+                                  >
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div className="flex items-center gap-2">
+                                        <span 
+                                          className={cn("font-semibold text-sm", !userColor && config.color)}
+                                          style={userColor ? { color: userColor } : undefined}
+                                        >
+                                          {msg.senderName || (isUser ? 'Siz' : 'Yapay Zeka')}
+                                        </span>
+                                        {msg.senderRole && (
+                                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-theme-surface/80 text-theme-text-muted border border-theme-border/50 font-medium uppercase tracking-wider">
+                                            {msg.senderRole}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-3 text-[10px] text-theme-text-muted font-medium">
+                                        {msg.thinkingTime && (
+                                          <span className="flex items-center gap-1" title="Düşünme Süresi">
+                                            <Clock size={12} />
+                                            {msg.thinkingTime}s
+                                          </span>
+                                        )}
+                                        {msg.tokenCount && (
+                                          <span className="flex items-center gap-1" title="Token Sayısı">
+                                            <Coins size={12} />
+                                            {msg.tokenCount}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-sm text-theme-text">
+                                      {msg.actionSummary ? (
+                                        <p className="font-medium leading-relaxed">{msg.actionSummary}</p>
+                                      ) : (
+                                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-theme-bg prose-pre:border prose-pre:border-theme-border/50 line-clamp-2 opacity-80">
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {msg.text}
+                                          </ReactMarkdown>
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                    {msg.documentActions && msg.documentActions.length > 0 && (
+                                      <div className="mt-4 p-4 bg-theme-bg/50 border border-theme-border rounded-xl shadow-sm">
+                                        <div className="flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted">
+                                          <FileText size={14} className="text-theme-primary" /> İşlem Geçmişi
+                                        </div>
+                                        <ul className="space-y-2 mb-4">
+                                          {msg.documentActions.map((action, i) => (
+                                            <li key={i} className="flex items-start gap-2 text-sm text-theme-text">
+                                              <span className="text-theme-primary mt-1">•</span>
+                                              <span>{action}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                        <div className="flex flex-wrap gap-2 border-t border-theme-border/50 pt-3">
+                                          <button 
+                                            onClick={() => setDiffModalData({ oldDoc: msg.previousDocumentSnapshot, newDoc: msg.documentSnapshot })}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-surface hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
+                                          >
+                                            <Eye size={12} /> Farkı Gör
+                                          </button>
+                                          {onRestoreDocument && (
+                                            <button 
+                                              onClick={() => onRestoreDocument(msg.documentSnapshot)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-surface hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
+                                            >
+                                              <RotateCcw size={12} /> Geri Yükle
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              );
+                            })}
+                          </AnimatePresence>
+                          <div ref={messagesEndRef} />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
                 
@@ -670,7 +846,7 @@ export function DocumentPanel({
                   </div>
                 ) : activeTab === 'FLOW' ? (
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {documentContent.bpmn ? (
+                    {documentContent?.bpmn ? (
                       <BpmnViewer xml={documentContent.bpmn} />
                     ) : (
                       <div className="h-[400px] flex flex-col items-center justify-center text-center border border-dashed border-theme-border/50 bg-theme-bg rounded-xl">
@@ -685,23 +861,24 @@ export function DocumentPanel({
                     <div className="document-content-view" dangerouslySetInnerHTML={{ __html: getActiveContent(documentContent, activeTab) }} />
                   </article>
                 )}
-
-                {documentContent && documentContent.thoughtProcess && (
-                  <div className="mt-12 pt-8 border-t border-theme-border/50">
-                    <div className="flex items-center gap-2 text-theme-text-muted text-[10px] font-bold uppercase tracking-widest mb-4">
-                      <Palette size={14} className="text-theme-primary" />
-                      Yapay Zeka Akıl Yürütme Süreci
-                    </div>
-                    <div className="bg-theme-surface-hover/50 p-6 rounded-xl border border-theme-border/30 italic text-sm text-theme-text-muted leading-relaxed">
-                      {documentContent.thoughtProcess}
-                    </div>
-                  </div>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
+
+      {diffModalData && (
+        <DiffViewerModal
+          oldDoc={diffModalData.oldDoc}
+          newDoc={diffModalData.newDoc}
+          onClose={() => setDiffModalData(null)}
+          onRestore={() => {
+            if (onRestoreDocument && diffModalData.newDoc) {
+              onRestoreDocument(diffModalData.newDoc);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

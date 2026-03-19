@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User profile photo URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Account creation timestamp" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" }
+      },
+      "required": ["uid", "email", "createdAt", "role"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A project containing workspaces",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["name", "createdAt", "lastUpdated", "ownerId"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "A workspace/item within a project",
+      "type": "object",
+      "properties": {
+        "projectId": { "type": "string" },
+        "issueKey": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "document": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "collaborators": { "type": "array" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["projectId", "issueKey", "title", "createdAt", "lastUpdated", "ownerId"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A chat message in a workspace",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "text": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderRole": { "type": "string" },
+        "agentRole": { "type": "string" },
+        "thinkingText": { "type": "string" },
+        "score": { "type": "number" },
+        "scoreExplanation": { "type": "string" },
+        "attachments": { "type": "array" },
+        "reactions": { "type": "array" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["role", "text", "createdAt", "ownerId"]
+    },
+    "SharedAnalysis": {
+      "title": "Shared Analysis",
+      "description": "A snapshot of a document shared via a link.",
+      "type": "object",
+      "properties": {
+        "data": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["data", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles"
+    },
+    "/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "Stores projects"
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Stores workspaces"
+    },
+    "/workspaces/{workspaceId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Stores messages for a workspace"
+    },
+    "/shared_analyses/{shareId}": {
+      "schema": { "$ref": "#/entities/SharedAnalysis" },
+      "description": "Stores shared document snapshots"
+    }
+  }
+}

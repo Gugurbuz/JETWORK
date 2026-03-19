@@ -1,19 +1,70 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI, ThinkingLevel, Type, FunctionDeclaration } from '@google/genai';
 import { Sidebar, ThemeType } from './components/Sidebar';
+import { EditProjectModal } from './components/EditProjectModal';
+import { EditWorkspaceModal } from './components/EditWorkspaceModal';
+import { ConfirmModal } from './components/ConfirmModal';
 import { ChatPanel } from './components/ChatPanel';
 import { DocumentPanel } from './components/DocumentPanel';
 import { LandingPage } from './components/LandingPage';
 import { NewItemModal } from './components/NewItemModal';
 import { NewProjectModal } from './components/NewProjectModal';
+import { OnboardingPage } from './components/OnboardingPage';
 import { ProjectDashboard } from './components/ProjectDashboard';
 import { SettingsModal } from './components/SettingsModal';
-import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, TypingUser } from './types';
+import { ManageParticipantsModal } from './components/ManageParticipantsModal';
+import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, TypingUser, Question } from './types';
 import { ChatResponseSchema, chatResponseJsonSchema, discussionJsonSchema } from './schemas';
 import { LayoutDashboard } from 'lucide-react';
 import { marked } from 'marked';
 import { io, Socket } from 'socket.io-client';
 import { parse as parsePartialJson } from 'partial-json';
+import { auth, db } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
+
+const parseBusinessAnalysis = (baContent: any): string => {
+  if (typeof baContent === 'string') return baContent;
+  if (!baContent || typeof baContent !== 'object') return '';
+
+  let md = `# İş Analizi Dokümanı\n\n`;
+  if (baContent["1_ANALIZ_KAPSAMI"]) md += `## 1. ANALİZ KAPSAMI\n${baContent["1_ANALIZ_KAPSAMI"]}\n\n`;
+  if (baContent["2_KISALTMALAR"]) md += `## 2. KISALTMALAR\n${baContent["2_KISALTMALAR"]}\n\n`;
+  
+  if (baContent["3_IS_GEREKSINIMLERI"]) {
+    md += `## 3. İŞ GEREKSİNİMLERİ\n`;
+    if (baContent["3_IS_GEREKSINIMLERI"]["3_1_Is_Kurallari"]) md += `### 3.1. İş Kuralları\n${baContent["3_IS_GEREKSINIMLERI"]["3_1_Is_Kurallari"]}\n\n`;
+    if (baContent["3_IS_GEREKSINIMLERI"]["3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]) md += `### 3.2. İş Modeli ve Kullanıcı Gereksinimleri\n${baContent["3_IS_GEREKSINIMLERI"]["3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]}\n\n`;
+  }
+  
+  if (baContent["4_FONKSIYONEL_GEREKSINIMLER"]) md += `## 4. FONKSİYONEL GEREKSİNİMLER (FR)\n${baContent["4_FONKSIYONEL_GEREKSINIMLER"]}\n\n`;
+  
+  if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]) {
+    md += `## 5. FONKSİYONEL OLMAYAN GEREKSİNLİMLER (NFR)\n`;
+    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_1_Guvenlik_ve_Yetkilendirme"]) md += `### 5.1. Güvenlik ve Yetkilendirme Gereksinimleri\n${baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_1_Guvenlik_ve_Yetkilendirme"]}\n\n`;
+    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_2_Performans"]) md += `### 5.2. Performans Gereksinimleri\n${baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_2_Performans"]}\n\n`;
+    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_3_Raporlama"]) md += `### 5.3. Raporlama Gereksinimleri\n${baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_3_Raporlama"]}\n\n`;
+  }
+  
+  if (baContent["6_SUREC_RISK_ANALIZI"]) {
+    md += `## 6. SÜREÇ RİSK ANALİZİ\n`;
+    if (baContent["6_SUREC_RISK_ANALIZI"]["6_1_Kisitlar_ve_Varsayimlar"]) md += `### 6.1. Kısıtlar ve Varsayımlar\n${baContent["6_SUREC_RISK_ANALIZI"]["6_1_Kisitlar_ve_Varsayimlar"]}\n\n`;
+    if (baContent["6_SUREC_RISK_ANALIZI"]["6_2_Bagliliklar"]) md += `### 6.2. Bağlılıklar\n${baContent["6_SUREC_RISK_ANALIZI"]["6_2_Bagliliklar"]}\n\n`;
+    if (baContent["6_SUREC_RISK_ANALIZI"]["6_3_Surec_Etkileri"]) md += `### 6.3. Süreç Etkileri\n${baContent["6_SUREC_RISK_ANALIZI"]["6_3_Surec_Etkileri"]}\n\n`;
+  }
+  
+  if (baContent["7_ONAY"]) {
+    md += `## 7. ONAY\n`;
+    if (baContent["7_ONAY"]["7_1_Is_Analizi"]) md += `### 7.1. İş Analizi\n${baContent["7_ONAY"]["7_1_Is_Analizi"]}\n\n`;
+    if (baContent["7_ONAY"]["7_2_Degisiklik_Kayitlari"]) md += `### 7.2. Değişiklik Kayıtları\n${baContent["7_ONAY"]["7_2_Degisiklik_Kayitlari"]}\n\n`;
+    if (baContent["7_ONAY"]["7_3_Dokuman_Onay"]) md += `### 7.3. Doküman Onay\n${baContent["7_ONAY"]["7_3_Dokuman_Onay"]}\n\n`;
+    if (baContent["7_ONAY"]["7_4_Referans_Dokumanlar"]) md += `### 7.4. Referans Dokümanlar\n${baContent["7_ONAY"]["7_4_Referans_Dokumanlar"]}\n\n`;
+  }
+  
+  if (baContent["8_FONKSIYONEL_TASARIM_DOKUMANLARI"]) md += `## 8. FONKSİYONEL TASARIM DOKÜMANLARI\n${baContent["8_FONKSIYONEL_TASARIM_DOKUMANLARI"]}\n\n`;
+
+  return md;
+};
 
 // Initialize Gemini
 // (Removed top-level initialization to prevent API key race conditions)
@@ -24,36 +75,41 @@ const MOCK_COLLABORATORS: Collaborator[] = [
   { id: '3', name: 'Mehmet Demir', avatar: 'M', role: 'Lead Developer', color: 'purple' },
 ];
 
-const ZERO_TOUCH_AGENTS = [
+export const ZERO_TOUCH_AGENTS = [
   {
     role: 'PO',
     name: 'Product Owner',
-    instruction: "Sen bir Product Owner'sın. Kullanıcının talebini iş değeri (business value), müşteri deneyimi ve ürün vizyonu açısından değerlendir. KURAL 1: IT'nin karmaşık ve maliyetli (örn. Kafka, mikroservisler) çözümlerine itiraz et. 'Bu mimari Faz 1'in canlıya çıkış süresini ne kadar uzatır? Daha basit bir MVP yapamaz mıyız?' diyerek ekibi basitliğe zorla. KURAL 2: Müşteri deneyimini her şeyin önünde tut. KURAL 3: Kullanıcı belirtmese bile ROI (Yatırım Getirisi) ve Time-to-Market metriklerini her zaman gözet. Ekip teknik detaylarda boğulursa onları iş hedeflerine geri çek. KURAL 4 (KULLANICIYI DARRALMA): Kullanıcıya sürekli soru sorma! Sadece iş modelini tamamen bloke eden, kararsız kalınan çok kritik bir durum varsa kullanıcıya soru sor. Diğer tüm durumlarda inisiyatif al ve ekiple tartışarak en mantıklı kararı kendiniz verin. KURAL 5 (MAKSİMUM DÜŞÜNME SEVİYESİ): Karar vermeden önce adım adım düşün (Step-by-step reasoning). Tüm iş risklerini, pazar dinamiklerini ve alternatif senaryoları derinlemesine analiz et. İlk aklına gelen çözümü değil, en optimize edilmiş stratejiyi sun."
+    instruction: "Sen bir Product Owner'sın. Kullanıcının talebini iş değeri (business value), müşteri deneyimi ve ürün vizyonu açısından değerlendir. KURAL 1 (Vizyon ve Kısıtlar): Kullanıcının hedef kitlesini, bütçesini ve projeyi canlıya alma (Time-to-Market) aciliyetini ASLA uydurma. Eğer talepte iş hedefleri ve kısıtlar net değilse, doğru varsayımlar yapmak yerine bu kritik metrikleri öğrenmek için DOĞRUDAN KULLANICIYA SORU SOR. KURAL 2: IT'nin karmaşık ve maliyetli (örn. Kafka, mikroservisler) çözümlerine itiraz et. 'Bu mimari Faz 1'in canlıya çıkış süresini ne kadar uzatır? Daha basit bir MVP yapamaz mıyız?' diyerek ekibi basitliğe zorla. KURAL 3: Sektörel standartları (best-practices) kendin araştır ve inisiyatif al (bunları kullanıcıya sorma). Ancak şirkete ÖZEL iş kuralları söz konusuysa mutlaka bilgi iste. KURAL 4: Karar vermeden önce adım adım düşün. Tüm iş risklerini, pazar dinamiklerini ve alternatif senaryoları derinlemesine analiz et. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'BA',
     name: 'İş Analisti',
-    instruction: "Sen bir Kıdemli İş Analistisin (Business Analyst). GÖREVİN: Kullanıcının talebini iş kurallarına ve süreçlere dönüştürmek. KURAL 1 (Sıfır Varsayım): Müşterinin mevcut altyapısını (As-Is) ASLA uydurma. KURAL 2 (Proaktif Keşif ve Araştırma): Kullanıcı sana 'şunları dikkate al' DEMESE BİLE, sen bir analist olarak yasal mevzuatları (KVKK/GDPR), SLA gereksinimlerini ve hata durumlarındaki (örn: sistem çökmesi) müşteri deneyimini otomatik olarak düşün. İnisiyatif al! Sektör standartlarını veya rakip analizlerini bilmiyorsan hemen internette arama yap (googleSearch kullan). KURAL 3: IT'nin önerdiği teknik çözümlerin iş değerini sorgula. KURAL 4 (Dokümantasyon): Doküman üretirken MUTLAKA BABOK standartlarına uy. BRD formatında, Use Case'ler ve Acceptance Criteria'lar ile detaylı bir analiz yaz. KURAL 5 (KULLANICIYI DARRALMA): Kullanıcıya sürekli soru sorma! Sadece projeyi tamamen bloke eden, kararsız kalınan çok kritik bir durum varsa kullanıcıya soru sor. Diğer tüm durumlarda best-practice'lere göre inisiyatif al ve ekiple tartışarak en mantıklı kararı kendiniz verin. KURAL 6 (MAKSİMUM DÜŞÜNME SEVİYESİ): Süreçleri tasarlarken adım adım düşün. Tüm istisnai durumları (exception paths), veri akışındaki olası tıkanıklıkları ve paydaş etkileşimlerini derinlemesine analiz et."
+    instruction: "Sen bir Kıdemli İş Analistisin (Business Analyst). GÖREVİN: Kullanıcının talebini iş kurallarına ve süreçlere dönüştürmek. KURAL 1 (Mevcut Durum Kuralı): Müşterinin mevcut altyapısını (As-Is), kullandığı legacy (eski) iç sistemleri ve şirkete özel operasyonel kuralları ASLA uydurma. Eğer mevcut sistemin nasıl çalıştığı veya hangi sistemlerle entegre olunacağı belirtilmemişse, DOĞRUDAN KULLANICIYA SORU SOR. KURAL 2 (Proaktif Keşif): Yasal mevzuatları (KVKK/GDPR) ve evrensel iş standartlarını internetten (googleSearch) otomatik olarak araştır ve sürece dahil et; bunları KESİNLİKLE kullanıcıya sorma. Sadece şirkete özel 'edge case'leri (istisnai durumlar) netleştirmek için soru sor. KURAL 3: IT'nin önerdiği teknik çözümlerin iş değerini sorgula. KURAL 4: Doküman üretirken MUTLAKA BABOK standartlarına uy. BRD formatında, Use Case'ler ve Acceptance Criteria'lar ile detaylı bir analiz yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'IT',
     name: 'Yazılım Mimarı',
-    instruction: "Sen bir Kıdemli Yazılım Mimarı (Software Architect) ve Tech Lead'sin. GÖREVİN: Sistemin teknik mimarisini, entegrasyon noktalarını ve veritabanı yapısını tasarlamak. KURAL 1 (Proaktif Mimari ve Araştırma): Kullanıcı sana 'API limitlerini veya güvenliği dikkate al' DEMESE BİLE, sen bir mimar olarak bunları DÜŞÜNMEK ZORUNDASIN. Herhangi bir dış entegrasyon (Stripe, SAP vb.) tasarlarken İLK İŞİN internetten (googleSearch) güncel rate-limit'leri, webhook imza (signature) doğrulama yöntemlerini, yetkilendirme (OAuth vb.) standartlarını araştırmak olmalı. Mimariyi bu gerçek verilere göre kur. KURAL 2 (Trade-off): Mimariyi gereksiz yere karmaşıklaştırma. PO veya QA itiraz ederse, maliyet/performans ödünleşimlerini tartış. KURAL 3: Diğer ajanların fikirlerini hemen onaylama, teknik zorluklarını belirt. KURAL 4 (Dokümantasyon): Doküman üretirken MUTLAKA TOGAF ve C4 Model standartlarına uy. SDD formatında, Sequence diyagramı mantığı ve API Kontratları ile detaylı bir mimari yaz. KURAL 5 (KULLANICIYI DARRALMA): Kullanıcıya sürekli soru sorma! Sadece mimariyi tamamen bloke eden, kararsız kalınan çok kritik bir durum varsa kullanıcıya soru sor. Diğer tüm durumlarda sektör standartlarına (best-practices) göre inisiyatif al ve ekiple tartışarak en mantıklı kararı kendiniz verin. KURAL 6 (MAKSİMUM DÜŞÜNME SEVİYESİ): Mimariyi kurarken adım adım düşün (Step-by-step reasoning). Single point of failure (tek nokta hataları), darboğazlar (bottlenecks), veri tutarlılığı (ACID/BASE) ve ölçeklenebilirlik senaryolarını derinlemesine analiz et. İlk aklına gelen çözümü değil, en sağlam (robust) çözümü sun."
+    instruction: "Sen bir Kıdemli Yazılım Mimarı (Software Architect) ve Tech Lead'sin. GÖREVİN: Sistemin teknik mimarisini, entegrasyon noktalarını ve veritabanı yapısını tasarlamak. KURAL 1 (Altyapı Keşfi): Kullanıcının mevcut teknoloji yığınını (Tech Stack), sunucu altyapısını ve kullanması zorunlu olduğu 3. parti/legacy servisleri ASLA uydurma. Bu konularda belirsizlik varsa mutlaka sistemin mevcut altyapısını DOĞRUDAN KULLANICIYA SOR. KURAL 2 (Proaktif Mimari): API limitleri, OAuth standartları, webhook güvenlikleri gibi evrensel teknik konuları internetten (googleSearch) araştır. Bu konularda inisiyatif alarak en iyi pratikleri uygula, kullanıcıya 'Hangi yetkilendirmeyi kullanalım?' gibi basit teknik sorular sorma. KURAL 3 (Trade-off): Mimariyi gereksiz yere karmaşıklaştırma. PO veya QA itiraz ederse, maliyet/performans ödünleşimlerini tartış. KURAL 4: Doküman üretirken MUTLAKA TOGAF ve C4 Model standartlarına uy. SDD formatında, Sequence diyagramı mantığı ve API Kontratları ile detaylı bir mimari yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'QA',
     name: 'Test Uzmanı',
-    instruction: "Sen bir Kıdemli Test Otomasyon Mühendisi ve QA Lead'sin. GÖREVİN: Şeytanın Avukatı rolünü üstlenmek. KURAL 1 (Çatışma): Diğer ajanların (özellikle IT ve BA) fikirlerini ASLA hemen onaylama. Sürekli 'Bunun testi nasıl yapılacak?', 'Elimizde bu test için yeterli veri var mı?' gibi zorlayıcı sorular sor. KURAL 2 (Proaktif Güvenlik ve Araştırma): Kullanıcı belirtmese bile, dış entegrasyonlarda webhook güvenliği, rate-limit aşımı (429 hataları) ve veri sızıntısı gibi senaryoları otomatik olarak test planına dahil et. Seçilen teknoloji yığınıyla ilgili bilinen son güvenlik açıklarını (CVE) veya kronik sorunları internette ara (googleSearch kullan). KURAL 3: Varsayımları bul ve çürüt. KURAL 4 (Dokümantasyon): Doküman üretirken MUTLAKA IEEE 829 standartlarına uy. Test Planı, Edge Case'ler ve BDD senaryoları ile detaylı bir test dokümanı yaz. KURAL 5 (KULLANICIYI DARRALMA): Kullanıcıya sürekli soru sorma! Sadece test sürecini tamamen bloke eden, kararsız kalınan çok kritik bir durum varsa kullanıcıya soru sor. Diğer tüm durumlarda inisiyatif al ve ekiple tartışarak en mantıklı kararı kendiniz verin. KURAL 6 (MAKSİMUM DÜŞÜNME SEVİYESİ): Test senaryolarını oluştururken adım adım düşün. Sadece 'happy path' değil, en uç edge-case'leri, race condition'ları ve güvenlik açıklarını derinlemesine analiz et."
+    instruction: "Sen bir Kıdemli Test Otomasyon Mühendisi ve QA Lead'sin. GÖREVİN: Şeytanın Avukatı rolünü üstlenmek. KURAL 1 (Çatışma): Diğer ajanların (özellikle IT ve BA) fikirlerini ASLA hemen onaylama. Sürekli 'Bunun testi nasıl yapılacak?', 'Elimizde bu test için yeterli veri var mı?' gibi zorlayıcı sorular sor. KURAL 2 (Test Verisi Kısıtları): Canlı ortam verilerinin kullanımı, test ortamlarının (UAT/Staging) varlığı gibi şirkete özel konularda varsayım yapma, gerekirse DOĞRUDAN KULLANICIYA SORU SOR. KURAL 3 (Proaktif Güvenlik): Dış entegrasyonlarda webhook güvenliği, rate-limit aşımı (429 hataları) ve bilinen zafiyetleri (CVE) internetten (googleSearch) araştırıp otomatik olarak test planına ekle; bunları sorma. KURAL 4: Doküman üretirken MUTLAKA IEEE 829 standartlarına uy. Test Planı, Edge Case'ler ve BDD senaryoları ile detaylı bir test dokümanı yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
+  },
+  {
+    role: 'UIUX',
+    name: 'UI/UX Tasarımcısı',
+    instruction: "Sen bir Kıdemli UI/UX Tasarımcısısın. GÖREVİN: Kullanıcı deneyimini, arayüz akışlarını ve erişilebilirliği tasarlamak. KURAL 1 (Kullanıcı Odaklılık): Geliştirilen özelliğin son kullanıcı için ne kadar sezgisel olduğunu sorgula. Karmaşık IT çözümlerine 'Kullanıcı bu adımı anlamaz, daha basit bir arayüz yapalım' diyerek itiraz et. KURAL 2 (Marka ve Tasarım Sistemi): Şirketin mevcut bir tasarım sistemi (Design System), marka renkleri veya zorunlu UI bileşenleri olup olmadığını ASLA uydurma. Bu konularda belirsizlik varsa DOĞRUDAN KULLANICIYA SOR. KURAL 3 (Proaktif Tasarım): Modern tasarım trendlerini, erişilebilirlik (WCAG) standartlarını ve mobil uyumluluk (responsive) best-practice'lerini internetten araştırıp otomatik olarak uygula; bunları sorma. KURAL 4: Doküman üretirken kullanıcı yolculuğu (User Journey), ekran geçişleri, boş durumlar (empty states) ve hata mesajları tasarımlarını detaylıca yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'SM',
     name: 'Scrum Master',
-    instruction: "Sen bir Scrum Master ve Agile Koçusun. GÖREVİN: Toplantıyı modere etmek ve ekibin doğru yolda kalmasını sağlamak. KURAL 1 (Echo Chamber Önleme): Eğer ekip sürekli birbirini onaylıyorsa araya gir ve zıt görüş iste. KURAL 2 (Kullanıcıya Danışma): SADECE VE SADECE ekibin kendi arasında çözemediği, projeyi tamamen bloke eden kritik bir karar (blocker) varsa tartışmayı durdur ve JSON çıktısında 'requiresUserInput: true' göndererek kullanıcıya net sorular sor. Ufak tefek detaylar için kullanıcıyı rahatsız etme, ekibin kendi arasında karar almasını sağla. KURAL 3: Kullanıcıya soru sorarken mesajına MUTLAKA '@KullanıcıAdı' diyerek başla ve soruları 1., 2., 3. şeklinde alt alta maddeler halinde yaz. KURAL 4: Tüm sorular cevaplandıysa ve MVP üzerinde uzlaşıldıysa 'isDocumentationPhase: true' yaparak dokümantasyona geçilmesini sağla. KURAL 5 (MAKSİMUM DÜŞÜNME SEVİYESİ): Ekibin tartışma dinamiklerini adım adım analiz et. Gözden kaçan bir bağımlılık (dependency) veya gizli bir risk olup olmadığını derinlemesine sorgula."
+    instruction: "Sen bir Scrum Master ve Agile Koçusun. GÖREVİN: Toplantıyı modere etmek ve ekibin doğru yolda kalmasını sağlamak. KURAL 1 (Echo Chamber Önleme): Eğer ekip sürekli birbirini onaylıyorsa araya gir ve zıt görüş iste. KURAL 2: Ajanların her birinin kendi uzmanlık alanıyla ilgili soruları doğrudan kullanıcıya sormasını TEŞVİK ET. KURAL 3: Tüm kritik sorular cevaplandıysa ve MVP üzerinde uzlaşıldıysa 'isDocumentationPhase: true' yaparak dokümantasyona geçilmesini sağla. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR."
   },
   {
     role: 'Orchestrator',
-    name: 'Orkestratör',
-    instruction: "Sen bir Proje Yöneticisi ve Orkestratörsün. GÖREVİN: Tüm ajanların çıktılarını denetlemek, çelişkileri bulmak ve nihai dokümanı onaylamak. KURAL 1 (Proaktif Denetim): Ekibin dış entegrasyonlarda güvenlik (webhook, auth), performans (rate-limit) ve yasal uyumluluk (KVKK/GDPR) gibi kritik metrikleri kullanıcı söylemeden akıl edip etmediğini denetle. Eğer atlamışlarsa onlara araştırma görevi ver. KURAL 2: Eğer ajanlar uydurma veri kullandıysa veya birbirlerini körü körüne onayladılarsa puanı (score) acımasızca kır. KURAL 3: Eğer ajanlar trade-off tartışması yaptıysa, internetten gerçek kanıtlar (grounding) buldularsa yüksek puan ver. KURAL 4: 'scoreExplanation' alanında ekibin problem çözme metodolojisini detaylıca açıkla. KURAL 5 (SÜREKLİ İYİLEŞTİRME): Eğer verdiğin puan 90'ın altındaysa, eksikleri tespit et ve JSON çıktısında 'needsRevision: true' göndererek ekibin dokümanları baştan yazmasını sağla. KURAL 6 (REVIEW): 'document.review' alanına toplantı notlarını detaylıca yaz. KURAL 7 (KULLANICIYI DARRALMA): Ekibin kullanıcıya gereksiz sorular sormasını engelle. Sadece kritik blocker'lar için kullanıcıya gidilmesini sağla. KURAL 8 (MAKSİMUM DÜŞÜNME SEVİYESİ): Tüm ekibin çıktılarını adım adım (step-by-step) ve eleştirel bir gözle analiz et. En ince detaya kadar in, mantık hatalarını ve entegrasyon boşluklarını bul."
+    name: 'Moderatör',
+    instruction: "Sen bir Proje Yöneticisi ve Moderatörsün. GÖREVİN: Tüm ajanların çıktılarını denetlemek, çelişkileri bulmak ve toplantı notlarını tutmak. KURAL 1 (Toplantı Notları): Tartışma (Phase 1) boyunca konuşulan her şeyi, alınan kararları ve açık noktaları JSON çıktısındaki 'document.review' alanına Markdown formatında detaylıca not et. DİKKAT: 'document.review' alanına ASLA kendi içsel düşüncelerini (reasoning), puanlama gerekçelerini (score explanation) veya 'Bitti', 'Tamamlandı' gibi gereksiz metinleri yazma. Sadece profesyonel toplantı notları, Karar Matrisi ve Risk/Aksiyon planı yaz. KURAL 2 (Gerçeklik Denetimi): Eğer BA veya IT, kullanıcının mevcut sistemleri hakkında bilgi almadan uydurma altyapılar üzerinden doküman hazırlamışsa puanı kır ve 'needsRevision: [\"BA\", \"IT\"]' gönder. KURAL 3 (Proaktif Denetim): Ekibin dış entegrasyonlarda güvenlik, performans ve yasal uyumluluk gibi evrensel metrikleri akıl edip etmediğini denetle. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. EĞER KULLANICIYA SORU SORUYORSAN VE 'questions' DİZİSİNİ DOLDURMAZSAN SİSTEM ÇÖKER."
   }
 ];
 
@@ -73,11 +129,11 @@ Görevlerin ve Düşünce Yapın (Agentic Workflow):
 - BA Analiz: Sadece amaç ve kapsam değil; paydaş analizi, mevcut durum (as-is), hedeflenen durum (to-be), veri eşleştirme (data mapping) tabloları, hata yönetimi (error handling), rate-limit stratejileri ve SLA gereksinimlerini içermelidir.
 - IT Analiz/Mimari: Sadece basit bir kod bloğu değil; sistem mimarisi, sequence diyagramı mantığı, veritabanı şeması, API endpoint tasarımları, güvenlik (OAuth, JWT vb.) ve ölçeklenebilirlik (caching, message queues) detaylarını içermelidir.
 - Test: Sadece "başarılı senaryo" değil; edge case'ler, performans testleri, güvenlik testleri ve entegrasyon test senaryolarını detaylıca yazmalısın.
-- BPMN: Süreç akışları için mutlaka 'bpmn' alanına geçerli bir BPMN 2.0 XML kodu üret.
+- BPMN: Süreç akışları için mutlaka 'bpmn' alanına geçerli bir BPMN 2.0 XML kodu üret. DİKKAT: Ürettiğin BPMN XML kodu mutlaka görsel (DI) kısımlarını (<bpmndi:BPMNDiagram> ve <bpmndi:BPMNPlane>) içermelidir. Sadece anlamsal (semantic) etiketler yeterli değildir, görsel koordinatlar olmadan diyagram çizilemez.
 - İNKREMENTAL GÜNCELLEME: Mevcut bir doküman varsa, onu tamamen silip baştan yazma. Mevcut bilgileri koru, yeni kararları ve detayları üzerine ekle. Dokümanı her adımda daha da zenginleştir.
 - EN KRİTİK KURAL (DOKÜMAN EZİLMESİNİ ÖNLEMEK İÇİN): JSON çıktısı üretirken 'document' objesi içine SADECE güncellediğin veya yeni eklediğin alanları koy. Değiştirmediğin alanları KESİNLİKLE JSON'a dahil etme (null bile gönderme, o key'i hiç yazma). Örneğin sadece BA Analizini güncellediysen sadece 'businessAnalysis' alanını gönder, 'code' veya 'test' alanlarını JSON'a koyma! Böylece mevcut dokümandaki diğer bilgiler silinmez.
 
-ÇOK ÖNEMLİ: Eğer kullanıcı senden bir "doküman oluşturmanı", "mimari çizmeni", "kod yazmanı" veya "test senaryosu oluşturmanı" isterse, SOHBET MESAJINDA (message alanı) UZUN UZUN DOKÜMAN İÇERİĞİNİ KESİNLİKLE YAZMA. Bunun yerine SADECE sana sağlanan JSON şemasındaki 'document' objesinin altındaki ilgili alanları (businessAnalysis, code, test, bpmn) doldurarak dokümanı sağ taraftaki panele aktar. 
+ÇOK ÖNEMLİ: Eğer kullanıcı senden bir "doküman oluşturmanı", "mimari çizmeni", "kod yazmanı" veya "test senaryosu oluşturmanı" isterse, SOHBET MESAJINDA (message alanı) UZUN UZUN DOKÜMAN İÇERİĞİNİ KESİNLİKLE YAZMA. Bunun yerine SADECE sana sağlanan JSON şemasındaki 'document' objesinin altındaki ilgili alanları (businessAnalysis, code, test, bpmn) doldurarak dokümanı sağ taraftaki panele aktar. Eğer kullanıcı özel bir format (örn: Enerjisa formatı) istediyse, bu formatı doğrudan Markdown olarak 'businessAnalysis' alanına yaz. Ayrı bir JSON yapısı kullanma.
 Sohbetteki 'message' alanında ise konuya özel, ne yaptığını özetleyen, alınan temel kararları ve mimari yaklaşımı anlatan 1-2 paragraflık profesyonel bir yönetici özeti (executive summary) sun. Sadece "hazırladım sağa ekledim" gibi basit ve anlamsız cümleler KULLANMA. Yapılan işin özünü, hangi teknolojilerin seçildiğini ve nedenini anlatıp, tüm teknik detaylar için sağ panele yönlendir.
 
 Ton ve Stil:
@@ -116,75 +172,100 @@ const callAiWithRetry = async (
 };
 
 export default function App() {
-  const [user, setUser] = useState<{ name: string; role: string } | null>(() => {
-    const saved = localStorage.getItem('ai-business-analyst-user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState<{ uid: string; name: string; role: string; email?: string; photoURL?: string; onboardingCompleted?: boolean } | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const [showNewItemModal, setShowNewItemModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showManageParticipantsModal, setShowManageParticipantsModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
+  const [deletingProject, setDeletingProject] = useState<string | null>(null);
+  const [deletingWorkspace, setDeletingWorkspace] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem('jetwork-projects-data');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse local storage data', e);
-      }
-    }
-    
-    // Migration from old data
-    const oldSaved = localStorage.getItem('ai-business-analyst-data');
-    if (oldSaved) {
-      try {
-        const oldAnalyses = JSON.parse(oldSaved);
-        if (oldAnalyses && oldAnalyses.length > 0) {
-          const defaultProject: Project = {
-            id: 'default-project',
-            name: 'Varsayılan Proje',
-            description: 'Eski analizlerden aktarılan proje',
-            workspaces: oldAnalyses.map((a: any) => ({
-              ...a,
-              issueKey: a.jiraCode || `JET-${Math.floor(Math.random() * 900) + 100}`,
-              type: a.requestType === 'Support' ? 'Support' : 'Development'
-            })),
-            createdAt: Date.now(),
-            lastUpdated: Date.now()
-          };
-          return [defaultProject];
-        }
-      } catch (e) {
-        console.error('Failed to migrate old data', e);
-      }
-    }
-    return [];
-  });
+  const [projects, setProjects] = useState<Project[]>([]);
   
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(() => {
-    return localStorage.getItem('jetwork-current-workspace-id') || localStorage.getItem('ai-business-analyst-current-id');
-  });
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
   
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => {
-    return localStorage.getItem('jetwork-current-project-id');
-  });
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isDiscussing, setIsDiscussing] = useState(false);
   const [isAiActive, setIsAiActive] = useState(false);
   const [isZeroTouchMode, setIsZeroTouchMode] = useState(false);
+  const [activeZeroTouchRoles, setActiveZeroTouchRoles] = useState<string[]>(ZERO_TOUCH_AGENTS.map(a => a.role));
   const [aiHandRaised, setAiHandRaised] = useState<string | null>(null);
   const [documentContent, setDocumentContent] = useState<DocumentData | null>(null);
   const [selectedDocumentText, setSelectedDocumentText] = useState('');
   const [activeTab, setActiveTab] = useState('BA Analiz');
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('jetwork-model') || 'gemini-3-flash-preview';
+  });
   const [theme, setTheme] = useState<ThemeType>(() => {
     return (localStorage.getItem('jetwork-theme') as ThemeType) || 'monochrome';
   });
   const sessionId = useRef(Math.random().toString(36).substring(7));
+
+  // Firebase Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Test connection
+        try {
+          await getDocFromServer(doc(db, 'test', 'connection'));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('the client is offline')) {
+            console.error("Please check your Firebase configuration.");
+          }
+        }
+
+        // Save user to Firestore
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        let onboardingCompleted = false;
+        let displayName = firebaseUser.displayName || firebaseUser.email || 'User';
+        let role = 'Kullanıcı';
+
+        try {
+          const userSnap = await getDocFromServer(userRef);
+          if (!userSnap.exists()) {
+            const userData: any = {
+              uid: firebaseUser.uid,
+              displayName: displayName,
+              createdAt: serverTimestamp(),
+              role: role,
+              onboardingCompleted: false
+            };
+            if (firebaseUser.email) {
+              userData.email = firebaseUser.email;
+            }
+            if (firebaseUser.photoURL) {
+              userData.photoURL = firebaseUser.photoURL;
+            }
+            await setDoc(userRef, userData);
+          } else {
+            const userData = userSnap.data();
+            onboardingCompleted = userData.onboardingCompleted || false;
+            displayName = userData.displayName || displayName;
+            role = userData.role || role;
+          }
+        } catch (err) {
+          console.error("Error saving user to Firestore:", err);
+        }
+
+        setUser({ uid: firebaseUser.uid, name: displayName, role: role, email: firebaseUser.email || undefined, photoURL: firebaseUser.photoURL || undefined, onboardingCompleted });
+      } else {
+        setUser(null);
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Apply theme to document
   useEffect(() => {
@@ -201,27 +282,6 @@ export default function App() {
     if (user) {
       socketRef.current = io(window.location.origin);
 
-      socketRef.current.on('new_message', (data: any) => {
-        setMessages(prev => {
-          // Prevent duplicates
-          if (prev.some(m => m.id === data.id)) return prev;
-          
-          const newMsg: Message = {
-            id: data.id,
-            role: data.isAi ? 'model' : 'user',
-            text: data.text,
-            senderName: data.senderName,
-            senderRole: data.senderRole,
-            attachments: data.attachments
-          };
-          return [...prev, newMsg];
-        });
-      });
-
-      socketRef.current.on('document_updated', (doc: DocumentData) => {
-        setDocumentContent(doc);
-      });
-
       socketRef.current.on('room_users_update', (users: ActiveUser[]) => {
         setActiveUsers(users);
       });
@@ -237,7 +297,7 @@ export default function App() {
         setTypingUsers(prev => prev.filter(u => u.userId !== user.userId));
       });
 
-      socketRef.current.on('ai_stream_chunk', (data: { itemId: string, id: string, text: string, thinkingText?: string, groundingUrls?: { uri: string; title: string }[], agentRole?: string, score?: number, scoreExplanation?: string }) => {
+      socketRef.current.on('ai_stream_chunk', (data: { itemId: string, id: string, text: string, thinkingText?: string, groundingUrls?: { uri: string; title: string }[], agentRole?: string, score?: number, scoreExplanation?: string, questions?: Question[] }) => {
         setMessages(prev => {
           const exists = prev.find(m => m.id === data.id);
           if (exists) {
@@ -247,6 +307,7 @@ export default function App() {
               thinkingText: data.thinkingText,
               score: data.score,
               scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
               ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
             } : m);
           } else {
@@ -260,6 +321,7 @@ export default function App() {
               agentRole: data.agentRole,
               score: data.score,
               scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
               isTyping: true,
               ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
             }];
@@ -267,7 +329,7 @@ export default function App() {
         });
       });
 
-      socketRef.current.on('ai_stream_end', (data: { itemId: string, id: string, text: string, thinkingText?: string, groundingUrls?: { uri: string; title: string }[], agentRole?: string, score?: number, scoreExplanation?: string }) => {
+      socketRef.current.on('ai_stream_end', (data: { itemId: string, id: string, text: string, thinkingText?: string, groundingUrls?: { uri: string; title: string }[], agentRole?: string, score?: number, scoreExplanation?: string, questions?: Question[] }) => {
         setMessages(prev => prev.map(m =>
           m.id === data.id ? { 
             ...m, 
@@ -276,57 +338,10 @@ export default function App() {
             isTyping: false,
             score: data.score,
             scoreExplanation: data.scoreExplanation,
+            questions: data.questions,
             ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
           } : m
         ));
-        
-        setProjects(prev => prev.map(p => ({
-          ...p,
-          workspaces: p.workspaces.map(w => {
-            if (w.id === data.itemId) {
-              const updatedMessages = w.messages ? [...w.messages] : [];
-              const finalMsg: Message = {
-                id: data.id,
-                role: 'model',
-                text: data.text,
-                thinkingText: data.thinkingText,
-                senderName: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : 'JetWork AI',
-                senderRole: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : 'Sistem Asistanı',
-                agentRole: data.agentRole,
-                score: data.score,
-                scoreExplanation: data.scoreExplanation,
-                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-              };
-              const existingIdx = updatedMessages.findIndex(m => m.id === data.id);
-              if (existingIdx >= 0) {
-                updatedMessages[existingIdx] = finalMsg;
-              } else {
-                updatedMessages.push(finalMsg);
-              }
-              return { ...w, messages: updatedMessages, lastUpdated: Date.now() };
-            }
-            return w;
-          })
-        })));
-      });
-
-      socketRef.current.on('reaction_updated', (data: { messageId: string, reactions: any[] }) => {
-        setMessages(prev => prev.map(m => 
-          m.id === data.messageId ? { ...m, reactions: data.reactions } : m
-        ));
-        
-        setProjects(prev => prev.map(p => ({
-          ...p,
-          workspaces: p.workspaces.map(w => {
-            if (w.id === currentWorkspaceId) {
-              const updatedMessages = w.messages ? w.messages.map(m => 
-                m.id === data.messageId ? { ...m, reactions: data.reactions } : m
-              ) : [];
-              return { ...w, messages: updatedMessages };
-            }
-            return w;
-          })
-        })));
       });
 
       return () => {
@@ -335,64 +350,146 @@ export default function App() {
     }
   }, [user]);
 
-  // Fetch projects from server on mount
+  // Fetch projects from Firestore on mount
   useEffect(() => {
-    if (user) {
-      fetch('/api/projects')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.data && data.data.length > 0) {
-            setProjects(data.data);
-            localStorage.setItem('jetwork-projects-data', JSON.stringify(data.data));
-          }
-        })
-        .catch(err => console.warn("Backend not available, using local state", err));
-    }
-  }, [user]);
+    if (user && isAuthReady) {
+      const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+      const workspacesQuery = query(collection(db, 'workspaces'), orderBy('createdAt', 'desc'));
 
-  // Join room when workspace changes
+      let unsubscribeWorkspaces: () => void;
+
+      const unsubscribeProjects = onSnapshot(projectsQuery, (projectsSnapshot) => {
+        const projectsData = projectsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toMillis() || Date.now(),
+          lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
+          workspaces: []
+        })) as Project[];
+
+        if (unsubscribeWorkspaces) {
+          unsubscribeWorkspaces();
+        }
+
+        unsubscribeWorkspaces = onSnapshot(workspacesQuery, (workspacesSnapshot) => {
+          const workspacesData = workspacesSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toMillis() || Date.now(),
+            lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
+            messages: []
+          })) as Workspace[];
+
+          const combinedProjects = projectsData.map(p => ({
+            ...p,
+            workspaces: workspacesData.filter(w => w.projectId === p.id)
+          }));
+
+          setProjects(combinedProjects);
+        }, (error) => {
+          console.error("Error fetching workspaces:", error);
+        });
+      }, (error) => {
+        console.error("Error fetching projects:", error);
+      });
+
+      return () => {
+        unsubscribeProjects();
+        if (unsubscribeWorkspaces) {
+          unsubscribeWorkspaces();
+        }
+      };
+    }
+  }, [user, isAuthReady]);
+
+  // Manage AI active state based on workspace and zero touch mode
   useEffect(() => {
-    if (currentWorkspaceId && socketRef.current && user) {
+    if (currentWorkspaceId && !isZeroTouchMode) {
+      setIsAiActive(true);
+    }
+  }, [currentWorkspaceId]);
+
+  useEffect(() => {
+    if (isZeroTouchMode) {
+      setIsAiActive(false);
+    }
+  }, [isZeroTouchMode]);
+
+  // Join room when workspace changes and fetch messages
+  useEffect(() => {
+    if (currentWorkspaceId && socketRef.current && user && isAuthReady) {
+      setIsLoadingWorkspace(true);
       socketRef.current.emit('join_room', { 
         itemId: currentWorkspaceId, 
         user: { id: sessionId.current, name: user.name, role: user.role } 
       });
       
-      // Fetch full item data from server
-      fetch(`/api/items/${currentWorkspaceId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            setMessages(data.data.messages || []);
-            setDocumentContent(data.data.document || null);
-          }
-        })
-        .catch(err => console.error("Failed to fetch item data:", err));
-    }
-  }, [currentWorkspaceId]);
+      let workspaceLoaded = false;
+      let messagesLoaded = false;
 
-  // Save user to localStorage
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem('ai-business-analyst-user', JSON.stringify(user));
+      const checkLoading = () => {
+        if (workspaceLoaded && messagesLoaded) {
+          setIsLoadingWorkspace(false);
+        }
+      };
+
+      const workspaceRef = doc(db, 'workspaces', currentWorkspaceId);
+      const unsubscribeWorkspace = onSnapshot(workspaceRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setDocumentContent(docSnap.data().document || null);
+        }
+        workspaceLoaded = true;
+        checkLoading();
+      }, (error) => {
+        console.error("Error fetching workspace:", error);
+        workspaceLoaded = true;
+        checkLoading();
+      });
+
+      const messagesQuery = query(collection(db, 'workspaces', currentWorkspaceId, 'messages'), orderBy('createdAt', 'asc'));
+      const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
+        const msgs = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toMillis() || Date.now()
+        })) as Message[];
+        
+        setMessages(prev => {
+          // Keep typing messages and optimistic messages (those without a server timestamp yet, or very recent ones)
+          const typingMessages = prev.filter(m => m.isTyping);
+          const optimisticMessages = prev.filter(m => 
+            !m.isTyping && 
+            !msgs.some(sm => sm.id === m.id) && 
+            (Date.now() - (m.createdAt || 0) < 5000) // Keep optimistic messages for up to 5 seconds
+          );
+          
+          const newMsgs = [...msgs, ...optimisticMessages];
+          
+          typingMessages.forEach(tm => {
+            if (!newMsgs.some(m => m.id === tm.id)) {
+              newMsgs.push(tm);
+            }
+          });
+          
+          return newMsgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        });
+        messagesLoaded = true;
+        checkLoading();
+      }, (error) => {
+        console.error("Error fetching messages:", error);
+        messagesLoaded = true;
+        checkLoading();
+      });
+
+      return () => {
+        unsubscribeWorkspace();
+        unsubscribeMessages();
+      };
     } else {
-      localStorage.removeItem('ai-business-analyst-user');
+      setMessages([]);
+      setDocumentContent(null);
     }
-  }, [user]);
-
-  // Save to localStorage whenever projects change
-  useEffect(() => {
-    localStorage.setItem('jetwork-projects-data', JSON.stringify(projects));
-  }, [projects]);
-
-  // Save current workspace ID
-  useEffect(() => {
-    if (currentWorkspaceId) {
-      localStorage.setItem('jetwork-current-workspace-id', currentWorkspaceId);
-    } else {
-      localStorage.removeItem('jetwork-current-workspace-id');
-    }
-  }, [currentWorkspaceId]);
+  }, [currentWorkspaceId, user, isAuthReady]);
 
   // Save current project ID
   useEffect(() => {
@@ -408,40 +505,43 @@ export default function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const shareId = urlParams.get('shareId');
 
-    if (shareId) {
+    if (shareId && user) {
       // Fetch shared workspace
-      fetch(`/api/share/${shareId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.data) {
+      const fetchShared = async () => {
+        try {
+          const shareRef = doc(db, 'shared_analyses', shareId);
+          const shareSnap = await getDocFromServer(shareRef);
+          
+          if (shareSnap.exists()) {
+            const data = shareSnap.data();
             const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-            const newWorkspace: Workspace = { 
-              id: newId, 
-              issueKey: generateJiraCode(),
-              title: 'Paylaşılan Çalışma Alanı', 
+            
+            // Check if default project exists, if not create it
+            const defaultProjectRef = doc(db, 'projects', 'default-project');
+            const defaultProjectSnap = await getDocFromServer(defaultProjectRef);
+            
+            if (!defaultProjectSnap.exists()) {
+              await setDoc(defaultProjectRef, {
+                name: 'Varsayılan Proje',
+                description: '',
+                ownerId: user.uid,
+                createdAt: serverTimestamp(),
+                lastUpdated: serverTimestamp()
+              });
+            }
+
+            // Create the workspace
+            await setDoc(doc(db, 'workspaces', newId), {
+              projectId: 'default-project',
+              issueKey: generateItemCode(),
+              title: 'Paylaşılan Çalışma Alanı',
               type: 'Development',
               status: 'Draft',
-              messages: [],
-              document: data.data, 
-              createdAt: Date.now(),
-              lastUpdated: Date.now(),
-              collaborators: MOCK_COLLABORATORS
-            };
-            
-            setProjects(prev => {
-              const defaultProject = prev.find(p => p.id === 'default-project');
-              if (defaultProject) {
-                return prev.map(p => p.id === 'default-project' ? { ...p, workspaces: [newWorkspace, ...p.workspaces] } : p);
-              } else {
-                return [{
-                  id: 'default-project',
-                  name: 'Varsayılan Proje',
-                  description: '',
-                  workspaces: [newWorkspace],
-                  createdAt: Date.now(),
-                  lastUpdated: Date.now()
-                }, ...prev];
-              }
+              ownerId: user.uid,
+              collaborators: MOCK_COLLABORATORS,
+              document: data.data,
+              createdAt: serverTimestamp(),
+              lastUpdated: serverTimestamp()
             });
             
             setCurrentWorkspaceId(newId);
@@ -451,9 +551,11 @@ export default function App() {
             // Remove shareId from URL
             window.history.replaceState({}, document.title, window.location.pathname);
           }
-        })
-        .catch(err => console.error("Failed to load shared workspace:", err));
-        
+        } catch (err) {
+          console.error("Failed to load shared workspace:", err);
+        }
+      };
+      fetchShared();
       return;
     }
 
@@ -467,17 +569,12 @@ export default function App() {
     }
   }, []);
 
-  const generateJiraCode = () => `JET-${Math.floor(Math.random() * 900) + 100}`;
+  const generateItemCode = () => `JET-${Math.floor(Math.random() * 900) + 100}`;
 
   const handleSelectWorkspace = (id: string) => {
     setCurrentWorkspaceId(id);
     setCurrentProjectId(null);
     setTypingUsers([]);
-    const workspace = projects.flatMap(p => p.workspaces).find(w => w.id === id);
-    if (workspace) {
-      setDocumentContent(workspace.document || null);
-      setMessages(workspace.messages || []); 
-    }
   };
 
   const handleSelectProject = (id: string) => {
@@ -486,34 +583,20 @@ export default function App() {
   };
 
   const handleNewProject = async (data: { name: string; description: string }) => {
+    if (!user) return;
     const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
     
     try {
-      await fetch('/api/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: newId,
-          name: data.name,
-          description: data.description
-        })
-      });
-    } catch (err) {
-      console.warn("Backend not available, using local state", err);
-    }
-    
-    setProjects(prev => {
-      const newProjects = [{
-        id: newId,
+      await setDoc(doc(db, 'projects', newId), {
         name: data.name,
         description: data.description,
-        workspaces: [],
-        createdAt: Date.now(),
-        lastUpdated: Date.now()
-      }, ...prev];
-      localStorage.setItem('jetwork-projects-data', JSON.stringify(newProjects));
-      return newProjects;
-    });
+        ownerId: user.uid,
+        createdAt: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to create project in Firestore:", err);
+    }
     
     setShowNewProjectModal(false);
     setCurrentProjectId(newId);
@@ -521,110 +604,236 @@ export default function App() {
   };
 
   // Initialize a new workspace
-  const handleNewWorkspace = async (data: { projectId: string; itemNumber: string; title: string; team: { name: string; role: string }[] }) => {
+  const handleNewWorkspace = async (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => {
+    if (!user) return;
     const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
     
-    // Create on server
-    try {
-      await fetch('/api/items', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: newId,
-          projectId: data.projectId,
-          itemNumber: data.itemNumber,
-          title: data.title,
-          team: data.team
-        })
-      });
-    } catch (err) {
-      console.warn("Backend not available, using local state", err);
+    // Ensure owner is in collaborators
+    const ownerCollab = {
+      id: user.uid,
+      name: user.name || user.email?.split('@')[0] || 'Unknown',
+      role: 'Kurucu',
+      avatar: user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'Unknown')}&background=random`,
+      color: '#4f46e5'
+    };
+
+    const initialCollaborators = data.team.map(t => ({
+      id: t.id,
+      name: t.name,
+      role: t.role,
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(t.name)}&background=random`,
+      color: '#4f46e5'
+    }));
+
+    if (!initialCollaborators.some(c => c.id === user.uid)) {
+      initialCollaborators.unshift(ownerCollab);
+    } else {
+      // Update the owner's role to 'Kurucu' if they are already in the list
+      const ownerIndex = initialCollaborators.findIndex(c => c.id === user.uid);
+      if (ownerIndex !== -1) {
+        initialCollaborators[ownerIndex].role = 'Kurucu';
+      }
     }
 
-    const newWorkspace: Workspace = { 
-      id: newId, 
-      issueKey: data.itemNumber,
-      title: data.title, 
-      type: 'Development',
-      status: 'Draft',
-      messages: [],
-      document: null, 
-      createdAt: Date.now(),
-      lastUpdated: Date.now(),
-      collaborators: data.team.map((member, i) => ({
-        id: i.toString(),
-        name: member.name,
-        avatar: member.name.charAt(0),
-        role: member.role,
-        color: ['emerald', 'blue', 'purple'][i % 3]
-      }))
-    };
-    
-    setProjects(prev => {
-      const targetProject = prev.find(p => p.id === data.projectId);
-      let newProjects;
-      if (targetProject) {
-        newProjects = prev.map(p => p.id === data.projectId ? { ...p, workspaces: [newWorkspace, ...p.workspaces] } : p);
-      } else {
-        newProjects = prev;
-      }
-      localStorage.setItem('jetwork-projects-data', JSON.stringify(newProjects));
-      return newProjects;
-    });
-    
+    try {
+      await setDoc(doc(db, 'workspaces', newId), {
+        projectId: data.projectId,
+        issueKey: data.itemNumber,
+        title: data.title,
+        type: 'Development',
+        status: 'Draft',
+        ownerId: user.uid,
+        collaborators: initialCollaborators,
+        createdAt: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to create workspace in Firestore:", err);
+    }
+
+    setShowNewItemModal(false);
     setCurrentWorkspaceId(newId);
+    setCurrentProjectId(null);
     setMessages([]);
     setDocumentContent(null);
-    setShowNewItemModal(false);
+  };
+
+  const handleEditProject = async (id: string, name: string, description: string) => {
+    try {
+      await updateDoc(doc(db, 'projects', id), {
+        name,
+        description,
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to update project in Firestore:", err);
+    }
+    setEditingProject(null);
+  };
+
+  const handleDeleteProject = async () => {
+    if (!deletingProject) return;
+    try {
+      await deleteDoc(doc(db, 'projects', deletingProject));
+    } catch (err) {
+      console.error("Failed to delete project in Firestore:", err);
+    }
+    if (currentProjectId === deletingProject) {
+      setCurrentProjectId(null);
+      setCurrentWorkspaceId(null);
+    }
+    setDeletingProject(null);
+  };
+
+  const handleEditWorkspace = async (id: string, title: string) => {
+    try {
+      await updateDoc(doc(db, 'workspaces', id), {
+        title,
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to update workspace in Firestore:", err);
+    }
+    setEditingWorkspace(null);
+  };
+
+  const handleDeleteWorkspace = async () => {
+    if (!deletingWorkspace) return;
+    try {
+      await deleteDoc(doc(db, 'workspaces', deletingWorkspace));
+    } catch (err) {
+      console.error("Failed to delete workspace in Firestore:", err);
+    }
+    if (currentWorkspaceId === deletingWorkspace) {
+      setCurrentWorkspaceId(null);
+    }
+    setDeletingWorkspace(null);
+  };
+
+  const handleAddParticipant = async (name: string, email: string) => {
+    if (!currentWorkspaceId || !currentWorkspace) return;
+    
+    // Check if user is already a participant
+    if (currentWorkspace.collaborators.some(c => c.email === email)) {
+      alert("Bu kullanıcı zaten çalışma alanında.");
+      return;
+    }
+
+    // Check if user exists in db to get their real ID, otherwise use random
+    let newId = Math.random().toString(36).substring(2, 9);
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const existingUser = usersSnap.docs.find(doc => doc.data().email === email);
+      if (existingUser) {
+        newId = existingUser.id;
+      }
+    } catch (err) {
+      console.error("Failed to fetch users for participant ID:", err);
+    }
+
+    const newCollaborator = {
+      id: newId,
+      name: name,
+      email: email,
+      role: 'Katılımcı', // Default role
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`,
+      color: '#4f46e5'
+    };
+
+    try {
+      await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+        collaborators: arrayUnion(newCollaborator),
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to add participant in Firestore:", err);
+    }
+  };
+
+  const handleRemoveParticipant = async (participantId: string) => {
+    if (!currentWorkspaceId || !currentWorkspace) return;
+    
+    const participantToRemove = currentWorkspace.collaborators.find(c => c.id === participantId);
+    if (!participantToRemove) return;
+
+    try {
+      await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+        collaborators: arrayRemove(participantToRemove),
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to remove participant in Firestore:", err);
+    }
+  };
+
+  const handleLeaveWorkspace = async () => {
+    if (!currentWorkspaceId || !currentWorkspace || !user) return;
+    
+    // Find the current user in collaborators by id or email
+    const currentUserCollab = currentWorkspace.collaborators.find(c => c.id === user.uid || c.email === user.email || c.name === user.name);
+    
+    if (currentUserCollab) {
+      try {
+        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+          collaborators: arrayRemove(currentUserCollab),
+          lastUpdated: serverTimestamp()
+        });
+        setCurrentWorkspaceId(null);
+        setShowManageParticipantsModal(false);
+      } catch (err) {
+        console.error("Failed to leave workspace in Firestore:", err);
+      }
+    }
   };
 
 
 
-  const handleToggleReaction = (messageId: string, emoji: string) => {
-    if (!user || !currentWorkspaceId || !socketRef.current) return;
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (!user || !currentWorkspaceId) return;
     
-    socketRef.current.emit('toggle_reaction', {
-      itemId: currentWorkspaceId,
-      messageId,
-      emoji,
-      userName: user.name
-    });
+    const message = messages.find(m => m.id === messageId);
+    if (!message) return;
+
+    const currentReactions = message.reactions || [];
+    const existingReactionIndex = currentReactions.findIndex(r => r.emoji === emoji);
+    
+    let newReactions = [...currentReactions];
+    
+    if (existingReactionIndex >= 0) {
+      const reaction = newReactions[existingReactionIndex];
+      if (reaction.users.includes(user.name)) {
+        reaction.users = reaction.users.filter(u => u !== user.name);
+        if (reaction.users.length === 0) {
+          newReactions.splice(existingReactionIndex, 1);
+        }
+      } else {
+        reaction.users.push(user.name);
+      }
+    } else {
+      newReactions.push({ emoji, users: [user.name] });
+    }
+
+    try {
+      await updateDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', messageId), {
+        reactions: newReactions
+      });
+    } catch (err) {
+      console.error("Failed to update reaction in Firestore:", err);
+    }
   };
 
   // Send a message
   const runZeroTouchMode = async (newUserMessage: Message, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[]) => {
     if (!currentWorkspaceId) return;
 
-    setIsGenerating(true);
+    setIsDiscussing(true);
+    setIsGenerating(false);
+    setActiveTab('Review');
     try {
       let currentMessages = [...messages, newUserMessage];
       let currentDocument = documentContent ? { ...documentContent } : null;
 
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
-      const uploadedFiles: { fileUri: string; mimeType: string }[] = [];
-
-      if (attachments && attachments.length > 0) {
-        for (const att of attachments) {
-          if (att.mimeType === 'application/pdf' && att.file) {
-            try {
-              const fileUpload = await ai.files.upload({
-                file: att.file,
-                config: { displayName: att.name || 'document.pdf' }
-              });
-              let getFile = await ai.files.get({ name: fileUpload.name });
-              while (getFile.state === 'PROCESSING') {
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                getFile = await ai.files.get({ name: fileUpload.name });
-              }
-              if (getFile.state !== 'FAILED') {
-                uploadedFiles.push({ fileUri: getFile.uri, mimeType: getFile.mimeType });
-              }
-            } catch (err) {
-              console.error("Error uploading PDF:", err);
-            }
-          }
-        }
-      }
 
       // PHASE 1: Discussion
       let isDocumentationPhase = false;
@@ -636,6 +845,7 @@ export default function App() {
         turnCount++;
         
         const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+        const startTime = Date.now();
         
         const tempAiMessage: Message = {
           id: aiMsgId,
@@ -643,6 +853,7 @@ export default function App() {
           text: '',
           senderName: 'Ekip',
           senderRole: 'Tartışma',
+          createdAt: Date.now(),
           isTyping: true
         };
         
@@ -651,21 +862,25 @@ export default function App() {
         const contents: any[] = [];
         let prompt = "Sen bir toplantı odasındaki yapay zeka ajanlarını yöneten bir simülatörsün.\n";
         prompt += "Odada şu ajanlar var:\n";
-        ZERO_TOUCH_AGENTS.forEach(a => {
-          prompt += `- ${a.role} (${a.name}): ${a.instruction}\n`;
+        ZERO_TOUCH_AGENTS.filter(a => activeZeroTouchRoles.includes(a.role) || a.role === 'Orchestrator').forEach(a => {
+          prompt += `- ${a.role} (${a.name})\n`;
         });
         
         prompt += "\nSohbet Geçmişi:\n";
-        currentMessages.slice(-20).forEach(m => {
+        currentMessages.slice(-8).forEach(m => {
           prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
         });
+
+        if (currentDocument && currentDocument.review) {
+          prompt += `\nŞu Ana Kadarki Toplantı Notları (Özet):\n${currentDocument.review}\n`;
+        }
 
         const userName = user?.name || 'Kullanıcı';
         prompt += `\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edecekseniz veya soru soracaksanız MUTLAKA @${userName} şeklinde etiketleyin. Eğer birden fazla soru soracaksanız, soruları metin içine gömmeyin, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yazın.`;
 
-        prompt += "\n\nGörev: Sohbet geçmişine bakarak, sıradaki en mantıklı konuşmacı kim olmalıysa onun rolünü seç (agentRole) ve onun ağzından bir yanıt üret (message). Eğer konu yeterince tartışıldıysa ve herkes hemfikirse, SM rolüyle 'isDocumentationPhase' değerini true yap. Konuşmalar sırayla olmak zorunda değil, bağlama göre en uygun ajanı seç.";
+        prompt += "\n\nGörev: Sohbet geçmişine bakarak, sıradaki en mantıklı konuşmacı kim olmalıysa onun rolünü seç (agentRole) ve onun ağzından bir yanıt üret (message). Ayrıca bu yanıtın çok kısa bir özetini (actionSummary) oluştur (Örn: 'BA gereksinimleri sordu', 'QA test senaryosu çıkardı'). Eğer konu yeterince tartışıldıysa ve herkes hemfikirse, SM rolüyle 'isDocumentationPhase' değerini true yap. Konuşmalar sırayla olmak zorunda değil, bağlama göre en uygun ajanı seç.";
         
-        prompt += "\n\nKRİTİK KURAL: Ajanlar kendi aralarında tartışarak en doğru kararı vermelidir. Kullanıcıya (müşteriye) soru sormaktan KESİNLİKLE KAÇININ. Sadece ve sadece projeyi tamamen durduran, hiçbir varsayım yapılamayacak kadar kritik bir 'blocker' varsa `requiresUserInput` değerini true yapın. Aksi takdirde kendi aranızda uzlaşın, en mantıklı varsayımı yapın ve karara varın.";
+        prompt += "\n\nKRİTİK KURAL: Ajanlar kendi aralarında tartışarak en doğru kararı vermelidir. PO, BA, IT, QA kendi uzmanlık alanlarıyla ilgili kritik bir bilgiye ihtiyaç duyduklarında DOĞRUDAN KULLANICIYA SORU SORABİLİRLER. Bunun için `requiresUserInput` değerini true yapmalı ve `questions` dizisini DOLDURMALIDIRLAR. EĞER KULLANICIYA SORU SORUYORSANIZ VE 'questions' DİZİSİ BOŞSA SİSTEM ÇÖKER. Kullanıcıya soru sorulduğunda, kullanıcı cevap verene kadar BAŞKA HİÇBİR AJAN KONUŞMAMALIDIR. Kullanıcı cevapladıktan sonra tartışma devam eder. Eğer tüm sorular cevaplandıysa ve MVP üzerinde uzlaşıldıysa, SM rolüyle 'isDocumentationPhase' değerini true yapın.";
         
         prompt += "\n\nUYARI: Çıktı token sınırına (8192) takılmamak ve mesajın yarım kalmasını önlemek için düşünme (thinking) sürecini çok fazla uzatmayın. Doğrudan konuya ve tartışmaya odaklanın.";
 
@@ -673,28 +888,24 @@ export default function App() {
 
         if (attachments && attachments.length > 0) {
           for (const att of attachments) {
-            if (att.mimeType !== 'application/pdf') {
+            if (att.data && att.mimeType) {
               parts.push({ inlineData: { data: att.data, mimeType: att.mimeType } });
             }
           }
-        }
-        for (const uf of uploadedFiles) {
-          parts.push({ fileData: { fileUri: uf.fileUri, mimeType: uf.mimeType } });
         }
 
         contents.push({ role: 'user', parts });
 
         try {
           const responseStream = await callAiWithRetry(() => ai.models.generateContentStream({
-            model: "gemini-3-flash-preview",
+            model: selectedModel,
             contents: contents,
             config: {
               systemInstruction: "Sen bir toplantı simülatörüsün. Sadece JSON formatında yanıt ver.",
-              thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true },
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
               responseMimeType: "application/json",
               responseSchema: discussionJsonSchema,
-              maxOutputTokens: 8192,
-              tools: [{ googleSearch: {} }]
+              maxOutputTokens: 8192
             }
           }));
 
@@ -704,9 +915,16 @@ export default function App() {
           let currentAgentRole = '';
           let currentAgentName = 'Ekip';
           let currentAgentTitle = 'Tartışma';
+          let currentActionSummary = '';
+          let currentQuestions: Question[] | undefined = undefined;
+          let tokenCount = 0;
           let groundingUrls: { uri: string; title: string }[] = [];
+          let lastUpdateTime = Date.now();
 
           for await (const chunk of responseStream) {
+            if (chunk.usageMetadata) {
+              tokenCount = chunk.usageMetadata.totalTokenCount;
+            }
             const chunkParts = chunk.candidates?.[0]?.content?.parts || [];
             for (const part of chunkParts) {
               if (!part.text) continue;
@@ -747,8 +965,19 @@ export default function App() {
                     }
                   }
                   if (parsed.message) fullText = parsed.message;
+                  if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
                   if (parsed.isDocumentationPhase !== undefined) isDocumentationPhase = parsed.isDocumentationPhase;
                   if (parsed.requiresUserInput !== undefined) needsUserInput = parsed.requiresUserInput;
+                  if (parsed.questions && Array.isArray(parsed.questions)) currentQuestions = parsed.questions;
+                  
+                  if (parsed.document && parsed.document.review) {
+                    setDocumentContent(prev => {
+                      const newDoc = { ...prev } as DocumentData;
+                      newDoc.review = marked.parse(parsed.document.review) as string;
+                      currentDocument = newDoc;
+                      return newDoc;
+                    });
+                  }
                 } else {
                   fullText = jsonToParse;
                 }
@@ -757,27 +986,37 @@ export default function App() {
               }
             }
             
-            setMessages(prev => prev.map(m => 
-              m.id === aiMsgId ? { 
-                ...m, 
-                text: fullText, 
-                thinkingText: fullThinkingText,
-                senderName: currentAgentName,
-                senderRole: currentAgentTitle,
-                agentRole: currentAgentRole,
-                ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-              } : m
-            ));
-            
-            if (socketRef.current) {
-              socketRef.current.emit('ai_stream_chunk', { 
-                itemId: currentWorkspaceId, 
-                id: aiMsgId, 
-                text: fullText, 
-                thinkingText: fullThinkingText,
-                agentRole: currentAgentRole,
-                groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-              });
+            if (Date.now() - lastUpdateTime > 30) {
+              setMessages(prev => prev.map(m => 
+                m.id === aiMsgId ? { 
+                  ...m, 
+                  text: fullText, 
+                  thinkingText: fullThinkingText,
+                  senderName: currentAgentName,
+                  senderRole: currentAgentTitle,
+                  agentRole: currentAgentRole,
+                  actionSummary: currentActionSummary,
+                  questions: currentQuestions,
+                  tokenCount: tokenCount,
+                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                  ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                } : m
+              ));
+              
+              if (socketRef.current) {
+                socketRef.current.emit('ai_stream_chunk', { 
+                  itemId: currentWorkspaceId, 
+                  id: aiMsgId, 
+                  text: fullText, 
+                  thinkingText: fullThinkingText,
+                  agentRole: currentAgentRole,
+                  questions: currentQuestions,
+                  tokenCount: tokenCount,
+                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                  groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                });
+              }
+              lastUpdateTime = Date.now();
             }
           }
 
@@ -789,21 +1028,32 @@ export default function App() {
             senderName: currentAgentName,
             senderRole: currentAgentTitle,
             agentRole: currentAgentRole,
+            actionSummary: currentActionSummary,
+            documentSnapshot: currentDocument || undefined,
+            questions: currentQuestions,
+            tokenCount: tokenCount,
+            thinkingTime: Math.round((Date.now() - startTime) / 1000),
+            createdAt: Date.now(),
             ...(groundingUrls.length > 0 ? { groundingUrls } : {})
           };
 
           setMessages(prev => prev.map(m => m.id === aiMsgId ? finalMsg : m));
           currentMessages.push(finalMsg);
 
-          setProjects(prev => prev.map(p => ({
-            ...p,
-            workspaces: p.workspaces.map(w => {
-              if (w.id === currentWorkspaceId) {
-                return { ...w, messages: [...(w.messages || []), finalMsg], lastUpdated: Date.now() };
-              }
-              return w;
-            })
-          })));
+          try {
+            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
+              ...finalMsg,
+              ownerId: user.uid,
+              createdAt: serverTimestamp()
+            });
+            const updateData: any = { lastUpdated: serverTimestamp() };
+            if (currentDocument) {
+              updateData.document = currentDocument;
+            }
+            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), updateData);
+          } catch (err) {
+            console.error("Failed to save zero-touch message to Firestore:", err);
+          }
 
           if (socketRef.current) {
             socketRef.current.emit('ai_stream_end', {
@@ -812,6 +1062,10 @@ export default function App() {
               text: fullText,
               thinkingText: fullThinkingText,
               agentRole: currentAgentRole,
+              senderName: currentAgentName,
+              senderRole: currentAgentTitle,
+              documentSnapshot: currentDocument || undefined,
+              questions: currentQuestions,
               groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
             });
           }
@@ -832,7 +1086,8 @@ export default function App() {
               ? "⚠️ **Kota Sınırı Aşıldı:** Çok fazla istek gönderildi. Lütfen birkaç dakika bekleyip tekrar deneyin. (Hata: 429)"
               : `❌ **Tartışma Hatası:** Bir sorun oluştu. Lütfen tekrar deneyin.`,
             senderName: 'Sistem',
-            senderRole: 'Hata'
+            senderRole: 'Hata',
+            createdAt: Date.now()
           }]);
           break;
         }
@@ -840,6 +1095,9 @@ export default function App() {
 
       // PHASE 2: Documentation
       if (!needsUserInput && (isDocumentationPhase || turnCount >= MAX_TURNS)) {
+        setIsDiscussing(false);
+        setIsGenerating(true);
+        
         if (turnCount >= MAX_TURNS && !isDocumentationPhase) {
           const timeoutMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
           const timeoutMsg: Message = {
@@ -847,22 +1105,36 @@ export default function App() {
             role: 'model',
             text: "⏱️ **Tartışma Süresi Doldu:** Ekip maksimum tartışma süresine ulaştı. Mevcut kararlar üzerinden dokümantasyon aşamasına geçiliyor.",
             senderName: 'Sistem',
-            senderRole: 'Bilgi'
+            senderRole: 'Bilgi',
+            createdAt: Date.now(),
+            ownerId: user.uid
           };
           setMessages(prev => [...prev, timeoutMsg]);
           currentMessages.push(timeoutMsg);
+          
+          try {
+            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', timeoutMsgId), {
+              ...timeoutMsg,
+              ownerId: user.uid,
+              createdAt: serverTimestamp()
+            });
+          } catch (err) {
+            console.error("Failed to save timeout message to Firestore:", err);
+          }
         }
 
         let docNeedsRevision = true;
         let docLoopCount = 0;
         const MAX_DOC_LOOPS = 5; // Increased to allow more revisions until score >= 90
         let lastScore = 0;
+        let agentsToRun = ['BA', 'IT', 'QA', 'UIUX', 'Orchestrator'].filter(r => activeZeroTouchRoles.includes(r) || r === 'Orchestrator');
 
         while (docNeedsRevision && docLoopCount < MAX_DOC_LOOPS) {
           docLoopCount++;
           docNeedsRevision = false; // Assume it's fine unless Orchestrator says otherwise
+          let nextAgentsToRun: string[] = [];
 
-          const docAgents = ZERO_TOUCH_AGENTS.filter(a => ['BA', 'IT', 'QA', 'Orchestrator'].includes(a.role));
+          const docAgents = ZERO_TOUCH_AGENTS.filter(a => agentsToRun.includes(a.role));
           for (const agent of docAgents) {
             const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
             const startTime = Date.now();
@@ -874,6 +1146,7 @@ export default function App() {
           senderName: agent.name,
           senderRole: agent.name,
           agentRole: agent.role,
+          createdAt: Date.now(),
           isTyping: true
         };
         
@@ -881,18 +1154,58 @@ export default function App() {
 
         const contents: any[] = [];
         let prompt = "Sohbet Geçmişi ve Tartışma Sonucu:\n";
-        currentMessages.slice(-20).forEach(m => {
+        currentMessages.slice(-8).forEach(m => {
           prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
         });
 
         const userName = user?.name || 'Kullanıcı';
         prompt += `\n\nSenin Rolün ve Görevin:\n${agent.instruction}\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edeceksen veya soru soracaksan MUTLAKA @${userName} şeklinde etiketle. Eğer birden fazla soru soracaksan, soruları metin içine gömme, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yaz.\n\nLütfen yukarıdaki uzlaşılan çözüme göre kendi dokümantasyon alanını GÜNCELLE ve GENİŞLET. Mevcut dokümandaki bilgileri koru, eksikleri tamamla ve yeni kararları ekle. Dokümanı tamamen silip baştan yazma, üzerine ekleyerek ilerle. Kullanıcıya kısa bir bilgi mesajı ver (örn: "İş analizi dokümanı güncellendi.").`;
         prompt += `\n\nDİKKAT: Ürettiğin uzun metinleri, HTML/XML kodlarını ASLA 'message' alanına yazma. 'message' alanı sadece kullanıcıya vereceğin 1-2 cümlelik kısa bir bilgi mesajıdır. Tüm teknik veriyi, testleri ve kodları SADECE 'document' objesinin içindeki ilgili alanlara koy.`;
-        prompt += `\n\nEN KRİTİK KURAL (DOKÜMAN EZİLMESİNİ ÖNLEMEK İÇİN): JSON çıktısı üretirken 'document' objesi içine SADECE kendi rolünle ilgili alanı ekle. Diğer ajanların alanlarını KESİNLİKLE JSON'a dahil etme (null bile gönderme, o key'i hiç yazma). Örneğin BA isen sadece 'businessAnalysis' alanını gönder, 'code' veya 'test' alanlarını JSON'a koyma! Böylece diğer ajanların yazdıkları silinmez.`;
-        prompt += `\n\nKRİTİK UYARI: Çıktı token sınırına (8192) takılmamak ve dokümanın yarım kalmasını önlemek için düşünme (thinking) sürecini gereksiz yere uzatma. Doğrudan dokümanı oluşturmaya ve güncellemeye odaklan.`;
+        prompt += `\n\nEN KRİTİK KURAL (DOKÜMAN EZİLMESİNİ ÖNLEMEK İÇİN): JSON çıktısı üretirken 'document' objesi içine SADECE kendi rolünle ilgili alanı ekle. Diğer ajanların alanlarını KESİNLİKLE JSON'a dahil etme (null bile gönderme, o key'i hiç yazma). Örneğin BA isen sadece 'businessAnalysis' alanını gönder, 'code' veya 'test' alanlarını JSON'a koyma! UI/UX isen 'businessAnalysis' ve 'code' alanlarına kendi notlarını ekleyebilirsin. Böylece diğer ajanların yazdıkları silinmez.`;
+        prompt += `\n\nEk olarak, 'actionSummary' alanına yaptığın işlemi anlatan çok kısa bir özet yaz (Örn: 'İş Analisti gereksinimleri dokümana ekledi.', 'Test Uzmanı test senaryolarını yazdı.').`;
+        prompt += `\n\nKRİTİK UYARI: Dokümanı ASLA özet geçme. Üreteceğin metin son derece detaylı olmalı; örnek veri yapıları (JSON payload'lar), tablolar, durum kodları (status codes) ve tüm uç senaryoları (edge-cases) adım adım içermelidir. Kurumsal bir doküman standardında olabildiğince uzun ve derinlemesine yaz.`;
+        
+        // ROLE ÖZEL ZORUNLU DOKÜMAN ŞABLONLARI İNJEKSİYONU
+        let roleTemplate = "";
+        if (agent.role === 'BA') {
+          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME):
+DİKKAT: İş analizi dokümanını JSON formatında, 'businessAnalysis' objesi içindeki tüm alanları (1_ANALIZ_KAPSAMI, 2_KISALTMALAR vb.) eksiksiz ve detaylı bir şekilde doldurarak oluştur. Her bir alanın içeriği Markdown formatında olabilir, ancak genel yapı JSON şemasına kesinlikle uymalıdır.`;
+        } else if (agent.role === 'IT') {
+          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME, AŞAĞIDAKİ BAŞLIKLARI KOD BLOKLARIYLA DETAYLANDIR):
+1. Mimari Genel Bakış (C4 Model Mantığı)
+2. Teknik Bileşenler ve Entegrasyon (Protokoller, Authentication, Güvenlik)
+3. API Kontratları (ZORUNLU: Endpoint URL, HTTP Method, Request JSON Payload örneği, Response JSON Payload örneği, HTTP Status Kodları)
+4. Veri Modeli ve Veritabanı Şeması (Tablo adları, kolonlar, tipler)
+5. Hata Yönetimi, Retry Mekanizmaları ve Performans Riskleri`;
+        } else if (agent.role === 'QA') {
+          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME, AŞAĞIDAKİ BAŞLIKLARI DETAYLICA DOLDUR):
+1. Master Test Stratejisi ve Yaklaşımı
+2. Kritik Test Senaryoları ve Edge Case'ler (TC-01, TC-02 formatında)
+3. Hata Yönetimi ve Dayanıklılık Testleri (Circuit Breaker, Yük Testi senaryoları)
+4. Güvenlik, Veri Gizliliği (PII Masking) ve KVKK Testleri
+5. Test Verisi İhtiyacı ve Temizlik (Clean-up) Stratejisi`;
+        } else if (agent.role === 'UIUX') {
+          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME):
+DİKKAT: Ayrı bir UI/UX dokümanı oluşturma! Tasarım notlarını mevcut BA Analiz (businessAnalysis) ve IT Analiz (code) dokümanlarına entegre et.
+BA Analiz (businessAnalysis) içine eklenecekler:
+- Kullanıcı Yolculuğu (User Journey) ve Temel Akışlar
+- Ekran ve Bileşen İhtiyaçları (Wireframe açıklamaları)
+
+IT Analiz (code) içine eklenecekler:
+- Etkileşim Tasarımı (Durumlar: Hover, Active, Disabled, Loading)
+- Erişilebilirlik (Accessibility) ve Renk Kontrastı Notları
+- Hata Mesajları ve Boş Durum (Empty State) Tasarımları`;
+        } else if (agent.role === 'Orchestrator') {
+          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU:
+1. Toplantı ve Karar Özeti
+2. Kritik Karar Matrisi (Tablo: Konu, Alınan Karar, Neden/Fayda)
+3. Risk ve Aksiyon Planı (Kimin ne yapacağı)`;
+        }
+
+        prompt += roleTemplate;
         
         if (agent.role !== 'IT' && agent.role !== 'Orchestrator') {
-          prompt += `\nDİKKAT: BPMN diyagramını SADECE IT veya Orkestratör üretebilir. Sen 'bpmn' alanını boş bırak.`;
+          prompt += `\nDİKKAT: BPMN diyagramını SADECE IT veya Moderatör üretebilir. Sen 'bpmn' alanını boş bırak.`;
         }
 
         if (currentDocument) {
@@ -908,38 +1221,37 @@ export default function App() {
 
         if (attachments && attachments.length > 0) {
           for (const att of attachments) {
-            if (att.mimeType !== 'application/pdf') {
+            if (att.data && att.mimeType) {
               parts.push({ inlineData: { data: att.data, mimeType: att.mimeType } });
             }
           }
-        }
-        for (const uf of uploadedFiles) {
-          parts.push({ fileData: { fileUri: uf.fileUri, mimeType: uf.mimeType } });
         }
 
         contents.push({ role: 'user', parts });
 
         try {
+          const modelToUse = selectedModel;
+
           const responseStream = await callAiWithRetry(() => ai.models.generateContentStream({
-            model: "gemini-3-flash-preview",
+            model: modelToUse,
             contents: contents,
             config: {
               systemInstruction: SYSTEM_INSTRUCTION,
-              thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true },
               responseMimeType: "application/json",
               responseSchema: chatResponseJsonSchema,
-              maxOutputTokens: 8192,
-              tools: [{ googleSearch: {} }]
+              maxOutputTokens: 8192
             }
           }));
 
           let fullText = '';
           let fullThinkingText = '';
           let accumulatedJson = '';
+          let currentActionSummary = '';
           let finalScore: number | undefined = undefined;
           let finalScoreExplanation: string | undefined = undefined;
           let tokenCount = 0;
           let groundingUrls: { uri: string; title: string }[] = [];
+          let lastUpdateTime = Date.now();
 
           for await (const chunk of responseStream) {
             if (chunk.usageMetadata) {
@@ -977,33 +1289,59 @@ export default function App() {
                 const parsed = parsePartialJson(jsonToParse);
                 if (parsed && typeof parsed === 'object') {
                   if (parsed.message) fullText = parsed.message;
+                  if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
                   if (parsed.score !== undefined) {
                     finalScore = parsed.score;
                     lastScore = parsed.score;
                   }
                   if (parsed.scoreExplanation) finalScoreExplanation = parsed.scoreExplanation;
-                  if (parsed.needsRevision !== undefined) docNeedsRevision = parsed.needsRevision;
                   
-                  // Force revision if score < 90 and it's the Orchestrator
-                  if (agent.role === 'Orchestrator' && finalScore !== undefined && finalScore < 90) {
-                    docNeedsRevision = true;
+                  if (agent.role === 'Orchestrator') {
+                    if (parsed.needsRevision !== undefined) {
+                      if (Array.isArray(parsed.needsRevision) && parsed.needsRevision.length > 0) {
+                        docNeedsRevision = true;
+                        nextAgentsToRun = parsed.needsRevision;
+                      } else if (parsed.needsRevision === true) {
+                        docNeedsRevision = true;
+                        nextAgentsToRun = ['BA', 'IT', 'QA'];
+                      }
+                    }
+                    
+                    // Force revision if score < 90 and it's the Orchestrator
+                    if (finalScore !== undefined && finalScore < 90) {
+                      docNeedsRevision = true;
+                      if (nextAgentsToRun.length === 0) {
+                        nextAgentsToRun = ['BA', 'IT', 'QA'];
+                      }
+                    }
                   }
 
                   if (parsed.document) {
                     setDocumentContent(prev => {
                       const newDoc = { ...prev } as DocumentData;
-                      if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parsed.document.businessAnalysis) as string;
+                      if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
                       if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
                       if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
                       if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
-                      if (parsed.document.bpmn) newDoc.bpmn = parsed.document.bpmn;
+                      if (parsed.document.bpmn) {
+                        let bpmnStr = parsed.document.bpmn.trim();
+                        const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
+                        if (bpmnMatch) {
+                          bpmnStr = bpmnMatch[1].trim();
+                        }
+                        // Fallback: extract from <?xml or <bpmn:definitions
+                        const xmlStart = bpmnStr.indexOf('<?xml');
+                        const defStart = bpmnStr.indexOf('<bpmn:definitions');
+                        if (xmlStart !== -1) {
+                          bpmnStr = bpmnStr.substring(xmlStart);
+                        } else if (defStart !== -1) {
+                          bpmnStr = bpmnStr.substring(defStart);
+                        }
+                        newDoc.bpmn = bpmnStr;
+                      }
                       if (finalScore !== undefined) newDoc.score = finalScore;
                       if (finalScoreExplanation) newDoc.scoreExplanation = finalScoreExplanation;
                       currentDocument = newDoc;
-                      
-                      if (socketRef.current && currentWorkspaceId) {
-                        socketRef.current.emit('update_document', { itemId: currentWorkspaceId, document: newDoc });
-                      }
                       return newDoc;
                     });
                   }
@@ -1015,32 +1353,36 @@ export default function App() {
               }
             }
             
-            setMessages(prev => prev.map(m => 
-              m.id === aiMsgId ? { 
-                ...m, 
-                text: fullText, 
-                thinkingText: fullThinkingText,
-                score: finalScore,
-                scoreExplanation: finalScoreExplanation,
-                tokenCount: tokenCount,
-                thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-              } : m
-            ));
-            
-            if (socketRef.current) {
-              socketRef.current.emit('ai_stream_chunk', { 
-                itemId: currentWorkspaceId, 
-                id: aiMsgId, 
-                text: fullText, 
-                thinkingText: fullThinkingText,
-                agentRole: agent.role,
-                score: finalScore,
-                scoreExplanation: finalScoreExplanation,
-                tokenCount: tokenCount,
-                thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-              });
+            if (Date.now() - lastUpdateTime > 30) {
+              setMessages(prev => prev.map(m => 
+                m.id === aiMsgId ? { 
+                  ...m, 
+                  text: fullText, 
+                  thinkingText: fullThinkingText,
+                  actionSummary: currentActionSummary,
+                  score: finalScore,
+                  scoreExplanation: finalScoreExplanation,
+                  tokenCount: tokenCount,
+                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                  ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                } : m
+              ));
+              
+              if (socketRef.current) {
+                socketRef.current.emit('ai_stream_chunk', { 
+                  itemId: currentWorkspaceId, 
+                  id: aiMsgId, 
+                  text: fullText, 
+                  thinkingText: fullThinkingText,
+                  agentRole: agent.role,
+                  score: finalScore,
+                  scoreExplanation: finalScoreExplanation,
+                  tokenCount: tokenCount,
+                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                  groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                });
+              }
+              lastUpdateTime = Date.now();
             }
           }
 
@@ -1052,25 +1394,32 @@ export default function App() {
             senderName: agent.name,
             senderRole: agent.name,
             agentRole: agent.role,
+            actionSummary: currentActionSummary,
             score: finalScore,
             scoreExplanation: finalScoreExplanation,
             tokenCount: tokenCount,
             thinkingTime: Math.round((Date.now() - startTime) / 1000),
+            createdAt: Date.now(),
             ...(groundingUrls.length > 0 ? { groundingUrls } : {})
           };
 
           setMessages(prev => prev.map(m => m.id === aiMsgId ? finalMsg : m));
           currentMessages.push(finalMsg);
 
-          setProjects(prev => prev.map(p => ({
-            ...p,
-            workspaces: p.workspaces.map(w => {
-              if (w.id === currentWorkspaceId) {
-                return { ...w, messages: [...(w.messages || []), finalMsg], lastUpdated: Date.now() };
-              }
-              return w;
-            })
-          })));
+          try {
+            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
+              ...finalMsg,
+              ownerId: user.uid,
+              createdAt: serverTimestamp()
+            });
+            const updateData: any = { lastUpdated: serverTimestamp() };
+            if (currentDocument) {
+              updateData.document = currentDocument;
+            }
+            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), updateData);
+          } catch (err) {
+            console.error("Failed to save zero-touch message to Firestore:", err);
+          }
 
           if (socketRef.current) {
             socketRef.current.emit('ai_stream_end', {
@@ -1079,6 +1428,8 @@ export default function App() {
               text: fullText,
               thinkingText: fullThinkingText,
               agentRole: agent.role,
+              senderName: agent.name,
+              senderRole: agent.name,
               score: finalScore,
               scoreExplanation: finalScoreExplanation,
               documentSnapshot: currentDocument || undefined,
@@ -1100,13 +1451,22 @@ export default function App() {
               isTyping: false 
             } : m
           ));
+          docNeedsRevision = false; // Stop the while loop on error
           break;
         }
       }
+          
+          if (docNeedsRevision) {
+            if (!nextAgentsToRun.includes('Orchestrator')) {
+              nextAgentsToRun.push('Orchestrator');
+            }
+            agentsToRun = nextAgentsToRun;
+          }
         }
       }
     } finally {
       setIsGenerating(false);
+      setIsDiscussing(false);
     }
   };
 
@@ -1129,11 +1489,26 @@ export default function App() {
       text, 
       senderName: user.name,
       senderRole: user.role,
+      createdAt: Date.now(),
       attachments: attachments?.map(a => ({ url: a.url, data: a.data, mimeType: a.mimeType, name: a.name })) 
     };
     
     // Optimistic update
     setMessages(prev => [...prev, newUserMessage]);
+
+    // Save to Firestore
+    try {
+      await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', msgId), {
+        ...newUserMessage,
+        ownerId: user.uid,
+        createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to save user message to Firestore:", err);
+    }
 
     // Send via socket
     if (socketRef.current) {
@@ -1147,17 +1522,6 @@ export default function App() {
         attachments: attachments?.map(a => ({ url: a.url, data: a.data, mimeType: a.mimeType, name: a.name }))
       });
     }
-    
-    // Update local workspace state
-    setProjects(prev => prev.map(p => ({
-      ...p,
-      workspaces: p.workspaces.map(w => {
-        if (w.id === currentWorkspaceId) {
-          return { ...w, messages: [...(w.messages || []), newUserMessage], lastUpdated: Date.now() };
-        }
-        return w;
-      })
-    })));
 
     if (isZeroTouchMode) {
       runZeroTouchMode(newUserMessage, attachments);
@@ -1205,7 +1569,7 @@ export default function App() {
       
       let prompt = "Sohbet Geçmişi:\n";
       const allMessages = [...messages, newUserMessage];
-      allMessages.slice(-20).forEach(m => {
+      allMessages.slice(-8).forEach(m => {
         prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
       });
       
@@ -1238,17 +1602,17 @@ export default function App() {
       const parts: any[] = [{ text: prompt }];
       
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
-      const uploadedFiles: { fileUri: string; mimeType: string }[] = [];
 
       // Add temporary AI message with typing indicator only if it should respond directly
       if (shouldAiRespond) {
-        const hasPdf = attachments?.some(a => a.mimeType === 'application/pdf');
+        const hasDoc = attachments?.some(a => !a.mimeType.startsWith('image/'));
         const tempAiMessage: Message = {
           id: aiMsgId,
           role: 'model',
-          text: hasPdf ? '📄 PDF dokümanı yükleniyor ve analiz ediliyor. Bu işlem dosya boyutuna göre biraz zaman alabilir...' : '',
+          text: hasDoc ? '📄 Doküman yükleniyor ve analiz ediliyor. Bu işlem dosya boyutuna göre biraz zaman alabilir...' : '',
           senderName: 'JetWork AI',
           senderRole: 'Sistem Asistanı',
+          createdAt: Date.now(),
           isTyping: true
         };
         
@@ -1257,31 +1621,7 @@ export default function App() {
 
       if (attachments && attachments.length > 0) {
         for (const att of attachments) {
-          if (att.mimeType === 'application/pdf' && att.file) {
-            try {
-              const fileUpload = await ai.files.upload({
-                file: att.file,
-                config: { displayName: att.name || 'document.pdf' }
-              });
-
-              let getFile = await ai.files.get({ name: fileUpload.name });
-              while (getFile.state === 'PROCESSING') {
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                getFile = await ai.files.get({ name: fileUpload.name });
-              }
-
-              if (getFile.state === 'FAILED') {
-                console.error(`PDF işlenemedi: ${att.name}`);
-              } else {
-                uploadedFiles.push({
-                  fileUri: getFile.uri,
-                  mimeType: getFile.mimeType
-                });
-              }
-            } catch (err) {
-              console.error("Error uploading PDF:", err);
-            }
-          } else {
+          if (att.data && att.mimeType) {
             parts.push({
               inlineData: {
                 data: att.data,
@@ -1292,30 +1632,19 @@ export default function App() {
         }
       }
 
-      for (const uf of uploadedFiles) {
-        parts.push({
-          fileData: {
-            fileUri: uf.fileUri,
-            mimeType: uf.mimeType
-          }
-        });
-      }
-
       contents.push({ role: 'user', parts });
 
       const tools: any[] = [{ googleSearch: {} }];
       if (isRead && urlToRead) tools.push({ urlContext: {} });
 
       const responseStream = await callAiWithRetry(() => ai.models.generateContentStream({
-        model: "gemini-3-flash-preview",
+        model: selectedModel,
         contents: contents,
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true },
           responseMimeType: "application/json",
           responseSchema: chatResponseJsonSchema,
-          maxOutputTokens: 8192,
-          tools: tools.length > 0 ? tools : undefined
+          maxOutputTokens: 8192
         }
       }));
 
@@ -1325,6 +1654,7 @@ export default function App() {
       let groundingUrls: { uri: string; title: string }[] = [];
       let newDocumentContent: DocumentData | null = null;
       let accumulatedJson = '';
+      let lastUpdateTime = Date.now();
 
       for await (const chunk of responseStream) {
         const parts = chunk.candidates?.[0]?.content?.parts || [];
@@ -1359,19 +1689,27 @@ export default function App() {
               if (shouldAiRespond) {
                 setDocumentContent(prev => {
                   const newDoc = { ...prev } as DocumentData;
-                  if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parsed.document.businessAnalysis) as string;
+                  if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
                   if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
                   if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
-                  if (parsed.document.bpmn) newDoc.bpmn = parsed.document.bpmn;
-                  newDocumentContent = newDoc;
-                  
-                  if (socketRef.current && currentWorkspaceId) {
-                    socketRef.current.emit('update_document', {
-                      itemId: currentWorkspaceId,
-                      document: newDoc
-                    });
+                  if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
+                  if (parsed.document.bpmn) {
+                    let bpmnStr = parsed.document.bpmn.trim();
+                    const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
+                    if (bpmnMatch) {
+                      bpmnStr = bpmnMatch[1].trim();
+                    }
+                    // Fallback: extract from <?xml or <bpmn:definitions
+                    const xmlStart = bpmnStr.indexOf('<?xml');
+                    const defStart = bpmnStr.indexOf('<bpmn:definitions');
+                    if (xmlStart !== -1) {
+                      bpmnStr = bpmnStr.substring(xmlStart);
+                    } else if (defStart !== -1) {
+                      bpmnStr = bpmnStr.substring(defStart);
+                    }
+                    newDoc.bpmn = bpmnStr;
                   }
-                  
+                  newDocumentContent = newDoc;
                   return newDoc;
                 });
               }
@@ -1400,22 +1738,25 @@ export default function App() {
         
         if (!isNoResponse) {
           if (shouldAiRespond) {
-            setMessages(prev => prev.map(m => 
-              m.id === aiMsgId ? { 
-                ...m, 
-                text: fullText, 
-                thinkingText: displayThinkingText,
-                ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-              } : m
-            ));
-            if (socketRef.current) {
-              socketRef.current.emit('ai_stream_chunk', { 
-                itemId: currentWorkspaceId, 
-                id: aiMsgId, 
-                text: fullText, 
-                thinkingText: displayThinkingText,
-                groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-              });
+            if (Date.now() - lastUpdateTime > 30) {
+              setMessages(prev => prev.map(m => 
+                m.id === aiMsgId ? { 
+                  ...m, 
+                  text: fullText, 
+                  thinkingText: displayThinkingText,
+                  ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                } : m
+              ));
+              if (socketRef.current) {
+                socketRef.current.emit('ai_stream_chunk', { 
+                  itemId: currentWorkspaceId, 
+                  id: aiMsgId, 
+                  text: fullText, 
+                  thinkingText: displayThinkingText,
+                  groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                });
+              }
+              lastUpdateTime = Date.now();
             }
           }
         }
@@ -1456,40 +1797,36 @@ export default function App() {
             } : m
           ));
           
-          // Update local workspace state with final message and document
-          setProjects(prev => prev.map(p => ({
-            ...p,
-            workspaces: p.workspaces.map(w => {
-              if (w.id === currentWorkspaceId) {
-                const updatedMessages = w.messages ? [...w.messages] : [];
-                const finalMsg: Message = {
-                  id: aiMsgId,
-                  role: 'model',
-                  text: fullText,
-                  thinkingText: fullThinkingText,
-                  senderName: 'JetWork AI',
-                  senderRole: 'Sistem Asistanı',
-                  ...(groundingUrls.length > 0 ? { groundingUrls } : {}),
-                  documentSnapshot: newDocumentContent || undefined,
-                  previousDocumentSnapshot,
-                  documentActions
-                };
-                const existingIdx = updatedMessages.findIndex(m => m.id === aiMsgId);
-                if (existingIdx >= 0) {
-                  updatedMessages[existingIdx] = finalMsg;
-                } else {
-                  updatedMessages.push(finalMsg);
-                }
-                return { 
-                  ...w, 
-                  messages: updatedMessages, 
-                  lastUpdated: Date.now(),
-                  ...(newDocumentContent ? { document: newDocumentContent } : {})
-                };
-              }
-              return w;
-            })
-          })));
+          // Save AI response to Firestore
+          try {
+            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
+              id: aiMsgId,
+              role: 'model',
+              text: fullText,
+              thinkingText: fullThinkingText,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+              ...(groundingUrls.length > 0 ? { groundingUrls } : {}),
+              documentSnapshot: newDocumentContent || undefined,
+              previousDocumentSnapshot,
+              documentActions,
+              ownerId: user.uid,
+              createdAt: serverTimestamp()
+            });
+
+            if (newDocumentContent) {
+              await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+                document: newDocumentContent,
+                lastUpdated: serverTimestamp()
+              });
+            } else {
+              await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+                lastUpdated: serverTimestamp()
+              });
+            }
+          } catch (err) {
+            console.error("Failed to save AI message to Firestore:", err);
+          }
 
           // Send AI response via socket for other users
           if (socketRef.current) {
@@ -1498,6 +1835,8 @@ export default function App() {
               id: aiMsgId,
               text: fullText,
               thinkingText: fullThinkingText,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
               groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined,
               documentSnapshot: newDocumentContent || undefined,
               previousDocumentSnapshot,
@@ -1525,12 +1864,13 @@ export default function App() {
           ? "⚠️ **Kota Sınırı Aşıldı:** Gemini API kullanım sınırına ulaşıldı. Lütfen birkaç dakika bekleyip tekrar deneyin."
           : `❌ **Hata:** Bir sorun oluştu: ${error.message || 'Bilinmeyen hata'}`,
         senderName: 'Sistem',
-        senderRole: 'Hata'
+        senderRole: 'Hata',
+        createdAt: Date.now()
       }]);
     }
   };
 
-  const handleAcceptAiHandRaise = () => {
+  const handleAcceptAiHandRaise = async () => {
     if (!aiHandRaised || !currentWorkspaceId) return;
 
     const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
@@ -1539,29 +1879,35 @@ export default function App() {
       role: 'model',
       text: aiHandRaised,
       senderName: 'JetWork AI',
-      senderRole: 'Sistem Asistanı'
+      senderRole: 'Sistem Asistanı',
+      createdAt: Date.now()
     };
 
     setMessages(prev => [...prev, finalMsg]);
     setAiHandRaised(null);
 
-    // Update local workspace state
-    setProjects(prev => prev.map(p => ({
-      ...p,
-      workspaces: p.workspaces.map(w => {
-        if (w.id === currentWorkspaceId) {
-          return { ...w, messages: [...(w.messages || []), finalMsg], lastUpdated: Date.now() };
-        }
-        return w;
-      })
-    })));
+    // Save to Firestore
+    try {
+      await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
+        ...finalMsg,
+        ownerId: user.uid,
+        createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to save accepted AI message to Firestore:", err);
+    }
 
     // Send via socket
     if (socketRef.current) {
       socketRef.current.emit('ai_stream_end', {
         itemId: currentWorkspaceId,
         id: aiMsgId,
-        text: aiHandRaised
+        text: aiHandRaised,
+        senderName: 'JetWork AI',
+        senderRole: 'Sistem Asistanı'
       });
     }
   };
@@ -1580,20 +1926,19 @@ export default function App() {
       const prompt = `${historyText}\n\nYukarıdaki konuşmalara dayanarak kapsamlı bir dokümantasyon oluştur.
       Lütfen aşağıdaki JSON formatında bir çıktı üret. Sadece geçerli bir JSON döndür, markdown kod bloğu kullanma:
       {
-        "businessAnalysis": "İş analizi dokümanı (Talep özeti, mevcut durum, hedeflenen durum, kullanıcı hikayeleri, kabul kriterleri, vb.) Markdown formatında.",
+        "businessAnalysis": "İş analizi dokümanı (Talep özeti, mevcut durum, hedeflenen durum, kullanıcı hikayeleri, kabul kriterleri, vb.) Markdown formatında. Eğer özel bir format (örn: Enerjisa) istendiyse, o formatı Markdown olarak buraya yaz.",
         "code": "Geliştirme için teknik notlar, mimari kararlar, veritabanı şemaları, API tasarımları ve örnek kod blokları. Markdown formatında.",
         "test": "Test senaryoları, birim testleri, entegrasyon testleri ve QA notları. Markdown formatında.",
-        "bpmn": "Geçerli bir BPMN 2.0 XML kodu. Eğer süreç bir akış veya entegrasyon içeriyorsa mutlaka doldur."
+        "bpmn": "Geçerli bir BPMN 2.0 XML kodu. Eğer süreç bir akış veya entegrasyon içeriyorsa mutlaka doldur. DİKKAT: XML kodu mutlaka <bpmndi:BPMNDiagram> ve <bpmndi:BPMNPlane> etiketlerini içeren görsel (DI) kısımlarını da barındırmalıdır. Aksi takdirde ekranda çizilemez."
       }
       Tüm bölümler birbiriyle ilişkili ve tutarlı olmalıdır.`;
 
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: selectedModel,
         contents: prompt,
         config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+          systemInstruction: SYSTEM_INSTRUCTION
         }
       });
       
@@ -1620,27 +1965,25 @@ export default function App() {
       
       // Convert Markdown to HTML for each section
       const htmlData: DocumentData = {
-        businessAnalysis: marked.parse(data.businessAnalysis) as string,
-        code: marked.parse(data.code) as string,
-        test: marked.parse(data.test) as string,
-        bpmn: data.bpmn || ""
+        businessAnalysis: marked.parse(data.businessAnalysis || "") as string,
+        code: marked.parse(data.code || "") as string,
+        test: marked.parse(data.test || "") as string,
+        review: data.review ? marked.parse(data.review) as string : undefined,
+        bpmn: data.bpmn || "",
+        score: data.score,
+        scoreExplanation: data.scoreExplanation
       };
       
       setDocumentContent(htmlData);
       
-      if (socketRef.current && currentWorkspaceId) {
-        socketRef.current.emit('update_document', {
-          itemId: currentWorkspaceId,
-          document: htmlData
+      try {
+        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+          document: htmlData,
+          lastUpdated: serverTimestamp()
         });
+      } catch (err) {
+        console.error("Failed to save generated document to Firestore:", err);
       }
-      
-      setProjects(prev => prev.map(p => ({
-        ...p,
-        workspaces: p.workspaces.map(w => 
-          w.id === currentWorkspaceId ? { ...w, document: htmlData, lastUpdated: Date.now() } : w
-        )
-      })));
       
     } catch (error) {
       console.error('Error generating document:', error);
@@ -1648,7 +1991,8 @@ export default function App() {
       const fallbackData: DocumentData = {
         businessAnalysis: "Doküman oluşturulurken veya JSON ayrıştırılırken bir hata oluştu. Lütfen tekrar deneyin.",
         code: "",
-        test: ""
+        test: "",
+        review: ""
       };
       setDocumentContent(fallbackData);
     } finally {
@@ -1658,47 +2002,63 @@ export default function App() {
 
   const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
 
-  const handleUpdateDocument = (newContent: DocumentData) => {
+  const handleUpdateDocument = async (newContent: DocumentData) => {
     setDocumentContent(newContent);
     
-    // Send via socket
-    if (socketRef.current && currentWorkspaceId) {
-      socketRef.current.emit('update_document', {
-        itemId: currentWorkspaceId,
-        document: newContent
+    if (currentWorkspaceId) {
+      try {
+        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
+          document: newContent,
+          lastUpdated: serverTimestamp()
+        });
+      } catch (err) {
+        console.error("Failed to update document in Firestore:", err);
+      }
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      setUser(null);
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  const handleUpdateUser = async (updatedUser: { name: string; role: string }) => {
+    if (!user) return;
+    
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        displayName: updatedUser.name,
+        role: updatedUser.role
       });
+      setUser(prev => prev ? { ...prev, ...updatedUser } : null);
+    } catch (error) {
+      console.error("Failed to update user profile:", error);
+      alert("Profil güncellenirken bir hata oluştu.");
     }
-
-    setProjects(prev => prev.map(p => ({
-      ...p,
-      workspaces: p.workspaces.map(w => {
-        if (w.id === currentWorkspaceId) {
-          return { ...w, document: newContent, lastUpdated: Date.now() };
-        }
-        return w;
-      })
-    })));
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('ai-business-analyst-user');
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-    }
-  };
-
-  const handleUpdateUser = (updatedUser: { name: string; role: string }) => {
-    setUser(updatedUser);
-    localStorage.setItem('ai-business-analyst-user', JSON.stringify(updatedUser));
   };
 
   const latestScoreMessage = [...messages].reverse().find(m => m.score !== undefined);
   const latestScore = latestScoreMessage?.score;
   const latestScoreExplanation = latestScoreMessage?.scoreExplanation;
 
+  if (!isAuthReady) {
+    return <div className="min-h-screen flex items-center justify-center bg-theme-bg text-theme-text">Yükleniyor...</div>;
+  }
+
   if (!user) {
     return <LandingPage onLogin={setUser} />;
+  }
+
+  if (!user.onboardingCompleted) {
+    return <OnboardingPage user={user} onComplete={(updatedUser) => setUser({ ...updatedUser, onboardingCompleted: true })} />;
   }
 
   return (
@@ -1715,6 +2075,11 @@ export default function App() {
           user={user}
           onClose={() => setShowSettingsModal(false)}
           onUpdateUser={handleUpdateUser}
+          selectedModel={selectedModel}
+          onUpdateModel={(model) => {
+            setSelectedModel(model);
+            localStorage.setItem('jetwork-model', model);
+          }}
         />
       )}
       {showNewItemModal && (
@@ -1731,6 +2096,49 @@ export default function App() {
           onSubmit={handleNewProject} 
         />
       )}
+      {showManageParticipantsModal && currentWorkspace && user && (
+        <ManageParticipantsModal
+          collaborators={currentWorkspace.collaborators}
+          currentUserId={user.uid}
+          ownerId={currentWorkspace.ownerId}
+          onClose={() => setShowManageParticipantsModal(false)}
+          onAddParticipant={handleAddParticipant}
+          onRemoveParticipant={handleRemoveParticipant}
+          onLeaveWorkspace={handleLeaveWorkspace}
+        />
+      )}
+      {editingProject && (
+        <EditProjectModal
+          project={editingProject}
+          onClose={() => setEditingProject(null)}
+          onSubmit={handleEditProject}
+        />
+      )}
+      {editingWorkspace && (
+        <EditWorkspaceModal
+          workspace={editingWorkspace}
+          onClose={() => setEditingWorkspace(null)}
+          onSubmit={handleEditWorkspace}
+        />
+      )}
+      {deletingProject && (
+        <ConfirmModal
+          title="Projeyi Sil"
+          message="Bu projeyi ve içindeki tüm çalışma alanlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+          confirmText="Sil"
+          onConfirm={handleDeleteProject}
+          onCancel={() => setDeletingProject(null)}
+        />
+      )}
+      {deletingWorkspace && (
+        <ConfirmModal
+          title="Çalışma Alanını Sil"
+          message="Bu çalışma alanını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+          confirmText="Sil"
+          onConfirm={handleDeleteWorkspace}
+          onCancel={() => setDeletingWorkspace(null)}
+        />
+      )}
       {!currentWorkspaceId && (
         <Sidebar 
           user={user}
@@ -1741,6 +2149,8 @@ export default function App() {
           onSelectProject={handleSelectProject}
           onNewWorkspace={() => setShowNewItemModal(true)}
           onNewProject={() => setShowNewProjectModal(true)}
+          onEditProject={setEditingProject}
+          onDeleteProject={setDeletingProject}
           theme={theme}
           onThemeChange={setTheme}
           onLogout={handleLogout}
@@ -1754,6 +2164,8 @@ export default function App() {
               project={projects.find(p => p.id === currentProjectId)!}
               onSelectWorkspace={handleSelectWorkspace}
               onNewWorkspace={() => setShowNewItemModal(true)}
+              onEditWorkspace={setEditingWorkspace}
+              onDeleteWorkspace={setDeletingWorkspace}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center bg-theme-bg">
@@ -1777,9 +2189,10 @@ export default function App() {
         ) : (
           <>
             <ChatPanel 
+              key={currentWorkspaceId}
               messages={messages} 
               onSendMessage={handleSendMessage} 
-              isGenerating={isGenerating}
+              isGenerating={isGenerating || isDiscussing}
               issueKey={currentWorkspace?.issueKey}
               status={currentWorkspace?.status}
               title={currentWorkspace?.title}
@@ -1787,6 +2200,7 @@ export default function App() {
               hasDocument={!!documentContent}
               onBack={() => setCurrentWorkspaceId(null)}
               activeUsers={activeUsers}
+              collaborators={currentWorkspace?.collaborators}
               typingUsers={typingUsers}
               onTypingStart={() => {
                 if (socketRef.current && currentWorkspaceId && user) {
@@ -1801,14 +2215,30 @@ export default function App() {
               onToggleReaction={handleToggleReaction}
               currentUser={user}
               isAiActive={isAiActive}
-              onToggleAiActive={() => setIsAiActive(!isAiActive)}
+              onToggleAiActive={() => {
+                const newValue = !isAiActive;
+                setIsAiActive(newValue);
+                if (newValue && isZeroTouchMode) {
+                  setIsZeroTouchMode(false);
+                }
+              }}
               isZeroTouchMode={isZeroTouchMode}
-              onToggleZeroTouchMode={() => setIsZeroTouchMode(!isZeroTouchMode)}
+              onToggleZeroTouchMode={() => {
+                const newValue = !isZeroTouchMode;
+                setIsZeroTouchMode(newValue);
+                if (newValue && isAiActive) {
+                  setIsAiActive(false);
+                }
+              }}
+              activeZeroTouchRoles={activeZeroTouchRoles}
+              setActiveZeroTouchRoles={setActiveZeroTouchRoles}
               aiHandRaised={aiHandRaised}
               onAcceptAiHandRaise={handleAcceptAiHandRaise}
               onDismissAiHandRaise={() => setAiHandRaised(null)}
               selectedDocumentText={selectedDocumentText}
               onRestoreDocument={handleUpdateDocument}
+              isLoadingWorkspace={isLoadingWorkspace}
+              onManageParticipants={() => setShowManageParticipantsModal(true)}
             />
             <DocumentPanel 
               activeTab={activeTab}
@@ -1816,6 +2246,7 @@ export default function App() {
               documentContent={documentContent}
               onGenerate={handleGenerateDocument}
               isGenerating={isGenerating}
+              isDiscussing={isDiscussing}
               hasMessages={messages.length > 0}
               collaborators={currentWorkspace?.collaborators}
               onUpdateDocument={handleUpdateDocument}
@@ -1823,6 +2254,8 @@ export default function App() {
               score={latestScore}
               scoreExplanation={latestScoreExplanation}
               messages={messages}
+              onRestoreDocument={handleUpdateDocument}
+              isLoadingWorkspace={isLoadingWorkspace}
             />
           </>
         )}

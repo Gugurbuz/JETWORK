@@ -34,7 +34,6 @@ Yanıt Formatı (JSON):
   "code": "Teknik detaylar veya kod (Markdown)",
   "test": "Test senaryoları (Markdown)",
   "bpmn": "BPMN 2.0 XML (Opsiyonel)",
-  "thoughtProcess": "Arka planda yaptığın akıl yürütme süreci (Kısa özet)",
   "suggestions": ["Öneri 1", "Öneri 2"]
 }
 
@@ -78,6 +77,7 @@ db.exec(`
     is_ai BOOLEAN DEFAULT 0,
     reactions TEXT DEFAULT '[]',
     images TEXT DEFAULT '[]',
+    questions TEXT DEFAULT '[]',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
@@ -96,6 +96,13 @@ try {
   // Column already exists, ignore
 }
 
+// Try to add questions column if it doesn't exist (for existing DBs)
+try {
+  db.exec(`ALTER TABLE chat_messages ADD COLUMN questions TEXT DEFAULT '[]'`);
+} catch (e) {
+  // Column already exists, ignore
+}
+
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
@@ -109,69 +116,25 @@ async function startServer() {
 
   // API routes FIRST
   
-  // 1. Jira Export Endpoint
-  app.post("/api/jira/export", async (req, res) => {
+  app.get("/api/export-sqlite", (req, res) => {
     try {
-      const { title, description } = req.body;
-      const domain = process.env.JIRA_DOMAIN;
-      const email = process.env.JIRA_EMAIL;
-      const apiToken = process.env.JIRA_API_TOKEN;
-      const projectKey = process.env.JIRA_PROJECT_KEY || "JET";
-
-      if (!domain || !email || !apiToken) {
-        return res.status(400).json({ error: "Jira credentials are not configured in environment variables." });
-      }
-
-      const auth = Buffer.from(`${email}:${apiToken}`).toString('base64');
-
-      // Convert HTML/Markdown to simple text for Jira (simplified for demo)
-      const plainTextDescription = description.replace(/<[^>]*>?/gm, '');
-
-      const response = await fetch(`https://${domain}/rest/api/3/issue`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          fields: {
-            project: {
-              key: projectKey
-            },
-            summary: title,
-            description: {
-              type: "doc",
-              version: 1,
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      text: plainTextDescription.substring(0, 30000), // Jira limit
-                      type: "text"
-                    }
-                  ]
-                }
-              ]
-            },
-            issuetype: {
-              name: "Task" // Change this to your Jira issue type
-            }
-          }
-        })
+      const projects = db.prepare('SELECT * FROM projects').all();
+      const workItems = db.prepare('SELECT * FROM work_items').all();
+      const chatMessages = db.prepare('SELECT * FROM chat_messages').all();
+      const sharedAnalyses = db.prepare('SELECT * FROM shared_analyses').all();
+      
+      res.json({
+        success: true,
+        data: {
+          projects,
+          workItems,
+          chatMessages,
+          sharedAnalyses
+        }
       });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`Jira API Error: ${errorData}`);
-      }
-
-      const data = await response.json();
-      res.json({ success: true, issueKey: data.key, url: `https://${domain}/browse/${data.key}` });
-    } catch (error: any) {
-      console.error("Jira export error:", error);
-      res.status(500).json({ error: error.message || "Failed to export to Jira" });
+    } catch (error) {
+      console.error("Failed to export SQLite data:", error);
+      res.status(500).json({ error: "Failed to export data" });
     }
   });
 
@@ -258,6 +221,35 @@ async function startServer() {
     }
   });
 
+  // 3.5 Memory Endpoint (Background Tasks)
+  app.post("/api/memory", async (req, res) => {
+    const { query } = req.body;
+    try {
+      // Fetch all projects and work items to summarize
+      const projectsStmt = db.prepare('SELECT * FROM projects LIMIT 10');
+      const projects = projectsStmt.all();
+      
+      const itemsStmt = db.prepare('SELECT * FROM work_items LIMIT 20');
+      const items = itemsStmt.all();
+
+      const context = JSON.stringify({ projects, items });
+
+      // Use the lite model for background tasks like summarization
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite-preview",
+        contents: `Aşağıdaki kurumsal hafıza verilerini kullanarak kullanıcının sorusunu yanıtla. Sadece özet bilgi ver.\n\nVeri:\n${context}\n\nSoru: ${query || "Genel bir özet çıkar."}`,
+      });
+
+      res.json({ success: true, summary: response.text });
+    } catch (error) {
+      console.error("Failed to process memory query:", error);
+      res.status(500).json({ error: "Failed to process memory query" });
+    }
+  });
+
   // 4. Work Items Endpoints
   app.post("/api/items", (req, res) => {
     const { id, projectId, itemNumber, title, team } = req.body;
@@ -297,6 +289,7 @@ async function startServer() {
             senderRole: m.sender_role,
             reactions: JSON.parse(m.reactions || '[]'),
             attachments: JSON.parse(m.images || '[]'),
+            questions: m.questions ? JSON.parse(m.questions) : undefined,
             createdAt: m.created_at
           }))
         } 
@@ -350,8 +343,8 @@ async function startServer() {
 
     socket.on("ai_stream_end", (data) => {
       try {
-        const stmt = db.prepare('INSERT INTO chat_messages (id, item_id, sender_name, sender_role, text, is_ai) VALUES (?, ?, ?, ?, ?, ?)');
-        stmt.run(data.id, data.itemId, "JetWork AI", "Sistem Asistanı", data.text, 1);
+        const stmt = db.prepare('INSERT INTO chat_messages (id, item_id, sender_name, sender_role, text, is_ai, questions) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        stmt.run(data.id, data.itemId, data.senderName || "JetWork AI", data.senderRole || "Sistem Asistanı", data.text, 1, JSON.stringify(data.questions || []));
       } catch (err) {
         console.error("Failed to save AI message:", err);
       }

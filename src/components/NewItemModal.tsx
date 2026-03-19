@@ -1,33 +1,59 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Users, Briefcase, FileText, Search, Check, Folder } from 'lucide-react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 import { Project } from '../types';
 
 interface NewItemModalProps {
   projects: Project[];
   currentProjectId?: string | null;
   onClose: () => void;
-  onSubmit: (data: { projectId: string; itemNumber: string; title: string; team: { name: string; role: string }[] }) => void;
+  onSubmit: (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => void;
 }
 
-// Mock Database of Users
-const MOCK_USERS = [
-  { id: '1', name: 'Ahmet Yılmaz', role: 'Kıdemli Analist', email: 'ahmet@jetwork.com' },
-  { id: '2', name: 'Ayşe Demir', role: 'Product Owner', email: 'ayse@jetwork.com' },
-  { id: '3', name: 'Mehmet Kaya', role: 'Lead Developer', email: 'mehmet@jetwork.com' },
-  { id: '4', name: 'Zeynep Çelik', role: 'UX Designer', email: 'zeynep@jetwork.com' },
-  { id: '5', name: 'Can Özkan', role: 'Test Uzmanı', email: 'can@jetwork.com' },
-  { id: '6', name: 'Gürkan Gürbüz', role: 'Proje Yöneticisi', email: 'gurkan@jetwork.com' }
-];
+interface DbUser {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+}
 
 export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: NewItemModalProps) {
   const [projectId, setProjectId] = useState(currentProjectId || (projects.length > 0 ? projects[0].id : ''));
   const [itemNumber, setItemNumber] = useState('');
   const [title, setTitle] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedUsers, setSelectedUsers] = useState<typeof MOCK_USERS>([]);
+  const [dbUsers, setDbUsers] = useState<DbUser[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<DbUser[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch users from Firestore
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const usersSnap = await getDocs(collection(db, 'users'));
+        const usersList: DbUser[] = [];
+        usersSnap.forEach(doc => {
+          const data = doc.data();
+          usersList.push({
+            id: doc.id,
+            name: data.displayName || data.email || 'İsimsiz Kullanıcı',
+            role: data.role || 'Kullanıcı',
+            email: data.email || ''
+          });
+        });
+        setDbUsers(usersList);
+      } catch (error) {
+        console.error("Error fetching users:", error);
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    };
+    fetchUsers();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -40,12 +66,12 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filteredUsers = MOCK_USERS.filter(user => 
+  const filteredUsers = dbUsers.filter(user => 
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const toggleUser = (user: typeof MOCK_USERS[0]) => {
+  const toggleUser = (user: DbUser) => {
     setSelectedUsers(prev => 
       prev.some(u => u.id === user.id)
         ? prev.filter(u => u.id !== user.id)
@@ -67,7 +93,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
         projectId,
         itemNumber, 
         title, 
-        team: selectedUsers.map(u => ({ name: u.name, role: u.role })) 
+        team: selectedUsers.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email })) 
       });
     }
   };
@@ -212,7 +238,11 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
                     exit={{ opacity: 0, y: -5 }}
                     className="absolute z-10 w-full mt-1 bg-theme-surface border border-theme-border rounded-md shadow-lg max-h-48 overflow-y-auto"
                   >
-                    {filteredUsers.length > 0 ? (
+                    {isLoadingUsers ? (
+                      <div className="p-4 text-center text-sm text-theme-text-muted">
+                        Kullanıcılar yükleniyor...
+                      </div>
+                    ) : filteredUsers.length > 0 ? (
                       filteredUsers.map(user => {
                         const isSelected = selectedUsers.some(u => u.id === user.id);
                         return (

@@ -1,11 +1,80 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap } from 'lucide-react';
-import { Message } from '../types';
+import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
+import * as mammoth from 'mammoth';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload } from 'lucide-react';
+import { Message, Question } from '../types';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
+import { ZERO_TOUCH_AGENTS } from '../App';
+
+const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
+  const [answers, setAnswers] = useState<Record<string, { type: 'option' | 'custom', value: string }>>({});
+
+  const handleSubmit = () => {
+    let responseText = "";
+    questions.forEach((q, i) => {
+      const ans = answers[q.id];
+      if (ans) {
+        responseText += `**Soru ${i+1}:** ${q.text}\n**Cevap:** ${ans.value}\n\n`;
+      } else {
+        responseText += `**Soru ${i+1}:** ${q.text}\n**Cevap:** Cevaplanmadı\n\n`;
+      }
+    });
+    onSubmit(responseText.trim());
+  };
+
+  return (
+    <div className="mt-4 space-y-3 border border-theme-border/50 bg-theme-surface/50 p-3 rounded-xl">
+      <h4 className="font-semibold text-theme-text text-sm flex items-center gap-2">
+        <Lightbulb className="w-4 h-4 text-theme-primary" />
+        Lütfen aşağıdaki soruları yanıtlayın:
+      </h4>
+      {questions.map((q, i) => (
+        <div key={q.id} className="space-y-2 p-2.5 bg-theme-bg border border-theme-border rounded-lg">
+          <p className="text-sm font-medium text-theme-text">{i + 1}. {q.text}</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {(q.options || []).map(opt => (
+              <button
+                key={opt}
+                onClick={() => setAnswers(prev => ({ ...prev, [q.id]: { type: 'option', value: opt } }))}
+                className={cn(
+                  "px-3 py-1.5 text-xs rounded-lg border transition-colors",
+                  answers[q.id]?.value === opt && answers[q.id]?.type === 'option' 
+                    ? "bg-theme-primary text-theme-primary-fg border-theme-primary" 
+                    : "bg-theme-surface text-theme-text-muted border-theme-border hover:border-theme-primary/50"
+                )}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            placeholder="Veya kendi cevabınızı yazın..."
+            className="w-full mt-2 text-sm px-3 py-2 rounded-lg border border-theme-border bg-theme-surface text-theme-text focus:outline-none focus:ring-2 focus:ring-theme-primary/20 focus:border-theme-primary transition-all"
+            value={answers[q.id]?.type === 'custom' ? answers[q.id]?.value : ''}
+            onChange={(e) => setAnswers(prev => ({ ...prev, [q.id]: { type: 'custom', value: e.target.value } }))}
+            onClick={() => {
+              if (answers[q.id]?.type !== 'custom') {
+                setAnswers(prev => ({ ...prev, [q.id]: { type: 'custom', value: '' } }));
+              }
+            }}
+          />
+        </div>
+      ))}
+      <button 
+        onClick={handleSubmit} 
+        disabled={Object.keys(answers).length === 0}
+        className="w-full py-2.5 bg-theme-primary text-theme-primary-fg rounded-lg text-sm font-semibold hover:bg-theme-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        <Send className="w-4 h-4" />
+        Cevapları Gönder
+      </button>
+    </div>
+  );
+};
 
 const stringToColor = (str: string) => {
   let hash = 0;
@@ -20,12 +89,12 @@ const stringToColor = (str: string) => {
   return color;
 };
 
-const JetWorkLogo = ({ className, isSpinning, isColorSwapping }: { className?: string, isSpinning?: boolean, isColorSwapping?: boolean }) => {
+const JetWorkLogo = ({ className, isSpinning, isColorSwapping, color, innerColor, centerColor }: { className?: string, isSpinning?: boolean, isColorSwapping?: boolean, color?: string, innerColor?: string, centerColor?: string }) => {
   return (
     <svg viewBox="0 0 100 100" className={cn("shrink-0", className, isSpinning && "animate-spin")}>
-      <rect x="10" y="10" width="80" height="80" className={cn("fill-theme-text", isColorSwapping && "animate-swap-black")} />
-      <rect x="30" y="30" width="40" height="40" className={cn("fill-theme-surface", isColorSwapping && "animate-swap-white")} />
-      <rect x="42" y="42" width="16" height="16" className={cn("fill-theme-text", isColorSwapping && "animate-swap-black")} />
+      <rect x="10" y="10" width="80" height="80" fill={color || "currentColor"} className={cn(!color && "fill-theme-text", isColorSwapping && "animate-swap-black")} />
+      <rect x="30" y="30" width="40" height="40" fill={innerColor || "currentColor"} className={cn(!innerColor && "fill-theme-surface", isColorSwapping && "animate-swap-white")} />
+      <rect x="42" y="42" width="16" height="16" fill={centerColor || color || "currentColor"} className={cn(!centerColor && !color && "fill-theme-text", isColorSwapping && "animate-swap-black")} />
     </svg>
   );
 };
@@ -59,15 +128,11 @@ const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingT
     return isTyping ? "Ajan Düşünüyor..." : "Ajanın Düşünce Süreci";
   };
 
-  const cleanThinkingText = thinkingText?.replace(/\*\*([^*]+)\*\*/g, '').trim();
-
   return (
-    <details open={isTyping} className="group/reasoning mb-3 border border-theme-border/50 rounded-lg overflow-hidden bg-theme-surface/50">
+    <details className="group/reasoning mb-3 border border-theme-border/50 rounded-lg overflow-hidden bg-theme-surface/50">
       <summary className="flex items-center gap-2 cursor-pointer list-none select-none p-3 bg-theme-surface hover:bg-theme-bg transition-colors [&::-webkit-details-marker]:hidden">
-        {isTyping ? (
+        {isTyping && (
           <JetWorkLogo className="w-4 h-4" isSpinning={true} />
-        ) : (
-          <Brain className="w-4 h-4 text-theme-primary" />
         )}
         <span className="font-medium text-sm text-theme-text">
           {getThinkingTitle()}
@@ -76,7 +141,7 @@ const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingT
       </summary>
       
       <div className="p-4 border-t border-theme-border/50 text-xs text-theme-text-muted font-mono whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-        {cleanThinkingText}
+        {thinkingText}
         
         {/* Grounding URLs (Tools) */}
         {groundingUrls && groundingUrls.length > 0 && (
@@ -109,6 +174,7 @@ interface ChatPanelProps {
   projectName?: string;
   onBack?: () => void;
   activeUsers?: { id: string; name: string; role: string }[];
+  collaborators?: { id: string; name: string; role: string; avatar?: string; color?: string }[];
   typingUsers?: { userId: string; userName: string }[];
   onTypingStart?: () => void;
   onTypingEnd?: () => void;
@@ -124,6 +190,10 @@ interface ChatPanelProps {
   hasDocument?: boolean;
   isZeroTouchMode?: boolean;
   onToggleZeroTouchMode?: () => void;
+  activeZeroTouchRoles?: string[];
+  setActiveZeroTouchRoles?: (roles: string[]) => void;
+  isLoadingWorkspace?: boolean;
+  onManageParticipants?: () => void;
 }
 
 const SLASH_COMMANDS = [
@@ -149,17 +219,268 @@ const getLatestThought = (text: string) => {
   return lastLine;
 };
 
+const MessageItem = memo(({ 
+  msg, 
+  idx, 
+  currentUser, 
+  onRestoreDocument, 
+  setDiffModalData, 
+  onToggleReaction,
+  isLastMessage
+}: { 
+  msg: Message, 
+  idx: number, 
+  currentUser: any, 
+  onRestoreDocument?: (doc: any) => void, 
+  setDiffModalData: (data: any) => void, 
+  onToggleReaction?: (id: string, emoji: string) => void,
+  isLastMessage?: boolean
+}) => {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex gap-4 group"
+    >
+      <div className="shrink-0 mt-1">
+        {msg.role === 'user' ? (
+          <div 
+            className="w-8 h-8 flex items-center justify-center text-white text-xs font-bold rounded-full shadow-sm"
+            style={{ backgroundColor: msg.senderName ? stringToColor(msg.senderName) : 'var(--theme-primary)' }}
+            title={`${msg.senderName} (${msg.senderRole})`}
+          >
+            {msg.senderName ? msg.senderName.charAt(0).toUpperCase() : <User size={14} />}
+          </div>
+        ) : (
+          <div className="w-8 h-8 flex items-center justify-center">
+            <JetWorkLogo 
+              className="w-8 h-8" 
+              color={
+                msg.agentRole === 'BA' ? "#3b82f6" : // blue-500
+                msg.agentRole === 'IT' ? "#a855f7" : // purple-500
+                msg.agentRole === 'QA' ? "#22c55e" : // green-500
+                msg.agentRole === 'Orchestrator' ? "#f59e0b" : // amber-500
+                "var(--theme-primary)"
+              } 
+            />
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-semibold text-theme-text">
+            {msg.role === 'user' ? (msg.senderName || 'Siz') : 
+             msg.agentRole ? `${msg.agentRole} Agent` : 'JetWork AI'}
+          </span>
+          <span className="text-[10px] font-medium text-theme-text-muted uppercase tracking-widest">
+            {msg.role === 'user' ? msg.senderRole : 
+             msg.agentRole === 'BA' ? 'İş Analisti' :
+             msg.agentRole === 'IT' ? 'Yazılım Mimarı' :
+             msg.agentRole === 'QA' ? 'Test Uzmanı' :
+             msg.agentRole === 'Orchestrator' ? 'Moderatör' :
+             'Sistem Asistanı'}
+          </span>
+          {msg.score !== undefined && (
+            <span className={cn(
+              "text-[10px] font-bold px-1.5 py-0.5 rounded-md ml-1",
+              msg.score >= 90 ? "bg-green-500/10 text-green-500" :
+              msg.score >= 70 ? "bg-amber-500/10 text-amber-500" :
+              "bg-red-500/10 text-red-500"
+            )}>
+              Puan: {msg.score}
+            </span>
+          )}
+          {msg.role === 'model' && (
+            <span className="text-xs text-theme-text-muted ml-2">
+              • <MessageTimer isTyping={!!msg.isTyping} />
+            </span>
+          )}
+        </div>
+        
+        <div className={cn(
+          "text-sm text-theme-text leading-relaxed p-3 rounded-2xl shadow-sm border",
+          msg.role === 'user' 
+            ? "bg-theme-surface border-theme-border/50 rounded-tl-sm" 
+            : "bg-theme-primary/10 border-theme-primary/20 rounded-tr-sm"
+        )}>
+          {msg.isTyping && !msg.text && !msg.thinkingText ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-theme-primary animate-pulse">
+                <MonogramSpinner />
+                <span>Strateji Belirleniyor...</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 mt-1">
+              {msg.thinkingText && (
+                <ReasoningProcess 
+                  thinkingText={msg.thinkingText} 
+                  isTyping={!!msg.isTyping} 
+                  groundingUrls={msg.groundingUrls} 
+                />
+              )}
+              
+              {msg.attachments && msg.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {msg.attachments.map((att, idx) => (
+                    att.mimeType.startsWith('image/') ? (
+                      <img key={idx} src={att.url} alt="uploaded" className="max-w-[200px] max-h-[200px] object-cover border border-theme-border/50 rounded-md shadow-sm" />
+                    ) : (
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden max-w-[200px]">
+                        <FileText size={16} className="text-theme-primary shrink-0" />
+                        <span className="text-xs font-bold text-theme-text-muted uppercase shrink-0">{att.name?.split('.').pop() || 'FILE'}</span>
+                        {att.name && <span className="text-xs text-theme-text truncate">{att.name}</span>}
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
+              
+              {msg.text && (
+                <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-theme-text prose-a:text-theme-primary prose-a:underline hover:prose-a:no-underline prose-pre:bg-theme-surface prose-pre:text-theme-text prose-pre:border prose-pre:border-theme-border prose-pre:p-4 prose-pre:rounded-lg prose-code:text-theme-text prose-code:bg-theme-surface-hover prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({node, ...props}) => {
+                        const childrenArray = React.Children.toArray(props.children);
+                        if (childrenArray.length === 1 && typeof childrenArray[0] === 'string' && childrenArray[0].startsWith('@')) {
+                          return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-theme-primary/10 text-theme-primary font-semibold text-xs border border-theme-primary/20" {...props} />
+                        }
+                        return <strong {...props} />
+                      }
+                    }}
+                  >
+                    {msg.text.replace(new RegExp(`@(${currentUser?.name || 'Kullanıcı'}|Kullanıcı)`, 'gi'), `**@${currentUser?.name || 'Kullanıcı'}**`)}
+                  </ReactMarkdown>
+                </div>
+              )}
+              
+              {msg.questions && msg.questions.length > 0 && !msg.isTyping && (
+                <InteractiveQuestions 
+                  questions={msg.questions} 
+                  onSubmit={(answerText) => {
+                    // Find the parent component's onSendMessage and pass the answer
+                    // We need to pass this down from ChatPanel
+                    const customEvent = new CustomEvent('submit-interactive-answer', { detail: answerText });
+                    window.dispatchEvent(customEvent);
+                  }} 
+                />
+              )}
+            </div>
+          )}
+          
+          {msg.role === 'model' && msg.isTyping && msg.text && (
+            <div className="mt-4 p-4 bg-theme-surface border border-theme-border border-dashed rounded-xl shadow-sm flex items-center gap-3 animate-pulse">
+              <JetWorkLogo className="w-4 h-4" isSpinning={true} />
+              <span className="text-sm font-medium text-theme-text-muted">Dokümanlar versiyonlanıyor...</span>
+            </div>
+          )}
+
+          {msg.documentActions && msg.documentActions.length > 0 && (
+            <div className="mt-4 p-4 bg-theme-surface border border-theme-border rounded-xl shadow-sm">
+              <div className="flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted">
+                <FileText size={14} className="text-theme-primary" /> İşlem Geçmişi
+              </div>
+              <ul className="space-y-2 mb-4">
+                {msg.documentActions.map((action, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-theme-text">
+                    <span className="text-theme-primary mt-1">•</span>
+                    <span>{action}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-2 border-t border-theme-border/50 pt-3">
+                <button className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-bg hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm">
+                  <Bookmark size={12} /> Kaydet
+                </button>
+                <button 
+                  onClick={() => setDiffModalData({ oldDoc: msg.previousDocumentSnapshot, newDoc: msg.documentSnapshot })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-bg hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
+                >
+                  <Eye size={12} /> Farkı Gör
+                </button>
+                {onRestoreDocument && (
+                  <button 
+                    onClick={() => onRestoreDocument(msg.documentSnapshot)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-bg hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
+                  >
+                    <RotateCcw size={12} /> Geri Yükle
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {msg.groundingUrls && msg.groundingUrls.length > 0 && (
+            <div className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-theme-text-muted flex items-center gap-1.5">
+                <Globe size={10} /> Kaynaklar
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {msg.groundingUrls.map((url, i) => (
+                  <a 
+                    key={i} 
+                    href={url.uri} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-[10px] flex items-center gap-1.5 bg-theme-surface hover:bg-theme-surface-hover border border-theme-border text-theme-text-muted hover:text-theme-text px-2 py-1 transition-colors truncate max-w-[240px] rounded-md"
+                  >
+                    <Link2 size={10} className="shrink-0 text-theme-primary" />
+                    <span className="truncate font-medium">{url.title}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Reactions */}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {msg.reactions && msg.reactions.map((reaction, i) => {
+              const hasReacted = currentUser && reaction.users.includes(currentUser.name);
+              return (
+                <button
+                  key={i}
+                  onClick={() => onToggleReaction && onToggleReaction(msg.id, reaction.emoji)}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-colors shadow-sm",
+                    hasReacted 
+                      ? "bg-theme-primary/20 border-theme-primary/30 text-theme-primary" 
+                      : "bg-theme-surface border-theme-border/50 text-theme-text-muted hover:bg-theme-surface-hover"
+                  )}
+                  title={reaction.users.join(', ')}
+                >
+                  <span>{reaction.emoji}</span>
+                  <span className="text-[10px]">{reaction.users.length}</span>
+                </button>
+              );
+            })}
+            
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}, (prevProps, nextProps) => {
+  return prevProps.msg.text === nextProps.msg.text &&
+         prevProps.msg.thinkingText === nextProps.msg.thinkingText &&
+         prevProps.msg.isTyping === nextProps.msg.isTyping &&
+         prevProps.msg.questions === nextProps.msg.questions &&
+         prevProps.msg.id === nextProps.msg.id;
+});
+
 export function ChatPanel({ 
   messages, onSendMessage, isGenerating, issueKey, status, title, projectName, 
-  onBack, activeUsers, typingUsers, 
+  onBack, activeUsers, collaborators, typingUsers, 
   onTypingStart, onTypingEnd, onToggleReaction, currentUser,
   isAiActive, onToggleAiActive, aiHandRaised, onAcceptAiHandRaise, onDismissAiHandRaise,
   selectedDocumentText, onRestoreDocument, hasDocument,
-  isZeroTouchMode, onToggleZeroTouchMode
+  isZeroTouchMode, onToggleZeroTouchMode,
+  activeZeroTouchRoles, setActiveZeroTouchRoles,
+  isLoadingWorkspace,
+  onManageParticipants
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [selectedAttachments, setSelectedAttachments] = useState<{ url: string; data: string; mimeType: string; name?: string; file?: File }[]>([]);
-  const [isListening, setIsListening] = useState(false);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
@@ -168,10 +489,11 @@ export function ChatPanel({
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [diffModalData, setDiffModalData] = useState<{ oldDoc?: any, newDoc?: any } | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showZeroTouchSettings, setShowZeroTouchSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recognitionRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestionsScrollRef = useRef<HTMLDivElement>(null);
@@ -233,62 +555,23 @@ export function ChatPanel({
     }
   }, [aiHandRaised]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isScrolledUp) {
       scrollToBottom();
     }
   }, [messages, isScrolledUp]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'tr-TR';
-
-        recognition.onresult = (event: any) => {
-          let finalTranscript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript;
-            }
-          }
-          if (finalTranscript) {
-            setInput(prev => {
-              const separator = prev && !prev.endsWith(' ') ? ' ' : '';
-              return prev + separator + finalTranscript;
-            });
-          }
-        };
-
-        recognition.onerror = (event: any) => {
-          console.error('Speech recognition error', event.error);
-          setIsListening(false);
-        };
-
-        recognition.onend = () => {
-          setIsListening(false);
-        };
-
-        recognitionRef.current = recognition;
+    const handleInteractiveSubmit = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail && !isGenerating) {
+        onSendMessage(customEvent.detail, []);
       }
-    }
-  }, []);
-
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
-      try {
-        recognitionRef.current?.start();
-        setIsListening(true);
-      } catch (e) {
-        console.error("Could not start speech recognition", e);
-      }
-    }
-  };
+    };
+    
+    window.addEventListener('submit-interactive-answer', handleInteractiveSubmit);
+    return () => window.removeEventListener('submit-interactive-answer', handleInteractiveSubmit);
+  }, [onSendMessage, isGenerating]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,27 +581,68 @@ export function ChatPanel({
     setSelectedAttachments([]);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const isSupportedFileType = (file: File) => {
+    const supportedTypes = [
+      'application/pdf', 
+      'text/plain', 
+      'text/csv', 
+      'text/html', 
+      'text/markdown',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    return file.type.startsWith('image/') || supportedTypes.includes(file.type) || file.name.toLowerCase().endsWith('.docx');
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-        files.forEach(file => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        // Extract the base64 data part (remove "data:image/jpeg;base64,")
-        const data = base64String.split(',')[1];
-        
-        setSelectedAttachments(prev => [...prev, {
-          url: base64String,
-          data: data,
-          mimeType: file.type,
-          name: file.name,
-          file: file
-        }]);
-      };
-      reader.readAsDataURL(file);
-    });
+    for (const file of files) {
+      if (!isSupportedFileType(file)) {
+        alert(`Desteklenmeyen dosya türü: ${file.name}. Sadece Görsel, PDF, TXT, CSV ve DOCX dosyaları desteklenmektedir.`);
+        continue;
+      }
+
+      if (file.name.toLowerCase().endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          const text = result.value;
+          
+          // Convert text to base64 safely
+          const bytes = new TextEncoder().encode(text);
+          const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
+          const base64Text = btoa(binString);
+          
+          setSelectedAttachments(prev => [...prev, {
+            url: `data:text/plain;base64,${base64Text}`,
+            data: base64Text,
+            mimeType: 'text/plain',
+            name: file.name,
+            file: file
+          }]);
+        } catch (err) {
+          console.error("Error parsing DOCX:", err);
+          alert(`${file.name} dosyası okunurken bir hata oluştu.`);
+        }
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = reader.result as string;
+          // Extract the base64 data part (remove "data:image/jpeg;base64,")
+          const data = base64String.split(',')[1];
+          
+          setSelectedAttachments(prev => [...prev, {
+            url: base64String,
+            data: data,
+            mimeType: file.type,
+            name: file.name,
+            file: file
+          }]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
     
     // Reset file input
     if (fileInputRef.current) {
@@ -447,8 +771,103 @@ export function ChatPanel({
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set dragging to false if we're leaving the main container
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      if (!isSupportedFileType(file)) {
+        alert(`Desteklenmeyen dosya türü: ${file.name}. Sadece Görsel, PDF, TXT, CSV ve DOCX dosyaları desteklenmektedir.`);
+        continue;
+      }
+
+      if (file.name.toLowerCase().endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          const text = result.value;
+          
+          const bytes = new TextEncoder().encode(text);
+          const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
+          const base64Text = btoa(binString);
+          
+          setSelectedAttachments(prev => [...prev, {
+            url: `data:text/plain;base64,${base64Text}`,
+            data: base64Text,
+            mimeType: 'text/plain',
+            name: file.name,
+            file: file
+          }]);
+        } catch (err) {
+          console.error("Error parsing DOCX:", err);
+          alert(`${file.name} dosyası okunurken bir hata oluştu.`);
+        }
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = reader.result as string;
+          const data = base64String.split(',')[1];
+          
+          setSelectedAttachments(prev => [...prev, {
+            url: base64String,
+            data: data,
+            mimeType: file.type,
+            name: file.name,
+            file: file
+          }]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
   return (
-    <div className="w-[500px] shrink-0 flex flex-col bg-theme-bg relative overflow-hidden border-r border-theme-border transition-colors duration-300">
+    <div 
+      className="w-[650px] shrink-0 flex flex-col bg-theme-bg relative overflow-hidden border-r border-theme-border transition-colors duration-300"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[100] bg-theme-primary/10 backdrop-blur-sm border-2 border-dashed border-theme-primary flex items-center justify-center"
+          >
+            <div className="bg-theme-bg p-6 rounded-2xl shadow-xl flex flex-col items-center gap-4 border border-theme-border pointer-events-none">
+              <div className="w-16 h-16 bg-theme-primary/10 rounded-full flex items-center justify-center text-theme-primary">
+                <Upload size={32} />
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-bold text-theme-text mb-1">Dosyaları Buraya Bırakın</h3>
+                <p className="text-sm text-theme-text-muted">Görsel, PDF, TXT, CSV ve DOCX belgeleri ekleyebilirsiniz</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="h-16 flex items-center px-4 bg-theme-bg border-b border-theme-border sticky top-0 z-10 transition-colors duration-300 shadow-sm">
         <div className="flex items-center gap-3 w-full">
@@ -481,22 +900,32 @@ export function ChatPanel({
             </div>
           </div>
           
-          {/* Active Users */}
-          {activeUsers && activeUsers.length > 0 && (
-            <div className="flex items-center -space-x-2 mr-2">
-              {activeUsers.slice(0, 3).map((u, i) => (
-                <div 
-                  key={u.id || i} 
-                  className="w-7 h-7 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
-                  style={{ backgroundColor: stringToColor(u.name), zIndex: 10 - i }}
-                  title={`${u.name} (${u.role})`}
-                >
-                  {u.name.charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {activeUsers.length > 3 && (
+          {/* Collaborators / Active Users */}
+          {collaborators && collaborators.length > 0 && (
+            <div 
+              className="flex items-center -space-x-2 mr-2 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={onManageParticipants}
+              title="Katılımcıları Yönet"
+            >
+              {collaborators.slice(0, 3).map((u, i) => {
+                const isActive = activeUsers?.some(au => au.id === u.id || au.name === u.name);
+                return (
+                  <div 
+                    key={u.id || i} 
+                    className={`w-7 h-7 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold text-white shadow-sm relative ${isActive ? 'ring-2 ring-green-500' : ''}`}
+                    style={{ backgroundColor: u.color || stringToColor(u.name), zIndex: 10 - i }}
+                  >
+                    {u.avatar ? (
+                      <img src={u.avatar} alt={u.name} className="w-full h-full rounded-full object-cover" />
+                    ) : (
+                      u.name.charAt(0).toUpperCase()
+                    )}
+                  </div>
+                );
+              })}
+              {collaborators.length > 3 && (
                 <div className="w-7 h-7 rounded-full border-2 border-theme-surface bg-theme-surface-hover flex items-center justify-center text-[10px] font-bold text-theme-text-muted shadow-sm" style={{ zIndex: 0 }}>
-                  +{activeUsers.length - 3}
+                  +{collaborators.length - 3}
                 </div>
               )}
             </div>
@@ -505,7 +934,7 @@ export function ChatPanel({
           {/* Zero-Touch Mode Toggle Button */}
           {onToggleZeroTouchMode && (
             <button
-              onClick={onToggleZeroTouchMode}
+              onClick={() => setShowZeroTouchSettings(true)}
               className={cn(
                 "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border mr-2",
                 isZeroTouchMode 
@@ -524,12 +953,15 @@ export function ChatPanel({
             className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border",
               isAiActive 
-                ? "bg-theme-primary text-theme-primary-fg border-theme-primary shadow-theme-primary/20" 
+                ? "bg-theme-surface border-green-500 shadow-green-500/20" 
                 : "bg-theme-surface text-theme-text-muted border-theme-border hover:border-theme-primary/50 hover:text-theme-primary"
             )}
             title={isAiActive ? "Yapay Zeka Aktif Katılımda" : "Yapay Zeka Pasif Dinlemede"}
           >
-            <Bot size={16} className={cn(isAiActive && "animate-pulse")} />
+            <JetWorkLogo 
+              className={cn("w-4 h-4", isAiActive && "animate-pulse")} 
+              innerColor={isAiActive ? "#22c55e" : undefined}
+            />
           </button>
         </div>
       </header>
@@ -538,243 +970,54 @@ export function ChatPanel({
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-8 py-8 relative"
+        className="flex-1 overflow-y-auto px-8 py-8 relative chat-scroll-container"
       >
         <div className="max-w-4xl mx-auto space-y-8">
-          <AnimatePresence initial={false}>
-            {messages.length === 0 ? (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="h-full flex flex-col items-start justify-center py-20"
-              >
-                <div className="w-12 h-12 bg-theme-surface flex items-center justify-center mb-6 border border-theme-border rounded-xl shadow-sm">
-                  <Bot className="text-theme-primary" size={24} />
+          {isLoadingWorkspace ? (
+            <div className="space-y-6 animate-pulse">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className={`flex gap-4 ${i % 2 !== 0 ? 'flex-row-reverse' : ''}`}>
+                  <div className="w-10 h-10 rounded-full bg-theme-border/50 shrink-0" />
+                  <div className={`space-y-2 max-w-[70%] ${i % 2 !== 0 ? 'items-end' : 'items-start'} flex flex-col`}>
+                    <div className="h-4 w-24 bg-theme-border/50 rounded" />
+                    <div className={`h-20 w-full bg-theme-border/30 rounded-2xl ${i % 2 !== 0 ? 'rounded-tr-sm' : 'rounded-tl-sm'}`} style={{ width: `${Math.max(40, Math.random() * 100)}%` }} />
+                  </div>
                 </div>
-                <h2 className="text-xl font-semibold text-theme-text mb-2 tracking-tight">Çalışma Alanına Hoş Geldiniz</h2>
-                <p className="text-sm text-theme-text-muted mb-8 max-w-md leading-relaxed">
-                  Bu kanal proje ekibinizle iletişim kurmanız içindir. JetWork AI arka planda konuşmaları dinler ve gerektiğinde analiz, dokümantasyon veya teknik önerilerle sohbete proaktif olarak dahil olur.
-                </p>
-              </motion.div>
-            ) : (
-              messages.map((msg, idx) => (
+              ))}
+            </div>
+          ) : (
+            <AnimatePresence initial={false}>
+              {messages.length === 0 ? (
                 <motion.div 
-                  key={msg.id + '-' + idx}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex gap-4 group"
+                  className="h-full flex flex-col items-start justify-center py-20"
                 >
-                  <div className="shrink-0 mt-1">
-                    {msg.role === 'user' ? (
-                      <div 
-                        className="w-8 h-8 flex items-center justify-center text-white text-xs font-bold rounded-full shadow-sm"
-                        style={{ backgroundColor: msg.senderName ? stringToColor(msg.senderName) : 'var(--theme-primary)' }}
-                        title={`${msg.senderName} (${msg.senderRole})`}
-                      >
-                        {msg.senderName ? msg.senderName.charAt(0).toUpperCase() : <User size={14} />}
-                      </div>
-                    ) : (
-                      <div className={cn(
-                        "w-8 h-8 flex items-center justify-center text-white rounded-lg shadow-sm",
-                        msg.agentRole === 'BA' ? "bg-blue-500" :
-                        msg.agentRole === 'IT' ? "bg-purple-500" :
-                        msg.agentRole === 'QA' ? "bg-green-500" :
-                        msg.agentRole === 'Orchestrator' ? "bg-amber-500" :
-                        "bg-theme-primary text-theme-primary-fg"
-                      )}>
-                        {msg.agentRole === 'BA' ? <FileText size={14} /> :
-                         msg.agentRole === 'IT' ? <Command size={14} /> :
-                         msg.agentRole === 'QA' ? <Check size={14} /> :
-                         msg.agentRole === 'Orchestrator' ? <Zap size={14} /> :
-                         <Bot size={14} />}
-                      </div>
-                    )}
+                  <div className="w-12 h-12 bg-theme-surface flex items-center justify-center mb-6 border border-theme-border rounded-xl shadow-sm">
+                    <JetWorkLogo className="w-6 h-6 text-theme-primary" />
                   </div>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold text-theme-text">
-                        {msg.role === 'user' ? (msg.senderName || 'Siz') : 
-                         msg.agentRole ? `${msg.agentRole} Agent` : 'JetWork AI'}
-                      </span>
-                      <span className="text-[10px] font-medium text-theme-text-muted uppercase tracking-widest">
-                        {msg.role === 'user' ? msg.senderRole : 
-                         msg.agentRole === 'BA' ? 'İş Analisti' :
-                         msg.agentRole === 'IT' ? 'Yazılım Mimarı' :
-                         msg.agentRole === 'QA' ? 'Test Uzmanı' :
-                         msg.agentRole === 'Orchestrator' ? 'Orkestratör' :
-                         'Sistem Asistanı'}
-                      </span>
-                      {msg.score !== undefined && (
-                        <span className={cn(
-                          "text-[10px] font-bold px-1.5 py-0.5 rounded-md ml-1",
-                          msg.score >= 90 ? "bg-green-500/10 text-green-500" :
-                          msg.score >= 70 ? "bg-amber-500/10 text-amber-500" :
-                          "bg-red-500/10 text-red-500"
-                        )}>
-                          Puan: {msg.score}
-                        </span>
-                      )}
-                      {msg.role === 'model' && (
-                        <span className="text-xs text-theme-text-muted ml-2">
-                          • <MessageTimer isTyping={!!msg.isTyping} />
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className={cn(
-                      "text-sm text-theme-text leading-relaxed p-4 rounded-2xl shadow-sm border",
-                      msg.role === 'user' 
-                        ? "bg-theme-surface border-theme-border/50 rounded-tl-sm" 
-                        : "bg-theme-primary/10 border-theme-primary/20 rounded-tr-sm"
-                    )}>
-                      {msg.isTyping && !msg.text && !msg.thinkingText ? (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-theme-primary animate-pulse">
-                            <MonogramSpinner />
-                            <span>Strateji Belirleniyor...</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-3 mt-1">
-                          {msg.thinkingText && (
-                            <ReasoningProcess 
-                              thinkingText={msg.thinkingText} 
-                              isTyping={!!msg.isTyping} 
-                              groundingUrls={msg.groundingUrls} 
-                            />
-                          )}
-                          
-                          {msg.attachments && msg.attachments.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {msg.attachments.map((att, idx) => (
-                                att.mimeType.startsWith('image/') ? (
-                                  <img key={idx} src={att.url} alt="uploaded" className="max-w-[200px] max-h-[200px] object-cover border border-theme-border/50 rounded-md shadow-sm" />
-                                ) : (
-                                  <div key={idx} className="flex items-center gap-2 p-2 bg-theme-surface border border-theme-border/50 rounded-md shadow-sm">
-                                    <FileText size={16} className="text-theme-primary" />
-                                    <span className="text-xs font-bold text-theme-text-muted uppercase">{att.mimeType.split('/')[1] || 'FILE'}</span>
-                                    {att.name && <span className="text-xs text-theme-text truncate max-w-[150px]">{att.name}</span>}
-                                  </div>
-                                )
-                              ))}
-                            </div>
-                          )}
-                          
-                          {msg.text && (
-                            <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-theme-text prose-a:text-theme-primary prose-a:underline hover:prose-a:no-underline prose-pre:bg-theme-surface prose-pre:text-theme-text prose-pre:border prose-pre:border-theme-border prose-pre:p-4 prose-pre:rounded-lg prose-code:text-theme-text prose-code:bg-theme-surface-hover prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
-                              <ReactMarkdown 
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  strong: ({node, ...props}) => {
-                                    const childrenArray = React.Children.toArray(props.children);
-                                    if (childrenArray.length === 1 && typeof childrenArray[0] === 'string' && childrenArray[0].startsWith('@')) {
-                                      return <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-theme-primary/10 text-theme-primary font-semibold text-xs border border-theme-primary/20" {...props} />
-                                    }
-                                    return <strong {...props} />
-                                  }
-                                }}
-                              >
-                                {msg.text.replace(new RegExp(`@(${currentUser?.name || 'Kullanıcı'}|Kullanıcı)`, 'gi'), `**@${currentUser?.name || 'Kullanıcı'}**`)}
-                              </ReactMarkdown>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {msg.role === 'model' && msg.isTyping && msg.text && (
-                        <div className="mt-4 p-4 bg-theme-surface border border-theme-border border-dashed rounded-xl shadow-sm flex items-center gap-3 animate-pulse">
-                          <JetWorkLogo className="w-4 h-4" isSpinning={true} />
-                          <span className="text-sm font-medium text-theme-text-muted">Dokümanlar versiyonlanıyor...</span>
-                        </div>
-                      )}
-
-                      {msg.documentActions && msg.documentActions.length > 0 && (
-                        <div className="mt-4 p-4 bg-theme-surface border border-theme-border rounded-xl shadow-sm">
-                          <div className="flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted">
-                            <FileText size={14} className="text-theme-primary" /> İşlem Geçmişi
-                          </div>
-                          <ul className="space-y-2 mb-4">
-                            {msg.documentActions.map((action, i) => (
-                              <li key={i} className="flex items-start gap-2 text-sm text-theme-text">
-                                <span className="text-theme-primary mt-1">•</span>
-                                <span>{action}</span>
-                              </li>
-                            ))}
-                          </ul>
-                          <div className="flex flex-wrap gap-2 border-t border-theme-border/50 pt-3">
-                            <button className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-bg hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm">
-                              <Bookmark size={12} /> Kaydet
-                            </button>
-                            <button 
-                              onClick={() => setDiffModalData({ oldDoc: msg.previousDocumentSnapshot, newDoc: msg.documentSnapshot })}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-bg hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
-                            >
-                              <Eye size={12} /> Farkı Gör
-                            </button>
-                            {onRestoreDocument && (
-                              <button 
-                                onClick={() => onRestoreDocument(msg.documentSnapshot)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-bg hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
-                              >
-                                <RotateCcw size={12} /> Geri Yükle
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {msg.groundingUrls && msg.groundingUrls.length > 0 && (
-                        <div className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50">
-                          <div className="text-[10px] font-bold uppercase tracking-widest text-theme-text-muted flex items-center gap-1.5">
-                            <Globe size={10} /> Kaynaklar
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {msg.groundingUrls.map((url, i) => (
-                              <a 
-                                key={i} 
-                                href={url.uri} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="text-[10px] flex items-center gap-1.5 bg-theme-surface hover:bg-theme-surface-hover border border-theme-border text-theme-text-muted hover:text-theme-text px-2 py-1 transition-colors truncate max-w-[240px] rounded-md"
-                              >
-                                <Link2 size={10} className="shrink-0 text-theme-primary" />
-                                <span className="truncate font-medium">{url.title}</span>
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Reactions */}
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        {msg.reactions && msg.reactions.map((reaction, i) => {
-                          const hasReacted = currentUser && reaction.users.includes(currentUser.name);
-                          return (
-                            <button
-                              key={i}
-                              onClick={() => onToggleReaction && onToggleReaction(msg.id, reaction.emoji)}
-                              className={cn(
-                                "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-colors shadow-sm",
-                                hasReacted 
-                                  ? "bg-theme-primary/20 border-theme-primary/30 text-theme-primary" 
-                                  : "bg-theme-surface border-theme-border/50 text-theme-text-muted hover:bg-theme-surface-hover"
-                              )}
-                              title={reaction.users.join(', ')}
-                            >
-                              <span>{reaction.emoji}</span>
-                              <span className="text-[10px]">{reaction.users.length}</span>
-                            </button>
-                          );
-                        })}
-                        
-                      </div>
-                    </div>
-                  </div>
+                  <h2 className="text-xl font-semibold text-theme-text mb-2 tracking-tight">Çalışma Alanına Hoş Geldiniz</h2>
+                  <p className="text-sm text-theme-text-muted mb-8 max-w-md leading-relaxed">
+                    Bu kanal proje ekibinizle iletişim kurmanız içindir. JetWork AI arka planda konuşmaları dinler ve gerektiğinde analiz, dokümantasyon veya teknik önerilerle sohbete proaktif olarak dahil olur.
+                  </p>
                 </motion.div>
-              ))
-            )}
-          </AnimatePresence>
-          <div ref={messagesEndRef} />
+              ) : (
+                messages.map((msg, idx) => (
+                  <MessageItem 
+                    key={msg.id} 
+                    msg={msg} 
+                    idx={idx} 
+                    currentUser={currentUser} 
+                    onRestoreDocument={onRestoreDocument} 
+                    setDiffModalData={setDiffModalData} 
+                    onToggleReaction={onToggleReaction} 
+                    isLastMessage={idx === messages.length - 1}
+                  />
+                ))
+              )}
+            </AnimatePresence>
+          )}
+          <div ref={messagesEndRef} className="chat-scroll-anchor" />
         </div>
         
         {/* Scroll to bottom button */}
@@ -826,7 +1069,7 @@ export function ChatPanel({
                     <div className="bg-theme-bg border border-theme-primary/30 shadow-2xl rounded-2xl rounded-bl-none p-3.5 flex flex-col gap-2.5 min-w-[280px] max-w-[320px]">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-theme-primary text-xs font-bold">
-                          <Bot size={14} />
+                          <JetWorkLogo className="w-3.5 h-3.5" />
                           <span>JetWork AI'ın bir önerisi var</span>
                         </div>
                         <button
@@ -879,10 +1122,14 @@ export function ChatPanel({
                     {att.mimeType.startsWith('image/') ? (
                       <img src={att.url} alt="upload preview" className="h-16 w-16 object-cover border border-theme-border/50 rounded-md" />
                     ) : (
-                      <div className="h-16 w-16 flex flex-col items-center justify-center bg-theme-surface border border-theme-border/50 rounded-md shadow-sm">
-                        <FileText size={16} className="text-theme-primary" />
-                        <span className="text-[10px] font-bold text-theme-text-muted uppercase">{att.mimeType.split('/')[1] || 'FILE'}</span>
-                        <span className="text-[8px] text-theme-text-muted truncate w-full px-1 text-center mt-1">{att.name}</span>
+                      <div className="h-16 w-16 flex flex-col items-center justify-center bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden p-1">
+                        <FileText size={16} className="text-theme-primary shrink-0" />
+                        <span className="text-[9px] font-bold text-theme-text-muted uppercase truncate w-full text-center mt-1">
+                          {att.name?.split('.').pop() || 'FILE'}
+                        </span>
+                        <span className="text-[8px] text-theme-text-muted truncate w-full text-center mt-0.5">
+                          {att.name}
+                        </span>
                       </div>
                     )}
                     <button
@@ -955,8 +1202,8 @@ export function ChatPanel({
                     onClick={() => insertMention('JetWork AI')}
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
-                    <div className="w-6 h-6 bg-theme-primary flex items-center justify-center text-theme-primary-fg shrink-0 rounded-full text-xs shadow-sm">
-                      <Bot size={12} />
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                      <JetWorkLogo className="w-6 h-6" color="var(--theme-primary)" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">JetWork AI</span>
@@ -968,8 +1215,8 @@ export function ChatPanel({
                     onClick={() => insertMention('BA')}
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
-                    <div className="w-6 h-6 bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0 rounded-full text-xs shadow-sm">
-                      <User size={12} />
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                      <JetWorkLogo className="w-6 h-6" color="#3b82f6" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">İş Analisti (BA)</span>
@@ -981,8 +1228,8 @@ export function ChatPanel({
                     onClick={() => insertMention('IT')}
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
-                    <div className="w-6 h-6 bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0 rounded-full text-xs shadow-sm">
-                      <User size={12} />
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                      <JetWorkLogo className="w-6 h-6" color="#a855f7" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">Yazılım Mimarı (IT)</span>
@@ -994,8 +1241,8 @@ export function ChatPanel({
                     onClick={() => insertMention('QA')}
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
-                    <div className="w-6 h-6 bg-purple-500/10 flex items-center justify-center text-purple-500 shrink-0 rounded-full text-xs shadow-sm">
-                      <User size={12} />
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                      <JetWorkLogo className="w-6 h-6" color="#22c55e" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">Test Uzmanı (QA)</span>
@@ -1007,8 +1254,8 @@ export function ChatPanel({
                     onClick={() => insertMention('PO')}
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
-                    <div className="w-6 h-6 bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0 rounded-full text-xs shadow-sm">
-                      <User size={12} />
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                      <JetWorkLogo className="w-6 h-6" color="#f59e0b" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">Product Owner (PO)</span>
@@ -1051,7 +1298,7 @@ export function ChatPanel({
               <div className="flex items-center justify-end px-3 py-3 gap-2">
                 <input 
                   type="file" 
-                  accept="image/*,application/pdf" 
+                  accept="image/*,application/pdf,text/plain,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
                   multiple 
                   className="hidden" 
                   ref={fileInputRef}
@@ -1071,20 +1318,6 @@ export function ChatPanel({
                 >
                   <Wand2 size={14} />
                 </button>
-
-                {recognitionRef.current && (
-                  <button
-                    type="button"
-                    onClick={toggleListening}
-                    className={cn(
-                      "w-8 h-8 flex items-center justify-center rounded-full border border-theme-border transition-colors",
-                      isListening ? "text-red-500 border-red-500 bg-red-500/10 animate-pulse" : "text-theme-text-muted hover:text-theme-text hover:bg-theme-surface"
-                    )}
-                    title={isListening ? "Dinlemeyi Durdur" : "Sesle Yaz"}
-                  >
-                    <Mic size={14} />
-                  </button>
-                )}
 
                 <button
                   type="button"
@@ -1119,6 +1352,115 @@ export function ChatPanel({
             }
           }}
         />
+      )}
+
+      {showZeroTouchSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-theme-bg border border-theme-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+          >
+            <div className="p-4 border-b border-theme-border flex items-center justify-between bg-theme-surface">
+              <div className="flex items-center gap-2 text-amber-500">
+                <Zap size={18} className="animate-pulse" />
+                <h3 className="font-semibold text-theme-text">Zero-Touch Mode Ayarları</h3>
+              </div>
+              <button 
+                onClick={() => setShowZeroTouchSettings(false)}
+                className="text-theme-text-muted hover:text-theme-text transition-colors p-1 rounded-md hover:bg-theme-surface-hover"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              <p className="text-sm text-theme-text-muted mb-4">
+                Toplantıya katılacak AI ajanlarını seçin. Seçilen ajanlar toplantı boyunca aktif olarak tartışmaya katılacaktır.
+              </p>
+              
+              <div className="space-y-2">
+                {ZERO_TOUCH_AGENTS.map(agent => {
+                  const isMandatory = agent.role === 'Orchestrator';
+                  const isSelected = isMandatory || (activeZeroTouchRoles?.includes(agent.role) ?? false);
+                  
+                  return (
+                    <label 
+                      key={agent.role} 
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-all",
+                        isMandatory ? "cursor-not-allowed opacity-80" : "cursor-pointer",
+                        isSelected 
+                          ? "border-amber-500/50 bg-amber-500/5" 
+                          : "border-theme-border bg-theme-surface hover:border-theme-border/80"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-5 h-5 rounded flex items-center justify-center border transition-colors",
+                        isSelected ? "bg-amber-500 border-amber-500 text-white" : "border-theme-border bg-theme-bg"
+                      )}>
+                        {isSelected && <Check size={14} />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-sm text-theme-text flex items-center gap-2">
+                          {agent.name}
+                          {isMandatory && <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded-full">Zorunlu</span>}
+                        </div>
+                        <div className="text-xs text-theme-text-muted">{agent.role}</div>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        className="hidden"
+                        checked={isSelected}
+                        disabled={isMandatory}
+                        onChange={() => {
+                          if (!setActiveZeroTouchRoles || !activeZeroTouchRoles || isMandatory) return;
+                          if (isSelected) {
+                            setActiveZeroTouchRoles(activeZeroTouchRoles.filter(r => r !== agent.role));
+                          } else {
+                            setActiveZeroTouchRoles([...activeZeroTouchRoles, agent.role]);
+                          }
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-theme-border bg-theme-surface flex justify-between items-center">
+              <div className="text-xs text-theme-text-muted">
+                {new Set([...(activeZeroTouchRoles || []), 'Orchestrator']).size} ajan seçili
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowZeroTouchSettings(false)}
+                  className="px-4 py-2 text-sm font-medium text-theme-text-muted hover:text-theme-text transition-colors"
+                >
+                  Kapat
+                </button>
+                <button 
+                  onClick={() => {
+                    if (onToggleZeroTouchMode) {
+                      onToggleZeroTouchMode();
+                    }
+                    setShowZeroTouchSettings(false);
+                  }}
+                  className={cn(
+                    "px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2",
+                    isZeroTouchMode 
+                      ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" 
+                      : "bg-amber-500 text-white hover:bg-amber-600"
+                  )}
+                >
+                  <Zap size={16} />
+                  {isZeroTouchMode ? "Modu Kapat" : "Modu Başlat"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
       )}
     </div>
   );

@@ -1,18 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Mail, Lock, User } from 'lucide-react';
+import { signInWithGoogle, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, auth } from '../firebase';
 
 interface LandingPageProps {
-  onLogin: (user: { name: string; role: string }) => void;
+  onLogin: (user: { uid: string; name: string; role: string }) => void;
 }
-
-const ROLES = [
-  'İş Analisti',
-  'Fonksiyonel Analist',
-  'Yazılım Geliştirici',
-  'Test Uzmanı',
-  'Proje Yöneticisi'
-];
 
 // Minimalist Swiss Logo
 const SwissLogo = () => (
@@ -24,13 +17,56 @@ const SwissLogo = () => (
 );
 
 export function LandingPage({ onLogin }: LandingPageProps) {
-  const [name, setName] = useState('');
-  const [role, setRole] = useState(ROLES[0]);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleGoogleLogin = async () => {
+    try {
+      setIsLoggingIn(true);
+      setErrorMsg('');
+      await signInWithGoogle();
+      // App.tsx's onAuthStateChanged will handle the rest
+    } catch (error: any) {
+      console.error("Login failed", error);
+      setErrorMsg(error.message || 'Google ile giriş başarısız oldu.');
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim()) {
-      onLogin({ name: name.trim(), role });
+    if (!email || !password) {
+      setErrorMsg('Lütfen e-posta ve şifre girin.');
+      return;
+    }
+    
+    try {
+      setIsLoggingIn(true);
+      setErrorMsg('');
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (error: any) {
+      console.error("Auth failed", error);
+      setErrorMsg(error.message || 'Giriş/Kayıt başarısız oldu. Firebase Console üzerinden Email/Password sağlayıcısını etkinleştirdiğinizden emin olun.');
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    try {
+      setIsLoggingIn(true);
+      setErrorMsg('');
+      await signInAnonymously(auth);
+    } catch (error: any) {
+      console.error("Guest login failed", error);
+      setErrorMsg(error.message || 'Misafir girişi başarısız oldu. Firebase Console üzerinden Anonymous sağlayıcısını etkinleştirdiğinizden emin olun.');
+      setIsLoggingIn(false);
     }
   };
 
@@ -60,7 +96,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
         >
           <div className="bg-theme-surface border border-theme-border p-10 shadow-lg rounded-2xl transition-colors duration-300">
             
-            <div className="mb-10">
+            <div className="mb-8">
               <h1 className="text-2xl font-semibold tracking-tight text-theme-text mb-2">
                 Sisteme Giriş
               </h1>
@@ -69,54 +105,90 @@ export function LandingPage({ onLogin }: LandingPageProps) {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-theme-text uppercase tracking-widest">
-                  Ad Soyad
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Örn: Ahmet Yılmaz"
-                  required
-                  className="w-full bg-transparent border-b-2 border-theme-border text-theme-text text-base py-3 focus:outline-none focus:border-theme-primary transition-colors placeholder:text-theme-text-muted/50 rounded-none"
-                />
+            {errorMsg && (
+              <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-xs leading-relaxed">
+                {errorMsg}
               </div>
+            )}
 
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-theme-text uppercase tracking-widest">
-                  Kurumsal Rol
-                </label>
+            <form onSubmit={handleEmailAuth} className="space-y-4 mb-6">
+              <div>
                 <div className="relative">
-                  <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    className="w-full bg-transparent border-b-2 border-theme-border text-theme-text text-base py-3 focus:outline-none focus:border-theme-primary transition-colors appearance-none cursor-pointer rounded-none"
-                  >
-                    {ROLES.map(r => (
-                      <option key={r} value={r} className="bg-theme-surface text-theme-text">{r}</option>
-                    ))}
-                  </select>
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none text-theme-text">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" strokeLinejoin="miter">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </div>
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-muted" />
+                  <input
+                    type="email"
+                    placeholder="E-posta adresi"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-theme-bg border border-theme-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors"
+                  />
                 </div>
               </div>
-
-              <div className="pt-6">
+              <div>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-muted" />
+                  <input
+                    type="password"
+                    placeholder="Şifre"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-theme-bg border border-theme-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors"
+                  />
+                </div>
+              </div>
+              
+              <button
+                type="submit"
+                disabled={isLoggingIn}
+                className="w-full flex items-center justify-center bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm"
+              >
+                {isLoggingIn ? 'İşleniyor...' : (isSignUp ? 'Kayıt Ol' : 'E-posta ile Giriş Yap')}
+              </button>
+              
+              <div className="text-center">
                 <button
-                  type="submit"
-                  disabled={!name.trim()}
-                  className="w-full flex items-center justify-between bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-medium px-6 py-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group rounded-lg shadow-sm"
+                  type="button"
+                  onClick={() => setIsSignUp(!isSignUp)}
+                  className="text-xs text-theme-text-muted hover:text-theme-text transition-colors"
                 >
-                  <span>Devam Et</span>
-                  <ArrowRight size={18} className="transform group-hover:translate-x-1 transition-transform" />
+                  {isSignUp ? 'Zaten hesabınız var mı? Giriş yapın' : 'Hesabınız yok mu? Kayıt olun'}
                 </button>
               </div>
             </form>
+
+            <div className="relative mb-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-theme-border"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-theme-surface px-2 text-theme-text-muted uppercase tracking-widest">Veya</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={handleGoogleLogin}
+                disabled={isLoggingIn}
+                className="w-full flex items-center justify-center gap-2 bg-theme-bg border border-theme-border hover:bg-theme-border/50 text-theme-text text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                  <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+                Google ile Devam Et
+              </button>
+
+              <button
+                onClick={handleGuestLogin}
+                disabled={isLoggingIn}
+                className="w-full flex items-center justify-center gap-2 bg-theme-bg border border-theme-border hover:bg-theme-border/50 text-theme-text text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+              >
+                <User className="w-4 h-4" />
+                Misafir Olarak Devam Et
+              </button>
+            </div>
 
           </div>
 

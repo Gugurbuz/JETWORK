@@ -5,6 +5,12 @@ export interface Reaction {
   users: string[];
 }
 
+export interface Question {
+  id: string;
+  text: string;
+  options: string[];
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -12,6 +18,7 @@ export interface Message {
   senderName?: string;
   senderRole?: string;
   isTyping?: boolean;
+  actionSummary?: string;
   groundingUrls?: { uri: string; title: string }[];
   thinkingText?: string;
   attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[];
@@ -24,6 +31,9 @@ export interface Message {
   scoreExplanation?: string;
   tokenCount?: number;
   thinkingTime?: number;
+  questions?: Question[];
+  createdAt?: number;
+  ownerId?: string;
 }
 
 export type WorkspaceType = 'Development' | 'Support' | 'Bug' | 'Improvement';
@@ -35,6 +45,7 @@ export interface Collaborator {
   avatar: string;
   role: string;
   color: string;
+  email?: string;
 }
 
 export interface DocumentData {
@@ -43,11 +54,9 @@ export interface DocumentData {
   test: string;
   bpmn?: string;
   review?: string;
-  thoughtProcess?: string;
   suggestions?: string[];
   score?: number;
   scoreExplanation?: string;
-  conflictAnalysis?: string;
 }
 
 export interface ActiveUser {
@@ -63,6 +72,7 @@ export interface TypingUser {
 
 export interface Workspace {
   id: string;
+  projectId: string;
   issueKey: string; // e.g., JET-123
   title: string;
   type: WorkspaceType;
@@ -72,6 +82,7 @@ export interface Workspace {
   createdAt: number;
   lastUpdated: number;
   collaborators: Collaborator[];
+  ownerId: string;
 }
 
 export interface Project {
@@ -81,4 +92,5 @@ export interface Project {
   workspaces: Workspace[];
   createdAt: number;
   lastUpdated: number;
+  ownerId: string;
 }

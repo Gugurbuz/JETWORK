@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone } from 'lucide-react';
+import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone, Edit2, Trash2 } from 'lucide-react';
 import { Project, Workspace } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,6 +15,8 @@ interface SidebarProps {
   onSelectProject: (id: string) => void;
   onNewWorkspace: () => void;
   onNewProject: () => void;
+  onEditProject?: (project: Project) => void;
+  onDeleteProject?: (id: string) => void;
   theme: ThemeType;
   onThemeChange: (theme: ThemeType) => void;
   onLogout: () => void;
@@ -30,7 +32,7 @@ const SwissLogo = () => (
   </svg>
 );
 
-export function Sidebar({ user, projects, currentWorkspaceId, currentProjectId, onSelectWorkspace, onSelectProject, onNewWorkspace, onNewProject, theme, onThemeChange, onLogout, onOpenSettings }: SidebarProps) {
+export function Sidebar({ user, projects, currentWorkspaceId, currentProjectId, onSelectWorkspace, onSelectProject, onNewWorkspace, onNewProject, onEditProject, onDeleteProject, theme, onThemeChange, onLogout, onOpenSettings }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [showUserMenu, setShowUserMenu] = React.useState(false);
 
@@ -110,32 +112,54 @@ export function Sidebar({ user, projects, currentWorkspaceId, currentProjectId, 
               </div>
               <div className="space-y-1">
                 {projects.map(project => (
-                  <button 
-                    key={project.id}
-                    onClick={() => onSelectProject(project.id)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left group",
-                      currentProjectId === project.id 
-                        ? "bg-theme-surface-hover" 
-                        : "hover:bg-theme-surface"
-                    )}
-                  >
-                    <div className="w-8 h-8 rounded-md bg-theme-surface border border-theme-border flex items-center justify-center shrink-0 group-hover:border-theme-primary/50 transition-colors">
-                      <FolderPlus size={14} className={currentProjectId === project.id ? "text-theme-primary" : "text-theme-text-muted"} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className={cn(
-                        "text-sm font-medium truncate",
-                        currentProjectId === project.id ? "text-theme-text" : "text-theme-text-muted group-hover:text-theme-text"
-                      )}>
-                        {project.name}
+                  <div key={project.id} className="relative group">
+                    <button 
+                      onClick={() => onSelectProject(project.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left",
+                        currentProjectId === project.id 
+                          ? "bg-theme-surface-hover" 
+                          : "hover:bg-theme-surface"
+                      )}
+                    >
+                      <div className="w-8 h-8 rounded-md bg-theme-surface border border-theme-border flex items-center justify-center shrink-0 group-hover:border-theme-primary/50 transition-colors">
+                        <FolderPlus size={14} className={currentProjectId === project.id ? "text-theme-primary" : "text-theme-text-muted"} />
                       </div>
-                      <div className="text-[10px] text-theme-text-muted flex items-center gap-1 mt-0.5">
-                        <Monitor size={10} />
-                        {new Date(project.createdAt).toLocaleDateString('tr-TR', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      <div className="flex-1 min-w-0 pr-12">
+                        <div className={cn(
+                          "text-sm font-medium truncate",
+                          currentProjectId === project.id ? "text-theme-text" : "text-theme-text-muted group-hover:text-theme-text"
+                        )}>
+                          {project.name}
+                        </div>
+                        <div className="text-[10px] text-theme-text-muted flex items-center gap-1 mt-0.5">
+                          <Monitor size={10} />
+                          {new Date(project.createdAt).toLocaleDateString('tr-TR', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
                       </div>
+                    </button>
+                    
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {onEditProject && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
+                          className="p-1.5 text-theme-text-muted hover:text-theme-primary hover:bg-theme-surface rounded-md transition-colors"
+                          title="Düzenle"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                      )}
+                      {onDeleteProject && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
+                          className="p-1.5 text-theme-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
+                          title="Sil"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>

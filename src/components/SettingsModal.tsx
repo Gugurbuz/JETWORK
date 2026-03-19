@@ -6,19 +6,29 @@ interface SettingsModalProps {
   user: { name: string; role: string } | null;
   onClose: () => void;
   onUpdateUser: (user: { name: string; role: string }) => void;
+  selectedModel: string;
+  onUpdateModel: (model: string) => void;
 }
 
-export function SettingsModal({ user, onClose, onUpdateUser }: SettingsModalProps) {
+export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUpdateModel }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences'>('profile');
   const [name, setName] = useState(user?.name || '');
   const [role, setRole] = useState(user?.role || '');
+  const [model, setModel] = useState(selectedModel);
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && role.trim()) {
       onUpdateUser({ name, role });
+      onUpdateModel(model);
       onClose();
     }
+  };
+
+  const handleSavePreferences = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdateModel(model);
+    onClose();
   };
 
   return (
@@ -82,7 +92,6 @@ export function SettingsModal({ user, onClose, onUpdateUser }: SettingsModalProp
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
-                        placeholder="Örn: Ahmet Yılmaz"
                         required
                       />
                     </div>
@@ -113,25 +122,41 @@ export function SettingsModal({ user, onClose, onUpdateUser }: SettingsModalProp
             )}
 
             {activeTab === 'preferences' && (
-              <div className="space-y-6">
+              <form onSubmit={handleSavePreferences} className="space-y-6">
                 <div>
                   <h3 className="text-sm font-bold text-theme-text uppercase tracking-widest mb-4">Uygulama Tercihleri</h3>
-                  <p className="text-sm text-theme-text-muted mb-4">
-                    Jira entegrasyonu ve diğer API ayarları şu anda sistem yöneticisi tarafından <code className="bg-theme-surface px-1.5 py-0.5 rounded border border-theme-border">.env</code> dosyası üzerinden yönetilmektedir.
-                  </p>
-                  <div className="p-4 bg-theme-surface border border-theme-border rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-semibold text-theme-text">Jira Entegrasyonu</div>
-                        <div className="text-xs text-theme-text-muted mt-1">Sistem genelinde yapılandırıldı</div>
-                      </div>
-                      <div className="px-2 py-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded text-xs font-bold uppercase tracking-widest">
-                        Aktif
-                      </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-theme-text-muted mb-1.5 uppercase tracking-wider">Yapay Zeka Modeli</label>
+                      <select 
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
+                      >
+                        <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Varsayılan)</option>
+                        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Karmaşık Görevler)</option>
+                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview (Hızlı)</option>
+                        <option value="gemini-2.5-flash-preview-12-2025">Gemini 2.5 Flash Native Audio</option>
+                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                        <option value="gemini-3.1-flash-image-preview">Gemini 3.1 Flash Image Preview</option>
+                      </select>
+                      <p className="text-xs text-theme-text-muted mt-2">
+                        Kullanılacak Gemini modelini seçin. Pro modeller daha karmaşık analizler yaparken, Flash modeller daha hızlı yanıt verir.
+                      </p>
                     </div>
                   </div>
                 </div>
-              </div>
+
+                <div className="pt-4 border-t border-theme-border flex justify-end">
+                  <button 
+                    type="submit"
+                    className="flex items-center gap-2 px-4 py-2 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg rounded-md text-sm font-semibold transition-colors shadow-sm"
+                  >
+                    <Save size={16} />
+                    Kaydet
+                  </button>
+                </div>
+              </form>
             )}
           </div>
         </div>

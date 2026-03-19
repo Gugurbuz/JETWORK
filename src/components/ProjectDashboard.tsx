@@ -1,15 +1,17 @@
 import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Project, Workspace, Collaborator } from '../types';
-import { Folder, Clock, Users, FileText, Plus, Sparkles, ArrowRight, Activity, Edit2, MessageSquare } from 'lucide-react';
+import { Folder, Clock, Users, FileText, Plus, Sparkles, ArrowRight, Activity, Edit2, MessageSquare, Trash2 } from 'lucide-react';
 
 interface ProjectDashboardProps {
   project: Project;
   onSelectWorkspace: (id: string) => void;
   onNewWorkspace: () => void;
+  onEditWorkspace?: (workspace: Workspace) => void;
+  onDeleteWorkspace?: (id: string) => void;
 }
 
-export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace }: ProjectDashboardProps) {
+export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, onEditWorkspace, onDeleteWorkspace }: ProjectDashboardProps) {
   const activities = useMemo(() => {
     const acts: any[] = [];
     project.workspaces.forEach(ws => {
@@ -122,53 +124,83 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace }:
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {project.workspaces.map((workspace, i) => (
-                <motion.button
+                <motion.div
                   key={workspace.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  onClick={() => onSelectWorkspace(workspace.id)}
-                  className="bg-theme-surface border border-theme-border hover:border-theme-primary p-5 rounded-xl shadow-sm transition-all text-left group flex flex-col h-full"
+                  className="relative group h-full"
                 >
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-xs font-bold text-theme-text-muted bg-theme-bg px-2 py-1 rounded">
-                      {workspace.issueKey}
-                    </span>
-                    <span className={`text-[10px] px-2 py-1 uppercase font-bold border rounded-sm ${
-                      workspace.type === 'Support' ? "bg-theme-surface text-theme-text-muted border-theme-border" : "bg-theme-primary/10 text-theme-primary border-theme-primary/20"
-                    }`}>
-                      {workspace.type === 'Development' ? 'Proje' : 'Destek'}
-                    </span>
-                  </div>
-                  
-                  <h3 className="text-theme-text font-bold mb-2 group-hover:text-theme-primary transition-colors line-clamp-2">
-                    {workspace.title}
-                  </h3>
-                  
-                  <div className="mt-auto pt-4 flex items-center justify-between">
-                    <div className="flex -space-x-2">
-                      {workspace.collaborators.slice(0, 3).map((c, j) => (
-                        <div 
-                          key={c.id} 
-                          className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-theme-surface text-white bg-${c.color}-500`}
-                          title={`${c.name} - ${c.role}`}
-                        >
-                          {c.avatar}
-                        </div>
-                      ))}
-                      {workspace.collaborators.length > 3 && (
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-theme-surface bg-theme-bg text-theme-text-muted">
-                          +{workspace.collaborators.length - 3}
-                        </div>
-                      )}
+                  <button
+                    onClick={() => onSelectWorkspace(workspace.id)}
+                    className="w-full bg-theme-surface border border-theme-border hover:border-theme-primary p-5 rounded-xl shadow-sm transition-all text-left flex flex-col h-full"
+                  >
+                    <div className="flex justify-between items-start mb-3 w-full">
+                      <span className="text-xs font-bold text-theme-text-muted bg-theme-bg px-2 py-1 rounded">
+                        {workspace.issueKey}
+                      </span>
+                      <span className={`text-[10px] px-2 py-1 uppercase font-bold border rounded-sm ${
+                        workspace.type === 'Support' ? "bg-theme-surface text-theme-text-muted border-theme-border" : "bg-theme-primary/10 text-theme-primary border-theme-primary/20"
+                      }`}>
+                        {workspace.type === 'Development' ? 'Proje' : 'Destek'}
+                      </span>
                     </div>
                     
-                    <div className="flex items-center gap-1 text-[10px] text-theme-text-muted font-medium">
-                      <Clock size={12} />
-                      {new Date(workspace.lastUpdated).toLocaleDateString('tr-TR')}
+                    <h3 className="text-theme-text font-bold mb-2 group-hover:text-theme-primary transition-colors line-clamp-2 pr-16">
+                      {workspace.title}
+                    </h3>
+                    
+                    <div className="mt-auto pt-4 flex items-center justify-between w-full">
+                      <div className="flex -space-x-2">
+                        {workspace.collaborators.slice(0, 3).map((c, j) => (
+                          <div 
+                            key={c.id} 
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-theme-surface text-white overflow-hidden`}
+                            style={{ backgroundColor: c.color || '#4f46e5' }}
+                            title={`${c.name} - ${c.role}`}
+                          >
+                            {c.avatar && c.avatar.startsWith('http') ? (
+                              <img src={c.avatar} alt={c.name} className="w-full h-full object-cover" />
+                            ) : (
+                              c.name.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                        ))}
+                        {workspace.collaborators.length > 3 && (
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-theme-surface bg-theme-bg text-theme-text-muted">
+                            +{workspace.collaborators.length - 3}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-1 text-[10px] text-theme-text-muted font-medium">
+                        <Clock size={12} />
+                        {new Date(workspace.lastUpdated).toLocaleDateString('tr-TR')}
+                      </div>
                     </div>
+                  </button>
+                  
+                  <div className="absolute right-4 top-14 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {onEditWorkspace && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onEditWorkspace(workspace); }}
+                        className="p-1.5 bg-theme-bg text-theme-text-muted hover:text-theme-primary hover:bg-theme-surface rounded-md transition-colors border border-theme-border"
+                        title="Düzenle"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                    )}
+                    {onDeleteWorkspace && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onDeleteWorkspace(workspace.id); }}
+                        className="p-1.5 bg-theme-bg text-theme-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors border border-theme-border"
+                        title="Sil"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
-                </motion.button>
+                </motion.div>
               ))}
             </div>
           )}
