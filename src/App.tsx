@@ -148,44 +148,84 @@ Ton ve Stil:
     onChunk: (text: string, thinking?: string, tokenCount?: number) => void;
     onGrounding?: (urls: { uri: string; title: string }[]) => void;
   }) => {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-    const response = await ai.models.generateContentStream({
-      model: params.model,
-      contents: params.contents,
-      config: {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    
+    const response = await fetch(`${supabaseUrl}/functions/v1/gemini-chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+      },
+      body: JSON.stringify({
+        model: params.model,
         systemInstruction: params.systemInstruction,
-        responseMimeType: params.responseSchema ? "application/json" : "text/plain",
-        responseSchema: params.responseSchema,
-        tools: [{ googleSearch: {} }]
-      }
+        contents: params.contents,
+        responseSchema: params.responseSchema
+      })
     });
 
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `API error: ${response.status}`);
+    }
+
+    if (!response.body) throw new Error("No response body");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
     let fullText = '';
     let fullThinking = '';
     let tokenCount = 0;
-    for await (const chunk of response) {
-      if ((chunk as any).usageMetadata) {
-        tokenCount = (chunk as any).usageMetadata.totalTokenCount;
-      }
-      const parts = chunk.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if (part.thought) {
-          fullThinking += part.text;
-        } else if (part.text) {
-          fullText += part.text;
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6);
+          if (dataStr === '[DONE]') continue;
+          
+          try {
+            const chunk = JSON.parse(dataStr);
+            
+            if (chunk.usageMetadata) {
+              tokenCount = chunk.usageMetadata.totalTokenCount;
+            }
+            
+            const parts = chunk.candidates?.[0]?.content?.parts || [];
+            for (const part of parts) {
+              if (part.thought) {
+                fullThinking += part.text;
+              } else if (part.text) {
+                fullText += part.text;
+              }
+            }
+            
+            const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
+            if (groundingChunks && params.onGrounding) {
+              const urls = groundingChunks
+                .filter((c: any) => c.web?.uri && c.web?.title)
+                .map((c: any) => ({ uri: c.web.uri, title: c.web.title }));
+              if (urls.length > 0) params.onGrounding(urls);
+            }
+            
+            params.onChunk(fullText, fullThinking, tokenCount);
+          } catch (e) {
+            console.error("Error parsing chunk:", e, dataStr);
+          }
         }
       }
-      
-      const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-      if (groundingChunks && params.onGrounding) {
-        const urls = groundingChunks
-          .filter((c: any) => c.web?.uri && c.web?.title)
-          .map((c: any) => ({ uri: c.web.uri, title: c.web.title }));
-        if (urls.length > 0) params.onGrounding(urls);
-      }
-      
-      params.onChunk(fullText, fullThinking, tokenCount);
     }
+    
     return { text: fullText, thinking: fullThinking, tokenCount };
   };
 
