@@ -233,10 +233,14 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <div 
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
-                          style={{ backgroundColor: `var(--color-${activity.user.color}-500)` }}
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm overflow-hidden"
+                          style={{ backgroundColor: activity.user.color || '#4f46e5' }}
                         >
-                          {activity.user.avatar}
+                          {activity.user.avatar && activity.user.avatar.startsWith('http') ? (
+                            <img src={activity.user.avatar} alt={activity.user.name} className="w-full h-full object-cover" />
+                          ) : (
+                            activity.user.avatar || activity.user.name.charAt(0).toUpperCase()
+                          )}
                         </div>
                         <span className="text-sm font-semibold text-theme-text">{activity.user.name}</span>
                       </div>

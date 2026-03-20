@@ -36,6 +36,7 @@ interface DocumentPanelProps {
   messages?: Message[];
   onRestoreDocument?: (doc: any) => void;
   isLoadingWorkspace?: boolean;
+  onManageParticipants?: () => void;
 }
 
 const TABS = ['BA Analiz', 'IT Analiz', 'Test', 'FLOW', 'Review'];
@@ -191,7 +192,8 @@ export function DocumentPanel({
   scoreExplanation,
   messages = [],
   onRestoreDocument,
-  isLoadingWorkspace
+  isLoadingWorkspace,
+  onManageParticipants
 }: DocumentPanelProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -231,8 +233,7 @@ export function DocumentPanel({
     setIsSharing(true);
     try {
       const shareId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
-      const { db } = await import('../firebase');
+      const { doc, setDoc, serverTimestamp, db } = await import('../db');
       
       await setDoc(doc(db, 'shared_analyses', shareId), {
         data: documentContent,
@@ -434,7 +435,7 @@ export function DocumentPanel({
         </div>
         
         <div className="flex items-center gap-4">
-          {score !== undefined && (
+          {score !== undefined && score > 0 && (
             <div className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border",
               score >= 90 ? "bg-green-500/10 text-green-500 border-green-500/20" :
@@ -446,21 +447,7 @@ export function DocumentPanel({
             </div>
           )}
           
-          {/* Collaborators */}
-          <div className="flex -space-x-2 mr-2">
-            {collaborators.map((collab) => (
-              <div 
-                key={collab.id}
-                title={`${collab.name} (${collab.role})`}
-                className="w-6 h-6 border border-theme-surface flex items-center justify-center text-[8px] font-bold text-theme-primary-fg bg-theme-primary rounded-full shadow-sm"
-              >
-                {collab.avatar}
-              </div>
-            ))}
-            <div className="w-6 h-6 border border-theme-surface bg-theme-surface-hover flex items-center justify-center text-[8px] font-bold text-theme-text-muted rounded-full shadow-sm">
-              +2
-            </div>
-          </div>
+          {/* Collaborators removed to avoid duplication with ChatPanel */}
 
           <div className="h-4 w-px bg-theme-border mx-2" />
 
@@ -617,7 +604,7 @@ export function DocumentPanel({
                 
                 {activeTab === 'Review' && (
                   <div className="space-y-8 mb-8">
-                    {score !== undefined && scoreExplanation && (
+                    {score !== undefined && score > 0 && scoreExplanation && (
                       <div className="p-6 bg-gradient-to-br from-theme-primary/10 to-transparent border border-theme-primary/20 rounded-xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-theme-primary/5 rounded-full blur-3xl -mr-10 -mt-10" />
                         <div className="flex items-start gap-5 relative z-10">

@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, ThinkingLevel, Type, FunctionDeclaration } from '@google/genai';
 import { Sidebar, ThemeType } from './components/Sidebar';
 import { EditProjectModal } from './components/EditProjectModal';
 import { EditWorkspaceModal } from './components/EditWorkspaceModal';
@@ -17,11 +16,10 @@ import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, Ty
 import { ChatResponseSchema, chatResponseJsonSchema, discussionJsonSchema } from './schemas';
 import { LayoutDashboard } from 'lucide-react';
 import { marked } from 'marked';
-import { io, Socket } from 'socket.io-client';
 import { parse as parsePartialJson } from 'partial-json';
-import { auth, db } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { GoogleGenAI } from "@google/genai";
+import { auth, db, onAuthStateChanged, doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, where, getDocs, arrayUnion, arrayRemove, logOut } from './db';
+import { supabase } from './supabase';
 
 const parseBusinessAnalysis = (baContent: any): string => {
   if (typeof baContent === 'string') return baContent;
@@ -70,9 +68,9 @@ const parseBusinessAnalysis = (baContent: any): string => {
 // (Removed top-level initialization to prevent API key race conditions)
 
 const MOCK_COLLABORATORS: Collaborator[] = [
-  { id: '1', name: 'Gürkan Gürbüz', avatar: 'G', role: 'Kıdemli Analist', color: 'emerald' },
-  { id: '2', name: 'Ayşe Yılmaz', avatar: 'A', role: 'Product Owner', color: 'blue' },
-  { id: '3', name: 'Mehmet Demir', avatar: 'M', role: 'Lead Developer', color: 'purple' },
+  { id: '1', name: 'Gürkan Gürbüz', avatar: 'G', role: 'Kıdemli Analist', color: '#10b981' },
+  { id: '2', name: 'Ayşe Yılmaz', avatar: 'A', role: 'Product Owner', color: '#3b82f6' },
+  { id: '3', name: 'Mehmet Demir', avatar: 'M', role: 'Lead Developer', color: '#8b5cf6' },
 ];
 
 export const ZERO_TOUCH_AGENTS = [
@@ -142,6 +140,55 @@ Ton ve Stil:
 - Kendini ekibin bir parçası gibi hissettir.
 - Cevaplarını Markdown formatında, temiz ve okunaklı bir şekilde ver.`;
 
+  const callGemini = async (params: {
+    model: string;
+    systemInstruction: string;
+    contents: any[];
+    responseSchema?: any;
+    onChunk: (text: string, thinking?: string, tokenCount?: number) => void;
+    onGrounding?: (urls: { uri: string; title: string }[]) => void;
+  }) => {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    const response = await ai.models.generateContentStream({
+      model: params.model,
+      contents: params.contents,
+      config: {
+        systemInstruction: params.systemInstruction,
+        responseMimeType: params.responseSchema ? "application/json" : "text/plain",
+        responseSchema: params.responseSchema,
+        tools: [{ googleSearch: {} }]
+      }
+    });
+
+    let fullText = '';
+    let fullThinking = '';
+    let tokenCount = 0;
+    for await (const chunk of response) {
+      if ((chunk as any).usageMetadata) {
+        tokenCount = (chunk as any).usageMetadata.totalTokenCount;
+      }
+      const parts = chunk.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        if (part.thought) {
+          fullThinking += part.text;
+        } else if (part.text) {
+          fullText += part.text;
+        }
+      }
+      
+      const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (groundingChunks && params.onGrounding) {
+        const urls = groundingChunks
+          .filter((c: any) => c.web?.uri && c.web?.title)
+          .map((c: any) => ({ uri: c.web.uri, title: c.web.title }));
+        if (urls.length > 0) params.onGrounding(urls);
+      }
+      
+      params.onChunk(fullText, fullThinking, tokenCount);
+    }
+    return { text: fullText, thinking: fullThinking, tokenCount };
+  };
+
 // Helper for AI calls with retry logic
 const callAiWithRetry = async (
   fn: () => Promise<any>,
@@ -172,7 +219,11 @@ const callAiWithRetry = async (
 };
 
 export default function App() {
-  const [user, setUser] = useState<{ uid: string; name: string; role: string; email?: string; photoURL?: string; onboardingCompleted?: boolean } | null>(null);
+  // NOTE: This application uses a hybrid architecture:
+  // - Firestore: Real-time collaborative database (workspaces, messages, projects)
+  // - Supabase: Authentication and AI Edge Functions (Gemini agent)
+  // - SQLite: Local persistence for shared analyses and memory
+  const [user, setUser] = useState<{ uid: string; name: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean } | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   const [showNewItemModal, setShowNewItemModal] = useState(false);
@@ -183,7 +234,7 @@ export default function App() {
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
   const [deletingProject, setDeletingProject] = useState<string | null>(null);
   const [deletingWorkspace, setDeletingWorkspace] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const channelRef = useRef<any>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   
@@ -258,7 +309,7 @@ export default function App() {
           console.error("Error saving user to Firestore:", err);
         }
 
-        setUser({ uid: firebaseUser.uid, name: displayName, role: role, email: firebaseUser.email || undefined, photoURL: firebaseUser.photoURL || undefined, onboardingCompleted });
+        setUser({ uid: firebaseUser.uid, name: displayName, role: role, email: firebaseUser.email || null, photoURL: firebaseUser.photoURL || null, onboardingCompleted });
       } else {
         setUser(null);
       }
@@ -277,84 +328,21 @@ export default function App() {
     localStorage.setItem('jetwork-theme', theme);
   }, [theme]);
 
-  // Initialize Socket.io
-  useEffect(() => {
-    if (user) {
-      socketRef.current = io(window.location.origin);
 
-      socketRef.current.on('room_users_update', (users: ActiveUser[]) => {
-        setActiveUsers(users);
-      });
-
-      socketRef.current.on('user_typing', (user: TypingUser) => {
-        setTypingUsers(prev => {
-          if (!prev.find(u => u.userId === user.userId)) return [...prev, user];
-          return prev;
-        });
-      });
-
-      socketRef.current.on('user_stopped_typing', (user: { userId: string }) => {
-        setTypingUsers(prev => prev.filter(u => u.userId !== user.userId));
-      });
-
-      socketRef.current.on('ai_stream_chunk', (data: { itemId: string, id: string, text: string, thinkingText?: string, groundingUrls?: { uri: string; title: string }[], agentRole?: string, score?: number, scoreExplanation?: string, questions?: Question[] }) => {
-        setMessages(prev => {
-          const exists = prev.find(m => m.id === data.id);
-          if (exists) {
-            return prev.map(m => m.id === data.id ? { 
-              ...m, 
-              text: data.text, 
-              thinkingText: data.thinkingText,
-              score: data.score,
-              scoreExplanation: data.scoreExplanation,
-              questions: data.questions,
-              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-            } : m);
-          } else {
-            return [...prev, {
-              id: data.id,
-              role: 'model',
-              text: data.text,
-              thinkingText: data.thinkingText,
-              senderName: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : 'JetWork AI',
-              senderRole: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : 'Sistem Asistanı',
-              agentRole: data.agentRole,
-              score: data.score,
-              scoreExplanation: data.scoreExplanation,
-              questions: data.questions,
-              isTyping: true,
-              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-            }];
-          }
-        });
-      });
-
-      socketRef.current.on('ai_stream_end', (data: { itemId: string, id: string, text: string, thinkingText?: string, groundingUrls?: { uri: string; title: string }[], agentRole?: string, score?: number, scoreExplanation?: string, questions?: Question[] }) => {
-        setMessages(prev => prev.map(m =>
-          m.id === data.id ? { 
-            ...m, 
-            text: data.text, 
-            thinkingText: data.thinkingText, 
-            isTyping: false,
-            score: data.score,
-            scoreExplanation: data.scoreExplanation,
-            questions: data.questions,
-            ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-          } : m
-        ));
-      });
-
-      return () => {
-        socketRef.current?.disconnect();
-      };
-    }
-  }, [user]);
 
   // Fetch projects from Firestore on mount
   useEffect(() => {
     if (user && isAuthReady) {
-      const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-      const workspacesQuery = query(collection(db, 'workspaces'), orderBy('createdAt', 'desc'));
+      // Sadece kullanıcının dahil olduğu projeleri ve çalışma alanlarını getir
+      const projectsQuery = query(
+        collection(db, 'projects'),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const workspacesQuery = query(
+        collection(db, 'workspaces'),
+        orderBy('createdAt', 'desc')
+      );
 
       let unsubscribeWorkspaces: () => void;
 
@@ -375,6 +363,7 @@ export default function App() {
           const workspacesData = workspacesSnapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data(),
+            issueKey: doc.data().issueKey || `JET-${doc.id.substring(0, 4).toUpperCase()}`,
             createdAt: doc.data().createdAt?.toMillis() || Date.now(),
             lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
             messages: []
@@ -417,12 +406,91 @@ export default function App() {
 
   // Join room when workspace changes and fetch messages
   useEffect(() => {
-    if (currentWorkspaceId && socketRef.current && user && isAuthReady) {
+    if (currentWorkspaceId && user && isAuthReady) {
       setIsLoadingWorkspace(true);
-      socketRef.current.emit('join_room', { 
-        itemId: currentWorkspaceId, 
-        user: { id: sessionId.current, name: user.name, role: user.role } 
+      
+      // Initialize Supabase Channel
+      const channel = supabase.channel(`workspace_${currentWorkspaceId}`, {
+        config: {
+          presence: {
+            key: sessionId.current,
+          },
+        },
       });
+
+      channel
+        .on('presence', { event: 'sync' }, () => {
+          const state = channel.presenceState();
+          const users: ActiveUser[] = [];
+          for (const key in state) {
+            const presence = state[key][0] as any;
+            if (presence) {
+              users.push({ id: key, name: presence.userName, role: 'User' });
+            }
+          }
+          setActiveUsers(users);
+        })
+        .on('broadcast', { event: 'typing_start' }, ({ payload }) => {
+          setTypingUsers(prev => {
+            if (!prev.find(u => u.userId === payload.userId)) return [...prev, payload];
+            return prev;
+          });
+        })
+        .on('broadcast', { event: 'typing_end' }, ({ payload }) => {
+          setTypingUsers(prev => prev.filter(u => u.userId !== payload.userId));
+        })
+        .on('broadcast', { event: 'ai_stream_chunk' }, ({ payload: data }) => {
+          setMessages(prev => {
+            const exists = prev.find(m => m.id === data.id);
+            if (exists) {
+              return prev.map(m => m.id === data.id ? { 
+                ...m, 
+                text: data.text, 
+                thinkingText: data.thinkingText,
+                score: data.score,
+                scoreExplanation: data.scoreExplanation,
+                questions: data.questions,
+                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
+              } : m);
+            } else {
+              return [...prev, {
+                id: data.id,
+                role: 'model',
+                text: data.text,
+                thinkingText: data.thinkingText,
+                senderName: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : 'JetWork AI',
+                senderRole: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : 'Sistem Asistanı',
+                agentRole: data.agentRole,
+                score: data.score,
+                scoreExplanation: data.scoreExplanation,
+                questions: data.questions,
+                isTyping: true,
+                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
+              }];
+            }
+          });
+        })
+        .on('broadcast', { event: 'ai_stream_end' }, ({ payload: data }) => {
+          setMessages(prev => prev.map(m =>
+            m.id === data.id ? { 
+              ...m, 
+              text: data.text, 
+              thinkingText: data.thinkingText, 
+              isTyping: false,
+              score: data.score,
+              scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
+              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
+            } : m
+          ));
+        })
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await channel.track({ userName: user.name });
+          }
+        });
+
+      channelRef.current = channel;
       
       let workspaceLoaded = false;
       let messagesLoaded = false;
@@ -482,6 +550,8 @@ export default function App() {
       });
 
       return () => {
+        supabase.removeChannel(channel);
+        channelRef.current = null;
         unsubscribeWorkspace();
         unsubscribeMessages();
       };
@@ -613,7 +683,7 @@ export default function App() {
       id: user.uid,
       name: user.name || user.email?.split('@')[0] || 'Unknown',
       role: 'Kurucu',
-      avatar: user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'Unknown')}&background=random`,
+      avatar: user.photoURL || undefined,
       color: '#4f46e5'
     };
 
@@ -621,7 +691,6 @@ export default function App() {
       id: t.id,
       name: t.name,
       role: t.role,
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(t.name)}&background=random`,
       color: '#4f46e5'
     }));
 
@@ -736,7 +805,6 @@ export default function App() {
       name: name,
       email: email,
       role: 'Katılımcı', // Default role
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`,
       color: '#4f46e5'
     };
 
@@ -833,8 +901,6 @@ export default function App() {
       let currentMessages = [...messages, newUserMessage];
       let currentDocument = documentContent ? { ...documentContent } : null;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
-
       // PHASE 1: Discussion
       let isDocumentationPhase = false;
       let needsUserInput = false;
@@ -897,128 +963,107 @@ export default function App() {
         contents.push({ role: 'user', parts });
 
         try {
-          const responseStream = await callAiWithRetry(() => ai.models.generateContentStream({
-            model: selectedModel,
-            contents: contents,
-            config: {
-              systemInstruction: "Sen bir toplantı simülatörüsün. Sadece JSON formatında yanıt ver.",
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-              responseMimeType: "application/json",
-              responseSchema: discussionJsonSchema,
-              maxOutputTokens: 8192
-            }
-          }));
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No active session");
 
           let fullText = '';
           let fullThinkingText = '';
-          let accumulatedJson = '';
           let currentAgentRole = '';
           let currentAgentName = 'Ekip';
           let currentAgentTitle = 'Tartışma';
           let currentActionSummary = '';
           let currentQuestions: Question[] | undefined = undefined;
-          let tokenCount = 0;
           let groundingUrls: { uri: string; title: string }[] = [];
           let lastUpdateTime = Date.now();
+          let tokenCount = 0;
 
-          for await (const chunk of responseStream) {
-            if (chunk.usageMetadata) {
-              tokenCount = chunk.usageMetadata.totalTokenCount;
-            }
-            const chunkParts = chunk.candidates?.[0]?.content?.parts || [];
-            for (const part of chunkParts) {
-              if (!part.text) continue;
-              if (part.thought) {
-                fullThinkingText += part.text;
-              } else {
-                accumulatedJson += part.text;
+          const aiResponse = await callAiWithRetry(() => callGemini({
+            model: "gemini-3-flash-preview",
+            systemInstruction: "Sen bir toplantı simülatörüsün. Sadece JSON formatında yanıt ver.",
+            contents: contents,
+            responseSchema: discussionJsonSchema,
+            onGrounding: (urls) => {
+              groundingUrls = [...groundingUrls, ...urls.filter(u => !groundingUrls.find(gu => gu.uri === u.uri))];
+            },
+            onChunk: (text, thinking, tokens) => {
+              let accumulatedJson = text;
+              fullThinkingText = thinking || '';
+              if (tokens) tokenCount = tokens;
+              
+              let jsonToParse = accumulatedJson.trim();
+              const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
+              if (jsonBlockMatch) {
+                jsonToParse = jsonBlockMatch[1].trim();
               }
-            }
-            
-            const chunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-            if (chunks) {
-              chunks.forEach((c: any) => {
-                if (c.web?.uri && c.web?.title) {
-                  if (!groundingUrls.find(u => u.uri === c.web.uri)) {
-                    groundingUrls.push({ uri: c.web.uri, title: c.web.title });
-                  }
-                }
-              });
-            }
-            
-            let jsonToParse = accumulatedJson.trim();
-            const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-            if (jsonBlockMatch) {
-              jsonToParse = jsonBlockMatch[1].trim();
-            }
-            
-            if (jsonToParse) {
-              try {
-                const parsed = parsePartialJson(jsonToParse);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.agentRole && !currentAgentRole) {
-                    currentAgentRole = parsed.agentRole;
-                    const agentDef = ZERO_TOUCH_AGENTS.find(a => a.role === currentAgentRole);
-                    if (agentDef) {
-                      currentAgentName = agentDef.name;
-                      currentAgentTitle = agentDef.name;
+              
+              if (jsonToParse) {
+                try {
+                  const parsed = parsePartialJson(jsonToParse);
+                  if (parsed && typeof parsed === 'object') {
+                    if (parsed.agentRole && !currentAgentRole) {
+                      currentAgentRole = parsed.agentRole;
+                      const agentDef = ZERO_TOUCH_AGENTS.find(a => a.role === currentAgentRole);
+                      if (agentDef) {
+                        currentAgentName = agentDef.name;
+                        currentAgentTitle = agentDef.name;
+                      }
                     }
+                    if (parsed.message) fullText = parsed.message;
+                    if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
+                    if (parsed.isDocumentationPhase !== undefined) isDocumentationPhase = parsed.isDocumentationPhase;
+                    if (parsed.requiresUserInput !== undefined) needsUserInput = parsed.requiresUserInput;
+                    if (parsed.questions && Array.isArray(parsed.questions)) currentQuestions = parsed.questions;
+                    
+                    if (parsed.document && parsed.document.review) {
+                      setDocumentContent(prev => {
+                        const newDoc = { ...prev } as DocumentData;
+                        newDoc.review = marked.parse(parsed.document.review) as string;
+                        currentDocument = newDoc;
+                        return newDoc;
+                      });
+                    }
+                  } else {
+                    fullText = jsonToParse;
                   }
-                  if (parsed.message) fullText = parsed.message;
-                  if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
-                  if (parsed.isDocumentationPhase !== undefined) isDocumentationPhase = parsed.isDocumentationPhase;
-                  if (parsed.requiresUserInput !== undefined) needsUserInput = parsed.requiresUserInput;
-                  if (parsed.questions && Array.isArray(parsed.questions)) currentQuestions = parsed.questions;
-                  
-                  if (parsed.document && parsed.document.review) {
-                    setDocumentContent(prev => {
-                      const newDoc = { ...prev } as DocumentData;
-                      newDoc.review = marked.parse(parsed.document.review) as string;
-                      currentDocument = newDoc;
-                      return newDoc;
-                    });
-                  }
-                } else {
+                } catch (e) {
                   fullText = jsonToParse;
                 }
-              } catch (e) {
-                fullText = jsonToParse;
+              }
+
+              if (Date.now() - lastUpdateTime > 30) {
+                setMessages(prev => prev.map(m => 
+                  m.id === aiMsgId ? { 
+                    ...m, 
+                    text: fullText, 
+                    thinkingText: fullThinkingText,
+                    senderName: currentAgentName,
+                    senderRole: currentAgentTitle,
+                    agentRole: currentAgentRole,
+                    actionSummary: currentActionSummary,
+                    questions: currentQuestions,
+                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                    ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                  } : m
+                ));
+                
+                if (channelRef.current) {
+                  channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+                    itemId: currentWorkspaceId, 
+                    id: aiMsgId, 
+                    text: fullText, 
+                    thinkingText: fullThinkingText,
+                    agentRole: currentAgentRole,
+                    questions: currentQuestions,
+                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                  }});
+                }
+                lastUpdateTime = Date.now();
               }
             }
-            
-            if (Date.now() - lastUpdateTime > 30) {
-              setMessages(prev => prev.map(m => 
-                m.id === aiMsgId ? { 
-                  ...m, 
-                  text: fullText, 
-                  thinkingText: fullThinkingText,
-                  senderName: currentAgentName,
-                  senderRole: currentAgentTitle,
-                  agentRole: currentAgentRole,
-                  actionSummary: currentActionSummary,
-                  questions: currentQuestions,
-                  tokenCount: tokenCount,
-                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                  ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-                } : m
-              ));
-              
-              if (socketRef.current) {
-                socketRef.current.emit('ai_stream_chunk', { 
-                  itemId: currentWorkspaceId, 
-                  id: aiMsgId, 
-                  text: fullText, 
-                  thinkingText: fullThinkingText,
-                  agentRole: currentAgentRole,
-                  questions: currentQuestions,
-                  tokenCount: tokenCount,
-                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                  groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-                });
-              }
-              lastUpdateTime = Date.now();
-            }
-          }
+          }));
+
+          // Removed overwriting fullText with raw JSON string
 
           const finalMsg: Message = {
             id: aiMsgId,
@@ -1031,7 +1076,7 @@ export default function App() {
             actionSummary: currentActionSummary,
             documentSnapshot: currentDocument || undefined,
             questions: currentQuestions,
-            tokenCount: tokenCount,
+            tokenCount: aiResponse.tokenCount,
             thinkingTime: Math.round((Date.now() - startTime) / 1000),
             createdAt: Date.now(),
             ...(groundingUrls.length > 0 ? { groundingUrls } : {})
@@ -1055,8 +1100,8 @@ export default function App() {
             console.error("Failed to save zero-touch message to Firestore:", err);
           }
 
-          if (socketRef.current) {
-            socketRef.current.emit('ai_stream_end', {
+          if (channelRef.current) {
+            channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
               itemId: currentWorkspaceId,
               id: aiMsgId,
               text: fullText,
@@ -1067,7 +1112,7 @@ export default function App() {
               documentSnapshot: currentDocument || undefined,
               questions: currentQuestions,
               groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-            });
+            }});
           }
 
           if (needsUserInput) {
@@ -1152,18 +1197,12 @@ export default function App() {
         
         setMessages(prev => [...prev, tempAiMessage]);
 
-        const contents: any[] = [];
-        let prompt = "Sohbet Geçmişi ve Tartışma Sonucu:\n";
-        currentMessages.slice(-8).forEach(m => {
-          prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
-        });
-
         const userName = user?.name || 'Kullanıcı';
-        prompt += `\n\nSenin Rolün ve Görevin:\n${agent.instruction}\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edeceksen veya soru soracaksan MUTLAKA @${userName} şeklinde etiketle. Eğer birden fazla soru soracaksan, soruları metin içine gömme, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yaz.\n\nLütfen yukarıdaki uzlaşılan çözüme göre kendi dokümantasyon alanını GÜNCELLE ve GENİŞLET. Mevcut dokümandaki bilgileri koru, eksikleri tamamla ve yeni kararları ekle. Dokümanı tamamen silip baştan yazma, üzerine ekleyerek ilerle. Kullanıcıya kısa bir bilgi mesajı ver (örn: "İş analizi dokümanı güncellendi.").`;
-        prompt += `\n\nDİKKAT: Ürettiğin uzun metinleri, HTML/XML kodlarını ASLA 'message' alanına yazma. 'message' alanı sadece kullanıcıya vereceğin 1-2 cümlelik kısa bir bilgi mesajıdır. Tüm teknik veriyi, testleri ve kodları SADECE 'document' objesinin içindeki ilgili alanlara koy.`;
-        prompt += `\n\nEN KRİTİK KURAL (DOKÜMAN EZİLMESİNİ ÖNLEMEK İÇİN): JSON çıktısı üretirken 'document' objesi içine SADECE kendi rolünle ilgili alanı ekle. Diğer ajanların alanlarını KESİNLİKLE JSON'a dahil etme (null bile gönderme, o key'i hiç yazma). Örneğin BA isen sadece 'businessAnalysis' alanını gönder, 'code' veya 'test' alanlarını JSON'a koyma! UI/UX isen 'businessAnalysis' ve 'code' alanlarına kendi notlarını ekleyebilirsin. Böylece diğer ajanların yazdıkları silinmez.`;
-        prompt += `\n\nEk olarak, 'actionSummary' alanına yaptığın işlemi anlatan çok kısa bir özet yaz (Örn: 'İş Analisti gereksinimleri dokümana ekledi.', 'Test Uzmanı test senaryolarını yazdı.').`;
-        prompt += `\n\nKRİTİK UYARI: Dokümanı ASLA özet geçme. Üreteceğin metin son derece detaylı olmalı; örnek veri yapıları (JSON payload'lar), tablolar, durum kodları (status codes) ve tüm uç senaryoları (edge-cases) adım adım içermelidir. Kurumsal bir doküman standardında olabildiğince uzun ve derinlemesine yaz.`;
+        let customPrompt = `Senin Rolün ve Görevin:\n${agent.instruction}\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edeceksen veya soru soracaksan MUTLAKA @${userName} şeklinde etiketle. Eğer birden fazla soru soracaksan, soruları metin içine gömme, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yaz.\n\nLütfen yukarıdaki uzlaşılan çözüme göre kendi dokümantasyon alanını GÜNCELLE ve GENİŞLET. Mevcut dokümandaki bilgileri koru, eksikleri tamamla ve yeni kararları ekle. Dokümanı tamamen silip baştan yazma, üzerine ekleyerek ilerle. Kullanıcıya kısa bir bilgi mesajı ver (örn: "İş analizi dokümanı güncellendi.").`;
+        customPrompt += `\n\nDİKKAT: Ürettiğin uzun metinleri, HTML/XML kodlarını ASLA 'message' alanına yazma. 'message' alanı sadece kullanıcıya vereceğin 1-2 cümlelik kısa bir bilgi mesajıdır. Tüm teknik veriyi, testleri ve kodları SADECE 'document' objesinin içindeki ilgili alanlara koy.`;
+        customPrompt += `\n\nEN KRİTİK KURAL (DOKÜMAN EZİLMESİNİ ÖNLEMEK İÇİN): JSON çıktısı üretirken 'document' objesi içine SADECE kendi rolünle ilgili alanı ekle. Diğer ajanların alanlarını KESİNLİKLE JSON'a dahil etme (null bile gönderme, o key'i hiç yazma). Örneğin BA isen sadece 'businessAnalysis' alanını gönder, 'code' veya 'test' alanlarını JSON'a koyma! UI/UX isen 'businessAnalysis' ve 'code' alanlarına kendi notlarını ekleyebilirsin. Böylece diğer ajanların yazdıkları silinmez.`;
+        customPrompt += `\n\nEk olarak, 'actionSummary' alanına yaptığın işlemi anlatan çok kısa bir özet yaz (Örn: 'İş Analisti gereksinimleri dokümana ekledi.', 'Test Uzmanı test senaryolarını yazdı.').`;
+        customPrompt += `\n\nKRİTİK UYARI: Dokümanı ASLA özet geçme. Üreteceğin metin son derece detaylı olmalı; örnek veri yapıları (JSON payload'lar), tablolar, durum kodları (status codes) ve tüm uç senaryoları (edge-cases) adım adım içermelidir. Kurumsal bir doküman standardında olabildiğince uzun ve derinlemesine yaz.`;
         
         // ROLE ÖZEL ZORUNLU DOKÜMAN ŞABLONLARI İNJEKSİYONU
         let roleTemplate = "";
@@ -1202,50 +1241,32 @@ IT Analiz (code) içine eklenecekler:
 3. Risk ve Aksiyon Planı (Kimin ne yapacağı)`;
         }
 
-        prompt += roleTemplate;
+        customPrompt += roleTemplate;
         
         if (agent.role !== 'IT' && agent.role !== 'Orchestrator') {
-          prompt += `\nDİKKAT: BPMN diyagramını SADECE IT veya Moderatör üretebilir. Sen 'bpmn' alanını boş bırak.`;
+          customPrompt += `\nDİKKAT: BPMN diyagramını SADECE IT veya Moderatör üretebilir. Sen 'bpmn' alanını boş bırak.`;
         }
-
-        if (currentDocument) {
-          prompt += "\n\n--- MEVCUT DOKÜMAN DURUMU ---\n";
-          if (currentDocument.businessAnalysis) prompt += `BA Analiz:\n${currentDocument.businessAnalysis}\n\n`;
-          if (currentDocument.code) prompt += `IT Analiz/Teknik Notlar:\n${currentDocument.code}\n\n`;
-          if (currentDocument.test) prompt += `Test Senaryoları:\n${currentDocument.test}\n\n`;
-          if (currentDocument.review) prompt += `Toplantı Notları/Review:\n${currentDocument.review}\n\n`;
-          prompt += "Lütfen yanıt verirken bu mevcut doküman durumunu göz önünde bulundur ve kendi rolüne uygun alanı doldur.\n";
-        }
-
-        const parts: any[] = [{ text: prompt }];
-
-        if (attachments && attachments.length > 0) {
-          for (const att of attachments) {
-            if (att.data && att.mimeType) {
-              parts.push({ inlineData: { data: att.data, mimeType: att.mimeType } });
-            }
-          }
-        }
-
-        contents.push({ role: 'user', parts });
 
         try {
-          const modelToUse = selectedModel;
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No active session");
 
-          const responseStream = await callAiWithRetry(() => ai.models.generateContentStream({
-            model: modelToUse,
-            contents: contents,
-            config: {
-              systemInstruction: SYSTEM_INSTRUCTION,
-              responseMimeType: "application/json",
-              responseSchema: chatResponseJsonSchema,
-              maxOutputTokens: 8192
+          const contents: any[] = [{ role: 'user', parts: [{ text: customPrompt }] }];
+          if (attachments && attachments.length > 0) {
+            for (const att of attachments) {
+              if (att.data) {
+                contents[0].parts.push({
+                  inlineData: {
+                    data: att.data.split(',')[1] || att.data,
+                    mimeType: att.mimeType
+                  }
+                });
+              }
             }
-          }));
+          }
 
           let fullText = '';
           let fullThinkingText = '';
-          let accumulatedJson = '';
           let currentActionSummary = '';
           let finalScore: number | undefined = undefined;
           let finalScoreExplanation: string | undefined = undefined;
@@ -1253,138 +1274,127 @@ IT Analiz (code) içine eklenecekler:
           let groundingUrls: { uri: string; title: string }[] = [];
           let lastUpdateTime = Date.now();
 
-          for await (const chunk of responseStream) {
-            if (chunk.usageMetadata) {
-              tokenCount = chunk.usageMetadata.totalTokenCount;
-            }
-            const chunkParts = chunk.candidates?.[0]?.content?.parts || [];
-            for (const part of chunkParts) {
-              if (!part.text) continue;
-              if (part.thought) {
-                fullThinkingText += part.text;
-              } else {
-                accumulatedJson += part.text;
+          await callAiWithRetry(() => callGemini({
+            model: "gemini-3-flash-preview",
+            systemInstruction: SYSTEM_INSTRUCTION,
+            contents: contents,
+            responseSchema: chatResponseJsonSchema,
+            onGrounding: (urls) => {
+              groundingUrls = [...groundingUrls, ...urls.filter(u => !groundingUrls.find(gu => gu.uri === u.uri))];
+            },
+            onChunk: (text, thinking, tokens) => {
+              let accumulatedJson = text;
+              fullThinkingText = thinking || '';
+              if (tokens) tokenCount = tokens;
+              
+              let jsonToParse = accumulatedJson.trim();
+              const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
+              if (jsonBlockMatch) {
+                jsonToParse = jsonBlockMatch[1].trim();
               }
-            }
-            
-            const chunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-            if (chunks) {
-              chunks.forEach((c: any) => {
-                if (c.web?.uri && c.web?.title) {
-                  if (!groundingUrls.find(u => u.uri === c.web.uri)) {
-                    groundingUrls.push({ uri: c.web.uri, title: c.web.title });
-                  }
-                }
-              });
-            }
-            
-            let jsonToParse = accumulatedJson.trim();
-            const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-            if (jsonBlockMatch) {
-              jsonToParse = jsonBlockMatch[1].trim();
-            }
-            
-            if (jsonToParse) {
-              try {
-                const parsed = parsePartialJson(jsonToParse);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.message) fullText = parsed.message;
-                  if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
-                  if (parsed.score !== undefined) {
-                    finalScore = parsed.score;
-                    lastScore = parsed.score;
-                  }
-                  if (parsed.scoreExplanation) finalScoreExplanation = parsed.scoreExplanation;
-                  
-                  if (agent.role === 'Orchestrator') {
-                    if (parsed.needsRevision !== undefined) {
-                      if (Array.isArray(parsed.needsRevision) && parsed.needsRevision.length > 0) {
-                        docNeedsRevision = true;
-                        nextAgentsToRun = parsed.needsRevision;
-                      } else if (parsed.needsRevision === true) {
-                        docNeedsRevision = true;
-                        nextAgentsToRun = ['BA', 'IT', 'QA'];
-                      }
+              
+              if (jsonToParse) {
+                try {
+                  const parsed = parsePartialJson(jsonToParse);
+                  if (parsed && typeof parsed === 'object') {
+                    if (parsed.message) fullText = parsed.message;
+                    if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
+                    if (parsed.score !== undefined) {
+                      finalScore = parsed.score;
+                      lastScore = parsed.score;
                     }
+                    if (parsed.scoreExplanation) finalScoreExplanation = parsed.scoreExplanation;
                     
-                    // Force revision if score < 90 and it's the Orchestrator
-                    if (finalScore !== undefined && finalScore < 90) {
-                      docNeedsRevision = true;
-                      if (nextAgentsToRun.length === 0) {
-                        nextAgentsToRun = ['BA', 'IT', 'QA'];
+                    if (agent.role === 'Orchestrator') {
+                      if (parsed.needsRevision !== undefined) {
+                        if (Array.isArray(parsed.needsRevision) && parsed.needsRevision.length > 0) {
+                          docNeedsRevision = true;
+                          nextAgentsToRun = parsed.needsRevision;
+                        } else if (parsed.needsRevision === true) {
+                          docNeedsRevision = true;
+                          nextAgentsToRun = ['BA', 'IT', 'QA'];
+                        }
+                      }
+                      
+                      // Force revision if score < 90 and it's the Orchestrator
+                      if (finalScore !== undefined && finalScore < 90) {
+                        docNeedsRevision = true;
+                        if (nextAgentsToRun.length === 0) {
+                          nextAgentsToRun = ['BA', 'IT', 'QA'];
+                        }
                       }
                     }
-                  }
 
-                  if (parsed.document) {
-                    setDocumentContent(prev => {
-                      const newDoc = { ...prev } as DocumentData;
-                      if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
-                      if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
-                      if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
-                      if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
-                      if (parsed.document.bpmn) {
-                        let bpmnStr = parsed.document.bpmn.trim();
-                        const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
-                        if (bpmnMatch) {
-                          bpmnStr = bpmnMatch[1].trim();
+                    if (parsed.document) {
+                      setDocumentContent(prev => {
+                        const newDoc = { ...prev } as DocumentData;
+                        if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
+                        if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
+                        if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
+                        if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
+                        if (parsed.document.bpmn) {
+                          let bpmnStr = parsed.document.bpmn.trim();
+                          const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
+                          if (bpmnMatch) {
+                            bpmnStr = bpmnMatch[1].trim();
+                          }
+                          // Fallback: extract from <?xml or <bpmn:definitions
+                          const xmlStart = bpmnStr.indexOf('<?xml');
+                          const defStart = bpmnStr.indexOf('<bpmn:definitions');
+                          if (xmlStart !== -1) {
+                            bpmnStr = bpmnStr.substring(xmlStart);
+                          } else if (defStart !== -1) {
+                            bpmnStr = bpmnStr.substring(defStart);
+                          }
+                          newDoc.bpmn = bpmnStr;
                         }
-                        // Fallback: extract from <?xml or <bpmn:definitions
-                        const xmlStart = bpmnStr.indexOf('<?xml');
-                        const defStart = bpmnStr.indexOf('<bpmn:definitions');
-                        if (xmlStart !== -1) {
-                          bpmnStr = bpmnStr.substring(xmlStart);
-                        } else if (defStart !== -1) {
-                          bpmnStr = bpmnStr.substring(defStart);
-                        }
-                        newDoc.bpmn = bpmnStr;
-                      }
-                      if (finalScore !== undefined) newDoc.score = finalScore;
-                      if (finalScoreExplanation) newDoc.scoreExplanation = finalScoreExplanation;
-                      currentDocument = newDoc;
-                      return newDoc;
-                    });
+                        if (finalScore !== undefined) newDoc.score = finalScore;
+                        if (finalScoreExplanation) newDoc.scoreExplanation = finalScoreExplanation;
+                        currentDocument = newDoc;
+                        return newDoc;
+                      });
+                    }
+                  } else {
+                    fullText = jsonToParse;
                   }
-                } else {
+                } catch (e) {
                   fullText = jsonToParse;
                 }
-              } catch (e) {
-                fullText = jsonToParse;
               }
-            }
-            
-            if (Date.now() - lastUpdateTime > 30) {
-              setMessages(prev => prev.map(m => 
-                m.id === aiMsgId ? { 
-                  ...m, 
-                  text: fullText, 
-                  thinkingText: fullThinkingText,
-                  actionSummary: currentActionSummary,
-                  score: finalScore,
-                  scoreExplanation: finalScoreExplanation,
-                  tokenCount: tokenCount,
-                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                  ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-                } : m
-              ));
               
-              if (socketRef.current) {
-                socketRef.current.emit('ai_stream_chunk', { 
-                  itemId: currentWorkspaceId, 
-                  id: aiMsgId, 
-                  text: fullText, 
-                  thinkingText: fullThinkingText,
-                  agentRole: agent.role,
-                  score: finalScore,
-                  scoreExplanation: finalScoreExplanation,
-                  tokenCount: tokenCount,
-                  thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                  groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-                });
+              if (Date.now() - lastUpdateTime > 30) {
+                setMessages(prev => prev.map(m => 
+                  m.id === aiMsgId ? { 
+                    ...m, 
+                    text: fullText, 
+                    thinkingText: fullThinkingText,
+                    actionSummary: currentActionSummary,
+                    score: finalScore,
+                    scoreExplanation: finalScoreExplanation,
+                    tokenCount: tokenCount,
+                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                    ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                  } : m
+                ));
+                
+                if (channelRef.current) {
+                  channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+                    itemId: currentWorkspaceId, 
+                    id: aiMsgId, 
+                    text: fullText, 
+                    thinkingText: fullThinkingText,
+                    agentRole: agent.role,
+                    score: finalScore,
+                    scoreExplanation: finalScoreExplanation,
+                    tokenCount: tokenCount,
+                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
+                    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                  }});
+                }
+                lastUpdateTime = Date.now();
               }
-              lastUpdateTime = Date.now();
             }
-          }
+          }));
 
           const finalMsg: Message = {
             id: aiMsgId,
@@ -1421,8 +1431,8 @@ IT Analiz (code) içine eklenecekler:
             console.error("Failed to save zero-touch message to Firestore:", err);
           }
 
-          if (socketRef.current) {
-            socketRef.current.emit('ai_stream_end', {
+          if (channelRef.current) {
+            channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
               itemId: currentWorkspaceId,
               id: aiMsgId,
               text: fullText,
@@ -1432,9 +1442,9 @@ IT Analiz (code) içine eklenecekler:
               senderRole: agent.name,
               score: finalScore,
               scoreExplanation: finalScoreExplanation,
-              documentSnapshot: currentDocument || undefined,
-              groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-            });
+              documentSnapshot: currentDocument || null,
+              groundingUrls: groundingUrls.length > 0 ? groundingUrls : null
+            }});
           }
 
         } catch (error: any) {
@@ -1510,18 +1520,7 @@ IT Analiz (code) içine eklenecekler:
       console.error("Failed to save user message to Firestore:", err);
     }
 
-    // Send via socket
-    if (socketRef.current) {
-      socketRef.current.emit('send_message', {
-        id: msgId,
-        itemId: currentWorkspaceId,
-        senderName: user.name,
-        senderRole: user.role,
-        text,
-        isAi: false,
-        attachments: attachments?.map(a => ({ url: a.url, data: a.data, mimeType: a.mimeType, name: a.name }))
-      });
-    }
+
 
     if (isZeroTouchMode) {
       runZeroTouchMode(newUserMessage, attachments);
@@ -1601,7 +1600,8 @@ IT Analiz (code) içine eklenecekler:
 
       const parts: any[] = [{ text: prompt }];
       
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No active session");
 
       // Add temporary AI message with typing indicator only if it should respond directly
       if (shouldAiRespond) {
@@ -1619,148 +1619,108 @@ IT Analiz (code) içine eklenecekler:
         setMessages(prev => [...prev, tempAiMessage]);
       }
 
-      if (attachments && attachments.length > 0) {
-        for (const att of attachments) {
-          if (att.data && att.mimeType) {
-            parts.push({
-              inlineData: {
-                data: att.data,
-                mimeType: att.mimeType
-              }
-            });
-          }
-        }
-      }
-
-      contents.push({ role: 'user', parts });
-
-      const tools: any[] = [{ googleSearch: {} }];
-      if (isRead && urlToRead) tools.push({ urlContext: {} });
-
-      const responseStream = await callAiWithRetry(() => ai.models.generateContentStream({
-        model: selectedModel,
-        contents: contents,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          responseMimeType: "application/json",
-          responseSchema: chatResponseJsonSchema,
-          maxOutputTokens: 8192
-        }
-      }));
-
       let fullText = '';
       let fullThinkingText = '';
       let isNoResponse = false;
       let groundingUrls: { uri: string; title: string }[] = [];
       let newDocumentContent: DocumentData | null = null;
-      let accumulatedJson = '';
       let lastUpdateTime = Date.now();
 
-      for await (const chunk of responseStream) {
-        const parts = chunk.candidates?.[0]?.content?.parts || [];
-        for (const part of parts) {
-          if (!part.text) continue;
-          if (part.thought) {
-            fullThinkingText += part.text;
-          } else {
-            accumulatedJson += part.text;
+      const aiResponse = await callAiWithRetry(() => callGemini({
+        model: "gemini-3-flash-preview",
+        systemInstruction: SYSTEM_INSTRUCTION,
+        contents: [
+          { role: 'user', parts: [{ text: prompt }] }
+        ],
+        responseSchema: chatResponseJsonSchema,
+        onGrounding: (urls) => {
+          groundingUrls = [...groundingUrls, ...urls.filter(u => !groundingUrls.find(gu => gu.uri === u.uri))];
+        },
+        onChunk: (text, thinking) => {
+          let accumulatedJson = text;
+          fullThinkingText = thinking || '';
+          
+          let jsonToParse = accumulatedJson.trim();
+          const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
+          if (jsonBlockMatch) {
+            jsonToParse = jsonBlockMatch[1].trim();
           }
-        }
-        
-        let jsonToParse = accumulatedJson.trim();
-        
-        // Try to extract JSON from markdown blocks if present (just in case)
-        const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-        if (jsonBlockMatch) {
-          jsonToParse = jsonBlockMatch[1].trim();
-        }
-        
-        const displayThinkingText = fullThinkingText;
-        
-        if (jsonToParse) {
-          try {
-            const parsed = parsePartialJson(jsonToParse);
-            if (parsed && typeof parsed === 'object' && parsed.message) {
-              fullText = parsed.message;
-            } else {
+          
+          if (jsonToParse) {
+            try {
+              const parsed = parsePartialJson(jsonToParse);
+              if (parsed && typeof parsed === 'object' && parsed.message) {
+                fullText = parsed.message;
+              } else {
+                fullText = jsonToParse;
+              }
+              if (parsed && typeof parsed === 'object' && parsed.document) {
+                if (shouldAiRespond) {
+                  setDocumentContent(prev => {
+                    const newDoc = { ...prev } as DocumentData;
+                    if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
+                    if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
+                    if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
+                    if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
+                    if (parsed.document.bpmn) {
+                      let bpmnStr = parsed.document.bpmn.trim();
+                      const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
+                      if (bpmnMatch) {
+                        bpmnStr = bpmnMatch[1].trim();
+                      }
+                      // Fallback: extract from <?xml or <bpmn:definitions
+                      const xmlStart = bpmnStr.indexOf('<?xml');
+                      const defStart = bpmnStr.indexOf('<bpmn:definitions');
+                      if (xmlStart !== -1) {
+                        bpmnStr = bpmnStr.substring(xmlStart);
+                      } else if (defStart !== -1) {
+                        bpmnStr = bpmnStr.substring(defStart);
+                      }
+                      newDoc.bpmn = bpmnStr;
+                    }
+                    newDocumentContent = newDoc;
+                    return newDoc;
+                  });
+                }
+              }
+            } catch (e) {
+              // Ignore partial parsing errors, but fallback to raw text
               fullText = jsonToParse;
             }
-            if (parsed && typeof parsed === 'object' && parsed.document) {
-              if (shouldAiRespond) {
-                setDocumentContent(prev => {
-                  const newDoc = { ...prev } as DocumentData;
-                  if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
-                  if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
-                  if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
-                  if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
-                  if (parsed.document.bpmn) {
-                    let bpmnStr = parsed.document.bpmn.trim();
-                    const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
-                    if (bpmnMatch) {
-                      bpmnStr = bpmnMatch[1].trim();
-                    }
-                    // Fallback: extract from <?xml or <bpmn:definitions
-                    const xmlStart = bpmnStr.indexOf('<?xml');
-                    const defStart = bpmnStr.indexOf('<bpmn:definitions');
-                    if (xmlStart !== -1) {
-                      bpmnStr = bpmnStr.substring(xmlStart);
-                    } else if (defStart !== -1) {
-                      bpmnStr = bpmnStr.substring(defStart);
-                    }
-                    newDoc.bpmn = bpmnStr;
-                  }
-                  newDocumentContent = newDoc;
-                  return newDoc;
-                });
-              }
-            }
-          } catch (e) {
-            // Ignore partial parsing errors, but fallback to raw text
-            fullText = jsonToParse;
           }
-        }
-        
-        const chunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        if (chunks) {
-          chunks.forEach((c: any) => {
-            if (c.web?.uri && c.web?.title) {
-              if (!groundingUrls.find(u => u.uri === c.web.uri)) {
-                groundingUrls.push({ uri: c.web.uri, title: c.web.title });
+          
+          if (fullText.trim().startsWith("NO_RESPONSE")) {
+            isNoResponse = true;
+          }
+          
+          if (!isNoResponse) {
+            if (shouldAiRespond) {
+              if (Date.now() - lastUpdateTime > 30) {
+                setMessages(prev => prev.map(m => 
+                  m.id === aiMsgId ? { 
+                    ...m, 
+                    text: fullText, 
+                    thinkingText: fullThinkingText,
+                    ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                  } : m
+                ));
+                if (channelRef.current) {
+                  channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+                    itemId: currentWorkspaceId, 
+                    id: aiMsgId, 
+                    text: fullText, 
+                    thinkingText: fullThinkingText,
+                    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                  }});
+                }
+                lastUpdateTime = Date.now();
               }
-            }
-          });
-        }
-        
-        if (fullText.trim().startsWith("NO_RESPONSE")) {
-          isNoResponse = true;
-          break;
-        }
-        
-        if (!isNoResponse) {
-          if (shouldAiRespond) {
-            if (Date.now() - lastUpdateTime > 30) {
-              setMessages(prev => prev.map(m => 
-                m.id === aiMsgId ? { 
-                  ...m, 
-                  text: fullText, 
-                  thinkingText: displayThinkingText,
-                  ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-                } : m
-              ));
-              if (socketRef.current) {
-                socketRef.current.emit('ai_stream_chunk', { 
-                  itemId: currentWorkspaceId, 
-                  id: aiMsgId, 
-                  text: fullText, 
-                  thinkingText: displayThinkingText,
-                  groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-                });
-              }
-              lastUpdateTime = Date.now();
             }
           }
         }
-      }
+      }));
+
+      // Removed overwriting fullText with raw JSON string
 
       if (isNoResponse || fullText.trim() === "NO_RESPONSE") {
         if (shouldAiRespond) {
@@ -1793,7 +1753,8 @@ IT Analiz (code) içine eklenecekler:
               isTyping: false,
               documentSnapshot: newDocumentContent || undefined,
               previousDocumentSnapshot,
-              documentActions
+              documentActions,
+              tokenCount: aiResponse.tokenCount
             } : m
           ));
           
@@ -1810,6 +1771,7 @@ IT Analiz (code) içine eklenecekler:
               documentSnapshot: newDocumentContent || undefined,
               previousDocumentSnapshot,
               documentActions,
+              tokenCount: aiResponse.tokenCount,
               ownerId: user.uid,
               createdAt: serverTimestamp()
             });
@@ -1828,20 +1790,20 @@ IT Analiz (code) içine eklenecekler:
             console.error("Failed to save AI message to Firestore:", err);
           }
 
-          // Send AI response via socket for other users
-          if (socketRef.current) {
-            socketRef.current.emit('ai_stream_end', {
+          // Send AI response via Supabase Realtime for other users
+          if (channelRef.current) {
+            channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
               itemId: currentWorkspaceId,
               id: aiMsgId,
               text: fullText,
               thinkingText: fullThinkingText,
               senderName: 'JetWork AI',
               senderRole: 'Sistem Asistanı',
-              groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined,
-              documentSnapshot: newDocumentContent || undefined,
+              groundingUrls: groundingUrls.length > 0 ? groundingUrls : null,
+              documentSnapshot: newDocumentContent || null,
               previousDocumentSnapshot,
               documentActions
-            });
+            }});
           }
         } else {
           // Passive mode: AI has something to say, raise hand
@@ -1900,15 +1862,15 @@ IT Analiz (code) içine eklenecekler:
       console.error("Failed to save accepted AI message to Firestore:", err);
     }
 
-    // Send via socket
-    if (socketRef.current) {
-      socketRef.current.emit('ai_stream_end', {
+    // Send via Supabase Realtime
+    if (channelRef.current) {
+      channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
         itemId: currentWorkspaceId,
         id: aiMsgId,
         text: aiHandRaised,
         senderName: 'JetWork AI',
         senderRole: 'Sistem Asistanı'
-      });
+      }});
     }
   };
 
@@ -1933,23 +1895,24 @@ IT Analiz (code) içine eklenecekler:
       }
       Tüm bölümler birbiriyle ilişkili ve tutarlı olmalıdır.`;
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents: prompt,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION
-        }
-      });
+      let accumulatedJson = '';
       
-      let jsonText = response.text?.trim() || "{}";
+      await callAiWithRetry(() => callGemini({
+        model: "gemini-3-flash-preview",
+        systemInstruction: SYSTEM_INSTRUCTION,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        responseSchema: chatResponseJsonSchema,
+        onChunk: (text, thinking, tokens) => {
+          accumulatedJson = text;
+        }
+      }));
+
+      let jsonText = accumulatedJson.trim();
       
       // Try to extract JSON from markdown blocks if present
-      const jsonBlockMatch = jsonText.match(/```json\n([\s\S]*?)(```|$)/);
+      const jsonBlockMatch = jsonText.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
       if (jsonBlockMatch) {
         jsonText = jsonBlockMatch[1].trim();
-      } else if (jsonText.includes('```json')) {
-        jsonText = jsonText.split('```json')[1].trim();
       } else {
         const firstBraceIndex = jsonText.indexOf('{');
         if (firstBraceIndex >= 0) {
@@ -1968,7 +1931,7 @@ IT Analiz (code) içine eklenecekler:
         businessAnalysis: marked.parse(data.businessAnalysis || "") as string,
         code: marked.parse(data.code || "") as string,
         test: marked.parse(data.test || "") as string,
-        review: data.review ? marked.parse(data.review) as string : undefined,
+        review: data.review ? marked.parse(data.review) as string : null,
         bpmn: data.bpmn || "",
         score: data.score,
         scoreExplanation: data.scoreExplanation
@@ -2019,10 +1982,11 @@ IT Analiz (code) içine eklenecekler:
 
   const handleLogout = async () => {
     try {
-      await auth.signOut();
+      await logOut();
       setUser(null);
-      if (socketRef.current) {
-        socketRef.current.disconnect();
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
       }
     } catch (error) {
       console.error("Logout error:", error);
@@ -2045,7 +2009,7 @@ IT Analiz (code) içine eklenecekler:
     }
   };
 
-  const latestScoreMessage = [...messages].reverse().find(m => m.score !== undefined);
+  const latestScoreMessage = [...messages].reverse().find(m => m.score !== undefined && m.score > 0);
   const latestScore = latestScoreMessage?.score;
   const latestScoreExplanation = latestScoreMessage?.scoreExplanation;
 
@@ -2054,7 +2018,7 @@ IT Analiz (code) içine eklenecekler:
   }
 
   if (!user) {
-    return <LandingPage onLogin={setUser} />;
+    return <LandingPage />;
   }
 
   if (!user.onboardingCompleted) {
@@ -2203,13 +2167,13 @@ IT Analiz (code) içine eklenecekler:
               collaborators={currentWorkspace?.collaborators}
               typingUsers={typingUsers}
               onTypingStart={() => {
-                if (socketRef.current && currentWorkspaceId && user) {
-                  socketRef.current.emit('typing_start', { itemId: currentWorkspaceId, userId: sessionId.current, userName: user.name });
+                if (channelRef.current && currentWorkspaceId && user) {
+                  channelRef.current.send({ type: 'broadcast', event: 'typing_start', payload: { itemId: currentWorkspaceId, userId: sessionId.current, userName: user.name } });
                 }
               }}
               onTypingEnd={() => {
-                if (socketRef.current && currentWorkspaceId && user) {
-                  socketRef.current.emit('typing_end', { itemId: currentWorkspaceId, userId: sessionId.current });
+                if (channelRef.current && currentWorkspaceId && user) {
+                  channelRef.current.send({ type: 'broadcast', event: 'typing_end', payload: { itemId: currentWorkspaceId, userId: sessionId.current } });
                 }
               }}
               onToggleReaction={handleToggleReaction}
@@ -2256,6 +2220,7 @@ IT Analiz (code) içine eklenecekler:
               messages={messages}
               onRestoreDocument={handleUpdateDocument}
               isLoadingWorkspace={isLoadingWorkspace}
+              onManageParticipants={() => setShowManageParticipantsModal(true)}
             />
           </>
         )}

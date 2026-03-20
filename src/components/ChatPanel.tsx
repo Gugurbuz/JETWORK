@@ -280,7 +280,7 @@ const MessageItem = memo(({
              msg.agentRole === 'Orchestrator' ? 'Moderatör' :
              'Sistem Asistanı'}
           </span>
-          {msg.score !== undefined && (
+          {msg.score !== undefined && msg.score > 0 && (
             <span className={cn(
               "text-[10px] font-bold px-1.5 py-0.5 rounded-md ml-1",
               msg.score >= 90 ? "bg-green-500/10 text-green-500" :
@@ -900,31 +900,29 @@ export function ChatPanel({
             </div>
           </div>
           
-          {/* Collaborators / Active Users */}
+          {/* Collaborators */}
           {collaborators && collaborators.length > 0 && (
             <div 
-              className="flex items-center -space-x-2 mr-2 cursor-pointer hover:opacity-80 transition-opacity"
+              className="flex -space-x-2 mr-4 cursor-pointer hover:opacity-80 transition-opacity"
               onClick={onManageParticipants}
               title="Katılımcıları Yönet"
             >
-              {collaborators.slice(0, 3).map((u, i) => {
-                const isActive = activeUsers?.some(au => au.id === u.id || au.name === u.name);
-                return (
-                  <div 
-                    key={u.id || i} 
-                    className={`w-7 h-7 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold text-white shadow-sm relative ${isActive ? 'ring-2 ring-green-500' : ''}`}
-                    style={{ backgroundColor: u.color || stringToColor(u.name), zIndex: 10 - i }}
-                  >
-                    {u.avatar ? (
-                      <img src={u.avatar} alt={u.name} className="w-full h-full rounded-full object-cover" />
-                    ) : (
-                      u.name.charAt(0).toUpperCase()
-                    )}
-                  </div>
-                );
-              })}
+              {collaborators.slice(0, 3).map((collab) => (
+                <div 
+                  key={collab.id}
+                  title={`${collab.name} (${collab.role})`}
+                  className="w-8 h-8 border-2 border-theme-bg flex items-center justify-center text-[10px] font-bold text-white rounded-full shadow-sm overflow-hidden"
+                  style={{ backgroundColor: collab.color || '#4f46e5' }}
+                >
+                  {collab.avatar && collab.avatar.startsWith('http') ? (
+                    <img src={collab.avatar} alt={collab.name} className="w-full h-full object-cover" />
+                  ) : (
+                    collab.avatar || collab.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+              ))}
               {collaborators.length > 3 && (
-                <div className="w-7 h-7 rounded-full border-2 border-theme-surface bg-theme-surface-hover flex items-center justify-center text-[10px] font-bold text-theme-text-muted shadow-sm" style={{ zIndex: 0 }}>
+                <div className="w-8 h-8 border-2 border-theme-bg bg-theme-surface-hover flex items-center justify-center text-[10px] font-bold text-theme-text-muted rounded-full shadow-sm">
                   +{collaborators.length - 3}
                 </div>
               )}

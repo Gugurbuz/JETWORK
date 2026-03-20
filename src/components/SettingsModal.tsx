@@ -136,9 +136,6 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                         <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Varsayılan)</option>
                         <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Karmaşık Görevler)</option>
                         <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview (Hızlı)</option>
-                        <option value="gemini-2.5-flash-preview-12-2025">Gemini 2.5 Flash Native Audio</option>
-                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
-                        <option value="gemini-3.1-flash-image-preview">Gemini 3.1 Flash Image Preview</option>
                       </select>
                       <p className="text-xs text-theme-text-muted mt-2">
                         Kullanılacak Gemini modelini seçin. Pro modeller daha karmaşık analizler yaparken, Flash modeller daha hızlı yanıt verir.

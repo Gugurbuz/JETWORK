@@ -42,7 +42,7 @@ export type WorkspaceStatus = 'Draft' | 'In Progress' | 'Review' | 'Approved' | 
 export interface Collaborator {
   id: string;
   name: string;
-  avatar: string;
+  avatar?: string;
   role: string;
   color: string;
   email?: string;

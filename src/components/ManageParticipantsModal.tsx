@@ -102,7 +102,7 @@ export function ManageParticipantsModal({
                       {collab.avatar && collab.avatar.startsWith('http') ? (
                         <img src={collab.avatar} alt={collab.name} className="w-full h-full object-cover" />
                       ) : (
-                        collab.name.charAt(0).toUpperCase()
+                        collab.avatar || collab.name.charAt(0).toUpperCase()
                       )}
                     </div>
                     <div>

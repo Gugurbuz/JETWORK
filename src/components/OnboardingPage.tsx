@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, User, Briefcase } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { doc, updateDoc, db, auth } from '../db';
 
 interface OnboardingPageProps {
-  user: { uid: string; name: string; role: string };
-  onComplete: (user: { uid: string; name: string; role: string }) => void;
+  user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; };
+  onComplete: (user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; }) => void;
 }
 
 const ROLES = [
@@ -20,15 +19,17 @@ const ROLES = [
 ];
 
 export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
-  const [name, setName] = useState(user.name !== 'User' ? user.name : '');
+  const [username, setUsername] = useState(user.name !== 'User' ? user.name : '');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [role, setRole] = useState(ROLES[0]);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setErrorMsg('Lütfen adınızı ve soyadınızı girin.');
+    if (!username.trim() || !firstName.trim() || !lastName.trim()) {
+      setErrorMsg('Lütfen tüm alanları doldurun.');
       return;
     }
 
@@ -38,12 +39,14 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
       
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        displayName: name,
+        displayName: username, // db.ts'de 'username' sütununa mapleniyor
+        name: firstName,
+        surname: lastName,
         role: role,
         onboardingCompleted: true
       });
 
-      onComplete({ ...user, name, role });
+      onComplete({ ...user, name: username, role });
     } catch (error: any) {
       console.error("Onboarding save failed", error);
       setErrorMsg('Bilgileriniz kaydedilirken bir hata oluştu.');
@@ -82,16 +85,45 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
             <form onSubmit={handleSave} className="space-y-5">
               <div>
                 <label className="block text-xs font-medium text-theme-text-muted uppercase tracking-widest mb-2">
-                  Ad Soyad
+                  Kullanıcı Adı
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-muted" />
                   <input
                     type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-theme-bg border border-theme-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-theme-text-muted uppercase tracking-widest mb-2">
+                    Ad
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      className="w-full bg-theme-bg border border-theme-border rounded-lg px-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-theme-text-muted uppercase tracking-widest mb-2">
+                    Soyad
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      className="w-full bg-theme-bg border border-theme-border rounded-lg px-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors"
+                    />
+                  </div>
                 </div>
               </div>
 

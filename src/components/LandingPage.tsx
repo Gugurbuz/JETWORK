@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, Mail, Lock, User } from 'lucide-react';
-import { signInWithGoogle, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, auth } from '../firebase';
+import { signInWithGoogle, signInWithEmailAndPassword, signInWithUsernameOrEmail, createUserWithEmailAndPassword, signInAnonymously, auth } from '../db';
 
-interface LandingPageProps {
-  onLogin: (user: { uid: string; name: string; role: string }) => void;
-}
+interface LandingPageProps {}
 
 // Minimalist Swiss Logo
 const SwissLogo = () => (
@@ -16,9 +14,9 @@ const SwissLogo = () => (
   </svg>
 );
 
-export function LandingPage({ onLogin }: LandingPageProps) {
+export function LandingPage({}: LandingPageProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [email, setEmail] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -38,8 +36,8 @@ export function LandingPage({ onLogin }: LandingPageProps) {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setErrorMsg('Lütfen e-posta ve şifre girin.');
+    if (!emailOrUsername || !password) {
+      setErrorMsg('Lütfen e-posta/kullanıcı adı ve şifre girin.');
       return;
     }
     
@@ -47,13 +45,13 @@ export function LandingPage({ onLogin }: LandingPageProps) {
       setIsLoggingIn(true);
       setErrorMsg('');
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password);
+        await createUserWithEmailAndPassword(auth, emailOrUsername, password);
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithUsernameOrEmail(auth, emailOrUsername, password);
       }
     } catch (error: any) {
       console.error("Auth failed", error);
-      setErrorMsg(error.message || 'Giriş/Kayıt başarısız oldu. Firebase Console üzerinden Email/Password sağlayıcısını etkinleştirdiğinizden emin olun.');
+      setErrorMsg(error.message || 'Giriş/Kayıt başarısız oldu. Kullanıcı adı veya şifre hatalı olabilir.');
       setIsLoggingIn(false);
     }
   };
@@ -62,7 +60,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
     try {
       setIsLoggingIn(true);
       setErrorMsg('');
-      await signInAnonymously(auth);
+      await signInAnonymously();
     } catch (error: any) {
       console.error("Guest login failed", error);
       setErrorMsg(error.message || 'Misafir girişi başarısız oldu. Firebase Console üzerinden Anonymous sağlayıcısını etkinleştirdiğinizden emin olun.');
@@ -116,10 +114,10 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-muted" />
                   <input
-                    type="email"
-                    placeholder="E-posta adresi"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="text"
+                    placeholder="E-posta veya Kullanıcı Adı"
+                    value={emailOrUsername}
+                    onChange={(e) => setEmailOrUsername(e.target.value)}
                     className="w-full bg-theme-bg border border-theme-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors"
                   />
                 </div>

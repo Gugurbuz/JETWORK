@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Users, Briefcase, FileText, Search, Check, Folder } from 'lucide-react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
+import { collection, getDocs, db } from '../db';
 import { Project } from '../types';
 
 interface NewItemModalProps {
@@ -36,7 +35,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
       try {
         const usersSnap = await getDocs(collection(db, 'users'));
         const usersList: DbUser[] = [];
-        usersSnap.forEach(doc => {
+        usersSnap.docs.forEach((doc: any) => {
           const data = doc.data();
           usersList.push({
             id: doc.id,
