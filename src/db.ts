@@ -63,7 +63,7 @@ export const signInWithUsernameOrEmail = async (authObj: any, input: string, pas
   return signInWithEmailAndPassword(authObj, email, password);
 };
 
-// Firestore mocks
+// Database mocks
 export const collection = (db: any, ...args: string[]) => {
   if (args.length === 1) return { table: args[0], filters: [] };
   if (args.length === 3) return { table: args[2], filters: [{ field: 'workspace_id', op: '==', value: args[1] }] };
@@ -79,7 +79,11 @@ export const doc = (db: any, ...args: string[]) => {
 export const getDocFromServer = async (docRef: any) => {
   if (docRef.table === 'test') return { exists: () => true, data: () => ({}) };
   const idField = docRef.table === 'users' ? 'uid' : 'id';
-  const { data: d, error: e } = await supabase.from(docRef.table).select('*').eq(idField, docRef.id).single();
+  let req = supabase.from(docRef.table).select('*').eq(idField, docRef.id);
+  if (docRef.workspace_id) {
+    req = req.eq('workspace_id', docRef.workspace_id);
+  }
+  const { data: d, error: e } = await req.single();
   
   if (e && e.code !== 'PGRST116') throw e;
   
@@ -93,7 +97,7 @@ export const getDocFromServer = async (docRef: any) => {
         if (key === 'photo_url') camelKey = 'photoURL';
         if (key === 'username') camelKey = 'displayName';
         camelData[camelKey] = d[key];
-        if (key === 'created_at' || key === 'last_updated') {
+        if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
           camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
         }
       }
@@ -111,7 +115,7 @@ export const setDoc = async (docRef: any, data: any) => {
     let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
     if (key === 'photoURL') snakeKey = 'photo_url';
     if (key === 'displayName') snakeKey = 'username';
-    if (key === 'createdAt' || key === 'lastUpdated') {
+    if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
       payload[snakeKey] = data[key] === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(data[key]).toISOString();
     } else {
       payload[snakeKey] = data[key];
@@ -138,20 +142,28 @@ export const updateDoc = async (docRef: any, data: any) => {
       const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).single();
       const arr = (current as any)?.[snakeKey] || [];
       payload[snakeKey] = arr.filter((item: any) => JSON.stringify(item) !== JSON.stringify(data[key].value));
-    } else if (key === 'createdAt' || key === 'lastUpdated') {
+    } else if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
       payload[snakeKey] = data[key] === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(data[key]).toISOString();
     } else {
       payload[snakeKey] = data[key];
     }
   }
   
-  const { error } = await supabase.from(docRef.table).update(payload).eq(idField, docRef.id);
+  let req = supabase.from(docRef.table).update(payload).eq(idField, docRef.id);
+  if (docRef.workspace_id) {
+    req = req.eq('workspace_id', docRef.workspace_id);
+  }
+  const { error } = await req;
   if (error) throw error;
 };
 
 export const deleteDoc = async (docRef: any) => {
   const idField = docRef.table === 'users' ? 'uid' : 'id';
-  const { error } = await supabase.from(docRef.table).delete().eq(idField, docRef.id);
+  let req = supabase.from(docRef.table).delete().eq(idField, docRef.id);
+  if (docRef.workspace_id) {
+    req = req.eq('workspace_id', docRef.workspace_id);
+  }
+  const { error } = await req;
   if (error) throw error;
 };
 
@@ -198,7 +210,7 @@ export const getDocs = async (queryObj: any) => {
         if (key === 'photo_url') camelKey = 'photoURL';
         if (key === 'username') camelKey = 'displayName';
         camelData[camelKey] = d[key];
-        if (key === 'created_at' || key === 'last_updated') {
+        if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
           camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
         }
       }
@@ -213,12 +225,34 @@ export const getDocs = async (queryObj: any) => {
 export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, errorCallback?: (error: any) => void) => {
   let isUnsubscribed = false;
   let channel: any = null;
+  let currentDocs: any[] = [];
   
   const isDoc = !!queryObj.id;
   const fetchFn = isDoc ? () => getDocFromServer(queryObj) : () => getDocs(queryObj);
   
+  const mapSupabaseRowToDoc = (d: any) => {
+    const camelData: any = {};
+    for (const key in d) {
+      let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      if (key === 'photo_url') camelKey = 'photoURL';
+      if (key === 'username') camelKey = 'displayName';
+      camelData[camelKey] = d[key];
+      if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
+        camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
+      }
+    }
+    return {
+      id: d.uid || d.id,
+      data: () => camelData
+    };
+  };
+
   fetchFn().then(snapshot => {
     if (isUnsubscribed) return;
+    
+    if (!isDoc) {
+      currentDocs = snapshot.docs || [];
+    }
     callback(snapshot);
     
     let filterStr = undefined;
@@ -233,12 +267,40 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
     }
     
     channel = supabase.channel(`realtime:${queryObj.table}:${Math.random()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: queryObj.table, filter: filterStr }, () => {
-        fetchFn().then(newSnapshot => {
-          if (!isUnsubscribed) callback(newSnapshot);
-        }).catch(e => {
-          if (errorCallback) errorCallback(e);
-        });
+      .on('postgres_changes', { event: '*', schema: 'public', table: queryObj.table, filter: filterStr }, (payload) => {
+        if (isUnsubscribed) return;
+        
+        if (isDoc) {
+          fetchFn().then(newSnapshot => {
+            if (!isUnsubscribed) callback(newSnapshot);
+          }).catch(e => {
+            if (errorCallback) errorCallback(e);
+          });
+        } else {
+          if (payload.eventType === 'INSERT') {
+            const newDoc = mapSupabaseRowToDoc(payload.new);
+            currentDocs = [...currentDocs, newDoc];
+            
+            if (queryObj.order) {
+              const field = queryObj.order.field;
+              const dir = queryObj.order.direction === 'asc' ? 1 : -1;
+              currentDocs.sort((a, b) => {
+                const valA = a.data()[field]?.toMillis ? a.data()[field].toMillis() : a.data()[field];
+                const valB = b.data()[field]?.toMillis ? b.data()[field].toMillis() : b.data()[field];
+                return valA > valB ? dir : valA < valB ? -dir : 0;
+              });
+            }
+            callback({ empty: currentDocs.length === 0, docs: currentDocs });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedDoc = mapSupabaseRowToDoc(payload.new);
+            currentDocs = currentDocs.map(d => d.id === updatedDoc.id ? updatedDoc : d);
+            callback({ empty: currentDocs.length === 0, docs: currentDocs });
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id || payload.old.uid;
+            currentDocs = currentDocs.filter(d => d.id !== deletedId);
+            callback({ empty: currentDocs.length === 0, docs: currentDocs });
+          }
+        }
       })
       .subscribe();
       

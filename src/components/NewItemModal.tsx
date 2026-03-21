@@ -25,15 +25,20 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
   const [searchQuery, setSearchQuery] = useState('');
   const [dbUsers, setDbUsers] = useState<DbUser[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<DbUser[]>([]);
+  const [roles, setRoles] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch users from Firestore
+  // Fetch users and roles from Firestore
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchData = async () => {
       try {
-        const usersSnap = await getDocs(collection(db, 'users'));
+        const [usersSnap, rolesSnap] = await Promise.all([
+          getDocs(collection(db, 'users')),
+          getDocs(collection(db, 'roles'))
+        ]);
+        
         const usersList: DbUser[] = [];
         usersSnap.docs.forEach((doc: any) => {
           const data = doc.data();
@@ -45,13 +50,21 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
           });
         });
         setDbUsers(usersList);
+
+        const fetchedRoles = rolesSnap.docs.map((d: any) => d.name);
+        if (fetchedRoles.length > 0) {
+          setRoles(fetchedRoles);
+        } else {
+          setRoles(['İş Analisti', 'Fonksiyonel Analist', 'Kıdemli Analist', 'Developer', 'Lead Developer', 'Test Uzmanı', 'Proje Yöneticisi', 'Product Owner', 'UX Designer']);
+        }
       } catch (error) {
-        console.error("Error fetching users:", error);
+        console.error("Error fetching data:", error);
+        setRoles(['İş Analisti', 'Fonksiyonel Analist', 'Kıdemli Analist', 'Developer', 'Lead Developer', 'Test Uzmanı', 'Proje Yöneticisi', 'Product Owner', 'UX Designer']);
       } finally {
         setIsLoadingUsers(false);
       }
     };
-    fetchUsers();
+    fetchData();
   }, []);
 
   // Close dropdown when clicking outside
@@ -192,15 +205,9 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
                         onChange={(e) => updateRole(user.id, e.target.value)}
                         className="bg-theme-surface border border-theme-border text-theme-text text-xs rounded px-2 py-1 focus:outline-none focus:border-theme-primary"
                       >
-                        <option value="İş Analisti">İş Analisti</option>
-                        <option value="Fonksiyonel Analist">Fonksiyonel Analist</option>
-                        <option value="Kıdemli Analist">Kıdemli Analist</option>
-                        <option value="Developer">Developer</option>
-                        <option value="Lead Developer">Lead Developer</option>
-                        <option value="Test Uzmanı">Test Uzmanı</option>
-                        <option value="Proje Yöneticisi">Proje Yöneticisi</option>
-                        <option value="Product Owner">Product Owner</option>
-                        <option value="UX Designer">UX Designer</option>
+                        {roles.map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
                       </select>
                       <button 
                         type="button" 

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, User, Settings as SettingsIcon, Save } from 'lucide-react';
 import { motion } from 'motion/react';
+import { getDocs, collection, db } from '../db';
 
 interface SettingsModalProps {
   user: { name: string; role: string } | null;
@@ -14,7 +15,31 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences'>('profile');
   const [name, setName] = useState(user?.name || '');
   const [role, setRole] = useState(user?.role || '');
+  const [roles, setRoles] = useState<string[]>([]);
   const [model, setModel] = useState(selectedModel);
+
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const rolesSnap = await getDocs(collection(db, 'roles'));
+        const fetchedRoles = rolesSnap.docs.map((d: any) => d.name);
+        if (fetchedRoles.length > 0) {
+          setRoles(fetchedRoles);
+          if (!role) setRole(fetchedRoles[0]);
+        } else {
+          const fallbackRoles = ['Kıdemli Analist', 'Product Owner', 'Lead Developer', 'UX Designer', 'Test Uzmanı', 'Proje Yöneticisi', 'Kullanıcı'];
+          setRoles(fallbackRoles);
+          if (!role) setRole(fallbackRoles[0]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch roles:", err);
+        const fallbackRoles = ['Kıdemli Analist', 'Product Owner', 'Lead Developer', 'UX Designer', 'Test Uzmanı', 'Proje Yöneticisi', 'Kullanıcı'];
+        setRoles(fallbackRoles);
+        if (!role) setRole(fallbackRoles[0]);
+      }
+    };
+    fetchRoles();
+  }, [role]);
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,14 +122,16 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-theme-text-muted mb-1.5 uppercase tracking-wider">Rol / Ünvan</label>
-                      <input 
-                        type="text" 
+                      <select 
                         value={role}
                         onChange={(e) => setRole(e.target.value)}
-                        className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
-                        placeholder="Örn: Product Owner"
+                        className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors appearance-none"
                         required
-                      />
+                      >
+                        {roles.map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>

@@ -34,6 +34,7 @@ export interface Message {
   questions?: Question[];
   createdAt?: number;
   ownerId?: string;
+  rawResponse?: string;
 }
 
 export type WorkspaceType = 'Development' | 'Support' | 'Bug' | 'Improvement';

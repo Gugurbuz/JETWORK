@@ -21,6 +21,40 @@ import { GoogleGenAI } from "@google/genai";
 import { auth, db, onAuthStateChanged, doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, where, getDocs, arrayUnion, arrayRemove, logOut } from './db';
 import { supabase } from './supabase';
 
+const saveDocumentAndVersion = async (workspaceId: string, messageId: string, content: DocumentData) => {
+  try {
+    const docRef = doc(db, 'workspaces', workspaceId, 'documents', 'main');
+    await setDoc(docRef, {
+      content,
+      updatedAt: serverTimestamp()
+    });
+
+    const versionRef = doc(db, 'workspaces', workspaceId, 'document_versions', messageId);
+    await setDoc(versionRef, {
+      documentId: 'main',
+      messageId,
+      content,
+      createdAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.error("Failed to save document and version:", err);
+  }
+};
+
+const saveRawResponse = async (workspaceId: string, messageId: string, rawText: string, parsedData: any) => {
+  try {
+    const rawRef = doc(db, 'workspaces', workspaceId, 'raw_responses', messageId);
+    await setDoc(rawRef, {
+      messageId,
+      rawText,
+      parsedData: parsedData || null,
+      createdAt: serverTimestamp()
+    });
+  } catch (err) {
+    console.error("Failed to save raw response:", err);
+  }
+};
+
 const parseBusinessAnalysis = (baContent: any): string => {
   if (typeof baContent === 'string') return baContent;
   if (!baContent || typeof baContent !== 'object') return '';
@@ -260,7 +294,7 @@ const callAiWithRetry = async (
 
 export default function App() {
   // NOTE: This application uses a hybrid architecture:
-  // - Firestore: Real-time collaborative database (workspaces, messages, projects)
+  // - Database: Real-time collaborative database (workspaces, messages, projects)
   // - Supabase: Authentication and AI Edge Functions (Gemini agent)
   // - SQLite: Local persistence for shared analyses and memory
   const [user, setUser] = useState<{ uid: string; name: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean } | null>(null);
@@ -303,40 +337,40 @@ export default function App() {
   });
   const sessionId = useRef(Math.random().toString(36).substring(7));
 
-  // Firebase Auth Listener
+  // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      if (authUser) {
         // Test connection
         try {
           await getDocFromServer(doc(db, 'test', 'connection'));
         } catch (error) {
           if (error instanceof Error && error.message.includes('the client is offline')) {
-            console.error("Please check your Firebase configuration.");
+            console.error("Please check your database configuration.");
           }
         }
 
-        // Save user to Firestore
-        const userRef = doc(db, 'users', firebaseUser.uid);
+        // Save user to database
+        const userRef = doc(db, 'users', authUser.uid);
         let onboardingCompleted = false;
-        let displayName = firebaseUser.displayName || firebaseUser.email || 'User';
+        let displayName = authUser.displayName || authUser.email || 'User';
         let role = 'Kullanıcı';
 
         try {
           const userSnap = await getDocFromServer(userRef);
           if (!userSnap.exists()) {
             const userData: any = {
-              uid: firebaseUser.uid,
+              uid: authUser.uid,
               displayName: displayName,
               createdAt: serverTimestamp(),
               role: role,
               onboardingCompleted: false
             };
-            if (firebaseUser.email) {
-              userData.email = firebaseUser.email;
+            if (authUser.email) {
+              userData.email = authUser.email;
             }
-            if (firebaseUser.photoURL) {
-              userData.photoURL = firebaseUser.photoURL;
+            if (authUser.photoURL) {
+              userData.photoURL = authUser.photoURL;
             }
             await setDoc(userRef, userData);
           } else {
@@ -346,10 +380,10 @@ export default function App() {
             role = userData.role || role;
           }
         } catch (err) {
-          console.error("Error saving user to Firestore:", err);
+          console.error("Error saving user to database:", err);
         }
 
-        setUser({ uid: firebaseUser.uid, name: displayName, role: role, email: firebaseUser.email || null, photoURL: firebaseUser.photoURL || null, onboardingCompleted });
+        setUser({ uid: authUser.uid, name: displayName, role: role, email: authUser.email || null, photoURL: authUser.photoURL || null, onboardingCompleted });
       } else {
         setUser(null);
       }
@@ -370,7 +404,7 @@ export default function App() {
 
 
 
-  // Fetch projects from Firestore on mount
+  // Fetch projects from database on mount
   useEffect(() => {
     if (user && isAuthReady) {
       // Sadece kullanıcının dahil olduğu projeleri ve çalışma alanlarını getir
@@ -447,6 +481,25 @@ export default function App() {
   // Join room when workspace changes and fetch messages
   useEffect(() => {
     if (currentWorkspaceId && user && isAuthReady) {
+      // 1. Load from cache immediately for instant UI
+      const cachedMessages = localStorage.getItem(`jetwork_messages_${currentWorkspaceId}`);
+      if (cachedMessages) {
+        try {
+          setMessages(JSON.parse(cachedMessages));
+        } catch (e) {
+          console.error("Failed to parse cached messages", e);
+        }
+      }
+      
+      const cachedDoc = localStorage.getItem(`jetwork_document_${currentWorkspaceId}`);
+      if (cachedDoc) {
+        try {
+          setDocumentContent(JSON.parse(cachedDoc));
+        } catch (e) {
+          console.error("Failed to parse cached document", e);
+        }
+      }
+      
       setIsLoadingWorkspace(true);
       
       // Initialize Supabase Channel
@@ -534,23 +587,36 @@ export default function App() {
       
       let workspaceLoaded = false;
       let messagesLoaded = false;
+      let documentLoaded = false;
 
       const checkLoading = () => {
-        if (workspaceLoaded && messagesLoaded) {
+        if (workspaceLoaded && messagesLoaded && documentLoaded) {
           setIsLoadingWorkspace(false);
         }
       };
 
       const workspaceRef = doc(db, 'workspaces', currentWorkspaceId);
       const unsubscribeWorkspace = onSnapshot(workspaceRef, (docSnap) => {
-        if (docSnap.exists()) {
-          setDocumentContent(docSnap.data().document || null);
-        }
         workspaceLoaded = true;
         checkLoading();
       }, (error) => {
         console.error("Error fetching workspace:", error);
         workspaceLoaded = true;
+        checkLoading();
+      });
+
+      const documentRef = doc(db, 'workspaces', currentWorkspaceId, 'documents', 'main');
+      const unsubscribeDocument = onSnapshot(documentRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setDocumentContent(docSnap.data().content || null);
+        } else {
+          setDocumentContent(null);
+        }
+        documentLoaded = true;
+        checkLoading();
+      }, (error) => {
+        console.error("Error fetching document:", error);
+        documentLoaded = true;
         checkLoading();
       });
 
@@ -593,6 +659,7 @@ export default function App() {
         supabase.removeChannel(channel);
         channelRef.current = null;
         unsubscribeWorkspace();
+        unsubscribeDocument();
         unsubscribeMessages();
       };
     } else {
@@ -609,6 +676,20 @@ export default function App() {
       localStorage.removeItem('jetwork-current-project-id');
     }
   }, [currentProjectId]);
+
+  // Save messages to cache
+  useEffect(() => {
+    if (currentWorkspaceId && messages.length > 0) {
+      localStorage.setItem(`jetwork_messages_${currentWorkspaceId}`, JSON.stringify(messages));
+    }
+  }, [messages, currentWorkspaceId]);
+
+  // Save document to cache
+  useEffect(() => {
+    if (currentWorkspaceId && documentContent) {
+      localStorage.setItem(`jetwork_document_${currentWorkspaceId}`, JSON.stringify(documentContent));
+    }
+  }, [documentContent, currentWorkspaceId]);
 
   // Restore active workspace state on mount
   useEffect(() => {
@@ -649,10 +730,14 @@ export default function App() {
               status: 'Draft',
               ownerId: user.uid,
               collaborators: MOCK_COLLABORATORS,
-              document: data.data,
               createdAt: serverTimestamp(),
               lastUpdated: serverTimestamp()
             });
+            
+            // Save document
+            if (data.data) {
+              await saveDocumentAndVersion(newId, 'initial', data.data);
+            }
             
             setCurrentWorkspaceId(newId);
             setMessages([]);
@@ -705,7 +790,7 @@ export default function App() {
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to create project in Firestore:", err);
+      console.error("Failed to create project in database:", err);
     }
     
     setShowNewProjectModal(false);
@@ -757,7 +842,7 @@ export default function App() {
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to create workspace in Firestore:", err);
+      console.error("Failed to create workspace in database:", err);
     }
 
     setShowNewItemModal(false);
@@ -775,7 +860,7 @@ export default function App() {
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to update project in Firestore:", err);
+      console.error("Failed to update project in database:", err);
     }
     setEditingProject(null);
   };
@@ -785,7 +870,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'projects', deletingProject));
     } catch (err) {
-      console.error("Failed to delete project in Firestore:", err);
+      console.error("Failed to delete project in database:", err);
     }
     if (currentProjectId === deletingProject) {
       setCurrentProjectId(null);
@@ -801,7 +886,7 @@ export default function App() {
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to update workspace in Firestore:", err);
+      console.error("Failed to update workspace in database:", err);
     }
     setEditingWorkspace(null);
   };
@@ -811,7 +896,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'workspaces', deletingWorkspace));
     } catch (err) {
-      console.error("Failed to delete workspace in Firestore:", err);
+      console.error("Failed to delete workspace in database:", err);
     }
     if (currentWorkspaceId === deletingWorkspace) {
       setCurrentWorkspaceId(null);
@@ -854,7 +939,7 @@ export default function App() {
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to add participant in Firestore:", err);
+      console.error("Failed to add participant in database:", err);
     }
   };
 
@@ -870,7 +955,7 @@ export default function App() {
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to remove participant in Firestore:", err);
+      console.error("Failed to remove participant in database:", err);
     }
   };
 
@@ -889,7 +974,7 @@ export default function App() {
         setCurrentWorkspaceId(null);
         setShowManageParticipantsModal(false);
       } catch (err) {
-        console.error("Failed to leave workspace in Firestore:", err);
+        console.error("Failed to leave workspace in database:", err);
       }
     }
   };
@@ -926,7 +1011,7 @@ export default function App() {
         reactions: newReactions
       });
     } catch (err) {
-      console.error("Failed to update reaction in Firestore:", err);
+      console.error("Failed to update reaction in database:", err);
     }
   };
 
@@ -1017,6 +1102,7 @@ export default function App() {
           let lastUpdateTime = Date.now();
           let tokenCount = 0;
 
+          let finalParsedData: any = null;
           const aiResponse = await callAiWithRetry(() => callGemini({
             model: "gemini-3-flash-preview",
             systemInstruction: "Sen bir toplantı simülatörüsün. Sadece JSON formatında yanıt ver.",
@@ -1039,6 +1125,7 @@ export default function App() {
               if (jsonToParse) {
                 try {
                   const parsed = parsePartialJson(jsonToParse);
+                  finalParsedData = parsed;
                   if (parsed && typeof parsed === 'object') {
                     if (parsed.agentRole && !currentAgentRole) {
                       currentAgentRole = parsed.agentRole;
@@ -1119,6 +1206,7 @@ export default function App() {
             tokenCount: aiResponse.tokenCount,
             thinkingTime: Math.round((Date.now() - startTime) / 1000),
             createdAt: Date.now(),
+            rawResponse: aiResponse.text,
             ...(groundingUrls.length > 0 ? { groundingUrls } : {})
           };
 
@@ -1131,13 +1219,13 @@ export default function App() {
               ownerId: user.uid,
               createdAt: serverTimestamp()
             });
-            const updateData: any = { lastUpdated: serverTimestamp() };
-            if (currentDocument) {
-              updateData.document = currentDocument;
+            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+            await saveRawResponse(currentWorkspaceId, aiMsgId, aiResponse.text, finalParsedData);
+            if (currentDocument && Object.keys(currentDocument).length > 0) {
+              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
             }
-            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), updateData);
           } catch (err) {
-            console.error("Failed to save zero-touch message to Firestore:", err);
+            console.error("Failed to save zero-touch message to database:", err);
           }
 
           if (channelRef.current) {
@@ -1204,7 +1292,7 @@ export default function App() {
               createdAt: serverTimestamp()
             });
           } catch (err) {
-            console.error("Failed to save timeout message to Firestore:", err);
+            console.error("Failed to save timeout message to database:", err);
           }
         }
 
@@ -1314,7 +1402,8 @@ IT Analiz (code) içine eklenecekler:
           let groundingUrls: { uri: string; title: string }[] = [];
           let lastUpdateTime = Date.now();
 
-          await callAiWithRetry(() => callGemini({
+          let finalParsedData: any = null;
+          const aiResponse = await callAiWithRetry(() => callGemini({
             model: "gemini-3-flash-preview",
             systemInstruction: SYSTEM_INSTRUCTION,
             contents: contents,
@@ -1336,6 +1425,7 @@ IT Analiz (code) içine eklenecekler:
               if (jsonToParse) {
                 try {
                   const parsed = parsePartialJson(jsonToParse);
+                  finalParsedData = parsed;
                   if (parsed && typeof parsed === 'object') {
                     if (parsed.message) fullText = parsed.message;
                     if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
@@ -1366,33 +1456,38 @@ IT Analiz (code) içine eklenecekler:
                     }
 
                     if (parsed.document) {
-                      setDocumentContent(prev => {
-                        const newDoc = { ...prev } as DocumentData;
-                        if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
-                        if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
-                        if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
-                        if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
-                        if (parsed.document.bpmn) {
-                          let bpmnStr = parsed.document.bpmn.trim();
-                          const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
-                          if (bpmnMatch) {
-                            bpmnStr = bpmnMatch[1].trim();
+                      const docFields = ['businessAnalysis', 'code', 'test', 'review', 'bpmn'];
+                      const hasFields = docFields.some(field => parsed.document[field]) || finalScore !== undefined || finalScoreExplanation !== undefined;
+                      
+                      if (hasFields) {
+                        setDocumentContent(prev => {
+                          const newDoc = { ...prev } as DocumentData;
+                          if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
+                          if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
+                          if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
+                          if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
+                          if (parsed.document.bpmn) {
+                            let bpmnStr = parsed.document.bpmn.trim();
+                            const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
+                            if (bpmnMatch) {
+                              bpmnStr = bpmnMatch[1].trim();
+                            }
+                            // Fallback: extract from <?xml or <bpmn:definitions
+                            const xmlStart = bpmnStr.indexOf('<?xml');
+                            const defStart = bpmnStr.indexOf('<bpmn:definitions');
+                            if (xmlStart !== -1) {
+                              bpmnStr = bpmnStr.substring(xmlStart);
+                            } else if (defStart !== -1) {
+                              bpmnStr = bpmnStr.substring(defStart);
+                            }
+                            newDoc.bpmn = bpmnStr;
                           }
-                          // Fallback: extract from <?xml or <bpmn:definitions
-                          const xmlStart = bpmnStr.indexOf('<?xml');
-                          const defStart = bpmnStr.indexOf('<bpmn:definitions');
-                          if (xmlStart !== -1) {
-                            bpmnStr = bpmnStr.substring(xmlStart);
-                          } else if (defStart !== -1) {
-                            bpmnStr = bpmnStr.substring(defStart);
-                          }
-                          newDoc.bpmn = bpmnStr;
-                        }
-                        if (finalScore !== undefined) newDoc.score = finalScore;
-                        if (finalScoreExplanation) newDoc.scoreExplanation = finalScoreExplanation;
-                        currentDocument = newDoc;
-                        return newDoc;
-                      });
+                          if (finalScore !== undefined) newDoc.score = finalScore;
+                          if (finalScoreExplanation) newDoc.scoreExplanation = finalScoreExplanation;
+                          currentDocument = newDoc;
+                          return newDoc;
+                        });
+                      }
                     }
                   } else {
                     fullText = jsonToParse;
@@ -1450,6 +1545,7 @@ IT Analiz (code) içine eklenecekler:
             tokenCount: tokenCount,
             thinkingTime: Math.round((Date.now() - startTime) / 1000),
             createdAt: Date.now(),
+            rawResponse: aiResponse.text,
             ...(groundingUrls.length > 0 ? { groundingUrls } : {})
           };
 
@@ -1462,13 +1558,13 @@ IT Analiz (code) içine eklenecekler:
               ownerId: user.uid,
               createdAt: serverTimestamp()
             });
-            const updateData: any = { lastUpdated: serverTimestamp() };
-            if (currentDocument) {
-              updateData.document = currentDocument;
+            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+            await saveRawResponse(currentWorkspaceId, aiMsgId, aiResponse.text, finalParsedData);
+            if (currentDocument && Object.keys(currentDocument).length > 0) {
+              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
             }
-            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), updateData);
           } catch (err) {
-            console.error("Failed to save zero-touch message to Firestore:", err);
+            console.error("Failed to save AI message to database:", err);
           }
 
           if (channelRef.current) {
@@ -1546,7 +1642,7 @@ IT Analiz (code) içine eklenecekler:
     // Optimistic update
     setMessages(prev => [...prev, newUserMessage]);
 
-    // Save to Firestore
+    // Save to database
     try {
       await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', msgId), {
         ...newUserMessage,
@@ -1557,7 +1653,7 @@ IT Analiz (code) içine eklenecekler:
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to save user message to Firestore:", err);
+      console.error("Failed to save user message to database:", err);
     }
 
 
@@ -1666,6 +1762,7 @@ IT Analiz (code) içine eklenecekler:
       let newDocumentContent: DocumentData | null = null;
       let lastUpdateTime = Date.now();
 
+      let finalParsedData: any = null;
       const aiResponse = await callAiWithRetry(() => callGemini({
         model: "gemini-3-flash-preview",
         systemInstruction: SYSTEM_INSTRUCTION,
@@ -1689,13 +1786,17 @@ IT Analiz (code) içine eklenecekler:
           if (jsonToParse) {
             try {
               const parsed = parsePartialJson(jsonToParse);
+              finalParsedData = parsed;
               if (parsed && typeof parsed === 'object' && parsed.message) {
                 fullText = parsed.message;
               } else {
                 fullText = jsonToParse;
               }
               if (parsed && typeof parsed === 'object' && parsed.document) {
-                if (shouldAiRespond) {
+                const docFields = ['businessAnalysis', 'code', 'test', 'review', 'bpmn'];
+                const hasFields = docFields.some(field => parsed.document[field]);
+                
+                if (shouldAiRespond && hasFields) {
                   setDocumentContent(prev => {
                     const newDoc = { ...prev } as DocumentData;
                     if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
@@ -1798,7 +1899,7 @@ IT Analiz (code) içine eklenecekler:
             } : m
           ));
           
-          // Save AI response to Firestore
+          // Save AI response to database
           try {
             await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
               id: aiMsgId,
@@ -1812,22 +1913,18 @@ IT Analiz (code) içine eklenecekler:
               previousDocumentSnapshot,
               documentActions,
               tokenCount: aiResponse.tokenCount,
+              rawResponse: aiResponse.text,
               ownerId: user.uid,
               createdAt: serverTimestamp()
             });
 
-            if (newDocumentContent) {
-              await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
-                document: newDocumentContent,
-                lastUpdated: serverTimestamp()
-              });
-            } else {
-              await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
-                lastUpdated: serverTimestamp()
-              });
+            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+            await saveRawResponse(currentWorkspaceId, aiMsgId, aiResponse.text, finalParsedData);
+            if (newDocumentContent && Object.keys(newDocumentContent).length > 0) {
+              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, newDocumentContent);
             }
           } catch (err) {
-            console.error("Failed to save AI message to Firestore:", err);
+            console.error("Failed to save AI message to database:", err);
           }
 
           // Send AI response via Supabase Realtime for other users
@@ -1888,7 +1985,7 @@ IT Analiz (code) içine eklenecekler:
     setMessages(prev => [...prev, finalMsg]);
     setAiHandRaised(null);
 
-    // Save to Firestore
+    // Save to database
     try {
       await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
         ...finalMsg,
@@ -1899,7 +1996,7 @@ IT Analiz (code) içine eklenecekler:
         lastUpdated: serverTimestamp()
       });
     } catch (err) {
-      console.error("Failed to save accepted AI message to Firestore:", err);
+      console.error("Failed to save accepted AI message to database:", err);
     }
 
     // Send via Supabase Realtime
@@ -1980,12 +2077,10 @@ IT Analiz (code) içine eklenecekler:
       setDocumentContent(htmlData);
       
       try {
-        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
-          document: htmlData,
-          lastUpdated: serverTimestamp()
-        });
+        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+        await saveDocumentAndVersion(currentWorkspaceId, `gen-${Date.now()}`, htmlData);
       } catch (err) {
-        console.error("Failed to save generated document to Firestore:", err);
+        console.error("Failed to save generated document to database:", err);
       }
       
     } catch (error) {
@@ -2010,12 +2105,10 @@ IT Analiz (code) içine eklenecekler:
     
     if (currentWorkspaceId) {
       try {
-        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
-          document: newContent,
-          lastUpdated: serverTimestamp()
-        });
+        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+        await saveDocumentAndVersion(currentWorkspaceId, `manual-${Date.now()}`, newContent);
       } catch (err) {
-        console.error("Failed to update document in Firestore:", err);
+        console.error("Failed to update document in database:", err);
       }
     }
   };

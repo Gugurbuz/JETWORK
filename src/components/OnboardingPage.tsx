@@ -1,30 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, User, Briefcase } from 'lucide-react';
-import { doc, updateDoc, db, auth } from '../db';
+import { doc, updateDoc, db, auth, getDocs, collection } from '../db';
 
 interface OnboardingPageProps {
   user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; };
   onComplete: (user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; }) => void;
 }
 
-const ROLES = [
-  'Kıdemli Analist',
-  'Product Owner',
-  'Lead Developer',
-  'UX Designer',
-  'Test Uzmanı',
-  'Proje Yöneticisi',
-  'Kullanıcı'
-];
-
 export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
   const [username, setUsername] = useState(user.name !== 'User' ? user.name : '');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [role, setRole] = useState(ROLES[0]);
+  const [roles, setRoles] = useState<string[]>([]);
+  const [role, setRole] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const rolesSnap = await getDocs(collection(db, 'roles'));
+        const fetchedRoles = rolesSnap.docs.map((d: any) => d.name);
+        if (fetchedRoles.length > 0) {
+          setRoles(fetchedRoles);
+          setRole(fetchedRoles[0]);
+        } else {
+          // Fallback if table is empty
+          const fallbackRoles = ['Kıdemli Analist', 'Product Owner', 'Lead Developer', 'UX Designer', 'Test Uzmanı', 'Proje Yöneticisi', 'Kullanıcı'];
+          setRoles(fallbackRoles);
+          setRole(fallbackRoles[0]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch roles:", err);
+        const fallbackRoles = ['Kıdemli Analist', 'Product Owner', 'Lead Developer', 'UX Designer', 'Test Uzmanı', 'Proje Yöneticisi', 'Kullanıcı'];
+        setRoles(fallbackRoles);
+        setRole(fallbackRoles[0]);
+      }
+    };
+    fetchRoles();
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,7 +153,7 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
                     onChange={(e) => setRole(e.target.value)}
                     className="w-full bg-theme-bg border border-theme-border rounded-lg pl-10 pr-4 py-2.5 text-sm text-theme-text focus:outline-none focus:border-theme-primary transition-colors appearance-none"
                   >
-                    {ROLES.map(r => (
+                    {roles.map(r => (
                       <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
