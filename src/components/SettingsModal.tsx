@@ -22,7 +22,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
     const fetchRoles = async () => {
       try {
         const rolesSnap = await getDocs(collection(db, 'roles'));
-        const fetchedRoles = rolesSnap.docs.map((d: any) => d.name);
+        const fetchedRoles = rolesSnap.docs.map((d: any) => d.data().name);
         if (fetchedRoles.length > 0) {
           setRoles(fetchedRoles);
           if (!role) setRole(fetchedRoles[0]);

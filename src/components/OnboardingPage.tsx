@@ -21,7 +21,7 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
     const fetchRoles = async () => {
       try {
         const rolesSnap = await getDocs(collection(db, 'roles'));
-        const fetchedRoles = rolesSnap.docs.map((d: any) => d.name);
+        const fetchedRoles = rolesSnap.docs.map((d: any) => d.data().name);
         if (fetchedRoles.length > 0) {
           setRoles(fetchedRoles);
           setRole(fetchedRoles[0]);

@@ -51,7 +51,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
         });
         setDbUsers(usersList);
 
-        const fetchedRoles = rolesSnap.docs.map((d: any) => d.name);
+        const fetchedRoles = rolesSnap.docs.map((d: any) => d.data().name);
         if (fetchedRoles.length > 0) {
           setRoles(fetchedRoles);
         } else {
