@@ -19,6 +19,7 @@ import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { GoogleGenAI } from "@google/genai";
 import { auth, db, onAuthStateChanged, doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, where, getDocs, arrayUnion, arrayRemove, logOut } from './db';
+import { useMessageStore } from './store/useMessageStore';
 import { supabase } from './supabase';
 
 const saveDocumentAndVersion = async (workspaceId: string, messageId: string, content: DocumentData) => {
@@ -317,7 +318,22 @@ export default function App() {
   
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   
-  const [messages, setMessages] = useState<Message[]>([]);
+  const messages = useMessageStore(state => state.messagesByWorkspace[currentWorkspaceId || '']) || [];
+  const currentWorkspaceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentWorkspaceIdRef.current = currentWorkspaceId;
+  }, [currentWorkspaceId]);
+
+  const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    const id = currentWorkspaceIdRef.current;
+    if (id) {
+      if (typeof updater === 'function') {
+        useMessageStore.getState().setMessages(id, updater);
+      } else {
+        useMessageStore.getState().setMessages(id, () => updater);
+      }
+    }
+  };
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -481,13 +497,18 @@ export default function App() {
   // Join room when workspace changes and fetch messages
   useEffect(() => {
     if (currentWorkspaceId && user && isAuthReady) {
-      // 1. Load from cache immediately for instant UI
-      const cachedMessages = localStorage.getItem(`jetwork_messages_${currentWorkspaceId}`);
-      if (cachedMessages) {
-        try {
-          setMessages(JSON.parse(cachedMessages));
-        } catch (e) {
-          console.error("Failed to parse cached messages", e);
+      // 1. Load from cache immediately for instant UI if store is empty
+      const existingMessages = useMessageStore.getState().messagesByWorkspace[currentWorkspaceId];
+      const hasExistingMessages = existingMessages && existingMessages.length > 0;
+      
+      if (!hasExistingMessages) {
+        const cachedMessages = localStorage.getItem(`jetwork_messages_${currentWorkspaceId}`);
+        if (cachedMessages) {
+          try {
+            setMessages(JSON.parse(cachedMessages));
+          } catch (e) {
+            console.error("Failed to parse cached messages", e);
+          }
         }
       }
       
@@ -500,7 +521,10 @@ export default function App() {
         }
       }
       
-      setIsLoadingWorkspace(true);
+      // Only show loading spinner if we don't have messages in memory
+      if (!hasExistingMessages) {
+        setIsLoadingWorkspace(true);
+      }
       
       // Initialize Supabase Channel
       const channel = supabase.channel(`workspace_${currentWorkspaceId}`, {
@@ -535,6 +559,10 @@ export default function App() {
         .on('broadcast', { event: 'ai_stream_chunk' }, ({ payload: data }) => {
           setMessages(prev => {
             const exists = prev.find(m => m.id === data.id);
+            
+            const derivedSenderName = data.senderName || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
+            const derivedSenderRole = data.senderRole || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
+
             if (exists) {
               return prev.map(m => m.id === data.id ? { 
                 ...m, 
@@ -543,6 +571,9 @@ export default function App() {
                 score: data.score,
                 scoreExplanation: data.scoreExplanation,
                 questions: data.questions,
+                ...(derivedSenderName ? { senderName: derivedSenderName } : {}),
+                ...(derivedSenderRole ? { senderRole: derivedSenderRole } : {}),
+                ...(data.agentRole ? { agentRole: data.agentRole } : {}),
                 ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
               } : m);
             } else {
@@ -551,31 +582,52 @@ export default function App() {
                 role: 'model',
                 text: data.text,
                 thinkingText: data.thinkingText,
-                senderName: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : 'JetWork AI',
-                senderRole: data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : 'Sistem Asistanı',
+                senderName: derivedSenderName || 'JetWork AI',
+                senderRole: derivedSenderRole || 'Sistem Asistanı',
                 agentRole: data.agentRole,
                 score: data.score,
                 scoreExplanation: data.scoreExplanation,
                 questions: data.questions,
                 isTyping: true,
+                createdAt: Date.now(),
                 ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
               }];
             }
           });
         })
         .on('broadcast', { event: 'ai_stream_end' }, ({ payload: data }) => {
-          setMessages(prev => prev.map(m =>
-            m.id === data.id ? { 
-              ...m, 
-              text: data.text, 
-              thinkingText: data.thinkingText, 
-              isTyping: false,
-              score: data.score,
-              scoreExplanation: data.scoreExplanation,
-              questions: data.questions,
-              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-            } : m
-          ));
+          setMessages(prev => {
+            const exists = prev.find(m => m.id === data.id);
+            if (exists) {
+              return prev.map(m => m.id === data.id ? { 
+                ...m, 
+                text: data.text, 
+                thinkingText: data.thinkingText, 
+                isTyping: false,
+                score: data.score,
+                scoreExplanation: data.scoreExplanation,
+                questions: data.questions,
+                createdAt: Date.now(),
+                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
+              } : m);
+            } else {
+              return [...prev, {
+                id: data.id,
+                role: 'model',
+                text: data.text,
+                thinkingText: data.thinkingText,
+                senderName: data.senderName || 'JetWork AI',
+                senderRole: data.senderRole || 'Sistem Asistanı',
+                agentRole: data.agentRole,
+                score: data.score,
+                scoreExplanation: data.scoreExplanation,
+                questions: data.questions,
+                isTyping: false,
+                createdAt: Date.now(),
+                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
+              }];
+            }
+          });
         })
         .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
@@ -586,7 +638,7 @@ export default function App() {
       channelRef.current = channel;
       
       let workspaceLoaded = false;
-      let messagesLoaded = false;
+      let messagesLoaded = hasExistingMessages; // If we already have messages, consider them loaded
       let documentLoaded = false;
 
       const checkLoading = () => {
@@ -620,37 +672,7 @@ export default function App() {
         checkLoading();
       });
 
-      const messagesQuery = query(collection(db, 'workspaces', currentWorkspaceId, 'messages'), orderBy('createdAt', 'asc'));
-      const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
-        const msgs = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toMillis() || Date.now()
-        })) as Message[];
-        
-        setMessages(prev => {
-          // Keep typing messages and optimistic messages (those without a server timestamp yet, or very recent ones)
-          const typingMessages = prev.filter(m => m.isTyping);
-          const optimisticMessages = prev.filter(m => 
-            !m.isTyping && 
-            !msgs.some(sm => sm.id === m.id) && 
-            (Date.now() - (m.createdAt || 0) < 5000) // Keep optimistic messages for up to 5 seconds
-          );
-          
-          const newMsgs = [...msgs, ...optimisticMessages];
-          
-          typingMessages.forEach(tm => {
-            if (!newMsgs.some(m => m.id === tm.id)) {
-              newMsgs.push(tm);
-            }
-          });
-          
-          return newMsgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-        });
-        messagesLoaded = true;
-        checkLoading();
-      }, (error) => {
-        console.error("Error fetching messages:", error);
+      useMessageStore.getState().subscribeToWorkspace(currentWorkspaceId, () => {
         messagesLoaded = true;
         checkLoading();
       });
@@ -660,10 +682,8 @@ export default function App() {
         channelRef.current = null;
         unsubscribeWorkspace();
         unsubscribeDocument();
-        unsubscribeMessages();
       };
     } else {
-      setMessages([]);
       setDocumentContent(null);
     }
   }, [currentWorkspaceId, user, isAuthReady]);
@@ -740,7 +760,6 @@ export default function App() {
             }
             
             setCurrentWorkspaceId(newId);
-            setMessages([]);
             setDocumentContent(data.data);
             
             // Remove shareId from URL
@@ -848,7 +867,6 @@ export default function App() {
     setShowNewItemModal(false);
     setCurrentWorkspaceId(newId);
     setCurrentProjectId(null);
-    setMessages([]);
     setDocumentContent(null);
   };
 
@@ -1049,6 +1067,15 @@ export default function App() {
         };
         
         setMessages(prev => [...prev, tempAiMessage]);
+        if (channelRef.current) {
+          channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+            itemId: currentWorkspaceId, 
+            id: aiMsgId, 
+            text: '', 
+            senderName: tempAiMessage.senderName,
+            senderRole: tempAiMessage.senderRole
+          }});
+        }
 
         const contents: any[] = [];
         let prompt = "Sen bir toplantı odasındaki yapay zeka ajanlarını yöneten bir simülatörsün.\n";
@@ -1324,6 +1351,16 @@ export default function App() {
         };
         
         setMessages(prev => [...prev, tempAiMessage]);
+        if (channelRef.current) {
+          channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+            itemId: currentWorkspaceId, 
+            id: aiMsgId, 
+            text: '', 
+            agentRole: agent.role,
+            senderName: agent.name,
+            senderRole: agent.name
+          }});
+        }
 
         const userName = user?.name || 'Kullanıcı';
         let customPrompt = `Senin Rolün ve Görevin:\n${agent.instruction}\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edeceksen veya soru soracaksan MUTLAKA @${userName} şeklinde etiketle. Eğer birden fazla soru soracaksan, soruları metin içine gömme, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yaz.\n\nLütfen yukarıdaki uzlaşılan çözüme göre kendi dokümantasyon alanını GÜNCELLE ve GENİŞLET. Mevcut dokümandaki bilgileri koru, eksikleri tamamla ve yeni kararları ekle. Dokümanı tamamen silip baştan yazma, üzerine ekleyerek ilerle. Kullanıcıya kısa bir bilgi mesajı ver (örn: "İş analizi dokümanı güncellendi.").`;
@@ -1753,6 +1790,15 @@ IT Analiz (code) içine eklenecekler:
         };
         
         setMessages(prev => [...prev, tempAiMessage]);
+        if (channelRef.current) {
+          channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+            itemId: currentWorkspaceId, 
+            id: aiMsgId, 
+            text: tempAiMessage.text, 
+            senderName: 'JetWork AI',
+            senderRole: 'Sistem Asistanı'
+          }});
+        }
       }
 
       let fullText = '';
@@ -2117,6 +2163,7 @@ IT Analiz (code) içine eklenecekler:
     try {
       await logOut();
       setUser(null);
+      useMessageStore.getState().clearAll();
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;

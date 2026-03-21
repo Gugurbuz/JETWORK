@@ -83,9 +83,9 @@ export const getDocFromServer = async (docRef: any) => {
   if (docRef.workspace_id) {
     req = req.eq('workspace_id', docRef.workspace_id);
   }
-  const { data: d, error: e } = await req.single();
+  const { data: d, error: e } = await req.maybeSingle();
   
-  if (e && e.code !== 'PGRST116') throw e;
+  if (e) throw e;
   
   return {
     exists: () => !!d,
@@ -135,11 +135,11 @@ export const updateDoc = async (docRef: any, data: any) => {
     if (key === 'photoURL') snakeKey = 'photo_url';
     if (key === 'displayName') snakeKey = 'username';
     if (data[key] && data[key].__isArrayUnion) {
-      const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).single();
+      const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).maybeSingle();
       const arr = (current as any)?.[snakeKey] || [];
       payload[snakeKey] = [...arr, data[key].value];
     } else if (data[key] && data[key].__isArrayRemove) {
-      const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).single();
+      const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).maybeSingle();
       const arr = (current as any)?.[snakeKey] || [];
       payload[snakeKey] = arr.filter((item: any) => JSON.stringify(item) !== JSON.stringify(data[key].value));
     } else if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
