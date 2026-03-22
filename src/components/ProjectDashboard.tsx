@@ -118,21 +118,8 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
           </div>
           
           {project.workspaces.length === 0 ? (
-            <div className="text-center py-16 px-6 bg-theme-surface border border-theme-border border-dashed rounded-2xl flex flex-col items-center justify-center">
-              <div className="w-16 h-16 bg-theme-primary/10 rounded-full flex items-center justify-center mb-4">
-                <FileText size={32} className="text-theme-primary" />
-              </div>
-              <h3 className="text-lg font-bold text-theme-text mb-2">Henüz Çalışma Alanı Yok</h3>
-              <p className="text-theme-text-muted text-sm max-w-md mb-6">
-                Bu projede henüz bir çalışma alanı oluşturulmamış. Yeni bir çalışma alanı oluşturarak ekibinizle birlikte çalışmaya başlayabilirsiniz.
-              </p>
-              <button
-                onClick={onNewWorkspace}
-                className="flex items-center gap-2 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg px-6 py-3 rounded-xl text-sm font-semibold transition-colors shadow-sm"
-              >
-                <Plus size={16} />
-                İlk Çalışma Alanını Oluştur
-              </button>
+            <div className="text-center py-12">
+              <p className="text-theme-text-muted text-sm">Bu projede henüz bir çalışma başlatılmamış.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -229,10 +216,7 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
           </div>
 
           {activities.length === 0 ? (
-            <div className="text-center py-12 px-6 bg-theme-surface border border-theme-border border-dashed rounded-2xl flex flex-col items-center justify-center">
-              <div className="w-12 h-12 bg-theme-bg rounded-full flex items-center justify-center mb-3">
-                <Activity size={24} className="text-theme-text-muted" />
-              </div>
+            <div className="text-center py-8">
               <p className="text-theme-text-muted text-sm">Henüz bir aktivite bulunmuyor.</p>
             </div>
           ) : (

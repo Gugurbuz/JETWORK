@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
 import * as mammoth from 'mammoth';
-import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, CornerDownRight } from 'lucide-react';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload } from 'lucide-react';
 import { Message, Question } from '../types';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -166,8 +166,7 @@ const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingT
 
 interface ChatPanelProps {
   messages: Message[];
-  onSendMessage: (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => void;
-  onRemoveMessage?: (id: string) => void;
+  onSendMessage: (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[]) => void;
   isGenerating?: boolean;
   issueKey?: string;
   status?: string;
@@ -195,7 +194,6 @@ interface ChatPanelProps {
   setActiveZeroTouchRoles?: (roles: string[]) => void;
   isLoadingWorkspace?: boolean;
   onManageParticipants?: () => void;
-  projectMemory?: Record<string, string>;
 }
 
 const SLASH_COMMANDS = [
@@ -228,12 +226,7 @@ const MessageItem = memo(({
   onRestoreDocument, 
   setDiffModalData, 
   onToggleReaction,
-  onReply,
-  onRetry,
-  isLastMessage,
-  repliedMessage,
-  activeReactionMenu,
-  setActiveReactionMenu
+  isLastMessage
 }: { 
   msg: Message, 
   idx: number, 
@@ -241,12 +234,7 @@ const MessageItem = memo(({
   onRestoreDocument?: (doc: any) => void, 
   setDiffModalData: (data: any) => void, 
   onToggleReaction?: (id: string, emoji: string) => void,
-  onReply?: (msg: Message) => void,
-  onRetry?: (msg: Message) => void,
-  isLastMessage?: boolean,
-  repliedMessage?: Message,
-  activeReactionMenu?: string | null,
-  setActiveReactionMenu?: (id: string | null) => void
+  isLastMessage?: boolean
 }) => {
   return (
     <motion.div 
@@ -315,15 +303,6 @@ const MessageItem = memo(({
             ? "bg-theme-surface border-theme-border/50 rounded-tl-sm" 
             : "bg-theme-primary/10 border-theme-primary/20 rounded-tr-sm"
         )}>
-          {repliedMessage && (
-            <div className="mb-3 p-2 bg-theme-bg/50 border border-theme-border/50 rounded-lg text-xs text-theme-text-muted border-l-2 border-l-theme-primary">
-              <div className="font-semibold mb-1">
-                {repliedMessage.role === 'user' ? (repliedMessage.senderName || 'Siz') : 'JetWork AI'}
-              </div>
-              <div className="line-clamp-2">{repliedMessage.text}</div>
-            </div>
-          )}
-          
           {msg.isTyping && !msg.text && !msg.thinkingText ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-theme-primary animate-pulse">
@@ -476,63 +455,6 @@ const MessageItem = memo(({
               );
             })}
             
-            {onToggleReaction && (
-              <div className="relative">
-                <button
-                  onClick={() => setActiveReactionMenu(activeReactionMenu === msg.id ? null : msg.id)}
-                  className="p-1 text-theme-text-muted hover:text-theme-primary opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Tepki Ekle"
-                >
-                  <SmilePlus size={14} />
-                </button>
-                
-                <AnimatePresence>
-                  {activeReactionMenu === msg.id && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                      className="absolute bottom-full left-0 mb-2 flex items-center gap-1 p-1 bg-theme-surface border border-theme-border rounded-lg shadow-lg z-10"
-                    >
-                      {['👍', '👎', '❤️', '🚀', '👀', '🎉'].map(emoji => (
-                        <button
-                          key={emoji}
-                          onClick={() => {
-                            onToggleReaction(msg.id, emoji);
-                            setActiveReactionMenu(null);
-                          }}
-                          className="w-8 h-8 flex items-center justify-center hover:bg-theme-surface-hover rounded-md transition-colors text-lg"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-            
-            {onReply && (
-              <button
-                onClick={() => onReply(msg)}
-                className="p-1 text-theme-text-muted hover:text-theme-primary opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Yanıtla"
-              >
-                <CornerDownRight size={14} />
-              </button>
-            )}
-
-            {msg.isError && onRetry && (
-              <button
-                onClick={() => onRetry(msg)}
-                className="flex items-center gap-1 px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-full text-xs font-medium transition-colors"
-                title="Yeniden Dene"
-              >
-                <RotateCcw size={12} />
-                <span>Yeniden Dene</span>
-              </button>
-            )}
-            
           </div>
         </div>
       </div>
@@ -547,7 +469,7 @@ const MessageItem = memo(({
 });
 
 export function ChatPanel({ 
-  messages, onSendMessage, onRemoveMessage, isGenerating, issueKey, status, title, projectName, 
+  messages, onSendMessage, isGenerating, issueKey, status, title, projectName, 
   onBack, activeUsers, collaborators, typingUsers, 
   onTypingStart, onTypingEnd, onToggleReaction, currentUser,
   isAiActive, onToggleAiActive, aiHandRaised, onAcceptAiHandRaise, onDismissAiHandRaise,
@@ -555,8 +477,7 @@ export function ChatPanel({
   isZeroTouchMode, onToggleZeroTouchMode,
   activeZeroTouchRoles, setActiveZeroTouchRoles,
   isLoadingWorkspace,
-  onManageParticipants,
-  projectMemory
+  onManageParticipants
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [selectedAttachments, setSelectedAttachments] = useState<{ url: string; data: string; mimeType: string; name?: string; file?: File }[]>([]);
@@ -570,8 +491,6 @@ export function ChatPanel({
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showZeroTouchSettings, setShowZeroTouchSettings] = useState(false);
-  const [showProjectMemory, setShowProjectMemory] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -657,10 +576,9 @@ export function ChatPanel({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if ((!input.trim() && selectedAttachments.length === 0) || isGenerating) return;
-    onSendMessage(input, selectedAttachments, replyingTo?.id);
+    onSendMessage(input, selectedAttachments);
     setInput('');
     setSelectedAttachments([]);
-    setReplyingTo(null);
   };
 
   const isSupportedFileType = (file: File) => {
@@ -921,15 +839,6 @@ export function ChatPanel({
     }
   };
 
-  const handleRetry = (msg: Message) => {
-    if (msg.retryPayload) {
-      if (onRemoveMessage) {
-        onRemoveMessage(msg.id);
-      }
-      onSendMessage(msg.retryPayload.text, msg.retryPayload.attachments, msg.retryPayload.replyToId);
-    }
-  };
-
   return (
     <div 
       className="w-[650px] shrink-0 flex flex-col bg-theme-bg relative overflow-hidden border-r border-theme-border transition-colors duration-300"
@@ -1100,12 +1009,7 @@ export function ChatPanel({
                     onRestoreDocument={onRestoreDocument} 
                     setDiffModalData={setDiffModalData} 
                     onToggleReaction={onToggleReaction} 
-                    onReply={setReplyingTo}
-                    onRetry={handleRetry}
                     isLastMessage={idx === messages.length - 1}
-                    repliedMessage={msg.replyToId ? messages.find(m => m.id === msg.replyToId) : undefined}
-                    activeReactionMenu={activeReactionMenu}
-                    setActiveReactionMenu={setActiveReactionMenu}
                   />
                 ))
               )}
@@ -1205,25 +1109,6 @@ export function ChatPanel({
         )}
 
         <div className="max-w-4xl mx-auto relative">
-          {replyingTo && (
-            <div className="mb-2 flex items-center justify-between bg-theme-surface border border-theme-border rounded-lg p-2 shadow-sm text-sm">
-              <div className="flex items-center gap-2 overflow-hidden">
-                <CornerDownRight size={14} className="text-theme-primary shrink-0" />
-                <span className="font-semibold text-theme-text shrink-0">
-                  {replyingTo.role === 'user' ? (replyingTo.senderName || 'Siz') : 'JetWork AI'}:
-                </span>
-                <span className="text-theme-text-muted truncate">
-                  {replyingTo.text}
-                </span>
-              </div>
-              <button 
-                onClick={() => setReplyingTo(null)}
-                className="p-1 text-theme-text-muted hover:text-theme-text rounded-full hover:bg-theme-bg transition-colors shrink-0"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
           <form 
             onSubmit={handleSubmit}
             className="relative"

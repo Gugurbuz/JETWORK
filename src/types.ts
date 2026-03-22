@@ -35,9 +35,6 @@ export interface Message {
   createdAt?: number;
   ownerId?: string;
   rawResponse?: string;
-  replyToId?: string;
-  isError?: boolean;
-  retryPayload?: { text: string; attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string };
 }
 
 export type WorkspaceType = 'Development' | 'Support' | 'Bug' | 'Improvement';
@@ -83,7 +80,6 @@ export interface Workspace {
   status: WorkspaceStatus;
   messages: Message[];
   document: DocumentData | null;
-  projectMemory?: Record<string, string>;
   createdAt: number;
   lastUpdated: number;
   collaborators: Collaborator[];

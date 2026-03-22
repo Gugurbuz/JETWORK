@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { motion } from 'motion/react';
 import { AlertTriangle, X } from 'lucide-react';
 
@@ -10,7 +10,6 @@ interface ConfirmModalProps {
   onConfirm: () => void;
   onCancel: () => void;
   isDestructive?: boolean;
-  expectedConfirmationText?: string;
 }
 
 export function ConfirmModal({ 
@@ -20,28 +19,8 @@ export function ConfirmModal({
   cancelText = "İptal", 
   onConfirm, 
   onCancel,
-  isDestructive = true,
-  expectedConfirmationText
+  isDestructive = true
 }: ConfirmModalProps) {
-  const [confirmationInput, setConfirmationInput] = useState('');
-
-  const isConfirmDisabled = expectedConfirmationText 
-    ? confirmationInput !== expectedConfirmationText 
-    : false;
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCancel();
-      } else if (e.key === 'Enter' && !isConfirmDisabled) {
-        onConfirm();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onCancel, onConfirm, isConfirmDisabled]);
-
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <motion.div 
@@ -56,23 +35,7 @@ export function ConfirmModal({
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-bold text-theme-text mb-2">{title}</h3>
-              <p className="text-sm text-theme-text-muted mb-4">{message}</p>
-              
-              {expectedConfirmationText && (
-                <div className="mt-4">
-                  <label className="block text-xs font-medium text-theme-text-muted mb-2">
-                    Lütfen onaylamak için <span className="font-bold text-theme-text select-all">{expectedConfirmationText}</span> yazın:
-                  </label>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={confirmationInput}
-                    onChange={(e) => setConfirmationInput(e.target.value)}
-                    className="w-full bg-theme-surface border border-theme-border rounded-lg px-3 py-2 text-sm text-theme-text focus:outline-none focus:border-red-500 transition-colors"
-                    placeholder={expectedConfirmationText}
-                  />
-                </div>
-              )}
+              <p className="text-sm text-theme-text-muted">{message}</p>
             </div>
           </div>
         </div>
@@ -86,8 +49,7 @@ export function ConfirmModal({
           </button>
           <button 
             onClick={onConfirm}
-            disabled={isConfirmDisabled}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               isDestructive 
                 ? 'bg-red-500 hover:bg-red-600 text-white' 
                 : 'bg-theme-primary hover:bg-theme-primary/90 text-white'
