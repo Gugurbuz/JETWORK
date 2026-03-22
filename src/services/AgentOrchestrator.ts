@@ -1,51 +1,47 @@
-import { DocumentData, Message, MessageRole } from '../types';
-import { ZodChatResponse, chatResponseJsonSchema } from '../schemas';
+import { DocumentData, Message, MessageRole, Question } from '../types';
+import { agentTools } from '../schemas';
 
 // 1. Ajan Rolleri İçin İzole Sistem Talimatları (System Instructions)
 export const AGENT_PROMPTS: Record<string, string> = {
-  Orchestrator: `Sen baş yöneticisin (Scrum Master / Router). Kullanıcının isteğine ve dokümanın mevcut durumuna bakarak bir sonraki adımda hangi ajanın (BA, IT, QA, PO) çalışması gerektiğine karar verirsin. Sadece yönlendirme yaparsın, doküman yazmazsın.`,
+  Orchestrator: `Sen baş yöneticisin (Scrum Master / Router). Kullanıcının isteğine, konuşma geçmişine ve projenin mevcut durumuna bakarak bir sonraki adımda hangi ajanın (BA, IT, QA, PO, UIUX) çalışması gerektiğine karar verirsin. Sadece yönlendirme yaparsın, doküman yazmazsın. Kararını JSON formatında 'nextAgent' ve 'reason' olarak dön.`,
   
-  BA: `Sen Kıdemli bir İş Analistisin. Görevin kullanıcının taleplerini analiz edip 'businessAnalysis' ve 'bpmn' dokümanlarını oluşturmaktır. Teknik kararlara veya kodlamaya karışmazsın. Formata kesinlikle uymalısın.`,
+  BA: `Sen Kıdemli bir İş Analistisin. Görevin kullanıcının taleplerini analiz etmektir. Dokümanı güncellemek için SADECE 'update_document_section' aracını (tool) kullan (section olarak 'businessAnalysis' seç). Geçmişi ezmemek için 'operation: append' parametresini kullan. Eğer kullanıcıya kritik bir iş kuralı sorman gerekiyorsa 'ask_to_human' aracını çağır.`,
   
-  IT: `Sen Kıdemli bir Yazılım Mimarı ve Geliştiricisin. İş Analistinin (BA) yazdığı 'businessAnalysis' verisini okuyarak sistem mimarisini, veritabanı şemalarını ve kodu oluşturursun. Sadece 'code' alanını doldurursun.`,
+  IT: `Sen Kıdemli bir Yazılım Mimarı ve Geliştiricisin. Sistem mimarisini ve kodları tasarlarsın. Dokümanı güncellemek için SADECE 'update_document_section' aracını kullan (section: 'code' veya 'bpmn'). Geçmişi ezmemek için 'operation: append' kullan. Kullanıcıya altyapı sorusu sorman gerekirse 'ask_to_human' aracını çağır.`,
   
-  QA: `Sen Kıdemli bir Kalite Güvence Uzmanısın (Test Engineer). BA ve IT'nin ürettiği dokümanlara bakarak test senaryoları, kabul kriterleri ve QA adımlarını belirlersin. Sadece 'test' alanını güncellersin.`,
+  QA: `Sen Kıdemli bir Kalite Güvence Uzmanısın (Test Engineer). Test senaryolarını yazarsın. Dokümanı güncellemek için SADECE 'update_document_section' aracını kullan (section: 'test'). Eksik bilgileri netleştirmek için 'ask_to_human' aracını kullan.`,
   
-  PO: `Sen Product Owner'sın. Projenin vizyonunu, önceliklerini ve iş değerini korursun. Geliştirilen çözümlerin müşteri ihtiyaçlarına uyup uymadığını kontrol edersin.`
+  PO: `Sen Product Owner'sın. Projenin vizyonunu korursun. Ekibin aldığı kararları özetlemek için 'update_document_section' aracını (section: 'review') kullan.`,
+
+  UIUX: `Sen Kıdemli bir UI/UX Tasarımcısısın. Kullanıcı deneyimini tasarlarsın. Arayüz kararlarını 'update_document_section' ile (section: 'businessAnalysis' veya 'code' içine append yaparak) ekle.`
 };
 
-// Orkestratörün döneceği karar şeması (Ajan Yönlendirmesi)
+// Orkestratörün döneceği JSON karar şeması
 export const OrchestratorDecisionSchema = {
   type: "object",
   properties: {
     nextAgent: {
       type: "string",
-      enum: ["BA", "IT", "QA", "PO", "USER", "DONE"],
-      description: "Bir sonraki adımda çalışması gereken ajan. Eğer kullanıcıdan bilgi bekleniyorsa USER, tüm süreç bittiyse DONE seç."
+      enum: ["BA", "IT", "QA", "PO", "UIUX", "USER", "DONE"],
+      description: "Bir sonraki adımda çalışması gereken ajan. Eğer insana (kullanıcıya) soru sorulması gerekiyorsa USER, süreç bittiyse DONE seç."
     },
     reason: {
       type: "string",
-      description: "Bu ajanı neden seçtiğinin kısa açıklaması."
+      description: "Bu ajanı neden seçtiğinin açıklaması."
     }
   },
   required: ["nextAgent", "reason"]
 };
-
-export interface AgentRequestPayload {
-  model: string;
-  systemInstruction: string;
-  contents: { role: MessageRole; parts: { text: string }[] }[];
-  responseSchema?: any;
-}
 
 export type CallGeminiFunction = (params: {
   model: string;
   systemInstruction: string;
   contents: any[];
   responseSchema?: any;
-  onChunk: (text: string, thinking?: string, tokenCount?: number) => void;
+  tools?: any[];
+  onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
-}) => Promise<void>;
+}) => Promise<{ text: string, thinking: string, tokenCount: number, functionCalls?: any[] }>;
 
 export class AgentOrchestrator {
   private callGemini: CallGeminiFunction;
@@ -58,19 +54,18 @@ export class AgentOrchestrator {
     this.messageHistory = history;
   }
 
-  /**
-   * Tüm sohbet geçmişini ve mevcut doküman durumunu Gemini'nin anlayacağı formata çevirir.
-   */
-  private buildContents(additionalContext?: string): { role: MessageRole; parts: { text: string }[] }[] {
-    const contents: { role: MessageRole; parts: { text: string }[] }[] = this.messageHistory.map(msg => ({
+  private buildContents(additionalContext?: string): { role: MessageRole; parts: any[] }[] {
+    const contents: { role: MessageRole; parts: any[] }[] = this.messageHistory.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.text }]
+      parts: [{ text: msg.text || (msg.documentActions ? msg.documentActions.join(', ') : 'Araç kullanıldı.') }]
     }));
 
-    // Ortak hafızayı (State) en son mesaja ekleyerek ajana mevcut durumu bildiriyoruz
     const stateContext = `
       MEVCUT DOKÜMAN DURUMU (Shared State):
-      ${JSON.stringify(this.currentDocument, null, 2)}
+      ${JSON.stringify(this.currentDocument || {}, null, 2)}
+      
+      KRİTİK KURAL: Dokümanı güncellemek için metin içinde Markdown yazmak yerine KESİNLİKLE 'update_document_section' aracını (tool) çağır. 
+      Eğer sistemde olmayan veya bilmediğin bir şey varsa 'ask_to_human' aracını kullan.
       
       ${additionalContext ? `EK BİLGİ/GÖREV: ${additionalContext}` : ''}
     `;
@@ -83,28 +78,31 @@ export class AgentOrchestrator {
     return contents;
   }
 
-  /**
-   * Ana orkestrasyon döngüsünde bir adım atar.
-   */
   public async step(
     onAgentChange?: (agent: string, reason: string) => void, 
     onChunk?: (text: string, thinking?: string, tokenCount?: number) => void
   ): Promise<{
     nextAgent: string;
-    finalResponse?: ZodChatResponse;
     updatedDocument: DocumentData | null;
+    actionSummary?: string;
+    toolUsed?: boolean;
+    questions?: Question[];
+    requiresUserInput?: boolean;
+    finalText?: string;
+    finalThinking?: string;
   }> {
+    
     // 1. Orkestratöre sor: Sıra kimde?
     let decisionJson = '';
     await this.callGemini({
       model: "gemini-2.5-flash",
       systemInstruction: AGENT_PROMPTS['Orchestrator'],
-      contents: this.buildContents("Sohbet geçmişine ve dokümanın durumuna göre bir sonraki ajanı belirle. Eğer tartışılacak bir şey kalmadıysa DONE seç. Eğer kullanıcıdan bilgi bekleniyorsa USER seç."),
+      contents: this.buildContents("Sohbet geçmişine ve dokümanın durumuna göre bir sonraki ajanı belirle. Eğer tartışılacak bir şey kalmadıysa DONE seç. Eğer insana (kullanıcıya) soru sorulması gerekiyorsa USER seç."),
       responseSchema: OrchestratorDecisionSchema,
       onChunk: (text) => { decisionJson = text; }
     });
 
-    let decisionResponse: any = { nextAgent: 'USER', reason: 'Failed to parse' };
+    let decisionResponse: any = { nextAgent: 'USER', reason: 'Orkestratör karar veremedi.' };
     try {
       decisionResponse = JSON.parse(decisionJson.trim());
     } catch(e) {
@@ -113,7 +111,6 @@ export class AgentOrchestrator {
 
     const nextAgent = decisionResponse.nextAgent || 'USER';
     
-    console.log(`[Orchestrator Decision] Next Agent: ${nextAgent}. Reason: ${decisionResponse.reason}`);
     if (onAgentChange) onAgentChange(nextAgent, decisionResponse.reason);
 
     if (nextAgent === 'DONE' || nextAgent === 'USER') {
@@ -123,79 +120,88 @@ export class AgentOrchestrator {
       };
     }
 
-    // 2. Seçilen spesifik ajanı çalıştır (İzole bağlam ile)
-    let agentJson = '';
-    await this.callGemini({
-      model: "gemini-2.5-pro", // Uzman ajanlar için pro model daha iyidir
-      systemInstruction: AGENT_PROMPTS[nextAgent],
-      contents: this.buildContents(`Sen ${nextAgent} ajanısın. Görevini yerine getir ve dokümanın ilgili kısımlarını güncelle.`),
-      responseSchema: chatResponseJsonSchema,
-      onChunk: (text, thinking, tokenCount) => {
-        agentJson = text;
+    // 2. Seçilen ajanı çalıştır (Araçlar/Tools ile birlikte)
+    let agentText = '';
+    let agentThinking = '';
+    const systemPrompt = AGENT_PROMPTS[nextAgent] || AGENT_PROMPTS['BA'];
+
+    const response = await this.callGemini({
+      model: "gemini-2.5-pro",
+      systemInstruction: systemPrompt,
+      contents: this.buildContents(`Sen ${nextAgent} ajanısın. Görevini yerine getir. Gerekirse 'update_document_section' veya 'ask_to_human' aracını kullan.`),
+      tools: agentTools, // Ajanlara fonksiyon çağırma yetkisi verdik!
+      onChunk: (text, thinking, tokenCount, functionCalls) => {
+        agentText = text;
+        if (thinking) agentThinking = thinking;
         if (onChunk) onChunk(text, thinking, tokenCount);
       }
     });
 
-    let agentResult: ZodChatResponse = { message: "" };
-    try {
-      agentResult = JSON.parse(agentJson.trim());
-    } catch(e) {
-      console.error("Agent response parse error", e);
-      agentResult = { message: agentJson };
+    // 3. Ajanın Dönüşünü (Araç Çağrısı veya Metin) İşle
+    let actionSummary = '';
+    let requiresUserInput = false;
+    let questions: Question[] = [];
+    let toolUsed = false;
+    let documentActions: string[] = [];
+
+    if (response.functionCalls && response.functionCalls.length > 0) {
+      toolUsed = true;
+      for (const call of response.functionCalls) {
+        if (call.name === 'update_document_section') {
+          const args = call.args || {};
+          const section = args.section as keyof DocumentData;
+          const operation = args.operation || 'append';
+          const content = args.content || '';
+          
+          actionSummary = args.actionSummary || `${nextAgent} ${section} dokümanını güncelledi.`;
+          documentActions.push(actionSummary);
+
+          if (!this.currentDocument) {
+            this.currentDocument = { businessAnalysis: '', code: '', test: '', review: '', bpmn: '' };
+          }
+
+          if (operation === 'append') {
+            const existing = (this.currentDocument as any)[section] ? (this.currentDocument as any)[section] + '\n\n' : '';
+            (this.currentDocument as any)[section] = existing + content;
+          } else {
+            (this.currentDocument as any)[section] = content;
+          }
+        } 
+        else if (call.name === 'ask_to_human') {
+          const args = call.args || {};
+          requiresUserInput = true;
+          actionSummary = `${nextAgent} bir soru sordu.`;
+          questions.push({
+            id: `q_${Date.now()}_${Math.random().toString(36).substring(2,5)}`,
+            text: args.question || '',
+            options: args.options || []
+          });
+        }
+      }
+    } else {
+      actionSummary = `${nextAgent} düşüncelerini paylaştı.`;
     }
 
-    // 3. Ajanın mesajını geçmişe ekle
+    // 4. Ajanın mesajını geçmişe ekle
     this.messageHistory.push({
       id: Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9),
       role: 'model',
-      text: agentResult.message || '',
+      text: response.text || actionSummary,
       senderName: nextAgent,
       senderRole: nextAgent,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      documentActions: documentActions.length > 0 ? documentActions : undefined
     });
-
-    // 4. State'i (Dokümanı) güncelle
-    if (agentResult.document) {
-      this.currentDocument = {
-        ...this.currentDocument,
-        ...agentResult.document,
-        // BA dokümanı güncelliyorsa, eski code ve test verileri kaybolmasın diye birleştirme yapılır
-        businessAnalysis: agentResult.document.businessAnalysis || this.currentDocument?.businessAnalysis || '',
-        code: agentResult.document.code || this.currentDocument?.code || '',
-        test: agentResult.document.test || this.currentDocument?.test || '',
-        bpmn: agentResult.document.bpmn || this.currentDocument?.bpmn || '',
-        review: agentResult.document.review || this.currentDocument?.review || ''
-      };
-    }
 
     return {
       nextAgent,
-      finalResponse: agentResult,
-      updatedDocument: this.currentDocument
+      updatedDocument: this.currentDocument,
+      actionSummary,
+      toolUsed,
+      requiresUserInput,
+      questions,
+      finalText: response.text,
+      finalThinking: response.thinking
     };
-  }
-
-  /**
-   * Kullanıcıdan gelen mesajı işler ve bir adım atar.
-   */
-  public async processUserInteraction(
-    userMessageText: string, 
-    onAgentChange?: (agent: string, reason: string) => void, 
-    onChunk?: (text: string, thinking?: string, tokenCount?: number) => void
-  ): Promise<{
-    nextAgent: string;
-    finalResponse?: ZodChatResponse;
-    updatedDocument: DocumentData | null;
-  }> {
-    // 1. Kullanıcı mesajını geçmişe ekle
-    const userMessage: Message = {
-      id: Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9),
-      role: 'user',
-      text: userMessageText,
-      createdAt: Date.now()
-    };
-    this.messageHistory.push(userMessage);
-
-    return this.step(onAgentChange, onChunk);
   }
 }

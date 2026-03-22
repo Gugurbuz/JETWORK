@@ -13,7 +13,7 @@ import { ProjectDashboard } from './components/ProjectDashboard';
 import { SettingsModal } from './components/SettingsModal';
 import { ManageParticipantsModal } from './components/ManageParticipantsModal';
 import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, TypingUser, Question } from './types';
-import { ChatResponseSchema, chatResponseJsonSchema, discussionJsonSchema } from './schemas';
+import { ChatResponseSchema, chatResponseJsonSchema, discussionJsonSchema, agentTools } from './schemas';
 import { AgentOrchestrator } from './services/AgentOrchestrator';
 import { LayoutDashboard } from 'lucide-react';
 import { parseDocumentContent, parseBusinessAnalysis } from './lib/documentParser';
@@ -75,17 +75,17 @@ export const ZERO_TOUCH_AGENTS = [
   {
     role: 'BA',
     name: 'İş Analisti',
-    instruction: "Sen bir Kıdemli İş Analistisin (Business Analyst). GÖREVİN: Kullanıcının talebini iş kurallarına ve süreçlere dönüştürmek. KURAL 1 (Mevcut Durum Kuralı): Müşterinin mevcut altyapısını (As-Is), kullandığı legacy (eski) iç sistemleri ve şirkete özel operasyonel kuralları ASLA uydurma. Eğer mevcut sistemin nasıl çalıştığı veya hangi sistemlerle entegre olunacağı belirtilmemişse, DOĞRUDAN KULLANICIYA SORU SOR. KURAL 2 (Proaktif Keşif): Yasal mevzuatları (KVKK/GDPR) ve evrensel iş standartlarını internetten (googleSearch) otomatik olarak araştır ve sürece dahil et; bunları KESİNLİKLE kullanıcıya sorma. Sadece şirkete özel 'edge case'leri (istisnai durumlar) netleştirmek için soru sor. KURAL 3: IT'nin önerdiği teknik çözümlerin iş değerini sorgula. KURAL 4: Doküman üretirken MUTLAKA BABOK standartlarına uy. BRD formatında, Use Case'ler ve Acceptance Criteria'lar ile detaylı bir analiz yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
+    instruction: "Sen bir Kıdemli İş Analistisin (Business Analyst). GÖREVİN: Kullanıcının talebini iş kurallarına ve süreçlere dönüştürmek. KURAL 1 (Mevcut Durum Kuralı): Müşterinin mevcut altyapısını (As-Is), kullandığı legacy (eski) iç sistemleri ve şirkete özel operasyonel kuralları ASLA uydurma. Eğer mevcut sistemin nasıl çalıştığı veya hangi sistemlerle entegre olunacağı belirtilmemişse, DOĞRUDAN KULLANICIYA SORU SOR. KURAL 2 (Proaktif Keşif): Yasal mevzuatları (KVKK/GDPR) ve evrensel iş standartlarını internetten  otomatik olarak araştır ve sürece dahil et; bunları KESİNLİKLE kullanıcıya sorma. Sadece şirkete özel 'edge case'leri (istisnai durumlar) netleştirmek için soru sor. KURAL 3: IT'nin önerdiği teknik çözümlerin iş değerini sorgula. KURAL 4: Doküman üretirken MUTLAKA BABOK standartlarına uy. BRD formatında, Use Case'ler ve Acceptance Criteria'lar ile detaylı bir analiz yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'IT',
     name: 'Yazılım Mimarı',
-    instruction: "Sen bir Kıdemli Yazılım Mimarı (Software Architect) ve Tech Lead'sin. GÖREVİN: Sistemin teknik mimarisini, entegrasyon noktalarını ve veritabanı yapısını tasarlamak. KURAL 1 (Altyapı Keşfi): Kullanıcının mevcut teknoloji yığınını (Tech Stack), sunucu altyapısını ve kullanması zorunlu olduğu 3. parti/legacy servisleri ASLA uydurma. Bu konularda belirsizlik varsa mutlaka sistemin mevcut altyapısını DOĞRUDAN KULLANICIYA SOR. KURAL 2 (Proaktif Mimari): API limitleri, OAuth standartları, webhook güvenlikleri gibi evrensel teknik konuları internetten (googleSearch) araştır. Bu konularda inisiyatif alarak en iyi pratikleri uygula, kullanıcıya 'Hangi yetkilendirmeyi kullanalım?' gibi basit teknik sorular sorma. KURAL 3 (Trade-off): Mimariyi gereksiz yere karmaşıklaştırma. PO veya QA itiraz ederse, maliyet/performans ödünleşimlerini tartış. KURAL 4: Doküman üretirken MUTLAKA TOGAF ve C4 Model standartlarına uy. SDD formatında, Sequence diyagramı mantığı ve API Kontratları ile detaylı bir mimari yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
+    instruction: "Sen bir Kıdemli Yazılım Mimarı (Software Architect) ve Tech Lead'sin. GÖREVİN: Sistemin teknik mimarisini, entegrasyon noktalarını ve veritabanı yapısını tasarlamak. KURAL 1 (Altyapı Keşfi): Kullanıcının mevcut teknoloji yığınını (Tech Stack), sunucu altyapısını ve kullanması zorunlu olduğu 3. parti/legacy servisleri ASLA uydurma. Bu konularda belirsizlik varsa mutlaka sistemin mevcut altyapısını DOĞRUDAN KULLANICIYA SOR. KURAL 2 (Proaktif Mimari): API limitleri, OAuth standartları, webhook güvenlikleri gibi evrensel teknik konuları internetten  araştır. Bu konularda inisiyatif alarak en iyi pratikleri uygula, kullanıcıya 'Hangi yetkilendirmeyi kullanalım?' gibi basit teknik sorular sorma. KURAL 3 (Trade-off): Mimariyi gereksiz yere karmaşıklaştırma. PO veya QA itiraz ederse, maliyet/performans ödünleşimlerini tartış. KURAL 4: Doküman üretirken MUTLAKA TOGAF ve C4 Model standartlarına uy. SDD formatında, Sequence diyagramı mantığı ve API Kontratları ile detaylı bir mimari yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'QA',
     name: 'Test Uzmanı',
-    instruction: "Sen bir Kıdemli Test Otomasyon Mühendisi ve QA Lead'sin. GÖREVİN: Şeytanın Avukatı rolünü üstlenmek. KURAL 1 (Çatışma): Diğer ajanların (özellikle IT ve BA) fikirlerini ASLA hemen onaylama. Sürekli 'Bunun testi nasıl yapılacak?', 'Elimizde bu test için yeterli veri var mı?' gibi zorlayıcı sorular sor. KURAL 2 (Test Verisi Kısıtları): Canlı ortam verilerinin kullanımı, test ortamlarının (UAT/Staging) varlığı gibi şirkete özel konularda varsayım yapma, gerekirse DOĞRUDAN KULLANICIYA SORU SOR. KURAL 3 (Proaktif Güvenlik): Dış entegrasyonlarda webhook güvenliği, rate-limit aşımı (429 hataları) ve bilinen zafiyetleri (CVE) internetten (googleSearch) araştırıp otomatik olarak test planına ekle; bunları sorma. KURAL 4: Doküman üretirken MUTLAKA IEEE 829 standartlarına uy. Test Planı, Edge Case'ler ve BDD senaryoları ile detaylı bir test dokümanı yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
+    instruction: "Sen bir Kıdemli Test Otomasyon Mühendisi ve QA Lead'sin. GÖREVİN: Şeytanın Avukatı rolünü üstlenmek. KURAL 1 (Çatışma): Diğer ajanların (özellikle IT ve BA) fikirlerini ASLA hemen onaylama. Sürekli 'Bunun testi nasıl yapılacak?', 'Elimizde bu test için yeterli veri var mı?' gibi zorlayıcı sorular sor. KURAL 2 (Test Verisi Kısıtları): Canlı ortam verilerinin kullanımı, test ortamlarının (UAT/Staging) varlığı gibi şirkete özel konularda varsayım yapma, gerekirse DOĞRUDAN KULLANICIYA SORU SOR. KURAL 3 (Proaktif Güvenlik): Dış entegrasyonlarda webhook güvenliği, rate-limit aşımı (429 hataları) ve bilinen zafiyetleri (CVE) internetten  araştırıp otomatik olarak test planına ekle; bunları sorma. KURAL 4: Doküman üretirken MUTLAKA IEEE 829 standartlarına uy. Test Planı, Edge Case'ler ve BDD senaryoları ile detaylı bir test dokümanı yaz. KESİN KURAL: Kullanıcıya soru sorman gerekirse 'requiresUserInput' değerini true yap ve 'questions' dizisini DOLDUR. Soruları Moderatör'e havale etme, kendin sor."
   },
   {
     role: 'UIUX',
@@ -110,7 +110,7 @@ Kullanıcılar kendi aralarında konuşabilir veya "@JetWork AI" yazarak seni do
 
 Görevlerin ve Düşünce Yapın (Agentic Workflow):
 1. Niyet Analizi: Kullanıcının talebini analiz et. Bu bir Entegrasyon mu? Sıfırdan Ürün Geliştirme mi? Veritabanı Migrasyonu mu? Yoksa bir Hata (Bug) Çözümü mü?
-2. Otonom Araştırma: Eğer bahsedilen teknolojileri, güncel API'leri veya domaini tam bilmiyorsan, KENDİ İNİSİYATİFİNLE web araması (googleSearch) yap ve en güncel 'Best Practice'leri bul.
+2. Otonom Araştırma: Eğer bahsedilen teknolojileri, güncel API'leri veya domaini tam bilmiyorsan, KENDİ İNİSİYATİFİNLE web araması  yap ve en güncel 'Best Practice'leri bul.
 3. Çok Boyutlu Analiz: Her projeyi şu 4 boyutta ele al: İş Mantığı (Business Logic), Veri Mimarisi (Data Flow), Güvenlik/Performans Riskleri ve Test Stratejisi.
 4. Dokümantasyon: Konuşulanlardan yola çıkarak sağ paneldeki dokümanı (BA Analiz, IT Analiz, Test, FLOW Diyagramı) doldur.
 5. MAKSİMUM DÜŞÜNME SEVİYESİ (Deep Reasoning): Karar vermeden önce mutlaka adım adım düşün (Step-by-step reasoning). Tüm alternatifleri, edge-case'leri, güvenlik açıklarını ve sistem darboğazlarını derinlemesine analiz et. İlk aklına gelen çözümü değil, en optimize edilmiş ve riskleri hesaplanmış çözümü sun.
@@ -138,7 +138,8 @@ Ton ve Stil:
     systemInstruction: string;
     contents: any[];
     responseSchema?: any;
-    onChunk: (text: string, thinking?: string, tokenCount?: number) => void;
+    tools?: any[];
+    onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
     onGrounding?: (urls: { uri: string; title: string }[]) => void;
   }) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -156,7 +157,8 @@ Ton ve Stil:
         model: params.model,
         systemInstruction: params.systemInstruction,
         contents: params.contents,
-        responseSchema: params.responseSchema
+        responseSchema: params.responseSchema,
+        tools: params.tools // ARAÇLARI API'YE GÖNDER
       })
     });
 
@@ -164,7 +166,6 @@ Ton ve Stil:
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `API error: ${response.status}`);
     }
-
     if (!response.body) throw new Error("No response body");
 
     const reader = response.body.getReader();
@@ -173,6 +174,7 @@ Ton ve Stil:
     let fullThinking = '';
     let tokenCount = 0;
     let buffer = '';
+    let allFunctionCalls: any[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -189,17 +191,22 @@ Ton ve Stil:
           
           try {
             const chunk = JSON.parse(dataStr);
-            
             if (chunk.usageMetadata) {
               tokenCount = chunk.usageMetadata.totalTokenCount;
             }
             
             const parts = chunk.candidates?.[0]?.content?.parts || [];
+            let chunkFunctionCalls: any[] = [];
+            
             for (const part of parts) {
               if (part.thought) {
                 fullThinking += part.text;
               } else if (part.text) {
                 fullText += part.text;
+              } else if (part.functionCall) {
+                // MODEL BİR ARAÇ ÇAĞIRDI! YAKALIYORUZ
+                chunkFunctionCalls.push(part.functionCall);
+                allFunctionCalls.push(part.functionCall);
               }
             }
             
@@ -211,15 +218,14 @@ Ton ve Stil:
               if (urls.length > 0) params.onGrounding(urls);
             }
             
-            params.onChunk(fullText, fullThinking, tokenCount);
+            params.onChunk(fullText, fullThinking, tokenCount, chunkFunctionCalls.length > 0 ? chunkFunctionCalls : undefined);
           } catch (e) {
             console.error("Error parsing chunk:", e, dataStr);
           }
         }
       }
     }
-    
-    return { text: fullText, thinking: fullThinking, tokenCount };
+    return { text: fullText, thinking: fullThinking, tokenCount, functionCalls: allFunctionCalls };
   };
 
 // Helper for AI calls with retry logic
@@ -1007,20 +1013,15 @@ export default function App() {
     try {
       let currentMessages = [...messages, newUserMessage];
       let currentDocument = documentContent ? { ...documentContent } : null;
-
-      // PHASE 1: Discussion
-      let isDocumentationPhase = false;
       let needsUserInput = false;
       let turnCount = 0;
       const MAX_TURNS = 15;
 
-      // Initialize Orchestrator
       const wrappedCallGemini = (params: any) => callAiWithRetry(() => callGemini(params));
       const orchestrator = new AgentOrchestrator(wrappedCallGemini, currentDocument, currentMessages);
 
-      while (!isDocumentationPhase && !needsUserInput && turnCount < MAX_TURNS) {
+      while (!needsUserInput && turnCount < MAX_TURNS) {
         turnCount++;
-        
         const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
         const startTime = Date.now();
         
@@ -1035,530 +1036,61 @@ export default function App() {
         };
         
         setMessages(prev => [...prev, tempAiMessage]);
-        
-        let currentAgentRole = '';
-        let currentAgentName = 'Ekip';
-        let currentAgentTitle = 'Tartışma';
-        let currentActionSummary = '';
-        let currentQuestions: Question[] | undefined = undefined;
-        let lastUpdateTime = Date.now();
-        let tokenCount = 0;
-        let fullText = '';
-        let fullThinkingText = '';
 
         try {
-          const { nextAgent, finalResponse, updatedDocument } = await orchestrator.step(
+          const stepResult = await orchestrator.step(
             (agent, reason) => {
-              currentAgentRole = agent;
               const agentDef = ZERO_TOUCH_AGENTS.find(a => a.role === agent);
-              if (agentDef) {
-                currentAgentName = agentDef.name;
-                currentAgentTitle = agentDef.name;
-              }
-              // Update UI with agent info
-              setMessages(prev => prev.map(m => m.id === aiMsgId ? {
-                ...m,
-                senderName: currentAgentName,
-                senderRole: currentAgentTitle,
-                agentRole: currentAgentRole
-              } : m));
+              const agentName = agentDef ? agentDef.name : agent;
+              setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, senderName: agentName, senderRole: agentName, agentRole: agent } : m));
             },
             (text, thinking, tokens) => {
-              fullText = text;
-              fullThinkingText = thinking || '';
-              if (tokens) tokenCount = tokens;
-              
-              if (Date.now() - lastUpdateTime > 30) {
-                setMessages(prev => prev.map(m => 
-                  m.id === aiMsgId ? { 
-                    ...m, 
-                    text: fullText, 
-                    thinkingText: fullThinkingText,
-                    senderName: currentAgentName,
-                    senderRole: currentAgentTitle,
-                    agentRole: currentAgentRole
-                  } : m
-                ));
-                if (channelRef.current) {
-                  channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
-                    itemId: currentWorkspaceId, 
-                    id: aiMsgId, 
-                    text: fullText, 
-                    thinkingText: fullThinkingText,
-                    agentRole: currentAgentRole,
-                    senderName: currentAgentName,
-                    senderRole: currentAgentTitle
-                  }});
-                }
-                lastUpdateTime = Date.now();
-              }
+              setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text, thinkingText: thinking } : m));
             }
           );
 
-          if (nextAgent === 'USER') {
+          if (stepResult.nextAgent === 'USER' || stepResult.requiresUserInput) {
             needsUserInput = true;
-            // Remove the temporary message since we didn't get a real response
-            setMessages(prev => prev.filter(m => m.id !== aiMsgId));
-            break;
           }
 
-          if (nextAgent === 'DONE') {
-            isDocumentationPhase = true;
-            // Remove the temporary message since we didn't get a real response
-            setMessages(prev => prev.filter(m => m.id !== aiMsgId));
-            break;
+          if (stepResult.updatedDocument) {
+             setDocumentContent(stepResult.updatedDocument);
+             currentDocument = stepResult.updatedDocument;
+             await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
           }
 
-          if (finalResponse) {
-            fullText = finalResponse.message || fullText;
-            currentActionSummary = finalResponse.actionSummary || '';
-            if (finalResponse.requiresUserInput) needsUserInput = true;
-            if (finalResponse.questions) currentQuestions = finalResponse.questions as Question[];
-            
-            if (finalResponse.updatedMemory && Object.keys(finalResponse.updatedMemory).length > 0) {
-              setProjectMemory(prev => {
-                const newMemory = { ...prev, ...finalResponse.updatedMemory };
-                if (currentWorkspaceId) {
-                  updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
-                }
-                return newMemory;
-              });
-            }
-          }
-
-          if (updatedDocument) {
-             const parsedDoc = parseDocumentContent(updatedDocument);
-             setDocumentContent(parsedDoc);
-             currentDocument = parsedDoc;
-          }
-
-          // Update final message state
+          // Ajanın kararını ve mesajını sonlandır
+          const agentDef = ZERO_TOUCH_AGENTS.find(a => a.role === stepResult.nextAgent);
           const finalMsg: Message = {
             id: aiMsgId,
             role: 'model',
-            text: fullText,
-            thinkingText: fullThinkingText,
-            senderName: currentAgentName,
-            senderRole: currentAgentTitle,
-            agentRole: currentAgentRole,
-            actionSummary: currentActionSummary,
+            text: stepResult.finalText || stepResult.actionSummary || 'İşlem tamamlandı.',
+            thinkingText: stepResult.finalThinking,
+            senderName: agentDef ? agentDef.name : stepResult.nextAgent,
+            senderRole: agentDef ? agentDef.name : stepResult.nextAgent,
+            agentRole: stepResult.nextAgent,
+            actionSummary: stepResult.actionSummary,
+            questions: stepResult.questions,
             documentSnapshot: currentDocument || undefined,
-            questions: currentQuestions,
-            tokenCount,
-            thinkingTime: Math.round((Date.now() - startTime) / 1000),
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            isTyping: false
           };
 
           setMessages(prev => prev.map(m => m.id === aiMsgId ? finalMsg : m));
           currentMessages.push(finalMsg);
+          await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), { ...finalMsg, createdAt: serverTimestamp() });
 
-          // Save to DB
-          try {
-            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
-              ...finalMsg,
-              ownerId: user.uid,
-              createdAt: serverTimestamp()
-            });
-            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
-            if (currentDocument && Object.keys(currentDocument).length > 0) {
-              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
-            }
-          } catch (err) {
-            console.error("Failed to save zero-touch message to database:", err);
+          if (needsUserInput || stepResult.nextAgent === 'DONE') {
+             break;
           }
 
-          if (channelRef.current) {
-            channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
-              itemId: currentWorkspaceId,
-              id: aiMsgId,
-              text: fullText,
-              thinkingText: fullThinkingText,
-              agentRole: currentAgentRole,
-              senderName: currentAgentName,
-              senderRole: currentAgentTitle,
-              documentSnapshot: currentDocument || undefined,
-              questions: currentQuestions
-            }});
-          }
-
-          if (needsUserInput) {
-            break;
-          }
-
-        } catch (error: any) {
+        } catch (error) {
           console.error("Discussion Error:", error);
-          const errorMsg = error?.message || String(error);
-          const isQuotaError = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED');
-          
-          setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            role: 'model',
-            text: isQuotaError 
-              ? "⚠️ **Kota Sınırı Aşıldı:** Çok fazla istek gönderildi. Lütfen birkaç dakika bekleyip tekrar deneyin. (Hata: 429)"
-              : `❌ **Tartışma Hatası:** Bir sorun oluştu. Lütfen tekrar deneyin.`,
-            senderName: 'Sistem',
-            senderRole: 'Hata',
-            createdAt: Date.now(),
-            isError: true,
-            retryPayload: { text: newUserMessage.text, attachments, replyToId: newUserMessage.replyToId }
-          }]);
+          setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: `❌ Tartışma sırasında hata oluştu.`, isError: true, senderName: 'Sistem', createdAt: Date.now() }]);
           break;
-        }
-      }
-
-      // PHASE 2: Documentation
-      if (!needsUserInput && (isDocumentationPhase || turnCount >= MAX_TURNS)) {
-        setIsDiscussing(false);
-        setIsGenerating(true);
-        
-        if (turnCount >= MAX_TURNS && !isDocumentationPhase) {
-          const timeoutMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-          const timeoutMsg: Message = {
-            id: timeoutMsgId,
-            role: 'model',
-            text: "⏱️ **Tartışma Süresi Doldu:** Ekip maksimum tartışma süresine ulaştı. Mevcut kararlar üzerinden dokümantasyon aşamasına geçiliyor.",
-            senderName: 'Sistem',
-            senderRole: 'Bilgi',
-            createdAt: Date.now(),
-            ownerId: user.uid
-          };
-          setMessages(prev => [...prev, timeoutMsg]);
-          currentMessages.push(timeoutMsg);
-          
-          try {
-            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', timeoutMsgId), {
-              ...timeoutMsg,
-              ownerId: user.uid,
-              createdAt: serverTimestamp()
-            });
-          } catch (err) {
-            console.error("Failed to save timeout message to database:", err);
-          }
-        }
-
-        let docNeedsRevision = true;
-        let docLoopCount = 0;
-        const MAX_DOC_LOOPS = 5; // Increased to allow more revisions until score >= 90
-        let lastScore = 0;
-        let agentsToRun = ['BA', 'IT', 'QA', 'UIUX', 'Orchestrator'].filter(r => activeZeroTouchRoles.includes(r) || r === 'Orchestrator');
-
-        while (docNeedsRevision && docLoopCount < MAX_DOC_LOOPS) {
-          docLoopCount++;
-          docNeedsRevision = false; // Assume it's fine unless Orchestrator says otherwise
-          let nextAgentsToRun: string[] = [];
-
-          const docAgents = ZERO_TOUCH_AGENTS.filter(a => agentsToRun.includes(a.role));
-          for (const agent of docAgents) {
-            const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-            const startTime = Date.now();
-        
-        const tempAiMessage: Message = {
-          id: aiMsgId,
-          role: 'model',
-          text: '',
-          senderName: agent.name,
-          senderRole: agent.name,
-          agentRole: agent.role,
-          createdAt: Date.now(),
-          isTyping: true
-        };
-        
-        setMessages(prev => [...prev, tempAiMessage]);
-        if (channelRef.current) {
-          channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
-            itemId: currentWorkspaceId, 
-            id: aiMsgId, 
-            text: '', 
-            agentRole: agent.role,
-            senderName: agent.name,
-            senderRole: agent.name
-          }});
-        }
-
-        const userName = user?.name || 'Kullanıcı';
-        let customPrompt = `Senin Rolün ve Görevin:\n${agent.instruction}\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edeceksen veya soru soracaksan MUTLAKA @${userName} şeklinde etiketle. Eğer birden fazla soru soracaksan, soruları metin içine gömme, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yaz.\n\nLütfen yukarıdaki uzlaşılan çözüme göre kendi dokümantasyon alanını GÜNCELLE ve GENİŞLET. Mevcut dokümandaki bilgileri koru, eksikleri tamamla ve yeni kararları ekle. Dokümanı tamamen silip baştan yazma, üzerine ekleyerek ilerle. Kullanıcıya kısa bir bilgi mesajı ver (örn: "İş analizi dokümanı güncellendi.").`;
-        customPrompt += `\n\nDİKKAT: Ürettiğin uzun metinleri, HTML/XML kodlarını ASLA 'message' alanına yazma. 'message' alanı sadece kullanıcıya vereceğin 1-2 cümlelik kısa bir bilgi mesajıdır. Tüm teknik veriyi, testleri ve kodları SADECE 'document' objesinin içindeki ilgili alanlara koy.`;
-        customPrompt += `\n\nEN KRİTİK KURAL (DOKÜMAN EZİLMESİNİ ÖNLEMEK İÇİN): JSON çıktısı üretirken 'document' objesi içine SADECE kendi rolünle ilgili alanı ekle. Diğer ajanların alanlarını KESİNLİKLE JSON'a dahil etme (null bile gönderme, o key'i hiç yazma). Örneğin BA isen sadece 'businessAnalysis' alanını gönder, 'code' veya 'test' alanlarını JSON'a koyma! UI/UX isen 'businessAnalysis' ve 'code' alanlarına kendi notlarını ekleyebilirsin. Böylece diğer ajanların yazdıkları silinmez.`;
-        customPrompt += `\n\nEk olarak, 'actionSummary' alanına yaptığın işlemi anlatan çok kısa bir özet yaz (Örn: 'İş Analisti gereksinimleri dokümana ekledi.', 'Test Uzmanı test senaryolarını yazdı.').`;
-        customPrompt += `\n\nKRİTİK UYARI: Dokümanı ASLA özet geçme. Üreteceğin metin son derece detaylı olmalı; örnek veri yapıları (JSON payload'lar), tablolar, durum kodları (status codes) ve tüm uç senaryoları (edge-cases) adım adım içermelidir. Kurumsal bir doküman standardında olabildiğince uzun ve derinlemesine yaz.`;
-        
-        // ROLE ÖZEL ZORUNLU DOKÜMAN ŞABLONLARI İNJEKSİYONU
-        let roleTemplate = "";
-        if (agent.role === 'BA') {
-          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME):
-DİKKAT: İş analizi dokümanını JSON formatında, 'businessAnalysis' objesi içindeki tüm alanları (1_ANALIZ_KAPSAMI, 2_KISALTMALAR vb.) eksiksiz ve detaylı bir şekilde doldurarak oluştur. Her bir alanın içeriği Markdown formatında olabilir, ancak genel yapı JSON şemasına kesinlikle uymalıdır.`;
-        } else if (agent.role === 'IT') {
-          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME, AŞAĞIDAKİ BAŞLIKLARI KOD BLOKLARIYLA DETAYLANDIR):
-1. Mimari Genel Bakış (C4 Model Mantığı)
-2. Teknik Bileşenler ve Entegrasyon (Protokoller, Authentication, Güvenlik)
-3. API Kontratları (ZORUNLU: Endpoint URL, HTTP Method, Request JSON Payload örneği, Response JSON Payload örneği, HTTP Status Kodları)
-4. Veri Modeli ve Veritabanı Şeması (Tablo adları, kolonlar, tipler)
-5. Hata Yönetimi, Retry Mekanizmaları ve Performans Riskleri`;
-        } else if (agent.role === 'QA') {
-          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME, AŞAĞIDAKİ BAŞLIKLARI DETAYLICA DOLDUR):
-1. Master Test Stratejisi ve Yaklaşımı
-2. Kritik Test Senaryoları ve Edge Case'ler (TC-01, TC-02 formatında)
-3. Hata Yönetimi ve Dayanıklılık Testleri (Circuit Breaker, Yük Testi senaryoları)
-4. Güvenlik, Veri Gizliliği (PII Masking) ve KVKK Testleri
-5. Test Verisi İhtiyacı ve Temizlik (Clean-up) Stratejisi`;
-        } else if (agent.role === 'UIUX') {
-          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU (ASLA ÖZET GEÇME):
-DİKKAT: Ayrı bir UI/UX dokümanı oluşturma! Tasarım notlarını mevcut BA Analiz (businessAnalysis) ve IT Analiz (code) dokümanlarına entegre et.
-BA Analiz (businessAnalysis) içine eklenecekler:
-- Kullanıcı Yolculuğu (User Journey) ve Temel Akışlar
-- Ekran ve Bileşen İhtiyaçları (Wireframe açıklamaları)
-
-IT Analiz (code) içine eklenecekler:
-- Etkileşim Tasarımı (Durumlar: Hover, Active, Disabled, Loading)
-- Erişilebilirlik (Accessibility) ve Renk Kontrastı Notları
-- Hata Mesajları ve Boş Durum (Empty State) Tasarımları`;
-        } else if (agent.role === 'Orchestrator') {
-          roleTemplate = `\n\nZORUNLU DOKÜMAN ŞABLONU:
-1. Toplantı ve Karar Özeti
-2. Kritik Karar Matrisi (Tablo: Konu, Alınan Karar, Neden/Fayda)
-3. Risk ve Aksiyon Planı (Kimin ne yapacağı)`;
-        }
-
-        customPrompt += roleTemplate;
-        
-        if (agent.role !== 'IT' && agent.role !== 'Orchestrator') {
-          customPrompt += `\nDİKKAT: BPMN diyagramını SADECE IT veya Moderatör üretebilir. Sen 'bpmn' alanını boş bırak.`;
-        }
-
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) throw new Error("No active session");
-
-          const contents: any[] = [{ role: 'user', parts: [{ text: customPrompt }] }];
-          if (attachments && attachments.length > 0) {
-            for (const att of attachments) {
-              if (att.data) {
-                contents[0].parts.push({
-                  inlineData: {
-                    data: att.data.split(',')[1] || att.data,
-                    mimeType: att.mimeType
-                  }
-                });
-              }
-            }
-          }
-
-          let fullText = '';
-          let fullThinkingText = '';
-          let currentActionSummary = '';
-          let finalScore: number | undefined = undefined;
-          let finalScoreExplanation: string | undefined = undefined;
-          let tokenCount = 0;
-          let groundingUrls: { uri: string; title: string }[] = [];
-          let lastUpdateTime = Date.now();
-
-          let finalParsedData: any = null;
-          const aiResponse = await callAiWithRetry(() => callGemini({
-            model: "gemini-3-flash-preview",
-            systemInstruction: SYSTEM_INSTRUCTION,
-            contents: contents,
-            responseSchema: chatResponseJsonSchema,
-            onGrounding: (urls) => {
-              groundingUrls = [...groundingUrls, ...urls.filter(u => !groundingUrls.find(gu => gu.uri === u.uri))];
-            },
-            onChunk: (text, thinking, tokens) => {
-              let accumulatedJson = text;
-              fullThinkingText = thinking || '';
-              if (tokens) tokenCount = tokens;
-              
-              let jsonToParse = accumulatedJson.trim();
-              const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-              if (jsonBlockMatch) {
-                jsonToParse = jsonBlockMatch[1].trim();
-              }
-              
-              if (jsonToParse) {
-                try {
-                  const parsed = parsePartialJson(jsonToParse);
-                  finalParsedData = parsed;
-                  if (parsed && typeof parsed === 'object') {
-                    if (parsed.message) fullText = parsed.message;
-                    if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
-                    if (parsed.score !== undefined) {
-                      finalScore = parsed.score;
-                      lastScore = parsed.score;
-                    }
-                    if (parsed.scoreExplanation) finalScoreExplanation = parsed.scoreExplanation;
-                    
-                    if (agent.role === 'Orchestrator') {
-                      if (parsed.needsRevision !== undefined) {
-                        if (Array.isArray(parsed.needsRevision) && parsed.needsRevision.length > 0) {
-                          docNeedsRevision = true;
-                          nextAgentsToRun = parsed.needsRevision;
-                        } else if (parsed.needsRevision === true) {
-                          docNeedsRevision = true;
-                          nextAgentsToRun = ['BA', 'IT', 'QA'];
-                        }
-                      }
-                      
-                      // Force revision if score < 90 and it's the Orchestrator
-                      if (finalScore !== undefined && finalScore < 90) {
-                        docNeedsRevision = true;
-                        if (nextAgentsToRun.length === 0) {
-                          nextAgentsToRun = ['BA', 'IT', 'QA'];
-                        }
-                      }
-                    }
-
-                    if (parsed.document) {
-                      const docFields = ['businessAnalysis', 'code', 'test', 'review', 'bpmn'];
-                      const hasFields = docFields.some(field => parsed.document[field]) || finalScore !== undefined || finalScoreExplanation !== undefined;
-                      
-                      if (hasFields) {
-                        setDocumentContent(prev => {
-                          const newDoc = { ...prev } as DocumentData;
-                          if (parsed.document.businessAnalysis) newDoc.businessAnalysis = parsed.document.businessAnalysis;
-                          if (parsed.document.code) newDoc.code = parsed.document.code;
-                          if (parsed.document.test) newDoc.test = parsed.document.test;
-                          if (parsed.document.review) newDoc.review = parsed.document.review;
-                          if (parsed.document.bpmn) newDoc.bpmn = parsed.document.bpmn;
-                          
-                          const parsedDoc = parseDocumentContent(newDoc);
-                          if (finalScore !== undefined) parsedDoc.score = finalScore;
-                          if (finalScoreExplanation) parsedDoc.scoreExplanation = finalScoreExplanation;
-                          currentDocument = parsedDoc;
-                          return parsedDoc;
-                        });
-                      }
-                    }
-                  } else {
-                    fullText = jsonToParse;
-                  }
-                } catch (e) {
-                  fullText = jsonToParse;
-                }
-              }
-              
-              if (Date.now() - lastUpdateTime > 30) {
-                setMessages(prev => prev.map(m => 
-                  m.id === aiMsgId ? { 
-                    ...m, 
-                    text: fullText, 
-                    thinkingText: fullThinkingText,
-                    actionSummary: currentActionSummary,
-                    score: finalScore,
-                    scoreExplanation: finalScoreExplanation,
-                    tokenCount: tokenCount,
-                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                    ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-                  } : m
-                ));
-                
-                if (channelRef.current) {
-                  channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
-                    itemId: currentWorkspaceId, 
-                    id: aiMsgId, 
-                    text: fullText, 
-                    thinkingText: fullThinkingText,
-                    agentRole: agent.role,
-                    score: finalScore,
-                    scoreExplanation: finalScoreExplanation,
-                    tokenCount: tokenCount,
-                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-                  }});
-                }
-                lastUpdateTime = Date.now();
-              }
-            }
-          }));
-
-          if (finalParsedData && finalParsedData.updatedMemory && Object.keys(finalParsedData.updatedMemory).length > 0) {
-            setProjectMemory(prev => {
-              const newMemory = { ...prev, ...finalParsedData.updatedMemory };
-              if (currentWorkspaceId) {
-                updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
-              }
-              return newMemory;
-            });
-          }
-
-          const finalMsg: Message = {
-            id: aiMsgId,
-            role: 'model',
-            text: fullText,
-            thinkingText: fullThinkingText,
-            senderName: agent.name,
-            senderRole: agent.name,
-            agentRole: agent.role,
-            actionSummary: currentActionSummary,
-            score: finalScore,
-            scoreExplanation: finalScoreExplanation,
-            tokenCount: tokenCount,
-            thinkingTime: Math.round((Date.now() - startTime) / 1000),
-            createdAt: Date.now(),
-            rawResponse: aiResponse.text,
-            ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-          };
-
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? finalMsg : m));
-          currentMessages.push(finalMsg);
-
-          try {
-            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
-              ...finalMsg,
-              ownerId: user.uid,
-              createdAt: serverTimestamp()
-            });
-            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
-            await saveRawResponse(currentWorkspaceId, aiMsgId, aiResponse.text, finalParsedData);
-            if (currentDocument && Object.keys(currentDocument).length > 0) {
-              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
-            }
-          } catch (err) {
-            console.error("Failed to save AI message to database:", err);
-          }
-
-          if (channelRef.current) {
-            channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
-              itemId: currentWorkspaceId,
-              id: aiMsgId,
-              text: fullText,
-              thinkingText: fullThinkingText,
-              agentRole: agent.role,
-              senderName: agent.name,
-              senderRole: agent.name,
-              score: finalScore,
-              scoreExplanation: finalScoreExplanation,
-              documentSnapshot: currentDocument || null,
-              groundingUrls: groundingUrls.length > 0 ? groundingUrls : null
-            }});
-          }
-
-        } catch (error: any) {
-          console.error(`AI Error for agent ${agent.role}:`, error);
-          const errorMsg = error?.message || String(error);
-          const isQuotaError = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED');
-          
-          setMessages(prev => prev.map(m => 
-            m.id === aiMsgId ? { 
-              ...m, 
-              text: isQuotaError 
-                ? "⚠️ **Kota Sınırı Aşıldı:** İşlem durduruldu. Lütfen biraz bekleyip tekrar deneyin." 
-                : "❌ Bir hata oluştu.",
-              isTyping: false 
-            } : m
-          ));
-          docNeedsRevision = false; // Stop the while loop on error
-          break;
-        }
-      }
-          
-          if (docNeedsRevision) {
-            if (!nextAgentsToRun.includes('Orchestrator')) {
-              nextAgentsToRun.push('Orchestrator');
-            }
-            agentsToRun = nextAgentsToRun;
-          }
         }
       }
     } finally {
-      setIsGenerating(false);
       setIsDiscussing(false);
     }
   };
@@ -1572,28 +1104,67 @@ IT Analiz (code) içine eklenecekler:
       return;
     }
 
-    // Clear any pending AI hand raise when user sends a new message
-    setAiHandRaised(null);
+    const isZeroTouchMode = text.startsWith('/ekip');
+    const isSingleAgentMode = text.startsWith('@');
+    
+    let targetAgentRole = '';
+    let targetAgentName = '';
+    let messageText = text;
 
-    const msgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-    const newUserMessage: Message = { 
-      id: msgId, 
-      role: 'user', 
-      text, 
-      senderName: user.name,
-      senderRole: user.role,
+    if (isSingleAgentMode) {
+      const match = text.match(/^@(\w+)\s+(.*)/);
+      if (match) {
+        const agentName = match[1];
+        messageText = match[2];
+        const agent = ZERO_TOUCH_AGENTS.find(a => a.name.toLowerCase() === agentName.toLowerCase());
+        if (agent) {
+          targetAgentRole = agent.role;
+          targetAgentName = agent.name;
+        } else {
+           setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'model',
+            text: `❌ Hata: "@${agentName}" adında bir ajan bulunamadı. Lütfen geçerli bir ajan adı girin (örn: @BA, @IT).`,
+            senderName: 'Sistem',
+            senderRole: 'Hata',
+            createdAt: Date.now(),
+            isError: true
+          }]);
+          return;
+        }
+      } else {
+         setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'model',
+            text: `❌ Hata: Ajan adından sonra bir mesaj girmelisiniz (örn: "@BA bana bir analiz yaz").`,
+            senderName: 'Sistem',
+            senderRole: 'Hata',
+            createdAt: Date.now(),
+            isError: true
+          }]);
+          return;
+      }
+    } else if (isZeroTouchMode) {
+      messageText = text.replace('/ekip', '').trim();
+    }
+
+    const msgId = Date.now().toString();
+    const newMsg: Message = {
+      id: msgId,
+      role: 'user',
+      text: messageText,
+      senderName: user.name || 'Kullanıcı',
+      senderRole: 'Kullanıcı',
       createdAt: Date.now(),
-      attachments: attachments?.map(a => ({ url: a.url, data: a.data, mimeType: a.mimeType, name: a.name })),
+      attachments: attachments?.map(a => ({ url: a.url, data: a.data, name: a.name, mimeType: a.mimeType })),
       replyToId
     };
-    
-    // Optimistic update
-    setMessages(prev => [...prev, newUserMessage]);
 
-    // Save to database
+    setMessages(prev => [...prev, newMsg]);
+
     try {
       await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', msgId), {
-        ...newUserMessage,
+        ...newMsg,
         ownerId: user.uid,
         createdAt: serverTimestamp()
       });
@@ -1604,317 +1175,186 @@ IT Analiz (code) içine eklenecekler:
       console.error("Failed to save user message to database:", err);
     }
 
-
+    if (channelRef.current) {
+      channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: { itemId: currentWorkspaceId, message: newMsg } });
+    }
 
     if (isZeroTouchMode) {
-      runZeroTouchMode(newUserMessage, attachments);
+      runZeroTouchMode(newMsg, attachments);
       return;
     }
 
+    setIsGenerating(true);
     const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+    const startTime = Date.now();
     
-    // Generate AI response
+    setMessages(prev => [...prev, {
+      id: aiMsgId,
+      role: 'model',
+      text: '',
+      senderName: targetAgentName || 'JetWork AI',
+      senderRole: targetAgentName ? targetAgentName : 'Sistem Asistanı',
+      agentRole: targetAgentRole || undefined,
+      createdAt: Date.now(),
+      isTyping: true
+    }]);
+
     try {
-      let isSpike = false;
-      let isThinkMore = false;
-      let isWebSearch = false;
-      let isStory = false;
-      let isTest = false;
-      let isRead = false;
-      let urlToRead = "";
-
-      let cleanText = text.trim();
-      
-      if (cleanText.startsWith('/spike')) {
-        isSpike = true;
-      } else if (cleanText.startsWith('/thinkmore')) {
-        isThinkMore = true;
-      } else if (cleanText.startsWith('/websearch')) {
-        isWebSearch = true;
-      } else if (cleanText.startsWith('/story')) {
-        isStory = true;
-      } else if (cleanText.startsWith('/test')) {
-        isTest = true;
-      } else if (cleanText.startsWith('/read')) {
-        isRead = true;
-        const match = cleanText.match(/\/read\s+(https?:\/\/[^\s]+)/);
-        if (match) {
-          urlToRead = match[1];
-        }
-      }
-
-      const isMentioned = text.includes("@JetWork") || isSpike || isThinkMore || isWebSearch || isStory || isTest || isRead;
-      const shouldAiRespond = isAiActive || isMentioned;
-      
-      const previousDocumentSnapshot = documentContent ? { ...documentContent } : undefined;
-      
-      const contents: any[] = [];
-      
-      let prompt = "Sohbet Geçmişi:\n";
-      const allMessages = [...messages, newUserMessage];
-      allMessages.slice(-8).forEach(m => {
-        prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
-      });
-      
-      prompt += "\n\n--- GÖRÜNMEZ YAZI TAHTASI (PROJE HAFIZASI) ---\n";
-      prompt += JSON.stringify(projectMemory, null, 2) + "\n";
-      prompt += "ÖNEMLİ: Bu hafıza kartında zaten yazan kararları (Platform, Hedef Kitle vb.) kullanıcıya tekrar sorma. Sadece eksik veya netleşmesi gereken kritik yerler için soru sor.\n";
-      prompt += "Eğer kullanıcının mesajından yeni bir proje kararı, kısıtlaması veya hedefi çıkarırsan, bunu JSON çıktısındaki 'updatedMemory' objesine ekle (Örn: {\"Platform\": \"Web\", \"Karmaşıklık\": \"Basit\"}).\n\n";
-
-      if (shouldAiRespond) {
-        prompt += "\nLütfen yukarıdaki son mesaja (sana sorulan soruya) öncelikli olarak cevap ver ve sohbete aktif olarak katıl.";
-        
-        if (isSpike) {
-          prompt += "\n\nSen bir Yazılım Mimarı'sın. Bu konu için bir Proof of Concept (PoC) hazırla, alternatif teknolojileri kıyasla, avantaj/dezavantaj tablosu oluştur ve örnek bir entegrasyon kodu yaz.";
-        } else if (isThinkMore) {
-          prompt += "\n\nBu problemi adım adım, tüm uç durumları (edge-cases) ve olası riskleri hesaplayarak derinlemesine analiz et.";
-        } else if (isStory) {
-          prompt += "\n\nBu özellik için standart bir Agile formatında (As a... I want to... So that...) Kullanıcı Hikayesi (User Story) ve BDD formatında (Given-When-Then) Kabul Kriterleri (Acceptance Criteria) oluştur.";
-        } else if (isTest) {
-          prompt += "\n\nBu konu/özellik için kapsamlı test senaryoları (Birim, Entegrasyon, E2E) ve QA notları üret.";
-        } else if (isRead && urlToRead) {
-          prompt += `\n\nLütfen şu URL'yi oku ve analiz et: ${urlToRead}`;
-        }
-      } else {
-        prompt += "\nLütfen yukarıdaki konuşmayı analiz et. Eğer bir iş gereksinimi, hata veya teknik karar tartışılıyorsa araya girip öneri sun. Eğer konuşma sadece günlük bir sohbetse veya senin araya girmene gerek yoksa SADECE 'NO_RESPONSE' yaz.";
-      }
-
-      if (documentContent) {
-        prompt += "\n\n--- MEVCUT DOKÜMAN DURUMU ---\n";
-        if (documentContent.businessAnalysis) prompt += `BA Analiz:\n${documentContent.businessAnalysis}\n\n`;
-        if (documentContent.code) prompt += `IT Analiz/Teknik Notlar:\n${documentContent.code}\n\n`;
-        if (documentContent.test) prompt += `Test Senaryoları:\n${documentContent.test}\n\n`;
-        prompt += "Lütfen yanıt verirken bu mevcut doküman durumunu göz önünde bulundur ve gerekirse dokümana ekleme/çıkarma yapmayı teklif et.\n";
-      }
-
-      const parts: any[] = [{ text: prompt }];
-      
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No active session");
 
-      // Add temporary AI message with typing indicator only if it should respond directly
-      if (shouldAiRespond) {
-        const hasDoc = attachments?.some(a => !a.mimeType.startsWith('image/'));
-        const tempAiMessage: Message = {
-          id: aiMsgId,
-          role: 'model',
-          text: hasDoc ? '📄 Doküman yükleniyor ve analiz ediliyor. Bu işlem dosya boyutuna göre biraz zaman alabilir...' : '',
-          senderName: 'JetWork AI',
-          senderRole: 'Sistem Asistanı',
-          createdAt: Date.now(),
-          isTyping: true
-        };
-        
-        setMessages(prev => [...prev, tempAiMessage]);
-        if (channelRef.current) {
-          channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
-            itemId: currentWorkspaceId, 
-            id: aiMsgId, 
-            text: tempAiMessage.text, 
-            senderName: 'JetWork AI',
-            senderRole: 'Sistem Asistanı'
-          }});
+      const contents: any[] = [];
+      const previousMessages = messages.slice(-10);
+      
+      for (const msg of previousMessages) {
+        if (msg.isError || msg.isTyping) continue;
+        const parts: any[] = [{ text: msg.text }];
+        if (msg.attachments) {
+          for (const att of msg.attachments) {
+             if (att.url.startsWith('data:')) {
+               parts.push({ inlineData: { data: att.url.split(',')[1], mimeType: att.mimeType }});
+             }
+          }
+        }
+        contents.push({ role: msg.role === 'user' ? 'user' : 'model', parts });
+      }
+
+      const currentParts: any[] = [{ text: messageText }];
+      if (attachments && attachments.length > 0) {
+        for (const att of attachments) {
+          if (att.data) {
+            currentParts.push({
+              inlineData: {
+                data: att.data.split(',')[1] || att.data,
+                mimeType: att.mimeType
+              }
+            });
+          }
+        }
+      }
+      contents.push({ role: 'user', parts: currentParts });
+
+      let systemInstruction = SYSTEM_INSTRUCTION;
+      if (targetAgentRole) {
+        const agent = ZERO_TOUCH_AGENTS.find(a => a.role === targetAgentRole);
+        if (agent) {
+           systemInstruction = `Senin Rolün ve Görevin:\n${agent.instruction}\n\nLütfen kullanıcının sorusuna veya talebine kendi uzmanlık alanın çerçevesinde cevap ver. Eğer dokümanda bir güncelleme yapman gerekiyorsa 'update_document_section' aracını kullan.`;
         }
       }
 
       let fullText = '';
       let fullThinkingText = '';
-      let isNoResponse = false;
+      let tokenCount = 0;
       let groundingUrls: { uri: string; title: string }[] = [];
-      let newDocumentContent: DocumentData | null = null;
       let lastUpdateTime = Date.now();
+      let currentDocument = documentContent ? { ...documentContent } : null;
 
-      let finalParsedData: any = null;
       const aiResponse = await callAiWithRetry(() => callGemini({
         model: "gemini-3-flash-preview",
-        systemInstruction: SYSTEM_INSTRUCTION,
-        contents: [
-          { role: 'user', parts: [{ text: prompt }] }
-        ],
-        responseSchema: chatResponseJsonSchema,
+        systemInstruction: systemInstruction,
+        contents: contents,
+        tools: agentTools,
         onGrounding: (urls) => {
           groundingUrls = [...groundingUrls, ...urls.filter(u => !groundingUrls.find(gu => gu.uri === u.uri))];
         },
-        onChunk: (text, thinking) => {
-          let accumulatedJson = text;
+        onChunk: (text, thinking, tokens, functionCalls) => {
+          fullText = text;
           fullThinkingText = thinking || '';
+          if (tokens) tokenCount = tokens;
           
-          let jsonToParse = accumulatedJson.trim();
-          const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-          if (jsonBlockMatch) {
-            jsonToParse = jsonBlockMatch[1].trim();
-          }
-          
-          if (jsonToParse) {
-            try {
-              const parsed = parsePartialJson(jsonToParse);
-              finalParsedData = parsed;
-              if (parsed && typeof parsed === 'object' && parsed.message) {
-                fullText = parsed.message;
-              } else {
-                fullText = jsonToParse;
-              }
-              if (parsed && typeof parsed === 'object' && parsed.document) {
-                const docFields = ['businessAnalysis', 'code', 'test', 'review', 'bpmn'];
-                const hasFields = docFields.some(field => parsed.document[field]);
-                
-                if (shouldAiRespond && hasFields) {
-                  setDocumentContent(prev => {
-                    const newDoc = { ...prev } as DocumentData;
-                    if (parsed.document.businessAnalysis) newDoc.businessAnalysis = parsed.document.businessAnalysis;
-                    if (parsed.document.code) newDoc.code = parsed.document.code;
-                    if (parsed.document.test) newDoc.test = parsed.document.test;
-                    if (parsed.document.review) newDoc.review = parsed.document.review;
-                    if (parsed.document.bpmn) newDoc.bpmn = parsed.document.bpmn;
-                    
-                    const parsedDoc = parseDocumentContent(newDoc);
-                    newDocumentContent = parsedDoc;
-                    return parsedDoc;
-                  });
-                }
-              }
-            } catch (e) {
-              // Ignore partial parsing errors, but fallback to raw text
-              fullText = jsonToParse;
+          if (Date.now() - lastUpdateTime > 30) {
+            setMessages(prev => prev.map(m => 
+              m.id === aiMsgId ? { 
+                ...m, 
+                text: fullText, 
+                thinkingText: fullThinkingText
+              } : m
+            ));
+            if (channelRef.current) {
+              channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
+                itemId: currentWorkspaceId, 
+                id: aiMsgId, 
+                text: fullText, 
+                thinkingText: fullThinkingText
+              }});
             }
-          }
-          
-          if (fullText.trim().startsWith("NO_RESPONSE")) {
-            isNoResponse = true;
-          }
-          
-          if (!isNoResponse) {
-            if (shouldAiRespond) {
-              if (Date.now() - lastUpdateTime > 30) {
-                setMessages(prev => prev.map(m => 
-                  m.id === aiMsgId ? { 
-                    ...m, 
-                    text: fullText, 
-                    thinkingText: fullThinkingText,
-                    ...(groundingUrls.length > 0 ? { groundingUrls } : {})
-                  } : m
-                ));
-                if (channelRef.current) {
-                  channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
-                    itemId: currentWorkspaceId, 
-                    id: aiMsgId, 
-                    text: fullText, 
-                    thinkingText: fullThinkingText,
-                    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
-                  }});
-                }
-                lastUpdateTime = Date.now();
-              }
-            }
+            lastUpdateTime = Date.now();
           }
         }
       }));
 
-      // Removed overwriting fullText with raw JSON string
-
-      if (isNoResponse || fullText.trim() === "NO_RESPONSE") {
-        if (shouldAiRespond) {
-          setMessages(prev => prev.filter(m => m.id !== aiMsgId));
-        }
-      } else {
-        if (shouldAiRespond) {
-          let documentActions: string[] | undefined = undefined;
-          if (newDocumentContent) {
-            documentActions = [];
-            if (!previousDocumentSnapshot) {
-              if (newDocumentContent.businessAnalysis) documentActions.push("BA Analiz oluşturuldu");
-              if (newDocumentContent.code) documentActions.push("IT Analiz oluşturuldu");
-              if (newDocumentContent.test) documentActions.push("Test senaryoları oluşturuldu");
-              if (newDocumentContent.bpmn) documentActions.push("FLOW oluşturuldu");
-            } else {
-              if (newDocumentContent.businessAnalysis !== previousDocumentSnapshot.businessAnalysis) documentActions.push("BA Analiz güncellendi");
-              if (newDocumentContent.code !== previousDocumentSnapshot.code) documentActions.push("IT Analiz güncellendi");
-              if (newDocumentContent.test !== previousDocumentSnapshot.test) documentActions.push("Test senaryoları güncellendi");
-              if (newDocumentContent.bpmn !== previousDocumentSnapshot.bpmn) documentActions.push("FLOW güncellendi");
-            }
-            if (documentActions.length === 0) {
-              documentActions = undefined;
+      // Process function calls
+      if (aiResponse.functionCalls && aiResponse.functionCalls.length > 0) {
+        for (const call of aiResponse.functionCalls) {
+          if (call.name === 'update_document_section') {
+            const args = call.args as { section: string; content: string; actionSummary: string };
+            if (args.section && args.content) {
+              setDocumentContent(prev => {
+                const newDoc = { ...prev } as DocumentData;
+                (newDoc as any)[args.section] = args.content;
+                const parsedDoc = parseDocumentContent(newDoc);
+                currentDocument = parsedDoc;
+                return parsedDoc;
+              });
+              fullText += `\n\n*(Sistem Notu: ${args.actionSummary})*`;
             }
           }
-
-          if (finalParsedData && finalParsedData.updatedMemory && Object.keys(finalParsedData.updatedMemory).length > 0) {
-            setProjectMemory(prev => {
-              const newMemory = { ...prev, ...finalParsedData.updatedMemory };
-              if (currentWorkspaceId) {
-                updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
-              }
-              return newMemory;
-            });
-          }
-
-          setMessages(prev => prev.map(m => 
-            m.id === aiMsgId ? { 
-              ...m, 
-              isTyping: false,
-              documentSnapshot: newDocumentContent || undefined,
-              previousDocumentSnapshot,
-              documentActions,
-              tokenCount: aiResponse.tokenCount
-            } : m
-          ));
-          
-          // Save AI response to database
-          try {
-            await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
-              id: aiMsgId,
-              role: 'model',
-              text: fullText,
-              thinkingText: fullThinkingText,
-              senderName: 'JetWork AI',
-              senderRole: 'Sistem Asistanı',
-              ...(groundingUrls.length > 0 ? { groundingUrls } : {}),
-              documentSnapshot: newDocumentContent || undefined,
-              previousDocumentSnapshot,
-              documentActions,
-              tokenCount: aiResponse.tokenCount,
-              rawResponse: aiResponse.text,
-              ownerId: user.uid,
-              createdAt: serverTimestamp()
-            });
-
-            await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
-            await saveRawResponse(currentWorkspaceId, aiMsgId, aiResponse.text, finalParsedData);
-            if (newDocumentContent && Object.keys(newDocumentContent).length > 0) {
-              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, newDocumentContent);
-            }
-          } catch (err) {
-            console.error("Failed to save AI message to database:", err);
-          }
-
-          // Send AI response via Supabase Realtime for other users
-          if (channelRef.current) {
-            channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
-              itemId: currentWorkspaceId,
-              id: aiMsgId,
-              text: fullText,
-              thinkingText: fullThinkingText,
-              senderName: 'JetWork AI',
-              senderRole: 'Sistem Asistanı',
-              groundingUrls: groundingUrls.length > 0 ? groundingUrls : null,
-              documentSnapshot: newDocumentContent || null,
-              previousDocumentSnapshot,
-              documentActions
-            }});
-          }
-        } else {
-          // Passive mode: AI has something to say, raise hand
-          setAiHandRaised(fullText);
         }
       }
+
+      const finalMsg: Message = {
+        id: aiMsgId,
+        role: 'model',
+        text: fullText,
+        thinkingText: fullThinkingText,
+        senderName: targetAgentName || 'JetWork AI',
+        senderRole: targetAgentName ? targetAgentName : 'Sistem Asistanı',
+        agentRole: targetAgentRole || undefined,
+        groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined,
+        documentSnapshot: currentDocument || undefined,
+        tokenCount: aiResponse.tokenCount,
+        thinkingTime: Math.round((Date.now() - startTime) / 1000),
+        createdAt: Date.now(),
+        isTyping: false
+      };
+
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? finalMsg : m));
+      
+      try {
+        await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
+          ...finalMsg,
+          ownerId: user.uid,
+          createdAt: serverTimestamp()
+        });
+        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+        if (currentDocument && Object.keys(currentDocument).length > 0) {
+          await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
+        }
+      } catch (err) {
+        console.error("Failed to save AI message to database:", err);
+      }
+
+      if (channelRef.current) {
+        channelRef.current.send({ type: 'broadcast', event: 'ai_stream_end', payload: {
+          itemId: currentWorkspaceId,
+          id: aiMsgId,
+          text: fullText,
+          thinkingText: fullThinkingText,
+          senderName: targetAgentName || 'JetWork AI',
+          senderRole: targetAgentName ? targetAgentName : 'Sistem Asistanı',
+          agentRole: targetAgentRole || undefined,
+          groundingUrls: groundingUrls.length > 0 ? groundingUrls : null,
+          documentSnapshot: currentDocument || null
+        }});
+      }
+
     } catch (error: any) {
       console.error("AI Error:", error);
       const errorMsg = error?.message || String(error);
       const isQuotaError = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED');
       
-      // Remove temporary message on error
       setMessages(prev => prev.filter(m => m.id !== aiMsgId));
       
-      // Add error message
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'model',
@@ -1927,6 +1367,8 @@ IT Analiz (code) içine eklenecekler:
         isError: true,
         retryPayload: { text, attachments, replyToId }
       }]);
+    } finally {
+      setIsGenerating(false);
     }
   };
 

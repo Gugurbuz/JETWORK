@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { model, systemInstruction, contents, responseSchema } = await req.json()
+    const { model, systemInstruction, contents, responseSchema, tools } = await req.json()
     
     const apiKey = Deno.env.get('GEMINI_API_KEY')
     if (!apiKey) {
@@ -28,7 +28,14 @@ serve(async (req) => {
 
     if (responseSchema) {
       config.responseSchema = responseSchema
-    } else {
+    }
+
+    // YENİ EKLENEN KISIM: Frontend'den gelen 'tools' parametresini modele iletiyoruz.
+    // Böylece model aynı anda hem Function Calling yapabilecek hem de Google'da arama yapabilecek.
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      config.tools = tools
+    } else if (!responseSchema) {
+      // Geriye dönük uyumluluk için, eğer araç ve şema yoksa varsayılan olarak web aramayı açıyoruz.
       config.tools = [{ googleSearch: {} }]
     }
 
