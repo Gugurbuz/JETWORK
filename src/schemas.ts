@@ -68,6 +68,11 @@ export const chatResponseJsonSchema = {
       items: { type: Type.STRING },
       description: "Eğer dokümanın revize edilmesi gerekiyorsa, revizyon yapması gereken ajanların rollerini (BA, IT, QA) bu diziye ekle. Eğer revizyona gerek yoksa boş bırak."
     },
+    updatedMemory: {
+      type: Type.OBJECT,
+      description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle.",
+      additionalProperties: { type: Type.STRING }
+    },
     document: {
       type: Type.OBJECT,
       description: "Eğer kullanıcı bir doküman (iş analizi, kod, test) oluşturulmasını veya güncellenmesini istediyse bu alanı doldur. İstemediyle boş bırak (null/undefined).",
@@ -81,27 +86,27 @@ export const chatResponseJsonSchema = {
             "3_IS_GEREKSINIMLERI": {
               type: Type.OBJECT,
               properties: {
-                "3_1_Is_Kurallari": { type: Type.STRING, description: "İş Kuralları" },
-                "3_2_Is_Modeli_ve_Kullanici_Gereksinimleri": { type: Type.STRING, description: "İş Modeli ve Kullanıcı Gereksinimleri" }
+                "3_1_Is_Kurallari": { type: Type.STRING, description: "İş Kuralları. Maddeleri yazarken markdown listesi (1. 2.) KULLANMA. Bunun yerine maddeleri 3.1.1., 3.1.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." },
+                "3_2_Is_Modeli_ve_Kullanici_Gereksinimleri": { type: Type.STRING, description: "İş Modeli ve Kullanıcı Gereksinimleri. Maddeleri 3.2.1., 3.2.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." }
               },
               required: ["3_1_Is_Kurallari", "3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]
             },
-            "4_FONKSIYONEL_GEREKSINIMLER": { type: Type.STRING, description: "Fonksiyonel Gereksinimler (FR)" },
+            "4_FONKSIYONEL_GEREKSINIMLER": { type: Type.STRING, description: "Fonksiyonel Gereksinimler (FR). Maddeleri 4.1., 4.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." },
             "5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER": {
               type: Type.OBJECT,
               properties: {
-                "5_1_Guvenlik_ve_Yetkilendirme": { type: Type.STRING, description: "Güvenlik ve Yetkilendirme Gereksinimleri" },
-                "5_2_Performans": { type: Type.STRING, description: "Performans Gereksinimleri" },
-                "5_3_Raporlama": { type: Type.STRING, description: "Raporlama Gereksinimleri" }
+                "5_1_Guvenlik_ve_Yetkilendirme": { type: Type.STRING, description: "Güvenlik ve Yetkilendirme Gereksinimleri. Maddeleri 5.1.1., 5.1.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." },
+                "5_2_Performans": { type: Type.STRING, description: "Performans Gereksinimleri. Maddeleri 5.2.1., 5.2.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." },
+                "5_3_Raporlama": { type: Type.STRING, description: "Raporlama Gereksinimleri. Maddeleri 5.3.1., 5.3.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." }
               },
               required: ["5_1_Guvenlik_ve_Yetkilendirme", "5_2_Performans", "5_3_Raporlama"]
             },
             "6_SUREC_RISK_ANALIZI": {
               type: Type.OBJECT,
               properties: {
-                "6_1_Kisitlar_ve_Varsayimlar": { type: Type.STRING, description: "Kısıtlar ve Varsayımlar" },
-                "6_2_Bagliliklar": { type: Type.STRING, description: "Bağlılıklar" },
-                "6_3_Surec_Etkileri": { type: Type.STRING, description: "Süreç Etkileri" }
+                "6_1_Kisitlar_ve_Varsayimlar": { type: Type.STRING, description: "Kısıtlar ve Varsayımlar. Maddeleri 6.1.1., 6.1.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." },
+                "6_2_Bagliliklar": { type: Type.STRING, description: "Bağlılıklar. Maddeleri 6.2.1., 6.2.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." },
+                "6_3_Surec_Etkileri": { type: Type.STRING, description: "Süreç Etkileri. Maddeleri 6.3.1., 6.3.2. şeklinde numaralandırarak alt alta yaz ve aralarına mutlaka iki satır boşluğu (\\n\\n) koy." }
               },
               required: ["6_1_Kisitlar_ve_Varsayimlar", "6_2_Bagliliklar", "6_3_Surec_Etkileri"]
             },
@@ -197,6 +202,11 @@ export const discussionJsonSchema = {
         },
         required: ["id", "text", "options"]
       }
+    },
+    updatedMemory: {
+      type: Type.OBJECT,
+      description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle.",
+      additionalProperties: { type: Type.STRING }
     }
   },
   required: ["agentRole", "message", "actionSummary", "isDocumentationPhase", "requiresUserInput", "questions"]

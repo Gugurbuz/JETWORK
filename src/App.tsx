@@ -60,7 +60,53 @@ const parseBusinessAnalysis = (baContent: any): string => {
   if (typeof baContent === 'string') return baContent;
   if (!baContent || typeof baContent !== 'object') return '';
 
-  let md = `# İş Analizi Dokümanı\n\n`;
+  const today = new Date().toLocaleDateString('tr-TR');
+
+  let md = `# İş Analizi Dokümanı
+
+**Talep Adı:** P4F Ürünü  
+**Tarih:** ${today}  
+**Talep No:** UA-437  
+
+---
+
+<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Enerjisa_logo.svg/1200px-Enerjisa_logo.svg.png" alt="Enerjisa Logo" width="200" />
+
+### İçindekiler
+
+`;
+
+  if (baContent["1_ANALIZ_KAPSAMI"]) md += `- 1. ANALİZ KAPSAMI\n`;
+  if (baContent["2_KISALTMALAR"]) md += `- 2. KISALTMALAR\n`;
+  if (baContent["3_IS_GEREKSINIMLERI"]) {
+    md += `- 3. İŞ GEREKSİNİMLERİ\n`;
+    if (baContent["3_IS_GEREKSINIMLERI"]["3_1_Is_Kurallari"]) md += `  - 3.1. İş Kuralları\n`;
+    if (baContent["3_IS_GEREKSINIMLERI"]["3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]) md += `  - 3.2. İş Modeli ve Kullanıcı Gereksinimleri\n`;
+  }
+  if (baContent["4_FONKSIYONEL_GEREKSINIMLER"]) md += `- 4. FONKSİYONEL GEREKSİNİMLER (FR)\n`;
+  if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]) {
+    md += `- 5. FONKSİYONEL OLMAYAN GEREKSİNLİMLER (NFR)\n`;
+    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_1_Guvenlik_ve_Yetkilendirme"]) md += `  - 5.1. Güvenlik ve Yetkilendirme Gereksinimleri\n`;
+    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_2_Performans"]) md += `  - 5.2. Performans Gereksinimleri\n`;
+    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_3_Raporlama"]) md += `  - 5.3. Raporlama Gereksinimleri\n`;
+  }
+  if (baContent["6_SUREC_RISK_ANALIZI"]) {
+    md += `- 6. SÜREÇ RİSK ANALİZİ\n`;
+    if (baContent["6_SUREC_RISK_ANALIZI"]["6_1_Kisitlar_ve_Varsayimlar"]) md += `  - 6.1. Kısıtlar ve Varsayımlar\n`;
+    if (baContent["6_SUREC_RISK_ANALIZI"]["6_2_Bagliliklar"]) md += `  - 6.2. Bağlılıklar\n`;
+    if (baContent["6_SUREC_RISK_ANALIZI"]["6_3_Surec_Etkileri"]) md += `  - 6.3. Süreç Etkileri\n`;
+  }
+  if (baContent["7_ONAY"]) {
+    md += `- 7. ONAY\n`;
+    if (baContent["7_ONAY"]["7_1_Is_Analizi"]) md += `  - 7.1. İş Analizi\n`;
+    if (baContent["7_ONAY"]["7_2_Degisiklik_Kayitlari"]) md += `  - 7.2. Değişiklik Kayıtları\n`;
+    if (baContent["7_ONAY"]["7_3_Dokuman_Onay"]) md += `  - 7.3. Doküman Onay\n`;
+    if (baContent["7_ONAY"]["7_4_Referans_Dokumanlar"]) md += `  - 7.4. Referans Dokümanlar\n`;
+  }
+  if (baContent["8_FONKSIYONEL_TASARIM_DOKUMANLARI"]) md += `- 8. FONKSİYONEL TASARIM DOKÜMANLARI\n`;
+
+  md += `\n---\n\n`;
+
   if (baContent["1_ANALIZ_KAPSAMI"]) md += `## 1. ANALİZ KAPSAMI\n${baContent["1_ANALIZ_KAPSAMI"]}\n\n`;
   if (baContent["2_KISALTMALAR"]) md += `## 2. KISALTMALAR\n${baContent["2_KISALTMALAR"]}\n\n`;
   
@@ -343,6 +389,7 @@ export default function App() {
   const [activeZeroTouchRoles, setActiveZeroTouchRoles] = useState<string[]>(ZERO_TOUCH_AGENTS.map(a => a.role));
   const [aiHandRaised, setAiHandRaised] = useState<string | null>(null);
   const [documentContent, setDocumentContent] = useState<DocumentData | null>(null);
+  const [projectMemory, setProjectMemory] = useState<Record<string, string>>({});
   const [selectedDocumentText, setSelectedDocumentText] = useState('');
   const [activeTab, setActiveTab] = useState('BA Analiz');
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -498,14 +545,19 @@ export default function App() {
   useEffect(() => {
     if (currentWorkspaceId && user && isAuthReady) {
       // 1. Load from cache immediately for instant UI if store is empty
-      const existingMessages = useMessageStore.getState().messagesByWorkspace[currentWorkspaceId];
-      const hasExistingMessages = existingMessages && existingMessages.length > 0;
+      let existingMessages = useMessageStore.getState().messagesByWorkspace[currentWorkspaceId];
+      let hasExistingMessages = existingMessages && existingMessages.length > 0;
+      const isAlreadyListening = !!useMessageStore.getState().activeListeners[currentWorkspaceId];
       
-      if (!hasExistingMessages) {
+      if (!hasExistingMessages && !isAlreadyListening) {
         const cachedMessages = localStorage.getItem(`jetwork_messages_${currentWorkspaceId}`);
         if (cachedMessages) {
           try {
-            setMessages(JSON.parse(cachedMessages));
+            const parsed = JSON.parse(cachedMessages);
+            if (parsed && parsed.length > 0) {
+              setMessages(parsed);
+              hasExistingMessages = true;
+            }
           } catch (e) {
             console.error("Failed to parse cached messages", e);
           }
@@ -521,8 +573,8 @@ export default function App() {
         }
       }
       
-      // Only show loading spinner if we don't have messages in memory
-      if (!hasExistingMessages) {
+      // Only show loading spinner if we don't have messages in memory or cache AND we aren't already listening
+      if (!hasExistingMessages && !isAlreadyListening) {
         setIsLoadingWorkspace(true);
       }
       
@@ -638,7 +690,7 @@ export default function App() {
       channelRef.current = channel;
       
       let workspaceLoaded = false;
-      let messagesLoaded = hasExistingMessages; // If we already have messages, consider them loaded
+      let messagesLoaded = hasExistingMessages || isAlreadyListening; // If we already have messages or are listening, consider them loaded
       let documentLoaded = false;
 
       const checkLoading = () => {
@@ -1093,6 +1145,11 @@ export default function App() {
           prompt += `\nŞu Ana Kadarki Toplantı Notları (Özet):\n${currentDocument.review}\n`;
         }
 
+        prompt += "\n\n--- GÖRÜNMEZ YAZI TAHTASI (PROJE HAFIZASI) ---\n";
+        prompt += JSON.stringify(projectMemory, null, 2) + "\n";
+        prompt += "ÖNEMLİ: Bu hafıza kartında zaten yazan kararları (Platform, Hedef Kitle vb.) kullanıcıya tekrar sorma. Sadece eksik veya netleşmesi gereken kritik yerler için soru sor.\n";
+        prompt += "Eğer kullanıcının mesajından yeni bir proje kararı, kısıtlaması veya hedefi çıkarırsan, bunu JSON çıktısındaki 'updatedMemory' objesine ekle (Örn: {\"Platform\": \"Web\", \"Karmaşıklık\": \"Basit\"}).\n\n";
+
         const userName = user?.name || 'Kullanıcı';
         prompt += `\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edecekseniz veya soru soracaksanız MUTLAKA @${userName} şeklinde etiketleyin. Eğer birden fazla soru soracaksanız, soruları metin içine gömmeyin, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yazın.`;
 
@@ -1219,6 +1276,16 @@ export default function App() {
 
           // Removed overwriting fullText with raw JSON string
 
+          if (finalParsedData && finalParsedData.updatedMemory && Object.keys(finalParsedData.updatedMemory).length > 0) {
+            setProjectMemory(prev => {
+              const newMemory = { ...prev, ...finalParsedData.updatedMemory };
+              if (currentWorkspaceId) {
+                updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
+              }
+              return newMemory;
+            });
+          }
+
           const finalMsg: Message = {
             id: aiMsgId,
             role: 'model',
@@ -1287,7 +1354,9 @@ export default function App() {
               : `❌ **Tartışma Hatası:** Bir sorun oluştu. Lütfen tekrar deneyin.`,
             senderName: 'Sistem',
             senderRole: 'Hata',
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            isError: true,
+            retryPayload: { text: newUserMessage.text, attachments, replyToId: newUserMessage.replyToId }
           }]);
           break;
         }
@@ -1568,6 +1637,16 @@ IT Analiz (code) içine eklenecekler:
             }
           }));
 
+          if (finalParsedData && finalParsedData.updatedMemory && Object.keys(finalParsedData.updatedMemory).length > 0) {
+            setProjectMemory(prev => {
+              const newMemory = { ...prev, ...finalParsedData.updatedMemory };
+              if (currentWorkspaceId) {
+                updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
+              }
+              return newMemory;
+            });
+          }
+
           const finalMsg: Message = {
             id: aiMsgId,
             role: 'model',
@@ -1653,7 +1732,7 @@ IT Analiz (code) içine eklenecekler:
     }
   };
 
-  const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[]) => {
+  const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => {
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
     if (!user) return;
     
@@ -1673,7 +1752,8 @@ IT Analiz (code) içine eklenecekler:
       senderName: user.name,
       senderRole: user.role,
       createdAt: Date.now(),
-      attachments: attachments?.map(a => ({ url: a.url, data: a.data, mimeType: a.mimeType, name: a.name })) 
+      attachments: attachments?.map(a => ({ url: a.url, data: a.data, mimeType: a.mimeType, name: a.name })),
+      replyToId
     };
     
     // Optimistic update
@@ -1745,6 +1825,11 @@ IT Analiz (code) içine eklenecekler:
         prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
       });
       
+      prompt += "\n\n--- GÖRÜNMEZ YAZI TAHTASI (PROJE HAFIZASI) ---\n";
+      prompt += JSON.stringify(projectMemory, null, 2) + "\n";
+      prompt += "ÖNEMLİ: Bu hafıza kartında zaten yazan kararları (Platform, Hedef Kitle vb.) kullanıcıya tekrar sorma. Sadece eksik veya netleşmesi gereken kritik yerler için soru sor.\n";
+      prompt += "Eğer kullanıcının mesajından yeni bir proje kararı, kısıtlaması veya hedefi çıkarırsan, bunu JSON çıktısındaki 'updatedMemory' objesine ekle (Örn: {\"Platform\": \"Web\", \"Karmaşıklık\": \"Basit\"}).\n\n";
+
       if (shouldAiRespond) {
         prompt += "\nLütfen yukarıdaki son mesaja (sana sorulan soruya) öncelikli olarak cevap ver ve sohbete aktif olarak katıl.";
         
@@ -1934,6 +2019,16 @@ IT Analiz (code) içine eklenecekler:
             }
           }
 
+          if (finalParsedData && finalParsedData.updatedMemory && Object.keys(finalParsedData.updatedMemory).length > 0) {
+            setProjectMemory(prev => {
+              const newMemory = { ...prev, ...finalParsedData.updatedMemory };
+              if (currentWorkspaceId) {
+                updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
+              }
+              return newMemory;
+            });
+          }
+
           setMessages(prev => prev.map(m => 
             m.id === aiMsgId ? { 
               ...m, 
@@ -2010,7 +2105,9 @@ IT Analiz (code) içine eklenecekler:
           : `❌ **Hata:** Bir sorun oluştu: ${error.message || 'Bilinmeyen hata'}`,
         senderName: 'Sistem',
         senderRole: 'Hata',
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        isError: true,
+        retryPayload: { text, attachments, replyToId }
       }]);
     }
   };
@@ -2146,6 +2243,14 @@ IT Analiz (code) içine eklenecekler:
 
   const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
 
+  useEffect(() => {
+    if (currentWorkspace) {
+      setProjectMemory(currentWorkspace.projectMemory || {});
+    } else {
+      setProjectMemory({});
+    }
+  }, [currentWorkspace?.projectMemory, currentWorkspaceId]);
+
   const handleUpdateDocument = async (newContent: DocumentData) => {
     setDocumentContent(newContent);
     
@@ -2272,6 +2377,7 @@ IT Analiz (code) içine eklenecekler:
           confirmText="Sil"
           onConfirm={handleDeleteProject}
           onCancel={() => setDeletingProject(null)}
+          expectedConfirmationText={projects.find(p => p.id === deletingProject)?.name}
         />
       )}
       {deletingWorkspace && (
@@ -2281,6 +2387,7 @@ IT Analiz (code) içine eklenecekler:
           confirmText="Sil"
           onConfirm={handleDeleteWorkspace}
           onCancel={() => setDeletingWorkspace(null)}
+          expectedConfirmationText={projects.flatMap(p => p.workspaces).find(w => w.id === deletingWorkspace)?.title}
         />
       )}
       {!currentWorkspaceId && (
@@ -2289,6 +2396,7 @@ IT Analiz (code) içine eklenecekler:
           projects={projects} 
           currentWorkspaceId={currentWorkspaceId}
           currentProjectId={currentProjectId}
+          projectMemory={projectMemory}
           onSelectWorkspace={handleSelectWorkspace}
           onSelectProject={handleSelectProject}
           onNewWorkspace={() => setShowNewItemModal(true)}
@@ -2336,6 +2444,7 @@ IT Analiz (code) içine eklenecekler:
               key={currentWorkspaceId}
               messages={messages} 
               onSendMessage={handleSendMessage} 
+              onRemoveMessage={(id) => setMessages(prev => prev.filter(m => m.id !== id))}
               isGenerating={isGenerating || isDiscussing}
               issueKey={currentWorkspace?.issueKey}
               status={currentWorkspace?.status}
