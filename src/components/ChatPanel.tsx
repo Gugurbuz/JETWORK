@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
-import { ZERO_TOUCH_AGENTS } from '../App';
+import { ZERO_TOUCH_AGENTS } from '../constants';
 
 const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
   const [answers, setAnswers] = useState<Record<string, { type: 'option' | 'custom', value: string }>>({});
