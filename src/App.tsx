@@ -14,8 +14,9 @@ import { SettingsModal } from './components/SettingsModal';
 import { ManageParticipantsModal } from './components/ManageParticipantsModal';
 import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, TypingUser, Question } from './types';
 import { ChatResponseSchema, chatResponseJsonSchema, discussionJsonSchema } from './schemas';
+import { AgentOrchestrator } from './services/AgentOrchestrator';
 import { LayoutDashboard } from 'lucide-react';
-import { marked } from 'marked';
+import { parseDocumentContent, parseBusinessAnalysis } from './lib/documentParser';
 import { parse as parsePartialJson } from 'partial-json';
 import { GoogleGenAI } from "@google/genai";
 import { auth, db, onAuthStateChanged, doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, where, getDocs, arrayUnion, arrayRemove, logOut } from './db';
@@ -54,95 +55,6 @@ const saveRawResponse = async (workspaceId: string, messageId: string, rawText: 
   } catch (err) {
     console.error("Failed to save raw response:", err);
   }
-};
-
-const parseBusinessAnalysis = (baContent: any): string => {
-  if (typeof baContent === 'string') return baContent;
-  if (!baContent || typeof baContent !== 'object') return '';
-
-  const today = new Date().toLocaleDateString('tr-TR');
-
-  let md = `# İş Analizi Dokümanı
-
-**Talep Adı:** P4F Ürünü  
-**Tarih:** ${today}  
-**Talep No:** UA-437  
-
----
-
-<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Enerjisa_logo.svg/1200px-Enerjisa_logo.svg.png" alt="Enerjisa Logo" width="200" />
-
-### İçindekiler
-
-`;
-
-  if (baContent["1_ANALIZ_KAPSAMI"]) md += `- 1. ANALİZ KAPSAMI\n`;
-  if (baContent["2_KISALTMALAR"]) md += `- 2. KISALTMALAR\n`;
-  if (baContent["3_IS_GEREKSINIMLERI"]) {
-    md += `- 3. İŞ GEREKSİNİMLERİ\n`;
-    if (baContent["3_IS_GEREKSINIMLERI"]["3_1_Is_Kurallari"]) md += `  - 3.1. İş Kuralları\n`;
-    if (baContent["3_IS_GEREKSINIMLERI"]["3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]) md += `  - 3.2. İş Modeli ve Kullanıcı Gereksinimleri\n`;
-  }
-  if (baContent["4_FONKSIYONEL_GEREKSINIMLER"]) md += `- 4. FONKSİYONEL GEREKSİNİMLER (FR)\n`;
-  if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]) {
-    md += `- 5. FONKSİYONEL OLMAYAN GEREKSİNLİMLER (NFR)\n`;
-    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_1_Guvenlik_ve_Yetkilendirme"]) md += `  - 5.1. Güvenlik ve Yetkilendirme Gereksinimleri\n`;
-    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_2_Performans"]) md += `  - 5.2. Performans Gereksinimleri\n`;
-    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_3_Raporlama"]) md += `  - 5.3. Raporlama Gereksinimleri\n`;
-  }
-  if (baContent["6_SUREC_RISK_ANALIZI"]) {
-    md += `- 6. SÜREÇ RİSK ANALİZİ\n`;
-    if (baContent["6_SUREC_RISK_ANALIZI"]["6_1_Kisitlar_ve_Varsayimlar"]) md += `  - 6.1. Kısıtlar ve Varsayımlar\n`;
-    if (baContent["6_SUREC_RISK_ANALIZI"]["6_2_Bagliliklar"]) md += `  - 6.2. Bağlılıklar\n`;
-    if (baContent["6_SUREC_RISK_ANALIZI"]["6_3_Surec_Etkileri"]) md += `  - 6.3. Süreç Etkileri\n`;
-  }
-  if (baContent["7_ONAY"]) {
-    md += `- 7. ONAY\n`;
-    if (baContent["7_ONAY"]["7_1_Is_Analizi"]) md += `  - 7.1. İş Analizi\n`;
-    if (baContent["7_ONAY"]["7_2_Degisiklik_Kayitlari"]) md += `  - 7.2. Değişiklik Kayıtları\n`;
-    if (baContent["7_ONAY"]["7_3_Dokuman_Onay"]) md += `  - 7.3. Doküman Onay\n`;
-    if (baContent["7_ONAY"]["7_4_Referans_Dokumanlar"]) md += `  - 7.4. Referans Dokümanlar\n`;
-  }
-  if (baContent["8_FONKSIYONEL_TASARIM_DOKUMANLARI"]) md += `- 8. FONKSİYONEL TASARIM DOKÜMANLARI\n`;
-
-  md += `\n---\n\n`;
-
-  if (baContent["1_ANALIZ_KAPSAMI"]) md += `## 1. ANALİZ KAPSAMI\n${baContent["1_ANALIZ_KAPSAMI"]}\n\n`;
-  if (baContent["2_KISALTMALAR"]) md += `## 2. KISALTMALAR\n${baContent["2_KISALTMALAR"]}\n\n`;
-  
-  if (baContent["3_IS_GEREKSINIMLERI"]) {
-    md += `## 3. İŞ GEREKSİNİMLERİ\n`;
-    if (baContent["3_IS_GEREKSINIMLERI"]["3_1_Is_Kurallari"]) md += `### 3.1. İş Kuralları\n${baContent["3_IS_GEREKSINIMLERI"]["3_1_Is_Kurallari"]}\n\n`;
-    if (baContent["3_IS_GEREKSINIMLERI"]["3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]) md += `### 3.2. İş Modeli ve Kullanıcı Gereksinimleri\n${baContent["3_IS_GEREKSINIMLERI"]["3_2_Is_Modeli_ve_Kullanici_Gereksinimleri"]}\n\n`;
-  }
-  
-  if (baContent["4_FONKSIYONEL_GEREKSINIMLER"]) md += `## 4. FONKSİYONEL GEREKSİNİMLER (FR)\n${baContent["4_FONKSIYONEL_GEREKSINIMLER"]}\n\n`;
-  
-  if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]) {
-    md += `## 5. FONKSİYONEL OLMAYAN GEREKSİNLİMLER (NFR)\n`;
-    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_1_Guvenlik_ve_Yetkilendirme"]) md += `### 5.1. Güvenlik ve Yetkilendirme Gereksinimleri\n${baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_1_Guvenlik_ve_Yetkilendirme"]}\n\n`;
-    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_2_Performans"]) md += `### 5.2. Performans Gereksinimleri\n${baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_2_Performans"]}\n\n`;
-    if (baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_3_Raporlama"]) md += `### 5.3. Raporlama Gereksinimleri\n${baContent["5_FONKSIYONEL_OLMAYAN_GEREKSINIMLER"]["5_3_Raporlama"]}\n\n`;
-  }
-  
-  if (baContent["6_SUREC_RISK_ANALIZI"]) {
-    md += `## 6. SÜREÇ RİSK ANALİZİ\n`;
-    if (baContent["6_SUREC_RISK_ANALIZI"]["6_1_Kisitlar_ve_Varsayimlar"]) md += `### 6.1. Kısıtlar ve Varsayımlar\n${baContent["6_SUREC_RISK_ANALIZI"]["6_1_Kisitlar_ve_Varsayimlar"]}\n\n`;
-    if (baContent["6_SUREC_RISK_ANALIZI"]["6_2_Bagliliklar"]) md += `### 6.2. Bağlılıklar\n${baContent["6_SUREC_RISK_ANALIZI"]["6_2_Bagliliklar"]}\n\n`;
-    if (baContent["6_SUREC_RISK_ANALIZI"]["6_3_Surec_Etkileri"]) md += `### 6.3. Süreç Etkileri\n${baContent["6_SUREC_RISK_ANALIZI"]["6_3_Surec_Etkileri"]}\n\n`;
-  }
-  
-  if (baContent["7_ONAY"]) {
-    md += `## 7. ONAY\n`;
-    if (baContent["7_ONAY"]["7_1_Is_Analizi"]) md += `### 7.1. İş Analizi\n${baContent["7_ONAY"]["7_1_Is_Analizi"]}\n\n`;
-    if (baContent["7_ONAY"]["7_2_Degisiklik_Kayitlari"]) md += `### 7.2. Değişiklik Kayıtları\n${baContent["7_ONAY"]["7_2_Degisiklik_Kayitlari"]}\n\n`;
-    if (baContent["7_ONAY"]["7_3_Dokuman_Onay"]) md += `### 7.3. Doküman Onay\n${baContent["7_ONAY"]["7_3_Dokuman_Onay"]}\n\n`;
-    if (baContent["7_ONAY"]["7_4_Referans_Dokumanlar"]) md += `### 7.4. Referans Dokümanlar\n${baContent["7_ONAY"]["7_4_Referans_Dokumanlar"]}\n\n`;
-  }
-  
-  if (baContent["8_FONKSIYONEL_TASARIM_DOKUMANLARI"]) md += `## 8. FONKSİYONEL TASARIM DOKÜMANLARI\n${baContent["8_FONKSIYONEL_TASARIM_DOKUMANLARI"]}\n\n`;
-
-  return md;
 };
 
 // Initialize Gemini
@@ -1102,6 +1014,10 @@ export default function App() {
       let turnCount = 0;
       const MAX_TURNS = 15;
 
+      // Initialize Orchestrator
+      const wrappedCallGemini = (params: any) => callAiWithRetry(() => callGemini(params));
+      const orchestrator = new AgentOrchestrator(wrappedCallGemini, currentDocument, currentMessages);
+
       while (!isDocumentationPhase && !needsUserInput && turnCount < MAX_TURNS) {
         turnCount++;
         
@@ -1119,128 +1035,39 @@ export default function App() {
         };
         
         setMessages(prev => [...prev, tempAiMessage]);
-        if (channelRef.current) {
-          channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
-            itemId: currentWorkspaceId, 
-            id: aiMsgId, 
-            text: '', 
-            senderName: tempAiMessage.senderName,
-            senderRole: tempAiMessage.senderRole
-          }});
-        }
-
-        const contents: any[] = [];
-        let prompt = "Sen bir toplantı odasındaki yapay zeka ajanlarını yöneten bir simülatörsün.\n";
-        prompt += "Odada şu ajanlar var:\n";
-        ZERO_TOUCH_AGENTS.filter(a => activeZeroTouchRoles.includes(a.role) || a.role === 'Orchestrator').forEach(a => {
-          prompt += `- ${a.role} (${a.name})\n`;
-        });
         
-        prompt += "\nSohbet Geçmişi:\n";
-        currentMessages.slice(-8).forEach(m => {
-          prompt += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
-        });
-
-        if (currentDocument && currentDocument.review) {
-          prompt += `\nŞu Ana Kadarki Toplantı Notları (Özet):\n${currentDocument.review}\n`;
-        }
-
-        prompt += "\n\n--- GÖRÜNMEZ YAZI TAHTASI (PROJE HAFIZASI) ---\n";
-        prompt += JSON.stringify(projectMemory, null, 2) + "\n";
-        prompt += "ÖNEMLİ: Bu hafıza kartında zaten yazan kararları (Platform, Hedef Kitle vb.) kullanıcıya tekrar sorma. Sadece eksik veya netleşmesi gereken kritik yerler için soru sor.\n";
-        prompt += "Eğer kullanıcının mesajından yeni bir proje kararı, kısıtlaması veya hedefi çıkarırsan, bunu JSON çıktısındaki 'updatedMemory' objesine ekle (Örn: {\"Platform\": \"Web\", \"Karmaşıklık\": \"Basit\"}).\n\n";
-
-        const userName = user?.name || 'Kullanıcı';
-        prompt += `\n\nÖNEMLİ NOT: Kullanıcının adı "${userName}". Eğer kullanıcıya hitap edecekseniz veya soru soracaksanız MUTLAKA @${userName} şeklinde etiketleyin. Eğer birden fazla soru soracaksanız, soruları metin içine gömmeyin, kesinlikle 1., 2., 3. şeklinde alt alta maddeler halinde (bullet points) yazın.`;
-
-        prompt += "\n\nGörev: Sohbet geçmişine bakarak, sıradaki en mantıklı konuşmacı kim olmalıysa onun rolünü seç (agentRole) ve onun ağzından bir yanıt üret (message). Ayrıca bu yanıtın çok kısa bir özetini (actionSummary) oluştur (Örn: 'BA gereksinimleri sordu', 'QA test senaryosu çıkardı'). Eğer konu yeterince tartışıldıysa ve herkes hemfikirse, SM rolüyle 'isDocumentationPhase' değerini true yap. Konuşmalar sırayla olmak zorunda değil, bağlama göre en uygun ajanı seç.";
-        
-        prompt += "\n\nKRİTİK KURAL: Ajanlar kendi aralarında tartışarak en doğru kararı vermelidir. PO, BA, IT, QA kendi uzmanlık alanlarıyla ilgili kritik bir bilgiye ihtiyaç duyduklarında DOĞRUDAN KULLANICIYA SORU SORABİLİRLER. Bunun için `requiresUserInput` değerini true yapmalı ve `questions` dizisini DOLDURMALIDIRLAR. EĞER KULLANICIYA SORU SORUYORSANIZ VE 'questions' DİZİSİ BOŞSA SİSTEM ÇÖKER. Kullanıcıya soru sorulduğunda, kullanıcı cevap verene kadar BAŞKA HİÇBİR AJAN KONUŞMAMALIDIR. Kullanıcı cevapladıktan sonra tartışma devam eder. Eğer tüm sorular cevaplandıysa ve MVP üzerinde uzlaşıldıysa, SM rolüyle 'isDocumentationPhase' değerini true yapın.";
-        
-        prompt += "\n\nUYARI: Çıktı token sınırına (8192) takılmamak ve mesajın yarım kalmasını önlemek için düşünme (thinking) sürecini çok fazla uzatmayın. Doğrudan konuya ve tartışmaya odaklanın.";
-
-        const parts: any[] = [{ text: prompt }];
-
-        if (attachments && attachments.length > 0) {
-          for (const att of attachments) {
-            if (att.data && att.mimeType) {
-              parts.push({ inlineData: { data: att.data, mimeType: att.mimeType } });
-            }
-          }
-        }
-
-        contents.push({ role: 'user', parts });
+        let currentAgentRole = '';
+        let currentAgentName = 'Ekip';
+        let currentAgentTitle = 'Tartışma';
+        let currentActionSummary = '';
+        let currentQuestions: Question[] | undefined = undefined;
+        let lastUpdateTime = Date.now();
+        let tokenCount = 0;
+        let fullText = '';
+        let fullThinkingText = '';
 
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) throw new Error("No active session");
-
-          let fullText = '';
-          let fullThinkingText = '';
-          let currentAgentRole = '';
-          let currentAgentName = 'Ekip';
-          let currentAgentTitle = 'Tartışma';
-          let currentActionSummary = '';
-          let currentQuestions: Question[] | undefined = undefined;
-          let groundingUrls: { uri: string; title: string }[] = [];
-          let lastUpdateTime = Date.now();
-          let tokenCount = 0;
-
-          let finalParsedData: any = null;
-          const aiResponse = await callAiWithRetry(() => callGemini({
-            model: "gemini-3-flash-preview",
-            systemInstruction: "Sen bir toplantı simülatörüsün. Sadece JSON formatında yanıt ver.",
-            contents: contents,
-            responseSchema: discussionJsonSchema,
-            onGrounding: (urls) => {
-              groundingUrls = [...groundingUrls, ...urls.filter(u => !groundingUrls.find(gu => gu.uri === u.uri))];
+          const { nextAgent, finalResponse, updatedDocument } = await orchestrator.step(
+            (agent, reason) => {
+              currentAgentRole = agent;
+              const agentDef = ZERO_TOUCH_AGENTS.find(a => a.role === agent);
+              if (agentDef) {
+                currentAgentName = agentDef.name;
+                currentAgentTitle = agentDef.name;
+              }
+              // Update UI with agent info
+              setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+                ...m,
+                senderName: currentAgentName,
+                senderRole: currentAgentTitle,
+                agentRole: currentAgentRole
+              } : m));
             },
-            onChunk: (text, thinking, tokens) => {
-              let accumulatedJson = text;
+            (text, thinking, tokens) => {
+              fullText = text;
               fullThinkingText = thinking || '';
               if (tokens) tokenCount = tokens;
               
-              let jsonToParse = accumulatedJson.trim();
-              const jsonBlockMatch = accumulatedJson.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-              if (jsonBlockMatch) {
-                jsonToParse = jsonBlockMatch[1].trim();
-              }
-              
-              if (jsonToParse) {
-                try {
-                  const parsed = parsePartialJson(jsonToParse);
-                  finalParsedData = parsed;
-                  if (parsed && typeof parsed === 'object') {
-                    if (parsed.agentRole && !currentAgentRole) {
-                      currentAgentRole = parsed.agentRole;
-                      const agentDef = ZERO_TOUCH_AGENTS.find(a => a.role === currentAgentRole);
-                      if (agentDef) {
-                        currentAgentName = agentDef.name;
-                        currentAgentTitle = agentDef.name;
-                      }
-                    }
-                    if (parsed.message) fullText = parsed.message;
-                    if (parsed.actionSummary) currentActionSummary = parsed.actionSummary;
-                    if (parsed.isDocumentationPhase !== undefined) isDocumentationPhase = parsed.isDocumentationPhase;
-                    if (parsed.requiresUserInput !== undefined) needsUserInput = parsed.requiresUserInput;
-                    if (parsed.questions && Array.isArray(parsed.questions)) currentQuestions = parsed.questions;
-                    
-                    if (parsed.document && parsed.document.review) {
-                      setDocumentContent(prev => {
-                        const newDoc = { ...prev } as DocumentData;
-                        newDoc.review = marked.parse(parsed.document.review) as string;
-                        currentDocument = newDoc;
-                        return newDoc;
-                      });
-                    }
-                  } else {
-                    fullText = jsonToParse;
-                  }
-                } catch (e) {
-                  fullText = jsonToParse;
-                }
-              }
-
               if (Date.now() - lastUpdateTime > 30) {
                 setMessages(prev => prev.map(m => 
                   m.id === aiMsgId ? { 
@@ -1249,14 +1076,9 @@ export default function App() {
                     thinkingText: fullThinkingText,
                     senderName: currentAgentName,
                     senderRole: currentAgentTitle,
-                    agentRole: currentAgentRole,
-                    actionSummary: currentActionSummary,
-                    questions: currentQuestions,
-                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                    ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+                    agentRole: currentAgentRole
                   } : m
                 ));
-                
                 if (channelRef.current) {
                   channelRef.current.send({ type: 'broadcast', event: 'ai_stream_chunk', payload: { 
                     itemId: currentWorkspaceId, 
@@ -1264,28 +1086,53 @@ export default function App() {
                     text: fullText, 
                     thinkingText: fullThinkingText,
                     agentRole: currentAgentRole,
-                    questions: currentQuestions,
-                    thinkingTime: Math.round((Date.now() - startTime) / 1000),
-                    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+                    senderName: currentAgentName,
+                    senderRole: currentAgentTitle
                   }});
                 }
                 lastUpdateTime = Date.now();
               }
             }
-          }));
+          );
 
-          // Removed overwriting fullText with raw JSON string
-
-          if (finalParsedData && finalParsedData.updatedMemory && Object.keys(finalParsedData.updatedMemory).length > 0) {
-            setProjectMemory(prev => {
-              const newMemory = { ...prev, ...finalParsedData.updatedMemory };
-              if (currentWorkspaceId) {
-                updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
-              }
-              return newMemory;
-            });
+          if (nextAgent === 'USER') {
+            needsUserInput = true;
+            // Remove the temporary message since we didn't get a real response
+            setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+            break;
           }
 
+          if (nextAgent === 'DONE') {
+            isDocumentationPhase = true;
+            // Remove the temporary message since we didn't get a real response
+            setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+            break;
+          }
+
+          if (finalResponse) {
+            fullText = finalResponse.message || fullText;
+            currentActionSummary = finalResponse.actionSummary || '';
+            if (finalResponse.requiresUserInput) needsUserInput = true;
+            if (finalResponse.questions) currentQuestions = finalResponse.questions as Question[];
+            
+            if (finalResponse.updatedMemory && Object.keys(finalResponse.updatedMemory).length > 0) {
+              setProjectMemory(prev => {
+                const newMemory = { ...prev, ...finalResponse.updatedMemory };
+                if (currentWorkspaceId) {
+                  updateDoc(doc(db, 'workspaces', currentWorkspaceId), { projectMemory: newMemory }).catch(console.error);
+                }
+                return newMemory;
+              });
+            }
+          }
+
+          if (updatedDocument) {
+             const parsedDoc = parseDocumentContent(updatedDocument);
+             setDocumentContent(parsedDoc);
+             currentDocument = parsedDoc;
+          }
+
+          // Update final message state
           const finalMsg: Message = {
             id: aiMsgId,
             role: 'model',
@@ -1297,16 +1144,15 @@ export default function App() {
             actionSummary: currentActionSummary,
             documentSnapshot: currentDocument || undefined,
             questions: currentQuestions,
-            tokenCount: aiResponse.tokenCount,
+            tokenCount,
             thinkingTime: Math.round((Date.now() - startTime) / 1000),
-            createdAt: Date.now(),
-            rawResponse: aiResponse.text,
-            ...(groundingUrls.length > 0 ? { groundingUrls } : {})
+            createdAt: Date.now()
           };
 
           setMessages(prev => prev.map(m => m.id === aiMsgId ? finalMsg : m));
           currentMessages.push(finalMsg);
 
+          // Save to DB
           try {
             await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
               ...finalMsg,
@@ -1314,7 +1160,6 @@ export default function App() {
               createdAt: serverTimestamp()
             });
             await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
-            await saveRawResponse(currentWorkspaceId, aiMsgId, aiResponse.text, finalParsedData);
             if (currentDocument && Object.keys(currentDocument).length > 0) {
               await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, currentDocument);
             }
@@ -1332,8 +1177,7 @@ export default function App() {
               senderName: currentAgentName,
               senderRole: currentAgentTitle,
               documentSnapshot: currentDocument || undefined,
-              questions: currentQuestions,
-              groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined
+              questions: currentQuestions
             }});
           }
 
@@ -1568,30 +1412,17 @@ IT Analiz (code) içine eklenecekler:
                       if (hasFields) {
                         setDocumentContent(prev => {
                           const newDoc = { ...prev } as DocumentData;
-                          if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
-                          if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
-                          if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
-                          if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
-                          if (parsed.document.bpmn) {
-                            let bpmnStr = parsed.document.bpmn.trim();
-                            const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
-                            if (bpmnMatch) {
-                              bpmnStr = bpmnMatch[1].trim();
-                            }
-                            // Fallback: extract from <?xml or <bpmn:definitions
-                            const xmlStart = bpmnStr.indexOf('<?xml');
-                            const defStart = bpmnStr.indexOf('<bpmn:definitions');
-                            if (xmlStart !== -1) {
-                              bpmnStr = bpmnStr.substring(xmlStart);
-                            } else if (defStart !== -1) {
-                              bpmnStr = bpmnStr.substring(defStart);
-                            }
-                            newDoc.bpmn = bpmnStr;
-                          }
-                          if (finalScore !== undefined) newDoc.score = finalScore;
-                          if (finalScoreExplanation) newDoc.scoreExplanation = finalScoreExplanation;
-                          currentDocument = newDoc;
-                          return newDoc;
+                          if (parsed.document.businessAnalysis) newDoc.businessAnalysis = parsed.document.businessAnalysis;
+                          if (parsed.document.code) newDoc.code = parsed.document.code;
+                          if (parsed.document.test) newDoc.test = parsed.document.test;
+                          if (parsed.document.review) newDoc.review = parsed.document.review;
+                          if (parsed.document.bpmn) newDoc.bpmn = parsed.document.bpmn;
+                          
+                          const parsedDoc = parseDocumentContent(newDoc);
+                          if (finalScore !== undefined) parsedDoc.score = finalScore;
+                          if (finalScoreExplanation) parsedDoc.scoreExplanation = finalScoreExplanation;
+                          currentDocument = parsedDoc;
+                          return parsedDoc;
                         });
                       }
                     }
@@ -1930,28 +1761,15 @@ IT Analiz (code) içine eklenecekler:
                 if (shouldAiRespond && hasFields) {
                   setDocumentContent(prev => {
                     const newDoc = { ...prev } as DocumentData;
-                    if (parsed.document.businessAnalysis) newDoc.businessAnalysis = marked.parse(parseBusinessAnalysis(parsed.document.businessAnalysis)) as string;
-                    if (parsed.document.code) newDoc.code = marked.parse(parsed.document.code) as string;
-                    if (parsed.document.test) newDoc.test = marked.parse(parsed.document.test) as string;
-                    if (parsed.document.review) newDoc.review = marked.parse(parsed.document.review) as string;
-                    if (parsed.document.bpmn) {
-                      let bpmnStr = parsed.document.bpmn.trim();
-                      const bpmnMatch = bpmnStr.match(/```(?:xml|bpmn)?\s*([\s\S]*?)(```|$)/i);
-                      if (bpmnMatch) {
-                        bpmnStr = bpmnMatch[1].trim();
-                      }
-                      // Fallback: extract from <?xml or <bpmn:definitions
-                      const xmlStart = bpmnStr.indexOf('<?xml');
-                      const defStart = bpmnStr.indexOf('<bpmn:definitions');
-                      if (xmlStart !== -1) {
-                        bpmnStr = bpmnStr.substring(xmlStart);
-                      } else if (defStart !== -1) {
-                        bpmnStr = bpmnStr.substring(defStart);
-                      }
-                      newDoc.bpmn = bpmnStr;
-                    }
-                    newDocumentContent = newDoc;
-                    return newDoc;
+                    if (parsed.document.businessAnalysis) newDoc.businessAnalysis = parsed.document.businessAnalysis;
+                    if (parsed.document.code) newDoc.code = parsed.document.code;
+                    if (parsed.document.test) newDoc.test = parsed.document.test;
+                    if (parsed.document.review) newDoc.review = parsed.document.review;
+                    if (parsed.document.bpmn) newDoc.bpmn = parsed.document.bpmn;
+                    
+                    const parsedDoc = parseDocumentContent(newDoc);
+                    newDocumentContent = parsedDoc;
+                    return parsedDoc;
                   });
                 }
               }
@@ -2204,18 +2022,13 @@ IT Analiz (code) içine eklenecekler:
         jsonText = jsonText.replace(/\n?```$/, '');
       }
       
-      const data = JSON.parse(jsonText);
+      const parsedData = JSON.parse(jsonText);
+      const docData = parsedData.document || parsedData;
       
       // Convert Markdown to HTML for each section
-      const htmlData: DocumentData = {
-        businessAnalysis: marked.parse(data.businessAnalysis || "") as string,
-        code: marked.parse(data.code || "") as string,
-        test: marked.parse(data.test || "") as string,
-        review: data.review ? marked.parse(data.review) as string : null,
-        bpmn: data.bpmn || "",
-        score: data.score,
-        scoreExplanation: data.scoreExplanation
-      };
+      const htmlData = parseDocumentContent(docData) as DocumentData;
+      if (parsedData.score !== undefined) htmlData.score = parsedData.score;
+      if (parsedData.scoreExplanation) htmlData.scoreExplanation = parsedData.scoreExplanation;
       
       setDocumentContent(htmlData);
       

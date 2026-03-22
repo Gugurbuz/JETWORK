@@ -41,7 +41,15 @@ export const ChatResponseSchema = z.object({
   actionSummary: z.string().optional().describe("Bu mesajın veya ajanın yaptığı eylemin çok kısa (1 cümlelik) bir özeti. Örn: 'İş Analisti gereksinimleri dokümana ekledi.', 'Test Uzmanı test senaryolarını yazdı.'"),
   document: DocumentDataSchema.optional().describe("Eğer kullanıcı bir doküman (iş analizi, kod, test) oluşturulmasını veya güncellenmesini istediyse bu alanı doldur. İstemediyle boş bırak (null/undefined)."),
   score: z.number().optional().describe("Zero-Touch Mode için ajanın verdiği puan (0-100)."),
-  scoreExplanation: z.string().optional().describe("Verilen puanın detayı, eksikler, riskler ve yapılan iyileştirmelerin kısa özeti. Sadece Moderatör tarafından doldurulur.")
+  scoreExplanation: z.string().optional().describe("Verilen puanın detayı, eksikler, riskler ve yapılan iyileştirmelerin kısa özeti. Sadece Moderatör tarafından doldurulur."),
+  needsRevision: z.array(z.string()).optional().describe("Eğer dokümanın revize edilmesi gerekiyorsa, revizyon yapması gereken ajanların rollerini (BA, IT, QA) bu diziye ekle. Eğer revizyona gerek yoksa boş bırak."),
+  updatedMemory: z.record(z.string(), z.string()).optional().describe("Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle."),
+  requiresUserInput: z.boolean().optional().describe("Eğer mimarinin netleşmesi için müşteriden (kullanıcıdan) kritik bir bilgi alınması gerekiyorsa bunu true yap. BU ÇOK ÖNEMLİDİR: requiresUserInput true olduğunda, sistem otonom tartışmayı DURDURUR ve kullanıcıdan cevap bekler."),
+  questions: z.array(z.object({
+    id: z.string(),
+    text: z.string(),
+    options: z.array(z.string())
+  })).optional().describe("Eğer requiresUserInput true ise, kullanıcıya sorulacak soruları ve muhtemel kısa cevap seçeneklerini buraya ekle. Soru sorulmuyorsa boş dizi [] gönder.")
 });
 
 export const chatResponseJsonSchema = {
@@ -72,6 +80,27 @@ export const chatResponseJsonSchema = {
       type: Type.OBJECT,
       description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle.",
       additionalProperties: { type: Type.STRING }
+    },
+    requiresUserInput: {
+      type: Type.BOOLEAN,
+      description: "Eğer mimarinin netleşmesi için müşteriden (kullanıcıdan) kritik bir bilgi alınması gerekiyorsa bunu true yap. BU ÇOK ÖNEMLİDİR: requiresUserInput true olduğunda, sistem otonom tartışmayı DURDURUR ve kullanıcıdan cevap bekler."
+    },
+    questions: {
+      type: Type.ARRAY,
+      description: "Eğer requiresUserInput true ise, kullanıcıya sorulacak soruları ve muhtemel kısa cevap seçeneklerini buraya ekle. Soru sorulmuyorsa boş dizi [] gönder.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING, description: "Soru için benzersiz ID (örn: q1, q2)" },
+          text: { type: Type.STRING, description: "Sorunun kendisi" },
+          options: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "Kullanıcıya sunulacak kısa cevap seçenekleri (Örn: ['Evet', 'Hayır', 'Emin Değilim'])"
+          }
+        },
+        required: ["id", "text", "options"]
+      }
     },
     document: {
       type: Type.OBJECT,
