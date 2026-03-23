@@ -69,16 +69,16 @@
   }
 
   .theme-monochrome {
-    /* Kept for backwards compatibility if needed, but we default to dark */
-    --theme-bg: var(--color-zinc-50);
-    --theme-surface: var(--color-white);
-    --theme-surface-hover: var(--color-zinc-100);
-    --theme-primary: var(--color-zinc-900);
-    --theme-primary-hover: var(--color-black);
-    --theme-primary-fg: var(--color-white);
-    --theme-text: var(--color-zinc-900);
-    --theme-text-muted: var(--color-zinc-500);
-    --theme-border: var(--color-zinc-200);
+    /* White/Light Monochrome Theme */
+    --theme-bg: #fafafa;
+    --theme-surface: #ffffff;
+    --theme-surface-hover: #f4f4f5;
+    --theme-primary: #18181b;
+    --theme-primary-hover: #000000;
+    --theme-primary-fg: #ffffff;
+    --theme-text: #18181b;
+    --theme-text-muted: #71717a;
+    --theme-border: #e4e4e7;
     --theme-glass: rgba(255, 255, 255, 0.9);
     --theme-glass-border: rgba(228, 228, 231, 0.5);
   }

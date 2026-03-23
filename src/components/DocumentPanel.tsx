@@ -20,23 +20,17 @@ import TableHeader from '@tiptap/extension-table-header';
 import Color from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { ImageWithSize } from '../lib/image-with-size';
+import { useStore } from '../store/useStore';
 
 interface DocumentPanelProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-  documentContent: DocumentData | null;
   onGenerate: () => void;
-  isGenerating: boolean;
-  isDiscussing?: boolean;
   hasMessages: boolean;
   collaborators?: Collaborator[];
   onUpdateDocument?: (content: DocumentData) => void;
-  onSelectionChange?: (text: string) => void;
   score?: number;
   scoreExplanation?: string;
   messages?: Message[];
   onRestoreDocument?: (doc: any) => void;
-  isLoadingWorkspace?: boolean;
   onManageParticipants?: () => void;
 }
 
@@ -105,6 +99,26 @@ const MenuBar = ({ editor }: { editor: any }) => {
         title="Kod Bloğu"
       >
         <Code size={16} />
+      </button>
+      <div className="w-px h-6 bg-theme-border mx-1 self-center" />
+      <button
+        onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+        className="p-2 rounded hover:bg-theme-surface-hover transition-colors text-theme-text-muted hover:text-theme-text"
+        title="Tablo Ekle"
+      >
+        <TableIcon size={16} />
+      </button>
+      <button
+        onClick={() => {
+          const url = window.prompt('Resim URL:');
+          if (url) {
+            editor.chain().focus().setImage({ src: url }).run();
+          }
+        }}
+        className="p-2 rounded hover:bg-theme-surface-hover transition-colors text-theme-text-muted hover:text-theme-text"
+        title="Resim Ekle"
+      >
+        <ImageIcon size={16} />
       </button>
       <div className="w-px h-6 bg-theme-border mx-1 self-center" />
       <button
@@ -179,23 +193,24 @@ const stringToColor = (str: string) => {
 };
 
 export function DocumentPanel({ 
-  activeTab, 
-  setActiveTab, 
-  documentContent, 
   onGenerate, 
-  isGenerating, 
-  isDiscussing,
   hasMessages,
   collaborators = [],
   onUpdateDocument,
-  onSelectionChange,
   score,
   scoreExplanation,
   messages = [],
   onRestoreDocument,
-  isLoadingWorkspace,
   onManageParticipants
 }: DocumentPanelProps) {
+  const activeTab = useStore(state => state.activeTab);
+  const setActiveTab = useStore(state => state.setActiveTab);
+  const documentContent = useStore(state => state.documentContent);
+  const isGenerating = useStore(state => state.isGenerating);
+  const isDiscussing = useStore(state => state.isDiscussing);
+  const isLoadingWorkspace = useStore(state => state.isLoadingWorkspace);
+  const setSelectedDocumentText = useStore(state => state.setSelectedDocumentText);
+
   const [isEditing, setIsEditing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [diffModalData, setDiffModalData] = useState<{ oldDoc?: any, newDoc?: any } | null>(null);
@@ -302,10 +317,10 @@ export function DocumentPanel({
       },
     },
     onSelectionUpdate: ({ editor }) => {
-      if (onSelectionChange) {
+      if (setSelectedDocumentText) {
         const { from, to } = editor.state.selection;
         const text = editor.state.doc.textBetween(from, to, ' ');
-        onSelectionChange(text);
+        setSelectedDocumentText(text);
       }
     }
   });
@@ -469,13 +484,26 @@ export function DocumentPanel({
             {documentContent && (
               <>
                 {isEditing ? (
-                  <button 
-                    onClick={handleSave}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary text-theme-primary-fg text-[10px] font-bold uppercase tracking-widest hover:bg-theme-primary-hover transition-colors rounded-md shadow-sm"
-                  >
-                    <Save size={12} />
-                    Kaydet
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        if (editor && documentContent) {
+                          editor.commands.setContent(getActiveContent(documentContent, activeTab));
+                        }
+                        setIsEditing(false);
+                      }}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-surface-hover text-theme-text text-[10px] font-bold uppercase tracking-widest hover:bg-theme-border transition-colors rounded-md shadow-sm"
+                    >
+                      İptal
+                    </button>
+                    <button 
+                      onClick={handleSave}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary text-theme-primary-fg text-[10px] font-bold uppercase tracking-widest hover:bg-theme-primary-hover transition-colors rounded-md shadow-sm"
+                    >
+                      <Save size={12} />
+                      Kaydet
+                    </button>
+                  </div>
                 ) : activeTab !== 'FLOW' && (
                   <button 
                     onClick={() => setIsEditing(true)}
@@ -840,39 +868,61 @@ export function DocumentPanel({
                   </div>
                 )}
                 
-                {isEditing ? (
-                  <div className="bg-theme-surface border border-theme-border/50 rounded-lg overflow-hidden shadow-sm">
-                    <MenuBar editor={editor} />
-                    <EditorContent editor={editor} />
-                  </div>
-                ) : activeTab === 'FLOW' ? (
-                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    {documentContent?.bpmn ? (
-                      <BpmnViewer xml={documentContent.bpmn} />
-                    ) : (
-                      <div className="h-[400px] flex flex-col items-center justify-center text-center border border-dashed border-theme-border/50 bg-theme-bg rounded-xl">
-                        <Trello size={32} className="text-theme-text-muted mb-4 opacity-20" />
-                        <p className="text-sm text-theme-text-muted">Henüz bir BPMN diyagramı oluşturulmamış.</p>
-                        <p className="text-xs text-theme-text-muted/60 mt-1">AI'dan bir süreç diyagramı çizmesini isteyebilirsiniz.</p>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <article className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:tracking-tight prose-headings:text-theme-text prose-p:text-theme-text prose-p:leading-relaxed prose-strong:text-theme-text prose-a:text-theme-primary prose-a:underline hover:prose-a:no-underline prose-pre:bg-theme-surface-hover prose-pre:text-theme-text prose-pre:border prose-pre:border-theme-border/50 prose-pre:p-6 prose-pre:rounded-lg prose-code:text-theme-text prose-code:bg-theme-surface-hover prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-2 prose-blockquote:border-theme-primary prose-blockquote:bg-theme-surface-hover prose-blockquote:p-6 prose-blockquote:italic prose-blockquote:rounded-r-lg text-theme-text">
-                    <div 
-                      className="document-content-view" 
-                      dangerouslySetInnerHTML={{ __html: getActiveContent(documentContent, activeTab) }} 
-                      onClick={(e) => {
-                        const target = e.target as Node;
-                        const element = target.nodeType === Node.TEXT_NODE ? target.parentElement : target as Element;
-                        const aTag = element?.closest('a');
-                        if (aTag) {
-                          e.preventDefault();
-                        }
-                      }}
-                    />
-                  </article>
-                )}
+                <AnimatePresence mode="wait">
+                  {isEditing ? (
+                    <motion.div 
+                      key="editor"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="bg-theme-surface border border-theme-border/50 rounded-lg overflow-hidden shadow-sm"
+                    >
+                      <MenuBar editor={editor} />
+                      <EditorContent editor={editor} />
+                    </motion.div>
+                  ) : activeTab === 'FLOW' ? (
+                    <motion.div 
+                      key="flow"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      {documentContent?.bpmn ? (
+                        <BpmnViewer xml={documentContent.bpmn} />
+                      ) : (
+                        <div className="h-[400px] flex flex-col items-center justify-center text-center border border-dashed border-theme-border/50 bg-theme-bg rounded-xl">
+                          <Trello size={32} className="text-theme-text-muted mb-4 opacity-20" />
+                          <p className="text-sm text-theme-text-muted">Henüz bir BPMN diyagramı oluşturulmamış.</p>
+                          <p className="text-xs text-theme-text-muted/60 mt-1">AI'dan bir süreç diyagramı çizmesini isteyebilirsiniz.</p>
+                        </div>
+                      )}
+                    </motion.div>
+                  ) : (
+                    <motion.article 
+                      key="reader"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:tracking-tight prose-headings:text-theme-text prose-p:text-theme-text prose-p:leading-relaxed prose-strong:text-theme-text prose-a:text-theme-primary prose-a:underline hover:prose-a:no-underline prose-pre:bg-theme-surface-hover prose-pre:text-theme-text prose-pre:border prose-pre:border-theme-border/50 prose-pre:p-6 prose-pre:rounded-lg prose-code:text-theme-text prose-code:bg-theme-surface-hover prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-blockquote:border-l-2 prose-blockquote:border-theme-primary prose-blockquote:bg-theme-surface-hover prose-blockquote:p-6 prose-blockquote:italic prose-blockquote:rounded-r-lg text-theme-text"
+                    >
+                      <div 
+                        className="document-content-view" 
+                        dangerouslySetInnerHTML={{ __html: getActiveContent(documentContent, activeTab) }} 
+                        onClick={(e) => {
+                          const target = e.target as Node;
+                          const element = target.nodeType === Node.TEXT_NODE ? target.parentElement : target as Element;
+                          const aTag = element?.closest('a');
+                          if (aTag) {
+                            e.preventDefault();
+                          }
+                        }}
+                      />
+                    </motion.article>
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>

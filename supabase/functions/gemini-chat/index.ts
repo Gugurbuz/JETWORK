@@ -21,15 +21,21 @@ serve(async (req) => {
 
     const ai = new GoogleGenAI({ apiKey })
 
+    const config: any = {
+      systemInstruction: systemInstruction,
+      responseMimeType: responseSchema ? "application/json" : "text/plain",
+    }
+
+    if (responseSchema) {
+      config.responseSchema = responseSchema
+    } else {
+      config.tools = [{ googleSearch: {} }]
+    }
+
     const responseStream = await ai.models.generateContentStream({
       model: model,
       contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: responseSchema ? "application/json" : "text/plain",
-        responseSchema: responseSchema,
-        tools: [{ googleSearch: {} }]
-      }
+      config: config
     })
 
     const stream = new ReadableStream({

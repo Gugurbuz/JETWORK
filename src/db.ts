@@ -70,9 +70,26 @@ export const collection = (db: any, ...args: string[]) => {
   return { table: args[0], filters: [] };
 };
 
-export const doc = (db: any, ...args: string[]) => {
+export const doc = (dbOrCollectionRef: any, ...args: any[]) => {
+  // Handle doc(collectionRef)
+  if (args.length === 0 && typeof dbOrCollectionRef === 'object' && dbOrCollectionRef.table) {
+    return { table: dbOrCollectionRef.table, id: crypto.randomUUID() };
+  }
+  
+  // Handle doc(collectionRef, id)
+  if (args.length === 1 && typeof dbOrCollectionRef === 'object' && dbOrCollectionRef.table) {
+    return { table: dbOrCollectionRef.table, id: args[0] };
+  }
+  
+  // Handle doc(db, 'collection', 'id')
   if (args.length === 2) return { table: args[0], id: args[1] };
+  
+  // Handle doc(db, 'workspaces', workspaceId, 'messages', messageId)
   if (args.length === 4) return { table: args[2], id: args[3], workspace_id: args[1] };
+  
+  // Handle doc(db, 'workspaces', workspaceId, 'documents', 'main', 'versions', messageId)
+  if (args.length === 6) return { table: args[4], id: args[5], workspace_id: args[1], document_id: args[3] };
+  
   return { table: args[0], id: 'unknown' };
 };
 

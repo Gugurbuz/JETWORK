@@ -7,7 +7,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
-import { ZERO_TOUCH_AGENTS } from '../App';
+import { ZERO_TOUCH_AGENTS } from '../constants';
+import { useStore } from '../store/useStore';
 
 const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
   const [answers, setAnswers] = useState<Record<string, { type: 'option' | 'custom', value: string }>>({});
@@ -172,7 +173,6 @@ interface ChatPanelProps {
   status?: string;
   title?: string;
   projectName?: string;
-  onBack?: () => void;
   activeUsers?: { id: string; name: string; role: string }[];
   collaborators?: { id: string; name: string; role: string; avatar?: string; color?: string }[];
   typingUsers?: { userId: string; userName: string }[];
@@ -470,7 +470,7 @@ const MessageItem = memo(({
 
 export function ChatPanel({ 
   messages, onSendMessage, isGenerating, issueKey, status, title, projectName, 
-  onBack, activeUsers, collaborators, typingUsers, 
+  activeUsers, collaborators, typingUsers, 
   onTypingStart, onTypingEnd, onToggleReaction, currentUser,
   isAiActive, onToggleAiActive, aiHandRaised, onAcceptAiHandRaise, onDismissAiHandRaise,
   selectedDocumentText, onRestoreDocument, hasDocument,
@@ -479,6 +479,7 @@ export function ChatPanel({
   isLoadingWorkspace,
   onManageParticipants
 }: ChatPanelProps) {
+  const setCurrentWorkspaceId = useStore(state => state.setCurrentWorkspaceId);
   const [input, setInput] = useState('');
   const [selectedAttachments, setSelectedAttachments] = useState<{ url: string; data: string; mimeType: string; name?: string; file?: File }[]>([]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
@@ -871,15 +872,13 @@ export function ChatPanel({
       {/* Header */}
       <header className="h-16 flex items-center px-4 bg-theme-bg border-b border-theme-border sticky top-0 z-10 transition-colors duration-300 shadow-sm">
         <div className="flex items-center gap-3 w-full">
-          {onBack && (
-            <button 
-              onClick={onBack}
-              className="p-2 hover:bg-theme-surface-hover rounded-md text-theme-text-muted hover:text-theme-text transition-colors"
-              title="Geri Dön"
-            >
-              <ChevronLeft size={18} />
-            </button>
-          )}
+          <button 
+            onClick={() => setCurrentWorkspaceId(null)}
+            className="p-2 hover:bg-theme-surface-hover rounded-md text-theme-text-muted hover:text-theme-text transition-colors"
+            title="Geri Dön"
+          >
+            <ChevronLeft size={18} />
+          </button>
           <div className="w-8 h-8 bg-theme-primary flex items-center justify-center text-theme-primary-fg rounded-md shadow-sm shrink-0">
             <Command size={14} />
           </div>

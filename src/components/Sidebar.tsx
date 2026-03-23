@@ -1,20 +1,16 @@
 import React from 'react';
-import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone, Edit2, Trash2 } from 'lucide-react';
+import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, ChevronDown, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone, Edit2, Trash2, FileText } from 'lucide-react';
 import { Project, Workspace } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { useStore } from '../store/useStore';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
 interface SidebarProps {
   user: { name: string; role: string } | null;
-  projects: Project[];
-  currentWorkspaceId: string | null;
-  currentProjectId: string | null;
   onSelectWorkspace: (id: string) => void;
   onSelectProject: (id: string) => void;
-  onNewWorkspace: () => void;
-  onNewProject: () => void;
   onEditProject?: (project: Project) => void;
   onDeleteProject?: (id: string) => void;
   theme: ThemeType;
@@ -32,9 +28,23 @@ const SwissLogo = () => (
   </svg>
 );
 
-export function Sidebar({ user, projects, currentWorkspaceId, currentProjectId, onSelectWorkspace, onSelectProject, onNewWorkspace, onNewProject, onEditProject, onDeleteProject, theme, onThemeChange, onLogout, onOpenSettings }: SidebarProps) {
+export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProject, onDeleteProject, theme, onThemeChange, onLogout, onOpenSettings }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [showUserMenu, setShowUserMenu] = React.useState(false);
+  const [expandedProjects, setExpandedProjects] = React.useState<Record<string, boolean>>({});
+
+  const projects = useStore(state => state.projects);
+  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
+  const currentProjectId = useStore(state => state.currentProjectId);
+  const projectMemory = useStore(state => state.projectMemory);
+  const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
+
+  const toggleProject = (projectId: string) => {
+    setExpandedProjects(prev => ({
+      ...prev,
+      [projectId]: !prev[projectId]
+    }));
+  };
 
   return (
     <motion.div 
@@ -96,36 +106,47 @@ export function Sidebar({ user, projects, currentWorkspaceId, currentProjectId, 
         <motion.div 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex-1 overflow-y-auto px-4 py-2"
+          className="flex-1 overflow-y-auto px-4 py-2 flex flex-col gap-6"
         >
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-3 px-2">
-                <h3 className="text-[11px] font-bold text-theme-text-muted">Projeler</h3>
-                <button 
-                  onClick={onNewProject}
-                  className="w-5 h-5 rounded-full bg-theme-surface-hover flex items-center justify-center text-theme-text-muted hover:text-theme-text transition-colors"
-                  title="Yeni Proje"
-                >
-                  <Plus size={12} />
-                </button>
-              </div>
-              <div className="space-y-1">
-                {projects.map(project => (
+          <div>
+            <div className="flex items-center justify-between mb-3 px-2">
+              <h3 className="text-[11px] font-bold text-theme-text-muted">Projeler</h3>
+              <button 
+                onClick={() => setShowNewProjectModal(true)}
+                className="w-5 h-5 rounded-full bg-theme-surface-hover flex items-center justify-center text-theme-text-muted hover:text-theme-text transition-colors"
+                title="Yeni Proje"
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+            <div className="space-y-1">
+              {projects.length === 0 ? (
+                <div className="text-[11px] text-theme-text-muted text-center py-4 px-2 bg-theme-surface/50 rounded-lg border border-theme-border/50 border-dashed">
+                  Henüz proje yok.
+                </div>
+              ) : (
+                projects.map(project => (
                   <div key={project.id} className="relative group">
+                  <div className={cn(
+                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors text-left",
+                    currentProjectId === project.id 
+                      ? "bg-theme-surface-hover" 
+                      : "hover:bg-theme-surface"
+                  )}>
+                    <button 
+                      onClick={() => toggleProject(project.id)}
+                      className="p-1 text-theme-text-muted hover:text-theme-text transition-colors"
+                    >
+                      <ChevronRight size={14} className={cn("transition-transform", expandedProjects[project.id] && "rotate-90")} />
+                    </button>
                     <button 
                       onClick={() => onSelectProject(project.id)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left",
-                        currentProjectId === project.id 
-                          ? "bg-theme-surface-hover" 
-                          : "hover:bg-theme-surface"
-                      )}
+                      className="flex-1 flex items-center gap-3 min-w-0"
                     >
                       <div className="w-8 h-8 rounded-md bg-theme-surface border border-theme-border flex items-center justify-center shrink-0 group-hover:border-theme-primary/50 transition-colors">
                         <FolderPlus size={14} className={currentProjectId === project.id ? "text-theme-primary" : "text-theme-text-muted"} />
                       </div>
-                      <div className="flex-1 min-w-0 pr-12">
+                      <div className="flex-1 min-w-0 pr-12 text-left">
                         <div className={cn(
                           "text-sm font-medium truncate",
                           currentProjectId === project.id ? "text-theme-text" : "text-theme-text-muted group-hover:text-theme-text"
@@ -138,32 +159,87 @@ export function Sidebar({ user, projects, currentWorkspaceId, currentProjectId, 
                         </div>
                       </div>
                     </button>
-                    
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {onEditProject && (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
-                          className="p-1.5 text-theme-text-muted hover:text-theme-primary hover:bg-theme-surface rounded-md transition-colors"
-                          title="Düzenle"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                      )}
-                      {onDeleteProject && (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-                          className="p-1.5 text-theme-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
-                          title="Sil"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
+                  </div>
+                  
+                  <div className="absolute right-2 top-4 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {onEditProject && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
+                        className="p-1.5 text-theme-text-muted hover:text-theme-primary hover:bg-theme-surface rounded-md transition-colors"
+                        title="Düzenle"
+                      >
+                        <Edit2 size={12} />
+                      </button>
+                    )}
+                    {onDeleteProject && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
+                        className="p-1.5 text-theme-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
+                        title="Sil"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Workspaces Accordion */}
+                  <AnimatePresence>
+                    {expandedProjects[project.id] && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="pl-10 pr-2 py-1 space-y-1 border-l border-theme-border/50 ml-4 mt-1">
+                          {project.workspaces.length === 0 ? (
+                            <div className="text-[10px] text-theme-text-muted py-2 px-2 bg-theme-surface/30 rounded border border-theme-border/30 border-dashed text-center">
+                              Çalışma alanı yok
+                            </div>
+                          ) : (
+                            project.workspaces.map(ws => (
+                              <button
+                                key={ws.id}
+                                onClick={() => onSelectWorkspace(ws.id)}
+                                className={cn(
+                                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors text-left",
+                                  currentWorkspaceId === ws.id
+                                    ? "bg-theme-primary/10 text-theme-primary"
+                                    : "text-theme-text-muted hover:bg-theme-surface hover:text-theme-text"
+                                )}
+                              >
+                                <FileText size={12} className="shrink-0" />
+                                <span className="text-xs font-medium truncate">{ws.title}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Project Memory Section */}
+          {Object.keys(projectMemory).length > 0 && (
+            <div className="mt-auto mb-4">
+              <div className="flex items-center gap-2 mb-3 px-2">
+                <BrainCircuit size={14} className="text-theme-primary" />
+                <h3 className="text-[11px] font-bold text-theme-text-muted uppercase tracking-wider">Proje Hafızası</h3>
+              </div>
+              <div className="bg-theme-surface/50 border border-theme-border rounded-lg p-3 space-y-2">
+                {Object.entries(projectMemory).map(([key, value]) => (
+                  <div key={key} className="flex flex-col gap-0.5">
+                    <span className="text-[10px] text-theme-text-muted font-medium">{key}</span>
+                    <span className="text-xs text-theme-text font-semibold">{value}</span>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+          )}
         </motion.div>
       )}
 
