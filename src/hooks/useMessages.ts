@@ -168,14 +168,19 @@ export const useMessages = (channelRef: any) => {
       }
 
       // Late Prompt Injection for BA format
-      systemInstruction += "\n\n[ÇOK ÖNEMLİ KISITLAMA]: Eğer BA Analiz Dokümanını (İş Analizi) güncelleyeceksen, ASLA Yönetici Özeti (Executive Summary), As-Is, To-Be GİBİ BAŞLIKLAR KULLANMA. SADECE sana verilen İÇİNDEKİLER YAPISINI (1. ANALİZ KAPSAMI ... 8. FONKSİYONEL TASARIM) KULLAN. Formata birebir uy.";
+      systemInstruction += "\n\n[ÇOK ÖNEMLİ KISITLAMA]: Eğer BA Analiz Dokümanını (İş Analizi) güncelleyeceksen, ASLA Markdown, Yönetici Özeti (Executive Summary), As-Is, To-Be GİBİ BAŞLIKLAR KULLANMA. SADECE Semantik HTML kullan. Mutlaka şu yapıya tamı tamına uy:\n\n1. ANALİZ KAPSAMI\n2. KISALTMALAR\n3. İŞ GEREKSİNİMLERİ\n   3.1. İş Kuralları\n   3.2. İş Modeli ve Kullanıcı Gereksinimleri\n4. FONKSİYONEL GEREKSİNİMLER (FR)\n   4.1. Fonksiyonel Gereksinim Maddeleri (CRM vb.)\n   4.2. Fonksiyonel Gereksinim Maddeleri (BILL vb.)\n5. FONKSİYONEL OLMAYAN GEREKSİNİMLER (NFR)\n   5.1. Güvenlik ve Yetkilendirme Gereksinimleri\n   5.2. Performans Gereksinimleri\n   5.3. Raporlama Gereksinimleri\n6. SÜREÇ RİSK ANALİZİ\n   6.1. Kısıtlar ve Varsayımlar\n   6.2. Bağlılıklar\n   6.3. Süreç Etkileri\n7. ONAY\n   7.1. İş Analizi (Tablo formatında)\n   7.2. Değişiklik Kayıtları (Tablo formatında)\n   7.3. Doküman Onay (Tablo formatında)\n   7.4. Referans Dokümanlar (Tablo formatında)\n8. FONKSİYONEL TASARIM DOKÜMANLARI\n\nTabloları HTML table tagleriyle (<table>, <thead>, <tr>, <th>, <td>, <tbody>) eksiksiz çiz.";
+
+      let documentContextStr = '';
+      if (documentContent && Object.keys(documentContent).length > 0) {
+         documentContextStr = `\n\nAşağıda doküman sekmelerinin güncel durumu bulunmaktadır. Düzenleme yaparken bu HTML yapısını baz al ve sadece istenen bölümleri değiştirerek veya ekleyerek dokümanın TAMAMINI ŞEMA İÇİNDE yeniden üret.\n[MEVCUT DOKÜMAN DURUMU]\n${JSON.stringify(documentContent, null, 2)}`;
+      }
 
       const contents = [
         ...history,
         {
           role: 'user',
           parts: [
-            { text: `[${user.name} - Kullanıcı]: ${messageText}` },
+            { text: `[${user.name} - Kullanıcı]: ${messageText}${documentContextStr}` },
             ...(attachments?.map(a => ({
               inlineData: {
                 data: a.data,

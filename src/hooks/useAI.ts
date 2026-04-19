@@ -23,7 +23,11 @@ const processSection = (data: any, existing?: SectionData, parseMarkdown = true)
     content = typeof data === 'string' ? data : JSON.stringify(data);
   }
 
-  if (parseMarkdown && content) {
+  // If we should parse markdown, but it already looks like heavy HTML (e.g., from updated prompts),
+  // we might want to skip marked to preserve pure Tiptap semantic HTML.
+  const seemsLikeHtml = content.match(/<table|<h[1-6]>|<ul|<ol|<div|<p>/i);
+  
+  if (parseMarkdown && content && !seemsLikeHtml) {
     content = marked.parse(content) as string;
   }
 
@@ -151,14 +155,13 @@ export function useAI(
       }
 
       if (documentContent) {
-        prompt += "\n\n--- MEVCUT DOKÜMAN DURUMU ---\n";
-        if (documentContent.businessAnalysis) prompt += `BA Analiz:\n${documentContent.businessAnalysis}\n\n`;
-        if (documentContent.code) prompt += `IT Analiz/Teknik Notlar:\n${documentContent.code}\n\n`;
-        if (documentContent.test) prompt += `Test Senaryoları:\n${documentContent.test}\n\n`;
-        prompt += "Lütfen yanıt verirken bu mevcut doküman durumunu göz önünde bulundur ve gerekirse dokümana ekleme/çıkarma yapmayı teklif et.\n";
+        prompt += "\n\n--- MEVCUT DOKÜMAN DURUMU ---\nAşağıda doküman sekmelerinin güncel durumu bulunmaktadır. Düzenleme yaparken bu HTML yapısını baz al ve sadece istenen bölümleri değiştirerek veya ekleyerek dokümanın TAMAMINI ŞEMA İCİNDE yeniden üret.\n";
+        if (documentContent.businessAnalysis) prompt += `BA Analiz:\n${JSON.stringify(documentContent.businessAnalysis)}\n\n`;
+        if (documentContent.code) prompt += `IT Analiz/Teknik Notlar:\n${JSON.stringify(documentContent.code)}\n\n`;
+        if (documentContent.test) prompt += `Test Senaryoları:\n${JSON.stringify(documentContent.test)}\n\n`;
       }
 
-      prompt += "\n[ÇOK ÖNEMLİ KISITLAMA]: Eğer BA Analiz Dokümanını (İş Analizi) güncelleyeceksen, ASLA Yönetici Özeti (Executive Summary), As-Is, To-Be GİBİ BAŞLIKLAR KULLANMA. SADECE İÇİNDEKİLER YAPISINI (1. ANALİZ KAPSAMI ... 8. FONKSİYONEL TASARIM) KULLAN. Formata birebir uy.";
+      prompt += "\n[ÇOK ÖNEMLİ KISITLAMA]: Eğer BA Analiz Dokümanını (İş Analizi) güncelleyeceksen, ASLA Markdown KULLANMA. Yönetici Özeti (Executive Summary), As-Is, To-Be GİBİ BAŞLIKLAR KULLANMA. SADECE aşağidaki numaralandırılmış BAŞLIK YAPISINI kullan:\n1. ANALİZ KAPSAMI\n2. KISALTMALAR\n3. İŞ GEREKSİNİMLERİ\n   3.1. İş Kuralları\n   3.2. İş Modeli ve Kullanıcı Gereksinimleri\n4. FONKSİYONEL GEREKSİNİMLER (FR)\n   4.1. Fonksiyonel Gereksinim Maddeleri (CRM vb.)\n   4.2. Fonksiyonel Gereksinim Maddeleri (BILL vb.)\n5. FONKSİYONEL OLMAYAN GEREKSİNİMLER (NFR)\n   5.1. Güvenlik ve Yetkilendirme Gereksinimleri\n   5.2. Performans Gereksinimleri\n   5.3. Raporlama Gereksinimleri\n6. SÜREÇ RİSK ANALİZİ\n   6.1. Kısıtlar ve Varsayımlar\n   6.2. Bağlılıklar\n   6.3. Süreç Etkileri\n7. ONAY\n   7.1. İş Analizi (Tablo formatında)\n   7.2. Değişiklik Kayıtları (Tablo formatında)\n   7.3. Doküman Onay (Tablo formatında)\n   7.4. Referans Dokümanlar (Tablo formatında)\n8. FONKSİYONEL TASARIM DOKÜMANLARI\nBaşka hiçbir yapı kurma. Tabloları HTML table tagleriyle (<table>, <thead>, <tr>, <th>, <td>, <tbody>) eksiksiz çiz.";
 
       const parts: any[] = [{ text: prompt }];
       

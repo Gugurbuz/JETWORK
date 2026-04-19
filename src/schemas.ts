@@ -90,8 +90,11 @@ export const updateDocumentSectionTool = {
 const sectionDataJsonType = {
   type: Type.OBJECT,
   properties: {
-    content: { type: Type.STRING },
-    status: { type: Type.STRING },
+    content: { 
+      type: Type.STRING,
+      description: "Geçerli ve semantik HTML formatında içerik metni. (Örn: <h1>, <h2>, <table class='border-collapse w-full'>, <ul> vb. Tiptap Editör için HTML ZORUNLUDUR)" 
+    },
+    status: { type: Type.STRING, description: "'DRAFT', 'NEEDS_REVISION', 'APPROVED'" },
     flags: { type: Type.ARRAY, items: { type: Type.STRING } }
   }
 };
@@ -152,7 +155,7 @@ export const chatResponseJsonSchema = {
     },
     document: {
       type: Type.OBJECT,
-      description: "DOKÜMAN GÜNCELLEMESİ YAPILACAKSA KULLANILACAK ALAN. Koca dokümanı baştan yazmak yerine sadece değişmesi/eklenmesi gereken kısımları Markdown olarak doldur.",
+      description: "DOKÜMAN GÜNCELLEMESİ YAPILACAKSA KULLANILACAK ALAN. Koca dokümanı baştan yazmak yerine sadece değişmesi/eklenmesi gereken kısımları Semantik HTML formatında doldur (Tiptap uyumlu).",
       properties: {
         businessAnalysis: sectionDataJsonType,
         code: sectionDataJsonType,
