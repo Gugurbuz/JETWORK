@@ -233,40 +233,6 @@ export function useWorkspaceHandlers(
     }
   };
 
-  const handleToggleReaction = async (messageId: string, emoji: string) => {
-    if (!user || !currentWorkspaceId) return;
-    
-    const message = messages.find(m => m.id === messageId);
-    if (!message) return;
-
-    const currentReactions = message.reactions || [];
-    const existingReactionIndex = currentReactions.findIndex(r => r.emoji === emoji);
-    
-    let newReactions = [...currentReactions];
-    
-    if (existingReactionIndex >= 0) {
-      const reaction = newReactions[existingReactionIndex];
-      if (reaction.users.includes(user.name)) {
-        reaction.users = reaction.users.filter(u => u !== user.name);
-        if (reaction.users.length === 0) {
-          newReactions.splice(existingReactionIndex, 1);
-        }
-      } else {
-        reaction.users.push(user.name);
-      }
-    } else {
-      newReactions.push({ emoji, users: [user.name] });
-    }
-
-    try {
-      await updateDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', messageId), {
-        reactions: newReactions
-      });
-    } catch (err) {
-      console.error("Failed to update reaction in database:", err);
-    }
-  };
-
   return {
     handleNewProject,
     handleNewWorkspace,
@@ -277,6 +243,5 @@ export function useWorkspaceHandlers(
     handleAddParticipant,
     handleRemoveParticipant,
     handleLeaveWorkspace,
-    handleToggleReaction
   };
 }

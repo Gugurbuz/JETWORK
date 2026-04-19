@@ -205,7 +205,6 @@ export default function App() {
     handleAddParticipant,
     handleRemoveParticipant,
     handleLeaveWorkspace,
-    handleToggleReaction
   } = useWorkspaceHandlers(
     user,
     currentWorkspace,
@@ -223,14 +222,15 @@ export default function App() {
     setActiveTab,
     handleSendMessage,
     handleAcceptAiHandRaise,
-    handleGenerateDocument
-  } = useAI(
+    handleGenerateDocument,
+    handleToggleReaction: handleAIToggleReaction
+  } = useAI({
     currentWorkspaceId,
     user,
     messages,
     setMessages,
     channelRef
-  );
+  });
 
   const handleUpdateDocument = async (newContent: DocumentData) => {
     setDocumentContent(newContent);
@@ -356,7 +356,7 @@ export default function App() {
           channelRef={channelRef}
           sessionId={sessionId}
           onSendMessage={handleSendMessage}
-          onToggleReaction={handleToggleReaction}
+          onToggleReaction={handleAIToggleReaction}
           onToggleAiActive={() => {
             const newValue = !isAiActive;
             setIsAiActive(newValue);
