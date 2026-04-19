@@ -1,11 +1,13 @@
 import { useStore } from '../store/useStore';
 import { db, doc, setDoc, updateDoc, serverTimestamp } from '../db';
-import { Message } from '../types';
-import { runZeroTouchMode } from '../services/agentRunner';
-import { callGemini } from '../services/geminiService';
+import { Message, DocumentData, SectionData } from '../types';
+import { callGemini } from '../services/aiService';
 import { chatResponseJsonSchema } from '../schemas';
 import { saveDocumentAndVersion } from '../utils/documentUtils';
-import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
+import { SYSTEM_INSTRUCTION, SYSTEM_AGENTS } from '../constants';
+import { buildSystemPrompt } from '../services/promptEngine';
+import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
+import { parse as parsePartialJson } from 'partial-json';
 
 export const useMessages = (channelRef: any) => {
   const { 
@@ -13,9 +15,9 @@ export const useMessages = (channelRef: any) => {
     currentWorkspaceId, 
     setMessages, 
     setShowNewItemModal, 
-    isZeroTouchMode, 
     setIsGenerating,
-    selectedModel
+    selectedModel,
+    setDocumentContent
   } = useStore();
 
   const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => {
@@ -27,7 +29,6 @@ export const useMessages = (channelRef: any) => {
       return;
     }
 
-    const isZeroTouchModeActive = text.startsWith('/ekip') || isZeroTouchMode;
     const isSingleAgentMode = text.startsWith('@');
     
     let targetAgentRole = '';
@@ -39,7 +40,7 @@ export const useMessages = (channelRef: any) => {
       if (match) {
         const agentName = match[1];
         messageText = match[2];
-        const agent = ZERO_TOUCH_AGENTS.find(a => a.name.toLowerCase() === agentName.toLowerCase());
+        const agent = SYSTEM_AGENTS.find(a => a.name.toLowerCase() === agentName.toLowerCase());
         if (agent) {
           targetAgentRole = agent.role;
           targetAgentName = agent.name;
@@ -67,8 +68,6 @@ export const useMessages = (channelRef: any) => {
           }]);
           return;
       }
-    } else if (text.startsWith('/ekip')) {
-      messageText = text.replace('/ekip', '').trim();
     }
 
     const msgId = Date.now().toString();
@@ -102,11 +101,6 @@ export const useMessages = (channelRef: any) => {
       channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: { itemId: currentWorkspaceId, message: newMsg } });
     }
 
-    if (isZeroTouchModeActive) {
-      runZeroTouchMode(newMsg, attachments);
-      return;
-    }
-
     setIsGenerating(true);
     const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
     
@@ -121,23 +115,60 @@ export const useMessages = (channelRef: any) => {
       isTyping: true
     }]);
 
+    const state = useStore.getState();
+    const promptSettings = state.promptSettings;
+    const knowledgeBase = state.knowledgeBase;
+    const addKnowledge = state.addKnowledge;
+    const memoryEnabled = promptSettings?.memoryEnabled ?? true;
+    const contextWindowSize = promptSettings?.contextWindowSize ?? 10;
+
     try {
-      const state = useStore.getState();
       const currentMessages = state.messages;
       const documentContent = state.documentContent;
       
-      const history = currentMessages.slice(-10).map(m => ({
+      // 1. Hybrid Search (RAG)
+      let retrievedContext = "";
+      if (memoryEnabled && knowledgeBase.length > 0) {
+        const relevantKnowledge = hybridSearch(messageText, knowledgeBase, 3);
+        if (relevantKnowledge.length > 0) {
+          retrievedContext = "\n\n[KURUMSAL HAFIZA / GEÇMİŞ BİLGİLER]\n" + 
+            relevantKnowledge.map(k => `- ${k.content} (Önem: ${k.importance}/10)`).join('\n');
+        }
+      }
+
+      // 2. Context Window Management
+      let historyToSend = currentMessages.slice(-contextWindowSize);
+      
+      // Smart Summarization Trigger
+      if (memoryEnabled && currentMessages.length > contextWindowSize + 5) {
+        // Background task: Summarize older messages
+        const messagesToSummarize = currentMessages.slice(0, currentMessages.length - contextWindowSize);
+        summarizeConversation(messagesToSummarize).then(summary => {
+          if (summary) {
+            addKnowledge({
+              id: Date.now().toString(),
+              content: `Önceki Konuşma Özeti: ${summary}`,
+              keywords: ['özet', 'geçmiş', 'konuşma'],
+              importance: 9,
+              createdAt: Date.now(),
+              projectId: currentWorkspaceId
+            });
+          }
+        }).catch(console.error);
+      }
+
+      const history = historyToSend.map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: `[${m.senderName} - ${m.senderRole}]: ${m.text}` }]
       }));
 
-      let systemInstruction = "Sen JetWork AI'sın. Profesyonel bir asistansın.";
+      let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext: retrievedContext });
       if (targetAgentRole) {
-        const agent = ZERO_TOUCH_AGENTS.find(a => a.role === targetAgentRole);
-        if (agent) {
-          systemInstruction = agent.instruction;
-        }
+        systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext: retrievedContext });
       }
+
+      // Late Prompt Injection for BA format
+      systemInstruction += "\n\n[ÇOK ÖNEMLİ KISITLAMA]: Eğer BA Analiz Dokümanını (İş Analizi) güncelleyeceksen, ASLA Yönetici Özeti (Executive Summary), As-Is, To-Be GİBİ BAŞLIKLAR KULLANMA. SADECE sana verilen İÇİNDEKİLER YAPISINI (1. ANALİZ KAPSAMI ... 8. FONKSİYONEL TASARIM) KULLAN. Formata birebir uy.";
 
       const contents = [
         ...history,
@@ -155,23 +186,77 @@ export const useMessages = (channelRef: any) => {
         }
       ];
 
-      if (documentContent) {
-        const firstPart = contents[0].parts[0];
-        if ('text' in firstPart) {
-          firstPart.text = `Mevcut Doküman:\n${JSON.stringify(documentContent, null, 2)}\n\n` + firstPart.text;
-        }
-      }
-
       const response = await callGemini({
         model: selectedModel,
         systemInstruction,
         contents,
         responseSchema: chatResponseJsonSchema,
-        onChunk: (text, thinking, tokenCount, functionCalls) => {
+        currentDocument: documentContent,
+        onChunk: (text, thinking, tokenCount) => {
+          let chunkText = text;
+          let chunkThinking = thinking || '';
+          
+          let jsonToParse = text.trim();
+          const jsonBlockMatch = text.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
+          if (jsonBlockMatch) {
+            jsonToParse = jsonBlockMatch[1].trim();
+          }
+
+          let isParsedAsJson = false;
+          let chunkQuestions = undefined;
+          if (jsonToParse && jsonToParse.startsWith('{')) {
+             try {
+               const parsed = parsePartialJson(jsonToParse);
+               if (parsed && typeof parsed === 'object') {
+                 if (parsed.message) {
+                   chunkText = parsed.message;
+                   isParsedAsJson = true;
+                 }
+                 if (parsed.thinking && !chunkThinking) chunkThinking = parsed.thinking;
+                 if (parsed.questions && Array.isArray(parsed.questions)) {
+                   chunkQuestions = parsed.questions;
+                 }
+                 
+                 // If AI used the document property in JSON schema to update document
+                 if (parsed.document && typeof parsed.document === 'object' && currentWorkspaceId) {
+                   setDocumentContent((prev) => {
+                     const newDoc = { ...prev } as DocumentData;
+                     let hasChanges = false;
+                     ['businessAnalysis', 'code', 'test', 'review', 'bpmn'].forEach((section) => {
+                       if (parsed.document[section]) {
+                         let newContent = parsed.document[section].content || '';
+                         const currentSection = prev?.[section as keyof DocumentData] as SectionData | undefined;
+                         
+                         if (newContent && newContent !== currentSection?.content) {
+                           (newDoc as any)[section] = {
+                             content: newContent,
+                             status: parsed.document[section].status || 'DRAFT',
+                             flags: parsed.document[section].flags || []
+                           };
+                           hasChanges = true;
+                         }
+                       }
+                     });
+                     if (hasChanges) {
+                       saveDocumentAndVersion(currentWorkspaceId, aiMsgId, newDoc);
+                       return newDoc;
+                     }
+                     return prev;
+                   });
+                 }
+               }
+             } catch (e) {}
+          }
+          
+          if (!isParsedAsJson) {
+            chunkText = text.trim();
+          }
+
           setMessages(prev => prev.map(m => m.id === aiMsgId ? { 
             ...m, 
-            text, 
-            thinkingText: thinking,
+            text: chunkText, 
+            thinkingText: chunkThinking,
+            questions: chunkQuestions,
             tokenCount 
           } : m));
           
@@ -181,8 +266,8 @@ export const useMessages = (channelRef: any) => {
               event: 'ai_stream_chunk', 
               payload: { 
                 id: aiMsgId, 
-                text, 
-                thinkingText: thinking,
+                text: chunkText, 
+                thinkingText: chunkThinking,
                 senderName: targetAgentName || 'JetWork AI',
                 senderRole: targetAgentName || 'Sistem Asistanı',
                 agentRole: targetAgentRole || undefined
@@ -192,25 +277,56 @@ export const useMessages = (channelRef: any) => {
         }
       });
 
-      let finalDocument = documentContent;
+      let finalDocument = useStore.getState().documentContent;
       let fullText = response.text;
+      let finalQuestions = undefined;
 
-      if (response.functionCalls && response.functionCalls.length > 0) {
-        for (const call of response.functionCalls) {
-          if (call.name === 'update_document_section') {
-            const args = call.args as { section: string; content: string; actionSummary: string };
-            if (args.section && args.content) {
-              const newDoc = { ...finalDocument } as any;
-              newDoc[args.section] = args.content;
-              finalDocument = newDoc;
-              useStore.getState().setDocumentContent(newDoc);
-              fullText += `\n\n*(Sistem Notu: ${args.actionSummary})*`;
-            }
-          }
-        }
+      // Extract final parsed data from the completed response.text
+      let jsonToParseFinal = response.text.trim();
+      const jsonBlockMatchFinal = response.text.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
+      if (jsonBlockMatchFinal) {
+        jsonToParseFinal = jsonBlockMatchFinal[1].trim();
+      }
+      if (jsonToParseFinal && jsonToParseFinal.startsWith('{')) {
+         try {
+           const parsedFinal = JSON.parse(jsonToParseFinal);
+           if (parsedFinal.document && currentWorkspaceId) {
+             const newDoc = { ...finalDocument } as DocumentData;
+             let hasChanges = false;
+             ['businessAnalysis', 'code', 'test', 'review', 'bpmn'].forEach((section) => {
+               if (parsedFinal.document[section]) {
+                 let newContent = parsedFinal.document[section].content || '';
+                 const currentSection = finalDocument?.[section as keyof DocumentData] as SectionData | undefined;
+                 
+                 if (newContent && newContent !== currentSection?.content) {
+                   (newDoc as any)[section] = {
+                     content: newContent,
+                     status: parsedFinal.document[section].status || 'DRAFT',
+                     flags: parsedFinal.document[section].flags || []
+                   };
+                   hasChanges = true;
+                 }
+               }
+             });
+             if (hasChanges) {
+               finalDocument = newDoc;
+               useStore.getState().setDocumentContent(newDoc);
+               fullText += `\n\n*(Sistem Notu: Doküman güncellendi)*`;
+             }
+           }
+           if (parsedFinal.message) {
+             fullText = parsedFinal.message;
+             if (parsedFinal.document && Object.keys(parsedFinal.document).length > 0) {
+               fullText += `\n\n*(Sistem Notu: Doküman güncellendi)*`;
+             }
+           }
+           if (parsedFinal.questions && Array.isArray(parsedFinal.questions) && parsedFinal.questions.length > 0) {
+             finalQuestions = parsedFinal.questions;
+           }
+         } catch(e) {}
       }
 
-      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText, isTyping: false } : m));
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText, questions: finalQuestions, isTyping: false } : m));
       
       if (channelRef.current) {
         const finalMsg = useStore.getState().messages.find(m => m.id === aiMsgId);
@@ -248,6 +364,24 @@ export const useMessages = (channelRef: any) => {
         isError: true 
       } : m));
     } finally {
+      // Background task: Extract key facts from user message
+      if (memoryEnabled) {
+        extractKeyFacts(messageText).then(facts => {
+          facts.forEach(f => {
+            if (f.importance >= 5) {
+              addKnowledge({
+                id: Date.now().toString() + Math.random().toString(36).substring(7),
+                content: f.fact,
+                keywords: f.fact.toLowerCase().split(' ').slice(0, 5), // Simple keywords
+                importance: f.importance,
+                createdAt: Date.now(),
+                projectId: currentWorkspaceId
+              });
+            }
+          });
+        }).catch(console.error);
+      }
+
       setIsGenerating(false);
     }
   };
@@ -293,15 +427,6 @@ export const useMessages = (channelRef: any) => {
     const state = useStore.getState();
     if (state.aiHandRaised) {
       state.setAiHandRaised(null);
-      state.setIsDiscussing(true);
-      runZeroTouchMode({
-        id: Date.now().toString(),
-        role: 'user',
-        text: 'Lütfen devam et.',
-        senderName: 'Sistem',
-        senderRole: 'Sistem',
-        createdAt: Date.now()
-      });
     }
   };
 

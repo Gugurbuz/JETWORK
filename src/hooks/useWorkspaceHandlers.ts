@@ -1,7 +1,8 @@
-import { db, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, getDocs, arrayUnion, arrayRemove } from '../db';
+import { db, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, getDocs, arrayUnion, arrayRemove, query, where } from '../db';
 import { Project, Workspace, DocumentData, Message } from '../types';
 import { User } from './useAuth';
 import { useStore } from '../store/useStore';
+import { toast } from 'sonner';
 
 export function useWorkspaceHandlers(
   user: User | null,
@@ -158,10 +159,9 @@ export function useWorkspaceHandlers(
 
     let newId = Math.random().toString(36).substring(2, 9);
     try {
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const existingUser = usersSnap.docs.find(doc => doc.data().email === email);
-      if (existingUser) {
-        newId = existingUser.id;
+      const usersSnap = await getDocs(query(collection(db, 'users'), where('email', '==', email)));
+      if (!usersSnap.empty) {
+        newId = usersSnap.docs[0].id;
       }
     } catch (err) {
       console.error("Failed to fetch users for participant ID:", err);
@@ -180,8 +180,21 @@ export function useWorkspaceHandlers(
         collaborators: arrayUnion(newCollaborator),
         lastUpdated: serverTimestamp()
       });
+
+      // Add a system message to the chat
+      const systemMessageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
+      await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', systemMessageId), {
+        senderName: 'Sistem',
+        senderRole: 'System',
+        text: `📢 **${name}** çalışma alanına eklendi.`,
+        isAi: false,
+        createdAt: serverTimestamp()
+      });
+
+      toast.success(`${name} başarıyla eklendi.`);
     } catch (err) {
       console.error("Failed to add participant in database:", err);
+      toast.error("Katılımcı eklenirken bir hata oluştu.");
     }
   };
 

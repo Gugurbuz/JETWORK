@@ -5,7 +5,9 @@ export const callGemini = async (params: {
   systemInstruction: string;
   contents: any[];
   responseSchema?: any;
-  onChunk: (text: string, thinking?: string, tokenCount?: number) => void;
+  tools?: any[];
+  currentDocument?: any;
+  onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }) => {
   const { data: { session } } = await supabase.auth.getSession();
@@ -23,7 +25,9 @@ export const callGemini = async (params: {
       model: params.model,
       systemInstruction: params.systemInstruction,
       contents: params.contents,
-      responseSchema: params.responseSchema
+      responseSchema: params.responseSchema,
+      tools: params.tools,
+      currentDocument: params.currentDocument
     })
   });
 
@@ -40,6 +44,7 @@ export const callGemini = async (params: {
   let fullThinking = '';
   let tokenCount = 0;
   let buffer = '';
+  let allFunctionCalls: any[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
@@ -62,12 +67,26 @@ export const callGemini = async (params: {
           }
           
           const parts = chunk.candidates?.[0]?.content?.parts || [];
+          let chunkFunctionCalls: any[] = [];
+          
           for (const part of parts) {
-            if (part.thought) {
+            if (part.thought === true && part.text) {
               fullThinking += part.text;
+            } else if (typeof part.thought === 'string') {
+              fullThinking += part.thought;
             } else if (part.text) {
               fullText += part.text;
+            } else if (part.functionCall) {
+              chunkFunctionCalls.push(part.functionCall);
+              allFunctionCalls.push(part.functionCall);
             }
+          }
+          
+          // Fallback for <think> tags in text
+          const thinkMatch = fullText.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+          if (thinkMatch) {
+            fullThinking += (fullThinking ? '\n' : '') + thinkMatch[1];
+            fullText = fullText.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
           }
           
           const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -78,7 +97,7 @@ export const callGemini = async (params: {
             if (urls.length > 0) params.onGrounding(urls);
           }
           
-          params.onChunk(fullText, fullThinking, tokenCount);
+          params.onChunk(fullText, fullThinking, tokenCount, chunkFunctionCalls.length > 0 ? chunkFunctionCalls : undefined);
         } catch (e) {
           console.error("Error parsing chunk:", e, dataStr);
         }
@@ -86,7 +105,7 @@ export const callGemini = async (params: {
     }
   }
 
-  return { text: fullText, thinking: fullThinking, tokenCount };
+  return { text: fullText, thinking: fullThinking, tokenCount, functionCalls: allFunctionCalls };
 };
 
 export const callAiWithRetry = async (

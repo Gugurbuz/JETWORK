@@ -1,5 +1,33 @@
 export type MessageRole = 'user' | 'model';
 
+export interface PromptSettings {
+  systemInstruction: string;
+  negativeConstraints: string;
+  cotInstruction: string;
+  totInstruction: string;
+  reasoningFramework: 'standard' | 'cot' | 'tot';
+  rolePersonas: Record<string, string>;
+  fewShotLibrary: Record<string, string>;
+  contextWindowSize: number;
+  memoryEnabled: boolean;
+  versions?: PromptVersion[];
+}
+
+export interface PromptVersion extends PromptSettings {
+  id: string;
+  createdAt: number;
+  versionNote: string;
+}
+
+export interface KnowledgeItem {
+  id: string;
+  content: string;
+  keywords: string[];
+  importance: number;
+  createdAt: number;
+  projectId: string;
+}
+
 export interface Reaction {
   emoji: string;
   users: string[];
@@ -52,12 +80,20 @@ export interface Collaborator {
   email?: string;
 }
 
+// YENİ EKLENEN KISIM: Ajanların birbirine itiraz edebilmesi (Flag) ve durum takibi için yapısal bölüm
+export interface SectionData {
+  content: string;
+  status: 'DRAFT' | 'NEEDS_REVISION' | 'APPROVED'; // Ajanların o bölümdeki çalışma durumu
+  flags: string[]; // Diğer ajanların (Örn QA'in) bu bölüme düştüğü hata/itiraz notları
+}
+
+// GÜNCELLENEN KISIM: DocumentData artık sadece metin değil, bir "Durum Makinesi"
 export interface DocumentData {
-  businessAnalysis: string;
-  code: string;
-  test: string;
-  bpmn?: string;
-  review?: string;
+  businessAnalysis: SectionData;
+  code: SectionData;
+  test: SectionData;
+  bpmn?: SectionData;
+  review?: SectionData;
   suggestions?: string[];
   score?: number;
   scoreExplanation?: string;

@@ -11,7 +11,7 @@ import { useStore } from '../store/useStore';
 
 interface ModalsContainerProps {
   user: User | null;
-  handleUpdateUser: (updatedUser: { name: string; role: string }) => Promise<void>;
+  handleUpdateUser: (updatedUser: { name: string; role: string; color?: string }) => Promise<void>;
   handleNewWorkspace: (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string; }[] }) => Promise<void>;
   handleNewProject: (data: { name: string; description: string }) => Promise<void>;
   handleAddParticipant: (name: string, email: string) => Promise<void>;

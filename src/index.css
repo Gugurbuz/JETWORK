@@ -150,6 +150,60 @@
     @apply min-h-[60vh] outline-none;
   }
 
+  /* Ensure prose always uses theme colors */
+  .prose {
+    --tw-prose-body: var(--theme-text);
+    --tw-prose-headings: var(--theme-text);
+    --tw-prose-lead: var(--theme-text-muted);
+    --tw-prose-links: var(--theme-primary);
+    --tw-prose-bold: var(--theme-text);
+    --tw-prose-counters: var(--theme-text-muted);
+    --tw-prose-bullets: var(--theme-text-muted);
+    --tw-prose-hr: var(--theme-border);
+    --tw-prose-quotes: var(--theme-text);
+    --tw-prose-quote-borders: var(--theme-primary);
+    --tw-prose-captions: var(--theme-text-muted);
+    --tw-prose-code: var(--theme-text);
+    --tw-prose-pre-code: var(--theme-text);
+    --tw-prose-pre-bg: var(--theme-surface);
+    --tw-prose-th-borders: var(--theme-border);
+    --tw-prose-td-borders: var(--theme-border);
+    
+    --tw-prose-invert-body: var(--theme-text);
+    --tw-prose-invert-headings: var(--theme-text);
+    --tw-prose-invert-lead: var(--theme-text-muted);
+    --tw-prose-invert-links: var(--theme-primary);
+    --tw-prose-invert-bold: var(--theme-text);
+    --tw-prose-invert-counters: var(--theme-text-muted);
+    --tw-prose-invert-bullets: var(--theme-text-muted);
+    --tw-prose-invert-hr: var(--theme-border);
+    --tw-prose-invert-quotes: var(--theme-text);
+    --tw-prose-invert-quote-borders: var(--theme-primary);
+    --tw-prose-invert-captions: var(--theme-text-muted);
+    --tw-prose-invert-code: var(--theme-text);
+    --tw-prose-invert-pre-code: var(--theme-text);
+    --tw-prose-invert-pre-bg: var(--theme-surface);
+    --tw-prose-invert-th-borders: var(--theme-border);
+    --tw-prose-invert-td-borders: var(--theme-border);
+  }
+
+  .prose a {
+    @apply text-theme-primary underline transition-colors hover:no-underline;
+  }
+
+  .prose pre {
+    @apply border border-theme-border/50 bg-theme-surface;
+  }
+
+  .prose :not(pre) > code {
+    @apply bg-theme-surface-hover px-1.5 py-0.5 rounded-md;
+  }
+
+  .prose code::before,
+  .prose code::after {
+    content: none !important;
+  }
+
   .ProseMirror p.is-editor-empty:first-child::before {
     @apply text-zinc-400 content-[attr(data-placeholder)] float-left h-0 pointer-events-none;
   }

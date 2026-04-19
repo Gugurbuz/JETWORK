@@ -46,10 +46,19 @@ export function useProjects(user: User | null, isAuthReady: boolean) {
             messages: []
           })) as Workspace[];
 
-          const combinedProjects = projectsData.map(p => ({
-            ...p,
-            workspaces: workspacesData.filter(w => w.projectId === p.id)
-          }));
+          // Filter workspaces: User must be owner OR in collaborators list
+          const myWorkspaces = workspacesData.filter(w => 
+            w.ownerId === user.uid || 
+            (w.collaborators && w.collaborators.some((c: any) => c.email === user.email))
+          );
+
+          // Filter projects: User must be owner OR have a workspace in it
+          const combinedProjects = projectsData
+            .map(p => ({
+              ...p,
+              workspaces: myWorkspaces.filter(w => w.projectId === p.id)
+            }))
+            .filter(p => p.ownerId === user.uid || p.workspaces.length > 0);
 
           setProjects(combinedProjects);
         }, (error) => {

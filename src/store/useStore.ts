@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import { Project, Workspace, Message, ActiveUser, TypingUser, DocumentData } from '../types';
+import { Project, Workspace, Message, ActiveUser, TypingUser, DocumentData, PromptSettings, KnowledgeItem } from '../types';
 
 type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
 interface AppState {
   // Auth
-  user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean } | null;
+  user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean; color?: string } | null;
   isAuthReady: boolean;
   setUser: (user: any) => void;
   setIsAuthReady: (ready: boolean) => void;
@@ -51,14 +51,8 @@ interface AppState {
   // AI & Document
   isGenerating: boolean;
   setIsGenerating: (generating: boolean) => void;
-  isDiscussing: boolean;
-  setIsDiscussing: (discussing: boolean) => void;
   isAiActive: boolean;
   setIsAiActive: (active: boolean) => void;
-  isZeroTouchMode: boolean;
-  setIsZeroTouchMode: (active: boolean) => void;
-  activeZeroTouchRoles: string[];
-  setActiveZeroTouchRoles: (roles: string[]) => void;
   aiHandRaised: string | null;
   setAiHandRaised: (role: string | null) => void;
   documentContent: DocumentData | null;
@@ -75,6 +69,15 @@ interface AppState {
   setSelectedModel: (model: string) => void;
   theme: ThemeType;
   setTheme: (theme: ThemeType) => void;
+  promptSettings: PromptSettings | null;
+  setPromptSettings: (settings: PromptSettings | null) => void;
+  showAISettingsModal: boolean;
+  setShowAISettingsModal: (show: boolean) => void;
+
+  // Memory & RAG
+  knowledgeBase: KnowledgeItem[];
+  setKnowledgeBase: (items: KnowledgeItem[]) => void;
+  addKnowledge: (item: KnowledgeItem) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -124,14 +127,8 @@ export const useStore = create<AppState>((set) => ({
 
   isGenerating: false,
   setIsGenerating: (generating) => set({ isGenerating: generating }),
-  isDiscussing: false,
-  setIsDiscussing: (discussing) => set({ isDiscussing: discussing }),
   isAiActive: false,
   setIsAiActive: (active) => set({ isAiActive: active }),
-  isZeroTouchMode: false,
-  setIsZeroTouchMode: (active) => set({ isZeroTouchMode: active }),
-  activeZeroTouchRoles: ['Business Analyst', 'Software Architect', 'QA Engineer'],
-  setActiveZeroTouchRoles: (roles) => set({ activeZeroTouchRoles: roles }),
   aiHandRaised: null,
   setAiHandRaised: (role) => set({ aiHandRaised: role }),
   documentContent: null,
@@ -154,5 +151,13 @@ export const useStore = create<AppState>((set) => ({
   setTheme: (theme) => {
     localStorage.setItem('theme', theme);
     set({ theme });
-  }
+  },
+  promptSettings: null,
+  setPromptSettings: (settings) => set({ promptSettings: settings }),
+  showAISettingsModal: false,
+  setShowAISettingsModal: (show) => set({ showAISettingsModal: show }),
+
+  knowledgeBase: [],
+  setKnowledgeBase: (items) => set({ knowledgeBase: items }),
+  addKnowledge: (item) => set((state) => ({ knowledgeBase: [...state.knowledgeBase, item] })),
 }));

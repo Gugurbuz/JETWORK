@@ -112,10 +112,10 @@ export function DiffViewerModal({ oldDoc, newDoc, onClose, onRestore }: DiffView
 
         {/* Diff Content */}
         <div className="flex-1 overflow-y-auto bg-theme-surface/30">
-          {activeTab === 'businessAnalysis' && renderDiff(oldDoc?.businessAnalysis, newDoc?.businessAnalysis)}
-          {activeTab === 'code' && renderDiff(oldDoc?.code, newDoc?.code)}
-          {activeTab === 'test' && renderDiff(oldDoc?.test, newDoc?.test)}
-          {activeTab === 'bpmn' && renderDiff(oldDoc?.bpmn, newDoc?.bpmn)}
+          {activeTab === 'businessAnalysis' && renderDiff(oldDoc?.businessAnalysis?.content, newDoc?.businessAnalysis?.content)}
+          {activeTab === 'code' && renderDiff(oldDoc?.code?.content, newDoc?.code?.content)}
+          {activeTab === 'test' && renderDiff(oldDoc?.test?.content, newDoc?.test?.content)}
+          {activeTab === 'bpmn' && renderDiff(oldDoc?.bpmn?.content, newDoc?.bpmn?.content)}
         </div>
 
         {/* Footer */}

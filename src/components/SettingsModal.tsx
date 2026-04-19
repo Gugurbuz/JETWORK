@@ -1,20 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Settings as SettingsIcon, Save } from 'lucide-react';
+import { X, User, Settings as SettingsIcon, Save, Palette } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getDocs, collection, db } from '../db';
+import { stringToColor } from '../lib/utils';
 
 interface SettingsModalProps {
-  user: { name: string; role: string } | null;
+  user: { name: string; role: string; color?: string } | null;
   onClose: () => void;
-  onUpdateUser: (user: { name: string; role: string }) => void;
+  onUpdateUser: (user: { name: string; role: string; color?: string }) => void;
   selectedModel: string;
   onUpdateModel: (model: string) => void;
 }
+
+const PREDEFINED_COLORS = [
+  '#2563eb', // blue-600
+  '#dc2626', // red-600
+  '#16a34a', // green-600
+  '#d97706', // amber-600
+  '#9333ea', // purple-600
+  '#4f46e5', // indigo-600
+  '#0891b2', // cyan-600
+  '#0d9488', // teal-600
+  '#be123c', // rose-600
+  '#c026d3', // fuchsia-600
+];
 
 export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUpdateModel }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences'>('profile');
   const [name, setName] = useState(user?.name || '');
   const [role, setRole] = useState(user?.role || '');
+  const [color, setColor] = useState(user?.color || (user?.name ? stringToColor(user.name) : PREDEFINED_COLORS[0]));
   const [roles, setRoles] = useState<string[]>([]);
   const [model, setModel] = useState(selectedModel);
 
@@ -44,7 +59,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && role.trim()) {
-      onUpdateUser({ name, role });
+      onUpdateUser({ name, role, color });
       onUpdateModel(model);
       onClose();
     }
@@ -132,6 +147,33 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-theme-text-muted mb-1.5 uppercase tracking-wider flex items-center gap-1.5">
+                        <Palette size={14} />
+                        Profil Rengi
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {PREDEFINED_COLORS.map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setColor(c)}
+                            className={`w-8 h-8 rounded-full border-2 transition-all ${color === c ? 'border-theme-text scale-110 shadow-md' : 'border-transparent hover:scale-105'}`}
+                            style={{ backgroundColor: c }}
+                            title="Renk Seç"
+                          />
+                        ))}
+                      </div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div 
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-sm"
+                          style={{ backgroundColor: color }}
+                        >
+                          {name ? name.charAt(0).toUpperCase() : 'U'}
+                        </div>
+                        <span className="text-sm text-theme-text-muted">Önizleme</span>
+                      </div>
                     </div>
                   </div>
                 </div>

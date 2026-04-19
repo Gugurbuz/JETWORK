@@ -2,12 +2,20 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { Type } from "@google/genai";
 
+// YENİ EKLENEN: Bölüm (Section) Şeması
+export const SectionDataSchema = z.object({
+  content: z.string().describe("Markdown formatında içerik metni."),
+  status: z.enum(['DRAFT', 'NEEDS_REVISION', 'APPROVED']).describe("Bu bölümün güncel durumu."),
+  flags: z.array(z.string()).describe("Diğer ajanların bu bölüme yaptığı itirazlar ve hata bildirimleri.")
+});
+
+// GÜNCELLENEN: DocumentData artık SectionData kullanıyor
 export const DocumentDataSchema = z.object({
-  businessAnalysis: z.string().describe("İş analizi, gereksinimler ve projenin genel tanımı. Markdown formatında olmalıdır."),
-  code: z.string().describe("Teknik notlar, mimari kararlar, veritabanı şemaları veya örnek kod blokları. Markdown formatında olmalıdır."),
-  test: z.string().describe("Test senaryoları, kabul kriterleri ve QA adımları. Markdown formatında olmalıdır."),
-  bpmn: z.string().optional().describe("Geçerli bir BPMN 2.0 XML kodu. Eğer süreç bir akış, entegrasyon veya durum makinesi içeriyorsa mutlaka doldur. XML tagleri ile başlamalıdır."),
-  review: z.string().optional().describe("Toplantı notları, ne yapıldı, ne karar alındı, kim ne söyledi gibi önemli bilgilerin özeti. Markdown formatında olmalıdır."),
+  businessAnalysis: SectionDataSchema.describe("İş analizi, gereksinimler ve projenin genel tanımı."),
+  code: SectionDataSchema.describe("Teknik notlar, mimari kararlar, veritabanı şemaları veya örnek kod blokları."),
+  test: SectionDataSchema.describe("Test senaryoları, kabul kriterleri ve QA adımları."),
+  bpmn: SectionDataSchema.optional().describe("Geçerli bir BPMN 2.0 XML kodu."),
+  review: SectionDataSchema.optional().describe("Toplantı notları, kararlar ve özetler."),
 });
 
 // 2. Görev/Hata Çıkarım Şeması (Task Extraction)
@@ -34,6 +42,7 @@ export const feedbackJsonSchema = zodToJsonSchema(FeedbackSchema, "Feedback");
 
 // 4. Chat Response Schema (Ajanların Normal İletişim Şeması)
 export const ChatResponseSchema = z.object({
+  thinking: z.string().optional().describe("Ajanın adım adım düşünce süreci. Kullanıcıya gösterilecek olan iç sesin. Karar vermeden önce burada düşün."),
   message: z.string().describe("Kullanıcıya veya ekibe sohbette gösterilecek yanıt metni. Markdown formatında olabilir."),
   actionSummary: z.string().optional().describe("Bu mesajın veya ajanın yaptığı eylemin çok kısa (1 cümlelik) bir özeti."),
   score: z.number().optional().describe("Zero-Touch Mode için ajanın verdiği puan (0-100)."),
@@ -45,13 +54,55 @@ export const ChatResponseSchema = z.object({
     text: z.string(),
     options: z.array(z.string())
   })).optional().describe("Kullanıcıya sorulacak sorular ve olası cevap seçenekleri."),
-  // Geriye dönük uyumluluk için document kısmı opsiyonel bırakıldı, ancak asıl işlem Tools (Araçlar) üzerinden yapılacak.
   document: DocumentDataSchema.optional().describe("SADECE EĞER ARAÇ (TOOL) KULLANAMIYORSAN BU ALANI DOLDUR. Eğer 'update_document_section' aracına sahipsen bu alanı KESİNLİKLE BOŞ BIRAK.")
 });
+
+export const updateDocumentSectionTool = {
+  functionDeclarations: [
+    {
+      name: "update_document_section",
+      description: "Dokümanın belirli bir sekmesini (iş analizi, kod, test vb.) günceller. Dokümana içerik eklemek veya değiştirmek için SADECE bu aracı kullanmalısın.",
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          section: {
+            type: Type.STRING,
+            description: "Güncellenecek sekme adı.",
+            enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
+          },
+          content: {
+            type: Type.STRING,
+            description: "Eklenecek veya değiştirilecek içerik. Markdown formatında olmalıdır (BPMN hariç)."
+          },
+          action: {
+            type: Type.STRING,
+            description: "İçeriğin nasıl ekleneceği. 'append' var olanın sonuna ekler, 'overwrite' tamamen değiştirir.",
+            enum: ["append", "overwrite"]
+          }
+        },
+        required: ["section", "content", "action"]
+      }
+    }
+  ]
+};
+
+// Sabit şema tanımlaması
+const sectionDataJsonType = {
+  type: Type.OBJECT,
+  properties: {
+    content: { type: Type.STRING },
+    status: { type: Type.STRING },
+    flags: { type: Type.ARRAY, items: { type: Type.STRING } }
+  }
+};
 
 export const chatResponseJsonSchema = {
   type: Type.OBJECT,
   properties: {
+    thinking: {
+      type: Type.STRING,
+      description: "Adım adım düşünme sürecin. Karar vermeden önce burada sesli düşün."
+    },
     message: {
       type: Type.STRING,
       description: "Kullanıcıya veya ekibe sohbette gösterilecek yanıt metni. Markdown formatında olabilir."
@@ -78,6 +129,10 @@ export const chatResponseJsonSchema = {
       description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle.",
       additionalProperties: { type: Type.STRING }
     },
+    requiresUserInput: {
+      type: Type.BOOLEAN,
+      description: "Eğer kullanıcıya bir soru sorulacak ise bu alan 'true' olmalıdır ve 'questions' dizisi doldurulmalıdır."
+    },
     questions: {
       type: Type.ARRAY,
       description: "Kullanıcıya sorulacak sorular ve olası cevap seçenekleri. Eğer kullanıcıdan netleştirme isteniyorsa bu alanı kullan.",
@@ -97,17 +152,29 @@ export const chatResponseJsonSchema = {
     },
     document: {
       type: Type.OBJECT,
-      description: "SADECE EĞER ARAÇ (TOOL) KULLANAMIYORSAN BU ALANI DOLDUR. Yeni mimaride dokümanı güncellemek için 'update_document_section' fonksiyonunu çağırmalısın. Bu alanı boş bırak (null/undefined).",
+      description: "DOKÜMAN GÜNCELLEMESİ YAPILACAKSA KULLANILACAK ALAN. Koca dokümanı baştan yazmak yerine sadece değişmesi/eklenmesi gereken kısımları Markdown olarak doldur.",
       properties: {
-        businessAnalysis: { type: Type.STRING },
-        code: { type: Type.STRING },
-        test: { type: Type.STRING },
-        review: { type: Type.STRING },
-        bpmn: { type: Type.STRING }
+        businessAnalysis: sectionDataJsonType,
+        code: sectionDataJsonType,
+        test: sectionDataJsonType,
+        bpmn: sectionDataJsonType,
+        review: sectionDataJsonType
       }
     }
   },
   required: ["message"]
+};
+
+export const documentGenerationJsonSchema = {
+  type: Type.OBJECT,
+  properties: {
+    businessAnalysis: sectionDataJsonType,
+    code: sectionDataJsonType,
+    test: sectionDataJsonType,
+    bpmn: sectionDataJsonType,
+    review: sectionDataJsonType
+  },
+  required: ["businessAnalysis", "code", "test"]
 };
 
 export type ZodChatResponse = z.infer<typeof ChatResponseSchema>;
@@ -121,7 +188,7 @@ export const agentTools: any[] = [
     functionDeclarations: [
       {
         name: "update_document_section",
-        description: "Dokümanın belirli bir alanını günceller. Koca bir dokümanı baştan yazmak yerine sadece değişmesi gereken yeri (Delta/Patch) göndermek için kullanılır.",
+        description: "Dokümanın belirli bir alanındaki içeriği (content) günceller. Koca bir dokümanı baştan yazmak yerine sadece değişmesi gereken yeri (Delta/Patch) göndermek için kullanılır.",
         parameters: {
           type: Type.OBJECT,
           properties: {
@@ -145,6 +212,45 @@ export const agentTools: any[] = [
             }
           },
           required: ["section", "operation", "content", "actionSummary"]
+        }
+      },
+      {
+        name: "flag_issue",
+        description: "KRİTİK: Başka bir ajanın (veya kendi) yazdığı bölümde mantıksal bir hata, güvenlik açığı, eksik bir test veya hatalı bir mimari kararı bulduğunda kullanılır. Bu araç o bölümün statüsünü 'NEEDS_REVISION' yapar ve hatayı listeye ekler.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            section: {
+              type: Type.STRING,
+              description: "Hata bulunan doküman sekmesi (Örn: QA ajanı koddaki hatayı bulduysa 'code' seçer)",
+              enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
+            },
+            reason: {
+              type: Type.STRING,
+              description: "Hatayı veya eksikliği detaylıca açıklayan, karşı tarafın neyi düzeltmesi gerektiğini söyleyen itiraz metni."
+            }
+          },
+          required: ["section", "reason"]
+        }
+      },
+      {
+        name: "update_document_status",
+        description: "Bir bölümün statüsünü güncellemek için kullanılır. Kendi bölümünü yazmayı bitirdiğinde 'APPROVED' yapabilir veya revizyon sonrası onay verebilirsin.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            section: {
+              type: Type.STRING,
+              description: "Statüsü değişecek bölüm",
+              enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
+            },
+            status: {
+              type: Type.STRING,
+              description: "Yeni statü",
+              enum: ["DRAFT", "NEEDS_REVISION", "APPROVED"]
+            }
+          },
+          required: ["section", "status"]
         }
       },
       {
@@ -174,6 +280,7 @@ export const agentTools: any[] = [
 export const discussionJsonSchema = {
   type: Type.OBJECT,
   properties: {
+    thinking: { type: Type.STRING, description: "Adım adım düşünme sürecin. Karar vermeden önce burada sesli düşün." },
     agentRole: { type: Type.STRING },
     message: { type: Type.STRING },
     actionSummary: { type: Type.STRING },

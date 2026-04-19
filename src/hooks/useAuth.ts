@@ -9,6 +9,7 @@ export interface User {
   email: string | null;
   photoURL: string | null;
   onboardingCompleted: boolean;
+  color?: string;
 }
 
 export function useAuth() {
@@ -34,6 +35,7 @@ export function useAuth() {
         let onboardingCompleted = false;
         let displayName = authUser.displayName || authUser.email || 'User';
         let role = 'Kullanıcı';
+        let color: string | undefined = undefined;
 
         try {
           const userSnap = await getDocFromServer(userRef);
@@ -57,12 +59,13 @@ export function useAuth() {
             onboardingCompleted = userData.onboardingCompleted || false;
             displayName = userData.displayName || displayName;
             role = userData.role || role;
+            color = userData.color;
           }
         } catch (err) {
           console.error("Error saving user to database:", err);
         }
 
-        setUser({ uid: authUser.uid, name: displayName, role: role, email: authUser.email || null, photoURL: authUser.photoURL || null, onboardingCompleted });
+        setUser({ uid: authUser.uid, name: displayName, role: role, email: authUser.email || null, photoURL: authUser.photoURL || null, onboardingCompleted, color });
       } else {
         setUser(null);
       }

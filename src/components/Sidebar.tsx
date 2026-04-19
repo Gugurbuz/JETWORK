@@ -8,7 +8,7 @@ import { useStore } from '../store/useStore';
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
 interface SidebarProps {
-  user: { name: string; role: string } | null;
+  user: { name: string; role: string; color?: string } | null;
   onSelectWorkspace: (id: string) => void;
   onSelectProject: (id: string) => void;
   onEditProject?: (project: Project) => void;
@@ -197,21 +197,27 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
                               Çalışma alanı yok
                             </div>
                           ) : (
-                            project.workspaces.map(ws => (
-                              <button
-                                key={ws.id}
-                                onClick={() => onSelectWorkspace(ws.id)}
-                                className={cn(
-                                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors text-left",
-                                  currentWorkspaceId === ws.id
-                                    ? "bg-theme-primary/10 text-theme-primary"
-                                    : "text-theme-text-muted hover:bg-theme-surface hover:text-theme-text"
-                                )}
-                              >
-                                <FileText size={12} className="shrink-0" />
-                                <span className="text-xs font-medium truncate">{ws.title}</span>
-                              </button>
-                            ))
+                              project.workspaces.map(ws => {
+                                const isNew = (Date.now() - ws.lastUpdated) < 5 * 60 * 1000;
+                                return (
+                                  <button
+                                    key={ws.id}
+                                    onClick={() => onSelectWorkspace(ws.id)}
+                                    className={cn(
+                                      "w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors text-left group/ws relative",
+                                      currentWorkspaceId === ws.id
+                                        ? "bg-theme-primary/10 text-theme-primary"
+                                        : "text-theme-text-muted hover:bg-theme-surface hover:text-theme-text"
+                                    )}
+                                  >
+                                    <FileText size={12} className="shrink-0" />
+                                    <span className="text-xs font-medium truncate flex-1">{ws.title}</span>
+                                    {isNew && (
+                                      <span className="flex h-1.5 w-1.5 rounded-full bg-theme-primary animate-pulse shrink-0" />
+                                    )}
+                                  </button>
+                                );
+                              })
                           )}
                         </div>
                       </motion.div>
@@ -246,7 +252,13 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
       {/* User Section */}
       <div className="p-4 border-t border-theme-border shrink-0 bg-theme-bg overflow-visible relative">
         <div className={cn("flex items-center gap-3", isCollapsed ? "justify-center" : "px-2")}>
-          <div className="w-8 h-8 bg-theme-surface flex items-center justify-center text-theme-text font-bold shrink-0 border border-theme-border text-xs rounded-full">
+          <div 
+            className={cn(
+              "w-8 h-8 flex items-center justify-center font-bold shrink-0 text-xs rounded-full",
+              user?.color ? "text-white shadow-sm" : "bg-theme-surface text-theme-text border border-theme-border"
+            )}
+            style={user?.color ? { backgroundColor: user.color } : {}}
+          >
             {user?.name?.charAt(0) || 'U'}
           </div>
           {!isCollapsed && (
@@ -317,6 +329,14 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
                     
                     <div className="w-full h-px bg-theme-border/50 my-1" />
                     
+                    <button 
+                      onClick={() => { useStore.getState().setShowAISettingsModal(true); setShowUserMenu(false); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2 font-medium"
+                    >
+                      <BrainCircuit size={14} />
+                      Yapay Zeka Ayarları
+                    </button>
+
                     <button 
                       onClick={() => { onLogout(); setShowUserMenu(false); }}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 transition-colors flex items-center gap-2 font-medium"

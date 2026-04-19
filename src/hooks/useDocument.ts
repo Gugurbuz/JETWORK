@@ -2,7 +2,8 @@ import { Type } from "@google/genai";
 import { useStore } from '../store/useStore';
 import { db, doc, setDoc, serverTimestamp } from '../db';
 import { DocumentData } from '../types';
-import { callGemini } from '../services/geminiService';
+import { callGemini } from '../services/aiService';
+import { buildSystemPrompt } from '../services/promptEngine';
 
 export const useDocument = () => {
   const { 
@@ -11,7 +12,8 @@ export const useDocument = () => {
     setDocumentContent, 
     setIsGenerating, 
     messages, 
-    selectedModel 
+    selectedModel,
+    promptSettings
   } = useStore();
 
   const handleGenerateDocument = async () => {
@@ -19,8 +21,11 @@ export const useDocument = () => {
     setIsGenerating(true);
 
     try {
-      const systemInstruction = `Sen bir Kıdemli İş Analisti ve Sistem Mimarı'sın.
-GÖREVİN: Verilen sohbet geçmişini analiz ederek kapsamlı bir iş analizi ve yazılım mimarisi dokümanı oluşturmak.
+      const systemInstruction = buildSystemPrompt({
+        role: 'BA',
+        taskType: 'documentation',
+        settings: promptSettings,
+        additionalContext: `GÖREVİN: Verilen sohbet geçmişini analiz ederek kapsamlı bir iş analizi ve yazılım mimarisi dokümanı oluşturmak.
 
 ÇIKTI FORMATI:
 JSON formatında, aşağıdaki alanları içeren bir obje döndür:
@@ -30,7 +35,8 @@ JSON formatında, aşağıdaki alanları içeren bir obje döndür:
 - review: Proje özeti, riskler, öneriler (Markdown)
 - bpmn: Süreç akışını anlatan BPMN 2.0 XML formatında veri (Sadece XML içeriği, markdown code block OLMADAN)
 
-ÖNEMLİ: bpmn alanı kesinlikle geçerli bir XML olmalıdır. İçinde markdown (\`\`\`xml gibi) bulunmamalıdır.`;
+ÖNEMLİ: bpmn alanı kesinlikle geçerli bir XML olmalıdır. İçinde markdown (\`\`\`xml gibi) bulunmamalıdır.`
+      });
 
       const contents = [
         {

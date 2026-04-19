@@ -16,7 +16,6 @@ interface WorkspaceViewProps {
   onSendMessage: (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[]) => Promise<void>;
   onToggleReaction: (messageId: string, emoji: string) => Promise<void>;
   onToggleAiActive: () => void;
-  onToggleZeroTouchMode: () => void;
   onAcceptAiHandRaise: () => void;
   onDismissAiHandRaise: () => void;
   onRestoreDocument: (content: DocumentData) => Promise<void>;
@@ -35,7 +34,6 @@ export function WorkspaceView({
   onSendMessage,
   onToggleReaction,
   onToggleAiActive,
-  onToggleZeroTouchMode,
   onAcceptAiHandRaise,
   onDismissAiHandRaise,
   onRestoreDocument,
@@ -48,11 +46,7 @@ export function WorkspaceView({
   const activeUsers = useStore(state => state.activeUsers);
   const typingUsers = useStore(state => state.typingUsers);
   const isGenerating = useStore(state => state.isGenerating);
-  const isDiscussing = useStore(state => state.isDiscussing);
   const isAiActive = useStore(state => state.isAiActive);
-  const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
-  const activeZeroTouchRoles = useStore(state => state.activeZeroTouchRoles);
-  const setActiveZeroTouchRoles = useStore(state => state.setActiveZeroTouchRoles);
   const aiHandRaised = useStore(state => state.aiHandRaised);
   const activeTab = useStore(state => state.activeTab);
   const setActiveTab = useStore(state => state.setActiveTab);
@@ -69,7 +63,7 @@ export function WorkspaceView({
         key={currentWorkspaceId}
         messages={messages} 
         onSendMessage={onSendMessage} 
-        isGenerating={isGenerating || isDiscussing}
+        isGenerating={isGenerating}
         issueKey={currentWorkspace?.issueKey}
         status={currentWorkspace?.status}
         title={currentWorkspace?.title}
@@ -92,10 +86,6 @@ export function WorkspaceView({
         currentUser={user}
         isAiActive={isAiActive}
         onToggleAiActive={onToggleAiActive}
-        isZeroTouchMode={isZeroTouchMode}
-        onToggleZeroTouchMode={onToggleZeroTouchMode}
-        activeZeroTouchRoles={activeZeroTouchRoles}
-        setActiveZeroTouchRoles={setActiveZeroTouchRoles}
         aiHandRaised={aiHandRaised}
         onAcceptAiHandRaise={onAcceptAiHandRaise}
         onDismissAiHandRaise={onDismissAiHandRaise}

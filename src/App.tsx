@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Sidebar, ThemeType } from './components/Sidebar';
 import { ModalsContainer } from './components/ModalsContainer';
+import { AISettingsModal } from './components/AISettingsModal';
 import { WorkspaceView } from './components/WorkspaceView';
 import { MainContent } from './components/MainContent';
 import { LandingPage } from './components/LandingPage';
@@ -18,7 +19,7 @@ import { useStore } from './store/useStore';
 import { supabase } from './supabase';
 import { saveDocumentAndVersion, saveRawResponse, parseBusinessAnalysis } from './utils/documentUtils';
 import { callGemini, callAiWithRetry } from './services/aiService';
-import { MOCK_COLLABORATORS, ZERO_TOUCH_AGENTS, SYSTEM_INSTRUCTION } from './constants';
+import { MOCK_COLLABORATORS, SYSTEM_INSTRUCTION } from './constants';
 import { useAI } from './hooks/useAI';
 import { useAuth } from './hooks/useAuth';
 import { useProjects } from './hooks/useProjects';
@@ -59,10 +60,6 @@ export default function App() {
   
   const isAiActive = useStore(state => state.isAiActive);
   const setIsAiActive = useStore(state => state.setIsAiActive);
-  const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
-  const setIsZeroTouchMode = useStore(state => state.setIsZeroTouchMode);
-  const activeZeroTouchRoles = useStore(state => state.activeZeroTouchRoles);
-  const setActiveZeroTouchRoles = useStore(state => state.setActiveZeroTouchRoles);
   
   const {
     activeUsers,
@@ -220,7 +217,6 @@ export default function App() {
 
   const {
     isGenerating,
-    isDiscussing,
     aiHandRaised,
     setAiHandRaised,
     activeTab,
@@ -263,14 +259,15 @@ export default function App() {
     }
   };
 
-  const handleUpdateUser = async (updatedUser: { name: string; role: string }) => {
+  const handleUpdateUser = async (updatedUser: { name: string; role: string; color?: string }) => {
     if (!user) return;
     
     try {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
         displayName: updatedUser.name,
-        role: updatedUser.role
+        role: updatedUser.role,
+        ...(updatedUser.color ? { color: updatedUser.color } : {})
       });
       setUser(prev => prev ? { ...prev, ...updatedUser } : null);
     } catch (error) {
@@ -282,6 +279,25 @@ export default function App() {
   const latestScoreMessage = [...messages].reverse().find(m => m.score !== undefined && m.score > 0);
   const latestScore = latestScoreMessage?.score;
   const latestScoreExplanation = latestScoreMessage?.scoreExplanation;
+
+  const setPromptSettings = useStore(state => state.setPromptSettings);
+
+  useEffect(() => {
+    const loadPromptSettings = async () => {
+      try {
+        const docRef = doc(db, 'settings', 'prompts');
+        const docSnap = await getDocFromServer(docRef);
+        if (docSnap.exists()) {
+          setPromptSettings(docSnap.data() as any);
+        }
+      } catch (error) {
+        console.error("Error loading prompt settings:", error);
+      }
+    };
+    if (isAuthReady) {
+      loadPromptSettings();
+    }
+  }, [isAuthReady, setPromptSettings]);
 
   if (!isAuthReady) {
     return <div className="min-h-screen flex items-center justify-center bg-theme-bg text-theme-text">Yükleniyor...</div>;
@@ -317,6 +333,7 @@ export default function App() {
         handleDeleteProject={handleDeleteProject}
         handleDeleteWorkspace={handleDeleteWorkspace}
       />
+      <AISettingsModal />
       {!currentWorkspaceId && (
         <Sidebar 
           user={user}
@@ -343,16 +360,6 @@ export default function App() {
           onToggleAiActive={() => {
             const newValue = !isAiActive;
             setIsAiActive(newValue);
-            if (newValue && isZeroTouchMode) {
-              setIsZeroTouchMode(false);
-            }
-          }}
-          onToggleZeroTouchMode={() => {
-            const newValue = !isZeroTouchMode;
-            setIsZeroTouchMode(newValue);
-            if (newValue && isAiActive) {
-              setIsAiActive(false);
-            }
           }}
           onAcceptAiHandRaise={handleAcceptAiHandRaise}
           onDismissAiHandRaise={() => setAiHandRaised(null)}

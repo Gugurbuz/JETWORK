@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { db, doc, onSnapshot } from '../db';
 import { useMessageStore } from '../store/useMessageStore';
 import { ActiveUser } from '../types';
-import { ZERO_TOUCH_AGENTS } from '../constants';
+import { SYSTEM_AGENTS } from '../constants';
 
 export const useWorkspaceChannel = () => {
   const { 
@@ -87,8 +87,8 @@ export const useWorkspaceChannel = () => {
         .on('broadcast', { event: 'ai_stream_chunk' }, ({ payload: data }) => {
           setMessages(prev => {
             const exists = prev.find(m => m.id === data.id);
-            const derivedSenderName = data.senderName || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
-            const derivedSenderRole = data.senderRole || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
+            const derivedSenderName = data.senderName || (data.agentRole ? SYSTEM_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
+            const derivedSenderRole = data.senderRole || (data.agentRole ? SYSTEM_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
 
             if (exists) {
               return prev.map(m => m.id === data.id ? { 
