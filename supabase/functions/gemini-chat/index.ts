@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    const { model, systemInstruction, contents, tools, currentDocument, responseSchema } = await req.json()
+    const { model, systemInstruction, contents, tools: frontendTools, currentDocument, responseSchema } = await req.json()
     
     const apiKey = Deno.env.get('GEMINI_API_KEY')
     if (!apiKey) throw new Error('GEMINI_API_KEY is not set')
@@ -24,10 +24,10 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl || '', supabaseServiceKey || '')
     const ai = new GoogleGenAI({ apiKey })
 
-    // 1. Kullanıcının son mesajını alıp niyetini çıkar
+    // 1. Niyet Çıkarımı
     const lastUserMessage = contents.filter((c: any) => c.role === 'user').pop()?.parts[0]?.text || '';
 
-    // 2. EMBEDDING: Kullanıcı mesajını vektöre çevir
+    // 2. RAG (Bilgi Bankası) Araması
     let contextText = "";
     if (lastUserMessage && supabaseUrl && supabaseServiceKey) {
       try {
@@ -37,11 +37,10 @@ serve(async (req) => {
         });
         const queryEmbedding = embeddingResponse.embeddings[0].values;
 
-        // 3. SEMANTIC SEARCH: Veritabanında en benzer kuralları bul
         const { data: documents, error } = await supabase.rpc('match_documents', {
           query_embedding: queryEmbedding,
-          match_threshold: 0.70, // %70 benzerlik altını alma
-          match_count: 5 // En iyi 5 kuralı getir
+          match_threshold: 0.70,
+          match_count: 5 
         });
 
         if (!error && documents && documents.length > 0) {
@@ -52,36 +51,96 @@ serve(async (req) => {
       }
     }
 
-    // 4. CONTEXT INJECTION: Bulunan bilgileri sistem promptuna yedir
+    // 3. VIBE ANALYZING İÇİN ZORUNLU ARAÇLARI (TOOLS) TANIMLAMA
+    const coreFunctionDeclarations = [
+      {
+        name: "ask_clarification_questions",
+        description: "Kullanıcıdan gelen talepte eksik iş kuralları, NFR veya mimari karar eksikliği varsa DOKÜMANI YAZMADAN ÖNCE Soru sormak için KESİNLİKLE bu aracı kullan.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            questions: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  id: { type: "STRING", description: "q1, q2 gibi benzersiz ID" },
+                  text: { type: "STRING", description: "Sorunun metni" },
+                  options: { type: "ARRAY", items: { type: "STRING" }, description: "Çoktan seçmeli opsiyonlar (Yoksa boş dizi gönder)" }
+                }
+              }
+            },
+            contextReason: { type: "STRING", description: "Bu soruları neden sorduğuna dair kullanıcıya gösterilecek açıklama." }
+          },
+          required: ["questions", "contextReason"]
+        }
+      },
+      {
+        name: "update_document_section",
+        description: "Kullanıcıyla anlaşıldığında ve tüm bilgiler toplandığında, analiz dokümanını Tiptap (Semantic HTML) formatında güncellemek için kullanılır.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            tabName: { type: "STRING", description: "Örn: BA Analiz, IT Analiz, Test" },
+            htmlContent: { type: "STRING", description: "HTML formatında oluşturulmuş TAM içerik." },
+            actionSummary: { type: "STRING", description: "Nelerin güncellendiğine dair kısa özet." }
+          },
+          required: ["tabName", "htmlContent", "actionSummary"]
+        }
+      }
+    ];
+
+    // Frontend'den gelen tool'lar ile arka plandaki zorunlu tool'ları birleştir
+    let allFunctions = [...coreFunctionDeclarations];
+    
+    if (frontendTools && frontendTools.length > 0) {
+      frontendTools.forEach((t: any) => {
+        if (t.functionDeclarations) {
+          allFunctions = [...allFunctions, ...t.functionDeclarations];
+        }
+      });
+    }
+
+    // Google Search her zaman eklenecek
+    const combinedTools = [
+      { functionDeclarations: allFunctions },
+      { googleSearch: {} } 
+    ];
+
+    // 4. SİSTEM PROMPTUNU GÜÇLENDİRME (AI'YI DURDURMA ALGORİTMASI)
     const enrichedSystemInstruction = `
       ${systemInstruction}
       
-      AŞAĞIDAKİ BİLGİLER ENERJİSA BİLGİ BANKASINDAN (KNOWLEDGE BASE) ÇEKİLMİŞTİR.
-      Kararlarını verirken, sorularını sorarken ve dokümanı güncellerken KESİNLİKLE bu standartlara ve kurallara uy:
+      [DİKKAT - VIBE ANALYZING ALGORİTMASI - KESİN İTAAT ET]
+      Sen bir metin yazarı değil, sistem analistisin. Sana bir talep geldiğinde HEMEN UZUN METİNLER ÜRETMEYE BAŞLAMA!
       
-      <enerjisa_kurallari>
-      ${contextText ? contextText : 'Spesifik bir kural bulunamadı, genel yazılım mimarisi standartlarını uygula.'}
-      </enerjisa_kurallari>
+      ADIM 1 - KONTROL: Talep net mi? İş kuralları eksik mi? Dış bilgiye (Örn: yasal mevzuat, libor oranları) ihtiyaç var mı?
+      ADIM 2 - AKSİYON (ZORUNLU): 
+         - Dış bilgi lazımsa 'googleSearch' aracını KULLAN.
+         - İş kuralı veya detay eksiği varsa HEMEN 'ask_clarification_questions' aracını KULLAN. (ASLA DOKÜMAN YAZMA).
+      ADIM 3 - SONUÇ: Sadece kullanıcı tüm soruları cevapladığında veya talep %100 netleştiğinde 'update_document_section' aracını çağırarak HTML dokümanı üret.
+
+      <bilgi_bankasi_referanslari>
+      ${contextText ? contextText : 'Özel bir referans bulunamadı.'}
+      </bilgi_bankasi_referanslari>
       
       <mevcut_dokuman_durumu>
       ${JSON.stringify(currentDocument || {}, null, 2)}
       </mevcut_dokuman_durumu>
     `;
 
+    // 400 HATASINI ÇÖZEN CONFIG EKLENTİSİ
     const config: any = {
       systemInstruction: enrichedSystemInstruction,
-      responseMimeType: responseSchema ? "application/json" : "text/plain",
+      tools: combinedTools,
+      toolConfig: { includeServerSideToolInvocations: true }, // Gemini API Zorunluluğu
       thinkingConfig: { thinkingLevel: "HIGH" }
     }
     
-    if (responseSchema) {
-      config.responseSchema = responseSchema
-    }
-
-    if (tools && tools.length > 0) {
-      config.tools = tools
-    } else if (!responseSchema) {
-       config.tools = [{ googleSearch: {} }]
+    // Eğer responseSchema varsa ekle
+    if (responseSchema && Object.keys(responseSchema).length > 0) {
+      config.responseSchema = responseSchema;
+      config.responseMimeType = "application/json";
     }
 
     // 5. LLM'e İsteği Gönder ve Stream Et
