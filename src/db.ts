@@ -112,7 +112,7 @@ export const getDocFromServer = async (docRef: any) => {
       for (const key in d) {
         let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
         if (key === 'photo_url') camelKey = 'photoURL';
-        if (key === 'username') camelKey = 'displayName';
+        if (key === 'name') camelKey = 'displayName';
         camelData[camelKey] = d[key];
         if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
           camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
@@ -127,18 +127,18 @@ export const setDoc = async (docRef: any, data: any) => {
   const idField = docRef.table === 'users' ? 'uid' : 'id';
   const payload: any = { [idField]: docRef.id };
   if (docRef.workspace_id) payload.workspace_id = docRef.workspace_id;
-  
+
   for (const key in data) {
     let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
     if (key === 'photoURL') snakeKey = 'photo_url';
-    if (key === 'displayName') snakeKey = 'username';
+    if (key === 'displayName') snakeKey = 'name';
     if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
       payload[snakeKey] = data[key] === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(data[key]).toISOString();
     } else {
       payload[snakeKey] = data[key];
     }
   }
-  
+
   const { error } = await supabase.from(docRef.table).upsert(payload);
   if (error) throw error;
 };
@@ -146,11 +146,11 @@ export const setDoc = async (docRef: any, data: any) => {
 export const updateDoc = async (docRef: any, data: any) => {
   const idField = docRef.table === 'users' ? 'uid' : 'id';
   const payload: any = {};
-  
+
   for (const key in data) {
     let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
     if (key === 'photoURL') snakeKey = 'photo_url';
-    if (key === 'displayName') snakeKey = 'username';
+    if (key === 'displayName') snakeKey = 'name';
     if (data[key] && data[key].__isArrayUnion) {
       const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).maybeSingle();
       const arr = (current as any)?.[snakeKey] || [];
@@ -225,7 +225,7 @@ export const getDocs = async (queryObj: any) => {
       for (const key in d) {
         let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
         if (key === 'photo_url') camelKey = 'photoURL';
-        if (key === 'username') camelKey = 'displayName';
+        if (key === 'name') camelKey = 'displayName';
         camelData[camelKey] = d[key];
         if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
           camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
