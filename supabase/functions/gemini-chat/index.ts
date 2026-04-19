@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "[https://deno.land/std@0.168.0/http/server.ts](https://deno.land/std@0.168.0/http/server.ts)"
 import { GoogleGenAI } from "npm:@google/genai"
 import { createClient } from 'npm:@supabase/supabase-js'
 
@@ -24,10 +24,10 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl || '', supabaseServiceKey || '')
     const ai = new GoogleGenAI({ apiKey })
 
-    // 1. Niyet Çıkarımı
+    // 1. Kullanıcının son mesajını alıp niyetini çıkar
     const lastUserMessage = contents.filter((c: any) => c.role === 'user').pop()?.parts[0]?.text || '';
 
-    // 2. RAG (Bilgi Bankası) Araması
+    // 2. EMBEDDING: Kullanıcı mesajını vektöre çevir
     let contextText = "";
     if (lastUserMessage && supabaseUrl && supabaseServiceKey) {
       try {
@@ -37,10 +37,11 @@ serve(async (req) => {
         });
         const queryEmbedding = embeddingResponse.embeddings[0].values;
 
+        // 3. SEMANTIC SEARCH: Veritabanında en benzer kuralları bul
         const { data: documents, error } = await supabase.rpc('match_documents', {
           query_embedding: queryEmbedding,
           match_threshold: 0.70,
-          match_count: 5 
+          match_count: 5
         });
 
         if (!error && documents && documents.length > 0) {
@@ -51,11 +52,11 @@ serve(async (req) => {
       }
     }
 
-    // 3. VIBE ANALYZING İÇİN ZORUNLU ARAÇLARI (TOOLS) TANIMLAMA
+    // VIBE ANALYZING İÇİN ZORUNLU ARAÇLARI (TOOLS) TANIMLAMA
     const coreFunctionDeclarations = [
       {
         name: "ask_clarification_questions",
-        description: "Kullanıcıdan gelen talepte eksik iş kuralları, NFR veya mimari karar eksikliği varsa DOKÜMANI YAZMADAN ÖNCE Soru sormak için KESİNLİKLE bu aracı kullan.",
+        description: "Kullanıcıdan gelen talepte eksik iş kuralları, NFR veya mimari karar eksikliği varsa DOKÜMANI YAZMADAN ÖNCE soru sormak için KESİNLİKLE bu aracı kullan.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -70,19 +71,19 @@ serve(async (req) => {
                 }
               }
             },
-            contextReason: { type: "STRING", description: "Bu soruları neden sorduğuna dair kullanıcıya gösterilecek açıklama." }
+            contextReason: { type: "STRING", description: "Bu soruları neden sorduğuna dair kullanıcıya gösterilecek kısa açıklama." }
           },
           required: ["questions", "contextReason"]
         }
       },
       {
         name: "update_document_section",
-        description: "Kullanıcıyla anlaşıldığında ve tüm bilgiler toplandığında, analiz dokümanını Tiptap (Semantic HTML) formatında güncellemek için kullanılır.",
+        description: "Kullanıcıyla anlaşıldığında, analiz dokümanını Tiptap (Semantic HTML) formatında güncellemek için kullanılır. DİKKAT: Markdown kullanma, düz HTML döndür.",
         parameters: {
           type: "OBJECT",
           properties: {
             tabName: { type: "STRING", description: "Örn: BA Analiz, IT Analiz, Test" },
-            htmlContent: { type: "STRING", description: "HTML formatında oluşturulmuş TAM içerik." },
+            htmlContent: { type: "STRING", description: "Saf HTML formatında oluşturulmuş TAM içerik. Başına ve sonuna ```html koyma." },
             actionSummary: { type: "STRING", description: "Nelerin güncellendiğine dair kısa özet." }
           },
           required: ["tabName", "htmlContent", "actionSummary"]
@@ -90,7 +91,6 @@ serve(async (req) => {
       }
     ];
 
-    // Frontend'den gelen tool'lar ile arka plandaki zorunlu tool'ları birleştir
     let allFunctions = [...coreFunctionDeclarations];
     
     if (frontendTools && frontendTools.length > 0) {
@@ -107,38 +107,32 @@ serve(async (req) => {
       { googleSearch: {} } 
     ];
 
-    // 4. SİSTEM PROMPTUNU GÜÇLENDİRME (AI'YI DURDURMA ALGORİTMASI)
+    // 4. CONTEXT INJECTION: Sistem promptuna bilgileri yedir
     const enrichedSystemInstruction = `
       ${systemInstruction}
       
-      [DİKKAT - VIBE ANALYZING ALGORİTMASI - KESİN İTAAT ET]
-      Sen bir metin yazarı değil, sistem analistisin. Sana bir talep geldiğinde HEMEN UZUN METİNLER ÜRETMEYE BAŞLAMA!
+      [DİKKAT - VIBE ANALYZING ALGORİTMASI]
+      Bir talebi incelerken HEMEN UZUN METİNLER YAZMA. Önce düşün! Eksik bilgi varsa 'googleSearch' veya 'ask_clarification_questions' kullan. Analiz netleştiğinde 'update_document_section' kullan.
       
-      ADIM 1 - KONTROL: Talep net mi? İş kuralları eksik mi? Dış bilgiye (Örn: yasal mevzuat, libor oranları) ihtiyaç var mı?
-      ADIM 2 - AKSİYON (ZORUNLU): 
-         - Dış bilgi lazımsa 'googleSearch' aracını KULLAN.
-         - İş kuralı veya detay eksiği varsa HEMEN 'ask_clarification_questions' aracını KULLAN. (ASLA DOKÜMAN YAZMA).
-      ADIM 3 - SONUÇ: Sadece kullanıcı tüm soruları cevapladığında veya talep %100 netleştiğinde 'update_document_section' aracını çağırarak HTML dokümanı üret.
-
-      <bilgi_bankasi_referanslari>
-      ${contextText ? contextText : 'Özel bir referans bulunamadı.'}
-      </bilgi_bankasi_referanslari>
+      AŞAĞIDAKİ BİLGİLER ENERJİSA BİLGİ BANKASINDAN (KNOWLEDGE BASE) ÇEKİLMİŞTİR:
+      <enerjisa_kurallari>
+      ${contextText ? contextText : 'Spesifik bir kural bulunamadı, genel standartları uygula.'}
+      </enerjisa_kurallari>
       
       <mevcut_dokuman_durumu>
       ${JSON.stringify(currentDocument || {}, null, 2)}
       </mevcut_dokuman_durumu>
     `;
 
-    // 400 HATASINI ÇÖZEN CONFIG EKLENTİSİ
+    // 400 Hatasını çözen toolConfig (Google SDK)
     const config: any = {
       systemInstruction: enrichedSystemInstruction,
       tools: combinedTools,
-      toolConfig: { includeServerSideToolInvocations: true }, // Gemini API Zorunluluğu
+      toolConfig: { includeServerSideToolInvocations: true },
       thinkingConfig: { thinkingLevel: "HIGH" }
     }
     
-    // Eğer responseSchema varsa ekle
-    if (responseSchema && Object.keys(responseSchema).length > 0) {
+    if (responseSchema) {
       config.responseSchema = responseSchema;
       config.responseMimeType = "application/json";
     }
