@@ -63,6 +63,42 @@ export const signInWithUsernameOrEmail = async (authObj: any, input: string, pas
   return signInWithEmailAndPassword(authObj, email, password);
 };
 
+// Field mapping helpers: convert between snake_case (Supabase) and camelCase (app)
+const TIMESTAMP_KEYS = new Set(['created_at', 'last_updated', 'updated_at']);
+
+const toCamelKey = (snakeKey: string): string => {
+  if (snakeKey === 'photo_url') return 'photoURL';
+  if (snakeKey === 'username') return 'displayName';
+  return snakeKey.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+};
+
+const toSnakeKey = (camelKey: string): string => {
+  if (camelKey === 'photoURL') return 'photo_url';
+  if (camelKey === 'displayName') return 'username';
+  return camelKey.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+};
+
+const toCamel = (row: any): any => {
+  if (!row) return row;
+  const out: any = {};
+  for (const key in row) {
+    const camelKey = toCamelKey(key);
+    if (TIMESTAMP_KEYS.has(key)) {
+      out[camelKey] = { toMillis: () => new Date(row[key]).getTime() };
+    } else {
+      out[camelKey] = row[key];
+    }
+  }
+  return out;
+};
+
+const serializeWrite = (camelKey: string, value: any): any => {
+  if (camelKey === 'createdAt' || camelKey === 'lastUpdated' || camelKey === 'updatedAt') {
+    return value === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(value).toISOString();
+  }
+  return value;
+};
+
 // Database mocks
 export const collection = (db: any, ...args: string[]) => {
   if (args.length === 1) return { table: args[0], filters: [] };
@@ -106,20 +142,7 @@ export const getDocFromServer = async (docRef: any) => {
   
   return {
     exists: () => !!d,
-    data: () => {
-      if (!d) return undefined;
-      const camelData: any = {};
-      for (const key in d) {
-        let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-        if (key === 'photo_url') camelKey = 'photoURL';
-        if (key === 'username') camelKey = 'displayName';
-        camelData[camelKey] = d[key];
-        if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
-          camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
-        }
-      }
-      return camelData;
-    }
+    data: () => (d ? toCamel(d) : undefined)
   };
 };
 
@@ -129,16 +152,10 @@ export const setDoc = async (docRef: any, data: any) => {
   if (docRef.workspace_id) payload.workspace_id = docRef.workspace_id;
   
   for (const key in data) {
-    let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-    if (key === 'photoURL') snakeKey = 'photo_url';
-    if (key === 'displayName') snakeKey = 'username';
-    if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
-      payload[snakeKey] = data[key] === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(data[key]).toISOString();
-    } else {
-      payload[snakeKey] = data[key];
-    }
+    const snakeKey = toSnakeKey(key);
+    payload[snakeKey] = serializeWrite(key, data[key]);
   }
-  
+
   const { error } = await supabase.from(docRef.table).upsert(payload);
   if (error) throw error;
 };
@@ -146,23 +163,20 @@ export const setDoc = async (docRef: any, data: any) => {
 export const updateDoc = async (docRef: any, data: any) => {
   const idField = docRef.table === 'users' ? 'uid' : 'id';
   const payload: any = {};
-  
+
   for (const key in data) {
-    let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-    if (key === 'photoURL') snakeKey = 'photo_url';
-    if (key === 'displayName') snakeKey = 'username';
-    if (data[key] && data[key].__isArrayUnion) {
+    const snakeKey = toSnakeKey(key);
+    const value = data[key];
+    if (value && value.__isArrayUnion) {
       const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).maybeSingle();
       const arr = (current as any)?.[snakeKey] || [];
-      payload[snakeKey] = [...arr, data[key].value];
-    } else if (data[key] && data[key].__isArrayRemove) {
+      payload[snakeKey] = [...arr, value.value];
+    } else if (value && value.__isArrayRemove) {
       const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).maybeSingle();
       const arr = (current as any)?.[snakeKey] || [];
-      payload[snakeKey] = arr.filter((item: any) => JSON.stringify(item) !== JSON.stringify(data[key].value));
-    } else if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
-      payload[snakeKey] = data[key] === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(data[key]).toISOString();
+      payload[snakeKey] = arr.filter((item: any) => JSON.stringify(item) !== JSON.stringify(value.value));
     } else {
-      payload[snakeKey] = data[key];
+      payload[snakeKey] = serializeWrite(key, value);
     }
   }
   
@@ -201,41 +215,34 @@ export const query = (col: any, ...args: any[]) => {
 export const orderBy = (field: string, direction = 'asc') => ({ type: 'orderBy', field, direction });
 export const where = (field: string, op: string, value: any) => ({ type: 'where', field, op, value });
 
+const rowToDoc = (d: any) => {
+  const camelData = toCamel(d);
+  return {
+    id: d.uid || d.id,
+    data: () => camelData
+  };
+};
+
 export const getDocs = async (queryObj: any) => {
   let req: any = supabase.from(queryObj.table).select('*');
   if (queryObj.filters) {
     queryObj.filters.forEach((f: any) => {
-      const snakeField = f.field.replace(/[A-Z]/g, (letter: string) => `_${letter.toLowerCase()}`);
+      const snakeField = toSnakeKey(f.field);
       if (f.op === '==') req = req.eq(snakeField, f.value);
       if (f.op === 'array-contains') req = req.contains(snakeField, [f.value]);
     });
   }
   if (queryObj.order) {
-    const snakeField = queryObj.order.field.replace(/[A-Z]/g, (letter: string) => `_${letter.toLowerCase()}`);
+    const snakeField = toSnakeKey(queryObj.order.field);
     req = req.order(snakeField, { ascending: queryObj.order.direction === 'asc' });
   }
-  
+
   const { data, error } = await req;
   if (error) throw error;
-  
+
   return {
     empty: !data || data.length === 0,
-    docs: (data || []).map((d: any) => {
-      const camelData: any = {};
-      for (const key in d) {
-        let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-        if (key === 'photo_url') camelKey = 'photoURL';
-        if (key === 'username') camelKey = 'displayName';
-        camelData[camelKey] = d[key];
-        if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
-          camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
-        }
-      }
-      return {
-        id: d.uid || d.id,
-        data: () => camelData
-      };
-    })
+    docs: (data || []).map(rowToDoc)
   };
 };
 
@@ -246,23 +253,7 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
   
   const isDoc = !!queryObj.id;
   const fetchFn = isDoc ? () => getDocFromServer(queryObj) : () => getDocs(queryObj);
-  
-  const mapSupabaseRowToDoc = (d: any) => {
-    const camelData: any = {};
-    for (const key in d) {
-      let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-      if (key === 'photo_url') camelKey = 'photoURL';
-      if (key === 'username') camelKey = 'displayName';
-      camelData[camelKey] = d[key];
-      if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
-        camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
-      }
-    }
-    return {
-      id: d.uid || d.id,
-      data: () => camelData
-    };
-  };
+  const mapSupabaseRowToDoc = rowToDoc;
 
   fetchFn().then(snapshot => {
     if (isUnsubscribed) return;
@@ -278,7 +269,7 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
       filterStr = `${idField}=eq.${queryObj.id}`;
     } else if (queryObj.filters && queryObj.filters.length > 0) {
       const f = queryObj.filters[0];
-      const snakeField = f.field.replace(/[A-Z]/g, (letter: string) => `_${letter.toLowerCase()}`);
+      const snakeField = toSnakeKey(f.field);
       if (f.op === '==') filterStr = `${snakeField}=eq.${f.value}`;
       if (f.op === 'array-contains') filterStr = `${snakeField}=cs.{${f.value}}`;
     }
