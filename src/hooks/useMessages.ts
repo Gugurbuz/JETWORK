@@ -353,7 +353,8 @@ export const useMessages = (channelRef: any) => {
             } 
           });
           
-          const aiPayload = camelToSnake<Record<string, any>>({ ...finalMsg });
+          const { phase: _p, phaseLabel: _pl, isTyping: _it, retryPayload: _rp, ...persistable } = finalMsg as any;
+          const aiPayload = camelToSnake<Record<string, any>>(persistable);
           aiPayload.workspace_id = currentWorkspaceId;
           aiPayload.created_at = nowIso();
           const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
