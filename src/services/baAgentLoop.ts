@@ -234,7 +234,22 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
   ].filter(Boolean).join('\n\n') || '(İlgili ek kaynak bulunamadı.)';
 
   // ============ PHASE 3: REFLECT ============
-  onPhase('REFLECT', 'Doküman gözden geçiriliyor...');
+  // Skip reflection when there's no document to review and no research to critique.
+  const hasDocument = !!documentContent && Object.values(documentContent).some(
+    (s: any) => s && typeof s === 'object' && typeof s.content === 'string' && s.content.trim().length > 0
+  );
+  const shouldReflect = hasDocument || webResearch.length > 0 || (plan.documentGapsToCheck?.length || 0) > 0;
+
+  let reflection: ReflectOutput = {
+    gapsFound: [],
+    flagsToRaise: [],
+    criticalQuestionsForUser: plan.clarificationsNeeded || [],
+    readyToAct: true,
+    reasoning: ""
+  };
+
+  if (shouldReflect) {
+  onPhase('REFLECT', hasDocument ? 'Doküman gözden geçiriliyor...' : 'Bulgular değerlendiriliyor...');
   const reflectSystem = `
 Sen kıdemli bir İş Analistisin. Mevcut dokümanı ve plan/araştırma bulgularını eleştirel gözle inceliyorsun.
 KURALLAR:
@@ -263,23 +278,26 @@ ${userMessage}
 Yukarıdaki bağlama göre reflection çıkar.
 `.trim();
 
-  const reflectResponse = await callGemini({
-    model,
-    systemInstruction: reflectSystem,
-    contents: [{ role: 'user', parts: [{ text: reflectPrompt }] }],
-    responseSchema: reflectSchema,
-    onChunk: (_text, thinking, tokenCount) => {
-      if (thinking) onThinking(thinking);
-      if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-    }
-  });
-  const reflection: ReflectOutput = extractJson(reflectResponse.text) || {
-    gapsFound: [],
-    flagsToRaise: [],
-    criticalQuestionsForUser: plan.clarificationsNeeded || [],
-    readyToAct: true,
-    reasoning: ""
-  };
+  try {
+    const reflectResponse = await Promise.race([
+      callGemini({
+        model,
+        systemInstruction: reflectSystem,
+        contents: [{ role: 'user', parts: [{ text: reflectPrompt }] }],
+        responseSchema: reflectSchema,
+        onChunk: (_text, thinking, tokenCount) => {
+          if (thinking) onThinking(thinking);
+          if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
+        }
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('reflect timeout')), 30000))
+    ]);
+    const parsedReflection = extractJson(reflectResponse.text);
+    if (parsedReflection) reflection = parsedReflection;
+  } catch (e) {
+    console.warn('Reflect phase skipped:', e);
+  }
+  }
 
   // ============ PHASE 4: ACT ============
   onPhase('ACT', 'Yanıt hazırlanıyor...');
