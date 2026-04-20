@@ -4,12 +4,12 @@ import { ArrowRight, User, Briefcase } from 'lucide-react';
 import { doc, updateDoc, db, auth, getDocs, collection } from '../db';
 
 interface OnboardingPageProps {
-  user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; };
-  onComplete: (user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; }) => void;
+  user: { uid: string; name: string; username?: string; role: string; email: string | null; photoURL: string | null; };
+  onComplete: (user: { uid: string; name: string; username: string; firstName: string; lastName: string; role: string; email: string | null; photoURL: string | null; }) => void;
 }
 
 export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
-  const [username, setUsername] = useState(user.name !== 'User' ? user.name : '');
+  const [username, setUsername] = useState(user.username || (user.name !== 'User' ? user.name : ''));
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
@@ -61,7 +61,15 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
         onboardingCompleted: true
       });
 
-      onComplete({ ...user, name: username, role });
+      const fullName = `${firstName} ${lastName}`.trim();
+      onComplete({
+        ...user,
+        name: fullName || username,
+        username,
+        firstName,
+        lastName,
+        role,
+      });
     } catch (error: any) {
       console.error("Onboarding save failed", error);
       setErrorMsg('Bilgileriniz kaydedilirken bir hata oluştu.');

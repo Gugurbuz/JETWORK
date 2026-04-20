@@ -260,15 +260,20 @@ export default function App() {
 
   const handleUpdateUser = async (updatedUser: { name: string; role: string; color?: string }) => {
     if (!user) return;
-    
+
+    const parts = updatedUser.name.trim().split(/\s+/);
+    const firstName = parts[0] || '';
+    const lastName = parts.slice(1).join(' ');
+
     try {
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        displayName: updatedUser.name,
+        name: firstName,
+        surname: lastName,
         role: updatedUser.role,
         ...(updatedUser.color ? { color: updatedUser.color } : {})
       });
-      setUser(prev => prev ? { ...prev, ...updatedUser } : null);
+      setUser(prev => prev ? { ...prev, ...updatedUser, firstName, lastName } : null);
     } catch (error) {
       console.error("Failed to update user profile:", error);
       alert("Profil güncellenirken bir hata oluştu.");

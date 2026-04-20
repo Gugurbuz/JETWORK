@@ -5,7 +5,7 @@ type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
 interface AppState {
   // Auth
-  user: { uid: string; name: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean; color?: string } | null;
+  user: { uid: string; name: string; username?: string; firstName?: string; lastName?: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean; color?: string } | null;
   isAuthReady: boolean;
   setUser: (user: any) => void;
   setIsAuthReady: (ready: boolean) => void;

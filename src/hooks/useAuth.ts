@@ -5,6 +5,9 @@ import { useStore } from '../store/useStore';
 export interface User {
   uid: string;
   name: string;
+  username: string;
+  firstName: string;
+  lastName: string;
   role: string;
   email: string | null;
   photoURL: string | null;
@@ -33,7 +36,10 @@ export function useAuth() {
         // Save user to database
         const userRef = doc(db, 'users', authUser.uid);
         let onboardingCompleted = false;
-        let displayName = authUser.displayName || authUser.email || 'User';
+        const fallbackName = authUser.displayName || authUser.email || 'User';
+        let username = fallbackName;
+        let firstName = '';
+        let lastName = '';
         let role = 'Kullanıcı';
         let color: string | undefined = undefined;
 
@@ -42,7 +48,7 @@ export function useAuth() {
           if (!userSnap.exists()) {
             const userData: any = {
               uid: authUser.uid,
-              displayName: displayName,
+              displayName: username,
               createdAt: serverTimestamp(),
               role: role,
               onboardingCompleted: false
@@ -57,7 +63,9 @@ export function useAuth() {
           } else {
             const userData = userSnap.data();
             onboardingCompleted = userData.onboardingCompleted || false;
-            displayName = userData.displayName || displayName;
+            username = userData.displayName || username;
+            firstName = userData.name || '';
+            lastName = userData.surname || '';
             role = userData.role || role;
             color = userData.color;
           }
@@ -65,7 +73,20 @@ export function useAuth() {
           console.error("Error saving user to database:", err);
         }
 
-        setUser({ uid: authUser.uid, name: displayName, role: role, email: authUser.email || null, photoURL: authUser.photoURL || null, onboardingCompleted, color });
+        const fullName = `${firstName} ${lastName}`.trim() || username;
+
+        setUser({
+          uid: authUser.uid,
+          name: fullName,
+          username,
+          firstName,
+          lastName,
+          role,
+          email: authUser.email || null,
+          photoURL: authUser.photoURL || null,
+          onboardingCompleted,
+          color,
+        });
       } else {
         setUser(null);
       }
