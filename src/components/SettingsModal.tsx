@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Settings as SettingsIcon, Save, Palette } from 'lucide-react';
 import { motion } from 'motion/react';
-import { getDocs, collection, db } from '../db';
+import { supabase } from '../supabase';
 import { stringToColor } from '../lib/utils';
 
 interface SettingsModalProps {
@@ -36,8 +36,9 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const rolesSnap = await getDocs(collection(db, 'roles'));
-        const fetchedRoles = rolesSnap.docs.map((d: any) => d.data().name);
+        const { data, error } = await supabase.from('roles').select('name');
+        if (error) throw error;
+        const fetchedRoles = (data || []).map((d: any) => d.name);
         if (fetchedRoles.length > 0) {
           setRoles(fetchedRoles);
           if (!role) setRole(fetchedRoles[0]);

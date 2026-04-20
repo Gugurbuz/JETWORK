@@ -13,10 +13,10 @@ import { LayoutDashboard } from 'lucide-react';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { GoogleGenAI } from "@google/genai";
-import { auth, db, onAuthStateChanged, doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, collection, onSnapshot, query, orderBy, where, getDocs, arrayUnion, arrayRemove, logOut } from './db';
+import { nowIso } from './lib/mapping';
 import { useMessageStore } from './store/useMessageStore';
 import { useStore } from './store/useStore';
-import { supabase } from './supabase';
+import { supabase, logOut } from './supabase';
 import { saveDocumentAndVersion, saveRawResponse, parseBusinessAnalysis } from './utils/documentUtils';
 import { MOCK_COLLABORATORS, ZERO_TOUCH_AGENTS, SYSTEM_INSTRUCTION } from './constants';
 import { useMessages } from './hooks/useMessages';
@@ -131,51 +131,54 @@ export default function App() {
       // Fetch shared workspace
       const fetchShared = async () => {
         try {
-          const shareRef = doc(db, 'shared_analyses', shareId);
-          const shareSnap = await getDocFromServer(shareRef);
-          
-          if (shareSnap.exists()) {
-            const data = shareSnap.data();
-            const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-            
-            // Check if default project exists, if not create it
-            const defaultProjectRef = doc(db, 'projects', 'default-project');
-            const defaultProjectSnap = await getDocFromServer(defaultProjectRef);
-            
-            if (!defaultProjectSnap.exists()) {
-              await setDoc(defaultProjectRef, {
-                name: 'Varsayılan Proje',
-                description: '',
-                ownerId: user.uid,
-                createdAt: serverTimestamp(),
-                lastUpdated: serverTimestamp()
-              });
-            }
+          const { data: share, error } = await supabase
+            .from('shared_analyses')
+            .select('*')
+            .eq('id', shareId)
+            .maybeSingle();
+          if (error) throw error;
+          if (!share) return;
 
-            // Create the workspace
-            await setDoc(doc(db, 'workspaces', newId), {
-              projectId: 'default-project',
-              issueKey: generateItemCode(),
-              title: 'Paylaşılan Çalışma Alanı',
-              type: 'Development',
-              status: 'Draft',
-              ownerId: user.uid,
-              collaborators: MOCK_COLLABORATORS,
-              createdAt: serverTimestamp(),
-              lastUpdated: serverTimestamp()
+          const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+
+          const { data: defaultProject } = await supabase
+            .from('projects')
+            .select('id')
+            .eq('id', 'default-project')
+            .maybeSingle();
+
+          if (!defaultProject) {
+            await supabase.from('projects').insert({
+              id: 'default-project',
+              name: 'Varsayılan Proje',
+              description: '',
+              owner_id: user.uid,
+              created_at: nowIso(),
+              last_updated: nowIso(),
             });
-            
-            // Save document
-            if (data.data) {
-              await saveDocumentAndVersion(newId, 'initial', data.data);
-            }
-            
-            setCurrentWorkspaceId(newId);
-            setDocumentContent(data.data);
-            
-            // Remove shareId from URL
-            window.history.replaceState({}, document.title, window.location.pathname);
           }
+
+          await supabase.from('workspaces').insert({
+            id: newId,
+            project_id: 'default-project',
+            issue_key: generateItemCode(),
+            title: 'Paylaşılan Çalışma Alanı',
+            type: 'Development',
+            status: 'Draft',
+            owner_id: user.uid,
+            collaborators: MOCK_COLLABORATORS,
+            created_at: nowIso(),
+            last_updated: nowIso(),
+          });
+
+          if (share.data) {
+            await saveDocumentAndVersion(newId, 'initial', share.data);
+          }
+
+          setCurrentWorkspaceId(newId);
+          setDocumentContent(share.data);
+
+          window.history.replaceState({}, document.title, window.location.pathname);
         } catch (err) {
           console.error("Failed to load shared workspace:", err);
         }
@@ -236,7 +239,7 @@ export default function App() {
     
     if (currentWorkspaceId) {
       try {
-        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+        await supabase.from('workspaces').update({ last_updated: nowIso() }).eq('id', currentWorkspaceId);
         await saveDocumentAndVersion(currentWorkspaceId, `manual-${Date.now()}`, newContent);
       } catch (err) {
         console.error("Failed to update document in database:", err);
@@ -266,14 +269,15 @@ export default function App() {
     const lastName = parts.slice(1).join(' ');
 
     try {
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
+      const payload: Record<string, any> = {
         name: firstName,
         surname: lastName,
         role: updatedUser.role,
-        ...(updatedUser.color ? { color: updatedUser.color } : {})
-      });
-      setUser(prev => prev ? { ...prev, ...updatedUser, firstName, lastName } : null);
+      };
+      if (updatedUser.color) payload.color = updatedUser.color;
+      const { error } = await supabase.from('users').update(payload).eq('uid', user.uid);
+      if (error) throw error;
+      setUser(user ? { ...user, ...updatedUser, firstName, lastName } : null);
     } catch (error) {
       console.error("Failed to update user profile:", error);
       alert("Profil güncellenirken bir hata oluştu.");
@@ -289,11 +293,13 @@ export default function App() {
   useEffect(() => {
     const loadPromptSettings = async () => {
       try {
-        const docRef = doc(db, 'settings', 'prompts');
-        const docSnap = await getDocFromServer(docRef);
-        if (docSnap.exists()) {
-          setPromptSettings(docSnap.data() as any);
-        }
+        const { data, error } = await supabase
+          .from('settings')
+          .select('data')
+          .eq('id', 'prompts')
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.data) setPromptSettings(data.data as any);
       } catch (error) {
         console.error("Error loading prompt settings:", error);
       }

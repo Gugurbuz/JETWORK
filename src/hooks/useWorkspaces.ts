@@ -1,67 +1,61 @@
 import { useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { db, collection, query, orderBy, onSnapshot } from '../db';
+import { supabase } from '../supabase';
 import { Project, Workspace } from '../types';
+import { rowsToCamel } from '../lib/mapping';
+
+async function loadAll(setProjects: (projects: Project[]) => void) {
+  try {
+    const [projectsRes, workspacesRes] = await Promise.all([
+      supabase.from('projects').select('*').order('created_at', { ascending: false }),
+      supabase.from('workspaces').select('*').order('created_at', { ascending: false }),
+    ]);
+
+    if (projectsRes.error) throw projectsRes.error;
+    if (workspacesRes.error) throw workspacesRes.error;
+
+    const projectsData = rowsToCamel<Project>(projectsRes.data).map(p => ({
+      ...p,
+      workspaces: [] as Workspace[],
+    }));
+
+    const workspacesData = rowsToCamel<Workspace>(workspacesRes.data).map(w => ({
+      ...w,
+      issueKey: w.issueKey || `JET-${String(w.id).substring(0, 4).toUpperCase()}`,
+      messages: [] as any[],
+    }));
+
+    const combinedProjects = projectsData.map(p => ({
+      ...p,
+      workspaces: workspacesData.filter(w => w.projectId === p.id),
+    }));
+
+    setProjects(combinedProjects);
+  } catch (error) {
+    console.error('Error loading projects/workspaces:', error);
+  }
+}
 
 export const useWorkspaces = () => {
   const { user, isAuthReady, setProjects } = useStore();
 
   useEffect(() => {
-    if (user && isAuthReady) {
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const workspacesQuery = query(
-        collection(db, 'workspaces'),
-        orderBy('createdAt', 'desc')
-      );
+    if (!user || !isAuthReady) return;
 
-      let unsubscribeWorkspaces: () => void;
+    loadAll(setProjects);
 
-      const unsubscribeProjects = onSnapshot(projectsQuery, (projectsSnapshot) => {
-        const projectsData = projectsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toMillis() || Date.now(),
-          lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
-          workspaces: []
-        })) as Project[];
+    const channel = supabase
+      .channel('all-projects-workspaces')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        loadAll(setProjects);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workspaces' }, () => {
+        loadAll(setProjects);
+      })
+      .subscribe();
 
-        if (unsubscribeWorkspaces) {
-          unsubscribeWorkspaces();
-        }
-
-        unsubscribeWorkspaces = onSnapshot(workspacesQuery, (workspacesSnapshot) => {
-          const workspacesData = workspacesSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            issueKey: doc.data().issueKey || `JET-${doc.id.substring(0, 4).toUpperCase()}`,
-            createdAt: doc.data().createdAt?.toMillis() || Date.now(),
-            lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
-            messages: []
-          })) as Workspace[];
-
-          const combinedProjects = projectsData.map(p => ({
-            ...p,
-            workspaces: workspacesData.filter(w => w.projectId === p.id)
-          }));
-
-          setProjects(combinedProjects);
-        }, (error) => {
-          console.error("Error fetching workspaces:", error);
-        });
-      }, (error) => {
-        console.error("Error fetching projects:", error);
-      });
-
-      return () => {
-        unsubscribeProjects();
-        if (unsubscribeWorkspaces) {
-          unsubscribeWorkspaces();
-        }
-      };
-    }
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, isAuthReady, setProjects]);
 };

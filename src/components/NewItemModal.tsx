@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Users, Briefcase, FileText, Search, Check, Folder } from 'lucide-react';
-import { collection, getDocs, db } from '../db';
+import { supabase } from '../supabase';
 import { Project } from '../types';
 
 interface NewItemModalProps {
@@ -34,24 +34,23 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [usersSnap, rolesSnap] = await Promise.all([
-          getDocs(collection(db, 'users')),
-          getDocs(collection(db, 'roles'))
+        const [usersRes, rolesRes] = await Promise.all([
+          supabase.from('users').select('*'),
+          supabase.from('roles').select('name'),
         ]);
-        
-        const usersList: DbUser[] = [];
-        usersSnap.docs.forEach((doc: any) => {
-          const data = doc.data();
-          usersList.push({
-            id: doc.id,
-            name: data.displayName || data.email || 'İsimsiz Kullanıcı',
-            role: data.role || 'Kullanıcı',
-            email: data.email || ''
-          });
+
+        const usersList: DbUser[] = (usersRes.data || []).map((u: any) => {
+          const fullName = `${u.name || ''} ${u.surname || ''}`.trim();
+          return {
+            id: u.uid,
+            name: fullName || u.username || u.email || 'İsimsiz Kullanıcı',
+            role: u.role || 'Kullanıcı',
+            email: u.email || '',
+          };
         });
         setDbUsers(usersList);
 
-        const fetchedRoles = rolesSnap.docs.map((d: any) => d.data().name);
+        const fetchedRoles = (rolesRes.data || []).map((d: any) => d.name);
         if (fetchedRoles.length > 0) {
           setRoles(fetchedRoles);
         } else {

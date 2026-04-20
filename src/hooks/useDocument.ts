@@ -1,6 +1,7 @@
 import { Type } from "@google/genai";
 import { useStore } from '../store/useStore';
-import { db, doc, setDoc, serverTimestamp } from '../db';
+import { supabase } from '../supabase';
+import { nowIso } from '../lib/mapping';
 import { DocumentData } from '../types';
 import { callGemini } from '../services/geminiService';
 import { buildSystemPrompt } from '../services/promptEngine';
@@ -66,11 +67,13 @@ JSON formatında, aşağıdaki alanları içeren bir obje döndür:
       const newDoc = JSON.parse(response.text);
       setDocumentContent(newDoc);
 
-      const docRef = doc(db, 'workspaces', currentWorkspaceId, 'documents', 'main');
-      await setDoc(docRef, {
+      await supabase.from('documents').upsert({
+        id: 'main',
+        workspace_id: currentWorkspaceId,
         content: newDoc,
-        lastUpdated: serverTimestamp(),
-        updatedBy: 'System'
+        last_updated: nowIso(),
+        updated_at: nowIso(),
+        updated_by: 'System',
       });
 
     } catch (error) {
@@ -85,11 +88,13 @@ JSON formatında, aşağıdaki alanları içeren bir obje döndür:
     setDocumentContent(newContent);
     
     try {
-      const docRef = doc(db, 'workspaces', currentWorkspaceId, 'documents', 'main');
-      await setDoc(docRef, {
+      await supabase.from('documents').upsert({
+        id: 'main',
+        workspace_id: currentWorkspaceId,
         content: newContent,
-        lastUpdated: serverTimestamp(),
-        updatedBy: 'User'
+        last_updated: nowIso(),
+        updated_at: nowIso(),
+        updated_by: 'User',
       });
     } catch (error) {
       console.error("Error updating document:", error);

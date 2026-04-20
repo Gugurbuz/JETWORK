@@ -1,28 +1,31 @@
 import { create } from 'zustand';
 import { Message } from '../types';
-import { db, collection, query, orderBy, onSnapshot } from '../db';
+import { supabase } from '../supabase';
+import { rowsToCamel, rowToCamel } from '../lib/mapping';
 
 interface MessageStore {
   messagesByWorkspace: Record<string, Message[]>;
   activeListeners: Record<string, () => void>;
-  
-  // Initialize or get messages for a workspace
+
   getMessages: (workspaceId: string) => Message[];
-  
-  // Start listening to a workspace if not already listening
   subscribeToWorkspace: (workspaceId: string, onLoaded?: () => void) => void;
-  
-  // Stop listening to a workspace
   unsubscribeFromWorkspace: (workspaceId: string) => void;
-  
-  // Add a temporary/optimistic message
   addOptimisticMessage: (workspaceId: string, message: Message) => void;
-  
-  // Update messages (used internally by the listener or for optimistic updates)
   setMessages: (workspaceId: string, updater: (prev: Message[]) => Message[]) => void;
-  
-  // Clear all messages and listeners (e.g., on logout)
   clearAll: () => void;
+}
+
+async function loadMessages(workspaceId: string): Promise<Message[]> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('Error fetching messages:', error);
+    return [];
+  }
+  return rowsToCamel<Message>(data);
 }
 
 export const useMessageStore = create<MessageStore>((set, get) => ({
@@ -40,15 +43,14 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
       return {
         messagesByWorkspace: {
           ...state.messagesByWorkspace,
-          [workspaceId]: newMessages
-        }
+          [workspaceId]: newMessages,
+        },
       };
     });
   },
 
   addOptimisticMessage: (workspaceId: string, message: Message) => {
     get().setMessages(workspaceId, (prev) => {
-      // Don't add if it already exists
       if (prev.some(m => m.id === message.id)) return prev;
       return [...prev, message].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     });
@@ -56,53 +58,76 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
   subscribeToWorkspace: (workspaceId: string, onLoaded?: () => void) => {
     const { activeListeners, setMessages } = get();
-    
-    // If already listening, just trigger onLoaded and return
+
     if (activeListeners[workspaceId]) {
       if (onLoaded) onLoaded();
       return;
     }
 
-    const messagesQuery = query(collection(db, 'workspaces', workspaceId, 'messages'), orderBy('createdAt', 'asc'));
-    
-    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toMillis() || Date.now()
-      })) as Message[];
-      
+    const mergeServerMessages = (msgs: Message[]) => {
       setMessages(workspaceId, (prev) => {
-        // Keep typing messages and optimistic messages (those without a server timestamp yet, or very recent ones)
         const typingMessages = prev.filter(m => m.isTyping);
-        const optimisticMessages = prev.filter(m => 
-          !m.isTyping && 
-          !msgs.some(sm => sm.id === m.id) && 
-          (Date.now() - (m.createdAt || 0) < 5000) // Keep optimistic messages for up to 5 seconds
+        const optimisticMessages = prev.filter(m =>
+          !m.isTyping &&
+          !msgs.some(sm => sm.id === m.id) &&
+          (Date.now() - (m.createdAt || 0) < 5000)
         );
-        
+
         const newMsgs = [...msgs, ...optimisticMessages];
-        
+
         typingMessages.forEach(tm => {
           if (!newMsgs.some(m => m.id === tm.id)) {
             newMsgs.push(tm);
           }
         });
-        
+
         return newMsgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
       });
+    };
 
-      if (onLoaded) onLoaded();
-    }, (error) => {
-      console.error("Error fetching messages:", error);
+    loadMessages(workspaceId).then((msgs) => {
+      mergeServerMessages(msgs);
       if (onLoaded) onLoaded();
     });
+
+    const channel = supabase
+      .channel(`messages-${workspaceId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'messages', filter: `workspace_id=eq.${workspaceId}` },
+        (payload) => {
+          setMessages(workspaceId, (prev) => {
+            if (payload.eventType === 'DELETE') {
+              const removedId = (payload.old as any)?.id;
+              return prev.filter(m => m.id !== removedId);
+            }
+
+            const incoming = rowToCamel<Message>(payload.new);
+            if (!incoming) return prev;
+
+            const idx = prev.findIndex(m => m.id === incoming.id);
+            let next: Message[];
+            if (idx >= 0) {
+              next = [...prev];
+              next[idx] = { ...prev[idx], ...incoming };
+            } else {
+              next = [...prev, incoming];
+            }
+            return next.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+          });
+        }
+      )
+      .subscribe();
+
+    const unsubscribe = () => {
+      supabase.removeChannel(channel);
+    };
 
     set((state) => ({
       activeListeners: {
         ...state.activeListeners,
-        [workspaceId]: unsubscribe
-      }
+        [workspaceId]: unsubscribe,
+      },
     }));
   },
 
@@ -123,5 +148,5 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     const { activeListeners } = get();
     Object.values(activeListeners).forEach(unsubscribe => unsubscribe());
     set({ messagesByWorkspace: {}, activeListeners: {} });
-  }
+  },
 }));

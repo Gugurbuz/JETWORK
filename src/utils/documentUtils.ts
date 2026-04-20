@@ -1,22 +1,27 @@
-import { doc, setDoc, serverTimestamp } from '../db';
+import { supabase } from '../supabase';
 import { DocumentData } from '../types';
-import { db } from '../db';
+import { nowIso } from '../lib/mapping';
 
 export const saveDocumentAndVersion = async (workspaceId: string, messageId: string, content: DocumentData) => {
   try {
-    const docRef = doc(db, 'workspaces', workspaceId, 'documents', 'main');
-    await setDoc(docRef, {
+    const { error: docErr } = await supabase.from('documents').upsert({
+      id: 'main',
+      workspace_id: workspaceId,
       content,
-      updatedAt: serverTimestamp()
+      updated_at: nowIso(),
+      last_updated: nowIso(),
     });
+    if (docErr) throw docErr;
 
-    const versionRef = doc(db, 'workspaces', workspaceId, 'document_versions', messageId);
-    await setDoc(versionRef, {
-      documentId: 'main',
-      messageId,
+    const { error: verErr } = await supabase.from('document_versions').upsert({
+      id: messageId,
+      workspace_id: workspaceId,
+      document_id: 'main',
+      message_id: messageId,
       content,
-      createdAt: serverTimestamp()
+      created_at: nowIso(),
     });
+    if (verErr) throw verErr;
   } catch (err) {
     console.error("Failed to save document and version:", err);
   }
@@ -24,13 +29,15 @@ export const saveDocumentAndVersion = async (workspaceId: string, messageId: str
 
 export const saveRawResponse = async (workspaceId: string, messageId: string, rawText: string, parsedData: any) => {
   try {
-    const rawRef = doc(db, 'workspaces', workspaceId, 'raw_responses', messageId);
-    await setDoc(rawRef, {
-      messageId,
-      rawText,
-      parsedData: parsedData || null,
-      createdAt: serverTimestamp()
+    const { error } = await supabase.from('raw_responses').upsert({
+      id: messageId,
+      workspace_id: workspaceId,
+      message_id: messageId,
+      raw_text: rawText,
+      parsed_data: parsedData || null,
+      created_at: nowIso(),
     });
+    if (error) throw error;
   } catch (err) {
     console.error("Failed to save raw response:", err);
   }

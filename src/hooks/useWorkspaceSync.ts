@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { db, doc, onSnapshot, getDocFromServer, setDoc, serverTimestamp } from '../db';
 import { supabase } from '../supabase';
 import { useMessageStore } from '../store/useMessageStore';
-import { ActiveUser, TypingUser, DocumentData, Message } from '../types';
+import { ActiveUser, Message } from '../types';
 import { ZERO_TOUCH_AGENTS, MOCK_COLLABORATORS } from '../constants';
 import { saveDocumentAndVersion } from '../utils/documentUtils';
 import { User } from './useAuth';
 import { useStore } from '../store/useStore';
+import { nowIso } from '../lib/mapping';
 
 export function useWorkspaceSync(
   currentWorkspaceId: string | null,
@@ -24,7 +24,7 @@ export function useWorkspaceSync(
   const setDocumentContent = useStore(state => state.setDocumentContent);
   const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
   const setIsAiActive = useStore(state => state.setIsAiActive);
-  
+
   const channelRef = useRef<any>(null);
   const sessionId = useRef(Math.random().toString(36).substring(7));
   const currentWorkspaceIdRef = useRef<string | null>(null);
@@ -46,7 +46,6 @@ export function useWorkspaceSync(
     }
   };
 
-  // Manage AI active state based on workspace and zero touch mode
   useEffect(() => {
     if (currentWorkspaceId && !isZeroTouchMode) {
       setIsAiActive(true);
@@ -59,216 +58,230 @@ export function useWorkspaceSync(
     }
   }, [isZeroTouchMode, setIsAiActive]);
 
-  // Join room when workspace changes and fetch messages
   useEffect(() => {
-    if (currentWorkspaceId && user && isAuthReady) {
-      // 1. Load from cache immediately for instant UI if store is empty
-      let existingMessages = useMessageStore.getState().messagesByWorkspace[currentWorkspaceId];
-      let hasExistingMessages = existingMessages && existingMessages.length > 0;
-      const isAlreadyListening = !!useMessageStore.getState().activeListeners[currentWorkspaceId];
-      
-      if (!hasExistingMessages && !isAlreadyListening) {
-        const cachedMessages = localStorage.getItem(`jetwork_messages_${currentWorkspaceId}`);
-        if (cachedMessages) {
-          try {
-            const parsed = JSON.parse(cachedMessages);
-            if (parsed && parsed.length > 0) {
-              setMessages(parsed);
-              hasExistingMessages = true;
-            }
-          } catch (e) {
-            console.error("Failed to parse cached messages", e);
-          }
-        }
-      }
-      
-      const cachedDoc = localStorage.getItem(`jetwork_document_${currentWorkspaceId}`);
-      if (cachedDoc) {
+    if (!currentWorkspaceId || !user || !isAuthReady) {
+      setDocumentContent(null);
+      return;
+    }
+
+    let existingMessages = useMessageStore.getState().messagesByWorkspace[currentWorkspaceId];
+    let hasExistingMessages = existingMessages && existingMessages.length > 0;
+    const isAlreadyListening = !!useMessageStore.getState().activeListeners[currentWorkspaceId];
+
+    if (!hasExistingMessages && !isAlreadyListening) {
+      const cachedMessages = localStorage.getItem(`jetwork_messages_${currentWorkspaceId}`);
+      if (cachedMessages) {
         try {
-          setDocumentContent(JSON.parse(cachedDoc));
+          const parsed = JSON.parse(cachedMessages);
+          if (parsed && parsed.length > 0) {
+            setMessages(parsed);
+            hasExistingMessages = true;
+          }
         } catch (e) {
-          console.error("Failed to parse cached document", e);
+          console.error('Failed to parse cached messages', e);
         }
       }
-      
-      // Only show loading spinner if we don't have messages in memory or cache AND we aren't already listening
-      if (!hasExistingMessages && !isAlreadyListening) {
-        setIsLoadingWorkspace(true);
+    }
+
+    const cachedDoc = localStorage.getItem(`jetwork_document_${currentWorkspaceId}`);
+    if (cachedDoc) {
+      try {
+        setDocumentContent(JSON.parse(cachedDoc));
+      } catch (e) {
+        console.error('Failed to parse cached document', e);
       }
-      
-      setTypingUsers([]);
+    }
 
-      // Initialize Supabase Channel
-      const channel = supabase.channel(`workspace_${currentWorkspaceId}`, {
-        config: {
-          presence: {
-            key: sessionId.current,
-          },
+    if (!hasExistingMessages && !isAlreadyListening) {
+      setIsLoadingWorkspace(true);
+    }
+
+    setTypingUsers([]);
+
+    const channel = supabase.channel(`workspace_${currentWorkspaceId}`, {
+      config: {
+        presence: {
+          key: sessionId.current,
         },
-      });
+      },
+    });
 
-      channel
-        .on('presence', { event: 'sync' }, () => {
-          const state = channel.presenceState();
-          const users: ActiveUser[] = [];
-          for (const key in state) {
-            const presence = state[key][0] as any;
-            if (presence) {
-              users.push({ id: key, name: presence.userName, role: 'User' });
-            }
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const users: ActiveUser[] = [];
+        for (const key in state) {
+          const presence = (state[key][0] as any);
+          if (presence) {
+            users.push({ id: key, name: presence.userName, role: 'User' });
           }
-          setActiveUsers(users);
-        })
-        .on('broadcast', { event: 'typing_start' }, ({ payload }) => {
-          setTypingUsers(prev => {
-            if (!prev.find(u => u.userId === payload.userId)) return [...prev, payload];
-            return prev;
-          });
-        })
-        .on('broadcast', { event: 'typing_end' }, ({ payload }) => {
-          setTypingUsers(prev => prev.filter(u => u.userId !== payload.userId));
-        })
-        .on('broadcast', { event: 'ai_stream_chunk' }, ({ payload: data }) => {
-          setMessages(prev => {
-            const exists = prev.find(m => m.id === data.id);
-            
-            const derivedSenderName = data.senderName || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
-            const derivedSenderRole = data.senderRole || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
+        }
+        setActiveUsers(users);
+      })
+      .on('broadcast', { event: 'typing_start' }, ({ payload }) => {
+        setTypingUsers(prev => {
+          if (!prev.find(u => u.userId === payload.userId)) return [...prev, payload];
+          return prev;
+        });
+      })
+      .on('broadcast', { event: 'typing_end' }, ({ payload }) => {
+        setTypingUsers(prev => prev.filter(u => u.userId !== payload.userId));
+      })
+      .on('broadcast', { event: 'ai_stream_chunk' }, ({ payload: data }) => {
+        setMessages(prev => {
+          const exists = prev.find(m => m.id === data.id);
+          const derivedSenderName = data.senderName || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
+          const derivedSenderRole = data.senderRole || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
 
-            if (exists) {
-              return prev.map(m => m.id === data.id ? { 
-                ...m, 
-                text: data.text, 
-                thinkingText: data.thinkingText,
-                score: data.score,
-                scoreExplanation: data.scoreExplanation,
-                questions: data.questions,
-                ...(derivedSenderName ? { senderName: derivedSenderName } : {}),
-                ...(derivedSenderRole ? { senderRole: derivedSenderRole } : {}),
-                ...(data.agentRole ? { agentRole: data.agentRole } : {}),
-                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-              } : m);
-            } else {
-              return [...prev, {
-                id: data.id,
-                role: 'model',
-                text: data.text,
-                thinkingText: data.thinkingText,
-                senderName: derivedSenderName || 'JetWork AI',
-                senderRole: derivedSenderRole || 'Sistem Asistanı',
-                agentRole: data.agentRole,
-                score: data.score,
-                scoreExplanation: data.scoreExplanation,
-                questions: data.questions,
-                isTyping: true,
-                createdAt: Date.now(),
-                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-              }];
-            }
-          });
-        })
-        .on('broadcast', { event: 'ai_stream_end' }, ({ payload: data }) => {
-          setMessages(prev => {
-            const exists = prev.find(m => m.id === data.id);
-            if (exists) {
-              return prev.map(m => m.id === data.id ? { 
-                ...m, 
-                text: data.text, 
-                thinkingText: data.thinkingText, 
-                isTyping: false,
-                score: data.score,
-                scoreExplanation: data.scoreExplanation,
-                questions: data.questions,
-                createdAt: Date.now(),
-                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-              } : m);
-            } else {
-              return [...prev, {
-                id: data.id,
-                role: 'model',
-                text: data.text,
-                thinkingText: data.thinkingText,
-                senderName: data.senderName || 'JetWork AI',
-                senderRole: data.senderRole || 'Sistem Asistanı',
-                agentRole: data.agentRole,
-                score: data.score,
-                scoreExplanation: data.scoreExplanation,
-                questions: data.questions,
-                isTyping: false,
-                createdAt: Date.now(),
-                ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {})
-              }];
-            }
-          });
-        })
-        .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            await channel.track({ userName: user.name });
+          if (exists) {
+            return prev.map(m => m.id === data.id ? {
+              ...m,
+              text: data.text,
+              thinkingText: data.thinkingText,
+              score: data.score,
+              scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
+              ...(derivedSenderName ? { senderName: derivedSenderName } : {}),
+              ...(derivedSenderRole ? { senderRole: derivedSenderRole } : {}),
+              ...(data.agentRole ? { agentRole: data.agentRole } : {}),
+              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {}),
+            } : m);
+          } else {
+            return [...prev, {
+              id: data.id,
+              role: 'model',
+              text: data.text,
+              thinkingText: data.thinkingText,
+              senderName: derivedSenderName || 'JetWork AI',
+              senderRole: derivedSenderRole || 'Sistem Asistanı',
+              agentRole: data.agentRole,
+              score: data.score,
+              scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
+              isTyping: true,
+              createdAt: Date.now(),
+              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {}),
+            }];
           }
         });
-
-      channelRef.current = channel;
-      
-      let workspaceLoaded = false;
-      let messagesLoaded = hasExistingMessages || isAlreadyListening; // If we already have messages or are listening, consider them loaded
-      let documentLoaded = false;
-
-      const checkLoading = () => {
-        if (workspaceLoaded && messagesLoaded && documentLoaded) {
-          setIsLoadingWorkspace(false);
+      })
+      .on('broadcast', { event: 'ai_stream_end' }, ({ payload: data }) => {
+        setMessages(prev => {
+          const exists = prev.find(m => m.id === data.id);
+          if (exists) {
+            return prev.map(m => m.id === data.id ? {
+              ...m,
+              text: data.text,
+              thinkingText: data.thinkingText,
+              isTyping: false,
+              score: data.score,
+              scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
+              createdAt: Date.now(),
+              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {}),
+            } : m);
+          } else {
+            return [...prev, {
+              id: data.id,
+              role: 'model',
+              text: data.text,
+              thinkingText: data.thinkingText,
+              senderName: data.senderName || 'JetWork AI',
+              senderRole: data.senderRole || 'Sistem Asistanı',
+              agentRole: data.agentRole,
+              score: data.score,
+              scoreExplanation: data.scoreExplanation,
+              questions: data.questions,
+              isTyping: false,
+              createdAt: Date.now(),
+              ...(data.groundingUrls ? { groundingUrls: data.groundingUrls } : {}),
+            }];
+          }
+        });
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ userName: user.name });
         }
-      };
+      });
 
-      const workspaceRef = doc(db, 'workspaces', currentWorkspaceId);
-      const unsubscribeWorkspace = onSnapshot(workspaceRef, (docSnap) => {
+    channelRef.current = channel;
+
+    let workspaceLoaded = false;
+    let messagesLoaded = hasExistingMessages || isAlreadyListening;
+    let documentLoaded = false;
+
+    const checkLoading = () => {
+      if (workspaceLoaded && messagesLoaded && documentLoaded) {
+        setIsLoadingWorkspace(false);
+      }
+    };
+
+    // Load workspace once (realtime workspace changes handled in useWorkspaceChannel)
+    supabase
+      .from('workspaces')
+      .select('id')
+      .eq('id', currentWorkspaceId)
+      .maybeSingle()
+      .then(() => {
         workspaceLoaded = true;
         checkLoading();
-      }, (error) => {
-        console.error("Error fetching workspace:", error);
-        workspaceLoaded = true;
-        checkLoading();
       });
 
-      const documentRef = doc(db, 'workspaces', currentWorkspaceId, 'documents', 'main');
-      const unsubscribeDocument = onSnapshot(documentRef, (docSnap) => {
-        if (docSnap.exists()) {
-          setDocumentContent(docSnap.data().content || null);
-        } else {
-          setDocumentContent(null);
+    // Load document and subscribe to changes
+    const loadDocument = async () => {
+      const { data, error } = await supabase
+        .from('documents')
+        .select('content')
+        .eq('id', 'main')
+        .eq('workspace_id', currentWorkspaceId)
+        .maybeSingle();
+      if (error) {
+        console.error('Error fetching document:', error);
+      }
+      setDocumentContent(data?.content ?? null);
+      documentLoaded = true;
+      checkLoading();
+    };
+    loadDocument();
+
+    const documentChannel = supabase
+      .channel(`document_${currentWorkspaceId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'documents', filter: `workspace_id=eq.${currentWorkspaceId}` },
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            setDocumentContent(null);
+          } else {
+            const newRow = payload.new as any;
+            if (newRow?.id === 'main') {
+              setDocumentContent(newRow.content ?? null);
+            }
+          }
         }
-        documentLoaded = true;
-        checkLoading();
-      }, (error) => {
-        console.error("Error fetching document:", error);
-        documentLoaded = true;
-        checkLoading();
-      });
+      )
+      .subscribe();
 
-      useMessageStore.getState().subscribeToWorkspace(currentWorkspaceId, () => {
-        messagesLoaded = true;
-        checkLoading();
-      });
+    useMessageStore.getState().subscribeToWorkspace(currentWorkspaceId, () => {
+      messagesLoaded = true;
+      checkLoading();
+    });
 
-      return () => {
-        supabase.removeChannel(channel);
-        channelRef.current = null;
-        unsubscribeWorkspace();
-        unsubscribeDocument();
-        useMessageStore.getState().unsubscribeFromWorkspace(currentWorkspaceId);
-      };
-    } else {
-      setDocumentContent(null);
-    }
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(documentChannel);
+      channelRef.current = null;
+      useMessageStore.getState().unsubscribeFromWorkspace(currentWorkspaceId);
+    };
   }, [currentWorkspaceId, user, isAuthReady]);
 
-  // Save messages to cache
   useEffect(() => {
     if (currentWorkspaceId && messages.length > 0) {
       localStorage.setItem(`jetwork_messages_${currentWorkspaceId}`, JSON.stringify(messages));
     }
   }, [messages, currentWorkspaceId]);
 
-  // Save document to cache
   useEffect(() => {
     if (currentWorkspaceId && documentContent) {
       localStorage.setItem(`jetwork_document_${currentWorkspaceId}`, JSON.stringify(documentContent));
@@ -279,62 +292,63 @@ export function useWorkspaceSync(
     return 'JET-' + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   };
 
-  // Restore active workspace state on mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const shareId = urlParams.get('shareId');
 
     if (shareId && user) {
-      // Fetch shared workspace
       const fetchShared = async () => {
         try {
-          const shareRef = doc(db, 'shared_analyses', shareId);
-          const shareSnap = await getDocFromServer(shareRef);
-          
-          if (shareSnap.exists()) {
-            const data = shareSnap.data();
-            const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-            
-            // Check if default project exists, if not create it
-            const defaultProjectRef = doc(db, 'projects', 'default-project');
-            const defaultProjectSnap = await getDocFromServer(defaultProjectRef);
-            
-            if (!defaultProjectSnap.exists()) {
-              await setDoc(defaultProjectRef, {
-                name: 'Varsayılan Proje',
-                description: '',
-                ownerId: user.uid,
-                createdAt: serverTimestamp(),
-                lastUpdated: serverTimestamp()
-              });
-            }
+          const { data: share, error } = await supabase
+            .from('shared_analyses')
+            .select('*')
+            .eq('id', shareId)
+            .maybeSingle();
+          if (error) throw error;
+          if (!share) return;
 
-            // Create the workspace
-            await setDoc(doc(db, 'workspaces', newId), {
-              projectId: 'default-project',
-              issueKey: generateItemCode(),
-              title: 'Paylaşılan Çalışma Alanı',
-              type: 'Development',
-              status: 'Draft',
-              ownerId: user.uid,
-              collaborators: MOCK_COLLABORATORS,
-              createdAt: serverTimestamp(),
-              lastUpdated: serverTimestamp()
+          const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+
+          const { data: defaultProject } = await supabase
+            .from('projects')
+            .select('id')
+            .eq('id', 'default-project')
+            .maybeSingle();
+
+          if (!defaultProject) {
+            await supabase.from('projects').insert({
+              id: 'default-project',
+              name: 'Varsayılan Proje',
+              description: '',
+              owner_id: user.uid,
+              created_at: nowIso(),
+              last_updated: nowIso(),
             });
-            
-            // Save document
-            if (data.data) {
-              await saveDocumentAndVersion(newId, 'initial', data.data);
-            }
-            
-            setCurrentWorkspaceId(newId);
-            setDocumentContent(data.data);
-            
-            // Remove shareId from URL
-            window.history.replaceState({}, document.title, window.location.pathname);
           }
+
+          await supabase.from('workspaces').insert({
+            id: newId,
+            project_id: 'default-project',
+            issue_key: generateItemCode(),
+            title: 'Paylaşılan Çalışma Alanı',
+            type: 'Development',
+            status: 'Draft',
+            owner_id: user.uid,
+            collaborators: MOCK_COLLABORATORS,
+            created_at: nowIso(),
+            last_updated: nowIso(),
+          });
+
+          if (share.data) {
+            await saveDocumentAndVersion(newId, 'initial', share.data);
+          }
+
+          setCurrentWorkspaceId(newId);
+          setDocumentContent(share.data);
+
+          window.history.replaceState({}, document.title, window.location.pathname);
         } catch (error) {
-          console.error("Error fetching shared workspace:", error);
+          console.error('Error fetching shared workspace:', error);
         }
       };
       fetchShared();
@@ -349,6 +363,6 @@ export function useWorkspaceSync(
     setDocumentContent,
     messages,
     setMessages,
-    channelRef
+    channelRef,
   };
 }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, Mail, Lock, User } from 'lucide-react';
-import { signInWithGoogle, signInWithEmailAndPassword, signInWithUsernameOrEmail, createUserWithEmailAndPassword, signInAnonymously, auth } from '../db';
+import { signInWithGoogle, signInWithUsernameOrEmail, createUserWithEmailAndPassword, signInAnonymously } from '../supabase';
 
 interface LandingPageProps {}
 
@@ -45,9 +45,9 @@ export function LandingPage({}: LandingPageProps) {
       setIsLoggingIn(true);
       setErrorMsg('');
       if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, emailOrUsername, password);
+        await createUserWithEmailAndPassword(emailOrUsername, password);
       } else {
-        await signInWithUsernameOrEmail(auth, emailOrUsername, password);
+        await signInWithUsernameOrEmail(emailOrUsername, password);
       }
     } catch (error: any) {
       console.error("Auth failed", error);

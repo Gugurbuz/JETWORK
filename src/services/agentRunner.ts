@@ -2,7 +2,8 @@ import { useStore } from '../store/useStore';
 import { Message, DocumentData } from '../types';
 import { callGemini, callAiWithRetry } from './geminiService';
 import { AgentOrchestrator } from './AgentOrchestrator';
-import { db, doc, setDoc, serverTimestamp } from '../db';
+import { supabase } from '../supabase';
+import { camelToSnake, nowIso } from '../lib/mapping';
 import { useMessageStore } from '../store/useMessageStore';
 
 export const runZeroTouchMode = async (
@@ -86,23 +87,27 @@ export const runZeroTouchMode = async (
     
     setMessages(prev => prev.map(m => m.id === msgId ? finalMsg : m));
 
-    // Save to DB
-    setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', msgId), {
-      ...finalMsg,
-      createdAt: serverTimestamp()
-    }).catch(err => console.error("Error saving AI message:", err));
+    const msgPayload = camelToSnake<Record<string, any>>({ ...finalMsg });
+    msgPayload.workspace_id = currentWorkspaceId;
+    msgPayload.created_at = nowIso();
+    if (user?.uid) msgPayload.owner_id = user.uid;
+    supabase.from('messages').upsert(msgPayload).then(({ error }) => {
+      if (error) console.error("Error saving AI message:", error);
+    });
 
-    // Update document if changed
     if (result.updatedDocument) {
       setDocumentContent(result.updatedDocument);
-      
-      // Save document to DB
-      const docRef = doc(db, 'workspaces', currentWorkspaceId, 'documents', 'main');
-      setDoc(docRef, {
+
+      supabase.from('documents').upsert({
+        id: 'main',
+        workspace_id: currentWorkspaceId,
         content: result.updatedDocument,
-        lastUpdated: serverTimestamp(),
-        updatedBy: 'Orchestrator'
-      }).catch(err => console.error("Error saving document:", err));
+        last_updated: nowIso(),
+        updated_at: nowIso(),
+        updated_by: 'Orchestrator',
+      }).then(({ error }) => {
+        if (error) console.error("Error saving document:", error);
+      });
     }
 
   } catch (error) {

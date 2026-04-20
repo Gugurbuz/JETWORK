@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Download, Play, CheckCircle2, Share2, Printer, Edit3, Save, Users, Bold, Italic, List, ListOrdered, Quote, Heading1, Heading2, Code, Undo, Redo, Table as TableIcon, Image as ImageIcon, Palette, Trello, Link2, Activity, Bot, User, Briefcase, Bug, Sparkles, Terminal, AlertTriangle, AlertCircle } from 'lucide-react';
+import { FileText, Download, Play, CircleCheck as CheckCircle2, Share2, Printer, CreditCard as Edit3, Save, Users, Bold, Italic, List, ListOrdered, Quote, Heading1, Heading2, Code, Undo, Redo, Table as TableIcon, Image as ImageIcon, Palette, Trello, Link2, Activity, Bot, User, Briefcase, Bug, Sparkles, Terminal, TriangleAlert as AlertTriangle, CircleAlert as AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Collaborator, DocumentData, Message, SectionData } from '../types';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BpmnViewer } from './BpmnViewer';
-import { Brain, BarChart3, Clock, Coins, MessageSquare, Bookmark, Eye, RotateCcw } from 'lucide-react';
+import { Brain, ChartBar as BarChart3, Clock, Coins, MessageSquare, Bookmark, Eye, RotateCcw } from 'lucide-react';
 import { DiffViewerModal } from './DiffViewerModal';
 import StarterKit from '@tiptap/starter-kit';
 import { HeadingWithId } from '../lib/heading-with-id';
@@ -21,6 +21,7 @@ import Color from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { ImageWithSize } from '../lib/image-with-size';
 import { useStore } from '../store/useStore';
+import { supabase } from '../supabase';
 
 interface DocumentPanelProps {
   onGenerate: () => void;
@@ -229,12 +230,13 @@ export function DocumentPanel({
     setIsSharing(true);
     try {
       const shareId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-      const { doc, setDoc, serverTimestamp, db } = await import('../db');
-      
-      await setDoc(doc(db, 'shared_analyses', shareId), {
+
+      const { error } = await supabase.from('shared_analyses').insert({
+        id: shareId,
         data: documentContent,
-        createdAt: serverTimestamp()
+        created_at: new Date().toISOString(),
       });
+      if (error) throw error;
       
       const shareUrl = `${window.location.origin}?shareId=${shareId}`;
       await navigator.clipboard.writeText(shareUrl);

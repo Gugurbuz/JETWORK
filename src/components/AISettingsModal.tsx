@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { X, Save, RefreshCw, History, RotateCcw } from 'lucide-react';
-import { db, doc, setDoc } from '../db';
+import { supabase } from '../supabase';
+import { nowIso } from '../lib/mapping';
 import { DEFAULT_PROMPT_SETTINGS } from '../services/promptEngine';
 import { PromptSettings, PromptVersion } from '../types';
 import { toast } from 'sonner';
@@ -50,7 +51,12 @@ export const AISettingsModal: React.FC = () => {
         versions: [newVersion, ...(localSettings.versions || [])].slice(0, 20) // Keep last 20 versions
       };
 
-      await setDoc(doc(db, 'settings', 'prompts'), updatedSettings);
+      const { error } = await supabase.from('settings').upsert({
+        id: 'prompts',
+        data: updatedSettings,
+        updated_at: nowIso(),
+      });
+      if (error) throw error;
       
       setPromptSettings(updatedSettings);
       setLocalSettings(updatedSettings);

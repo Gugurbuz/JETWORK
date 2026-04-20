@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, ChevronDown, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone, Edit2, Trash2, FileText } from 'lucide-react';
+import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, ChevronDown, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone, CreditCard as Edit2, Trash2, FileText } from 'lucide-react';
 import { Project, Workspace } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -8,7 +8,7 @@ import { useStore } from '../store/useStore';
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
 interface SidebarProps {
-  user: { name: string; role: string } | null;
+  user: { name: string; role: string; color?: string } | null;
   onSelectWorkspace: (id: string) => void;
   onSelectProject: (id: string) => void;
   onEditProject?: (project: Project) => void;

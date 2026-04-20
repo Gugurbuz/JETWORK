@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, User, Briefcase } from 'lucide-react';
-import { doc, updateDoc, db, auth, getDocs, collection } from '../db';
+import { supabase } from '../supabase';
 import { OnboardingInputSchema } from '../schemas';
 
 interface OnboardingPageProps {
@@ -21,8 +21,9 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const rolesSnap = await getDocs(collection(db, 'roles'));
-        const fetchedRoles = rolesSnap.docs.map((d: any) => d.data().name);
+        const { data, error } = await supabase.from('roles').select('name');
+        if (error) throw error;
+        const fetchedRoles = (data || []).map((d: any) => d.name);
         if (fetchedRoles.length > 0) {
           setRoles(fetchedRoles);
           setRole(fetchedRoles[0]);
@@ -55,14 +56,17 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
       setIsSaving(true);
       setErrorMsg('');
 
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        displayName: parsed.username, // db.ts'de 'username' sütununa mapleniyor
-        name: parsed.firstName,
-        surname: parsed.lastName,
-        role: parsed.role,
-        onboardingCompleted: true
-      });
+      const { error } = await supabase
+        .from('users')
+        .update({
+          username: parsed.username,
+          name: parsed.firstName,
+          surname: parsed.lastName,
+          role: parsed.role,
+          onboarding_completed: true,
+        })
+        .eq('uid', user.uid);
+      if (error) throw error;
 
       const fullName = `${parsed.firstName} ${parsed.lastName}`.trim();
       onComplete({

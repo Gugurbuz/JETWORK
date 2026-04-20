@@ -1,80 +1,71 @@
 import { useEffect } from 'react';
-import { db, collection, query, orderBy, onSnapshot } from '../db';
+import { supabase } from '../supabase';
 import { Project, Workspace } from '../types';
 import { User } from './useAuth';
 import { useStore } from '../store/useStore';
+import { rowsToCamel } from '../lib/mapping';
+
+async function loadAll(user: User, setProjects: (projects: Project[]) => void) {
+  try {
+    const [projectsRes, workspacesRes] = await Promise.all([
+      supabase.from('projects').select('*').order('created_at', { ascending: false }),
+      supabase.from('workspaces').select('*').order('created_at', { ascending: false }),
+    ]);
+
+    if (projectsRes.error) throw projectsRes.error;
+    if (workspacesRes.error) throw workspacesRes.error;
+
+    const projectsData = rowsToCamel<Project>(projectsRes.data).map(p => ({
+      ...p,
+      workspaces: [] as Workspace[],
+    }));
+
+    const workspacesData = rowsToCamel<Workspace>(workspacesRes.data).map(w => ({
+      ...w,
+      issueKey: w.issueKey || `JET-${String(w.id).substring(0, 4).toUpperCase()}`,
+      messages: [] as any[],
+    }));
+
+    const myWorkspaces = workspacesData.filter(w =>
+      w.ownerId === user.uid ||
+      (w.collaborators && w.collaborators.some((c: any) => c.email === user.email))
+    );
+
+    const combinedProjects = projectsData
+      .map(p => ({
+        ...p,
+        workspaces: myWorkspaces.filter(w => w.projectId === p.id),
+      }))
+      .filter(p => p.ownerId === user.uid || p.workspaces.length > 0);
+
+    setProjects(combinedProjects);
+  } catch (error) {
+    console.error('Error loading projects/workspaces:', error);
+  }
+}
 
 export function useProjects(user: User | null, isAuthReady: boolean) {
   const projects = useStore(state => state.projects);
   const setProjects = useStore(state => state.setProjects);
 
   useEffect(() => {
-    if (user && isAuthReady) {
-      // Sadece kullanıcının dahil olduğu projeleri ve çalışma alanlarını getir
-      const projectsQuery = query(
-        collection(db, 'projects'),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const workspacesQuery = query(
-        collection(db, 'workspaces'),
-        orderBy('createdAt', 'desc')
-      );
+    if (!user || !isAuthReady) return;
 
-      let unsubscribeWorkspaces: (() => void) | undefined = undefined;
+    loadAll(user, setProjects);
 
-      const unsubscribeProjects = onSnapshot(projectsQuery, (projectsSnapshot) => {
-        const projectsData = projectsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toMillis() || Date.now(),
-          lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
-          workspaces: []
-        })) as Project[];
+    const channel = supabase
+      .channel('projects-workspaces')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        loadAll(user, setProjects);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workspaces' }, () => {
+        loadAll(user, setProjects);
+      })
+      .subscribe();
 
-        if (unsubscribeWorkspaces) {
-          unsubscribeWorkspaces();
-        }
-
-        unsubscribeWorkspaces = onSnapshot(workspacesQuery, (workspacesSnapshot) => {
-          const workspacesData = workspacesSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            issueKey: doc.data().issueKey || `JET-${doc.id.substring(0, 4).toUpperCase()}`,
-            createdAt: doc.data().createdAt?.toMillis() || Date.now(),
-            lastUpdated: doc.data().lastUpdated?.toMillis() || Date.now(),
-            messages: []
-          })) as Workspace[];
-
-          // Filter workspaces: User must be owner OR in collaborators list
-          const myWorkspaces = workspacesData.filter(w => 
-            w.ownerId === user.uid || 
-            (w.collaborators && w.collaborators.some((c: any) => c.email === user.email))
-          );
-
-          // Filter projects: User must be owner OR have a workspace in it
-          const combinedProjects = projectsData
-            .map(p => ({
-              ...p,
-              workspaces: myWorkspaces.filter(w => w.projectId === p.id)
-            }))
-            .filter(p => p.ownerId === user.uid || p.workspaces.length > 0);
-
-          setProjects(combinedProjects);
-        }, (error) => {
-          console.error("Error fetching workspaces:", error);
-        });
-      }, (error) => {
-        console.error("Error fetching projects:", error);
-      });
-
-      return () => {
-        unsubscribeProjects();
-        if (unsubscribeWorkspaces) {
-          unsubscribeWorkspaces();
-        }
-      };
-    }
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user, isAuthReady, setProjects]);
 
   return { projects, setProjects };

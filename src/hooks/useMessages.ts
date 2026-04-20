@@ -1,6 +1,7 @@
 import { useStore } from '../store/useStore';
-import { db, doc, setDoc, updateDoc, serverTimestamp } from '../db';
+import { supabase } from '../supabase';
 import { Message, DocumentData, SectionData } from '../types';
+import { camelToSnake, nowIso } from '../lib/mapping';
 import { runZeroTouchMode } from '../services/agentRunner';
 import { callGemini, callAiWithRetry } from '../services/geminiService';
 import { chatResponseJsonSchema } from '../schemas';
@@ -110,14 +111,17 @@ export const useMessages = (channelRef: any) => {
     setMessages(prev => [...prev, newMsg]);
 
     try {
-      await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', msgId), {
-        ...newMsg,
-        ownerId: user.uid,
-        createdAt: serverTimestamp()
-      });
-      await updateDoc(doc(db, 'workspaces', currentWorkspaceId), {
-        lastUpdated: serverTimestamp()
-      });
+      const payload = camelToSnake<Record<string, any>>({ ...newMsg, ownerId: user.uid });
+      payload.workspace_id = currentWorkspaceId;
+      payload.created_at = nowIso();
+      const { error } = await supabase.from('messages').upsert(payload);
+      if (error) throw error;
+
+      const { error: wsErr } = await supabase
+        .from('workspaces')
+        .update({ last_updated: nowIso() })
+        .eq('id', currentWorkspaceId);
+      if (wsErr) throw wsErr;
     } catch (err) {
       console.error("Failed to save user message to database:", err);
     }
@@ -294,10 +298,11 @@ export const useMessages = (channelRef: any) => {
             } 
           });
           
-          await setDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', aiMsgId), {
-            ...finalMsg,
-            createdAt: serverTimestamp()
-          });
+          const aiPayload = camelToSnake<Record<string, any>>({ ...finalMsg });
+          aiPayload.workspace_id = currentWorkspaceId;
+          aiPayload.created_at = nowIso();
+          const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
+          if (aiErr) throw aiErr;
 
           if (finalDocument && Object.keys(finalDocument).length > 0) {
             await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, finalDocument);
@@ -365,9 +370,12 @@ export const useMessages = (channelRef: any) => {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions: newReactions } : m));
 
     try {
-      await updateDoc(doc(db, 'workspaces', currentWorkspaceId, 'messages', messageId), {
-        reactions: newReactions
-      });
+      const { error } = await supabase
+        .from('messages')
+        .update({ reactions: newReactions })
+        .eq('id', messageId)
+        .eq('workspace_id', currentWorkspaceId);
+      if (error) throw error;
     } catch (error) {
       console.error("Error updating reaction:", error);
     }
@@ -455,7 +463,7 @@ export const useMessages = (channelRef: any) => {
       state.setDocumentContent(htmlData);
       
       try {
-        await updateDoc(doc(db, 'workspaces', currentWorkspaceId), { lastUpdated: serverTimestamp() });
+        await supabase.from('workspaces').update({ last_updated: nowIso() }).eq('id', currentWorkspaceId);
         await saveDocumentAndVersion(currentWorkspaceId, `gen-${Date.now()}`, htmlData);
       } catch (err) {
         console.error("Failed to save generated document to database:", err);

@@ -4,9 +4,9 @@ import { Project, Message, ActiveUser, TypingUser } from '../types';
 export interface UserShape {
   uid: string;
   name: string;
-  username?: string;
-  firstName?: string;
-  lastName?: string;
+  username: string;
+  firstName: string;
+  lastName: string;
   role: string;
   email: string | null;
   photoURL: string | null;
