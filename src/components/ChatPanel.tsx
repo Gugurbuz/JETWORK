@@ -267,16 +267,7 @@ const MessageItem = memo(({
           </div>
         ) : (
           <div className="w-8 h-8 flex items-center justify-center">
-            <JetWorkLogo 
-              className="w-8 h-8" 
-              color={
-                msg.agentRole === 'BA' ? "#3b82f6" : // blue-500
-                msg.agentRole === 'IT' ? "#a855f7" : // purple-500
-                msg.agentRole === 'QA' ? "#22c55e" : // green-500
-                msg.agentRole === 'Orchestrator' ? "#f59e0b" : // amber-500
-                "var(--theme-primary)"
-              } 
-            />
+            <JetWorkLogo className="w-8 h-8" />
           </div>
         )}
       </div>
@@ -1247,7 +1238,7 @@ export function ChatPanel({
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
                     <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                      <JetWorkLogo className="w-6 h-6" color="var(--theme-primary)" />
+                      <JetWorkLogo className="w-6 h-6" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">JetWork AI</span>
@@ -1260,7 +1251,7 @@ export function ChatPanel({
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
                     <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                      <JetWorkLogo className="w-6 h-6" color="#3b82f6" />
+                      <JetWorkLogo className="w-6 h-6" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">İş Analisti (BA)</span>
@@ -1273,7 +1264,7 @@ export function ChatPanel({
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
                     <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                      <JetWorkLogo className="w-6 h-6" color="#a855f7" />
+                      <JetWorkLogo className="w-6 h-6" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">Yazılım Mimarı (IT)</span>
@@ -1286,7 +1277,7 @@ export function ChatPanel({
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
                     <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                      <JetWorkLogo className="w-6 h-6" color="#22c55e" />
+                      <JetWorkLogo className="w-6 h-6" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">Test Uzmanı (QA)</span>
@@ -1299,7 +1290,7 @@ export function ChatPanel({
                     className="w-full flex items-center gap-3 px-3 py-2 hover:bg-theme-surface-hover transition-colors text-left"
                   >
                     <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                      <JetWorkLogo className="w-6 h-6" color="#f59e0b" />
+                      <JetWorkLogo className="w-6 h-6" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-xs font-semibold text-theme-text">Product Owner (PO)</span>
