@@ -21,7 +21,7 @@ export function useProjects(user: User | null, isAuthReady: boolean) {
         orderBy('createdAt', 'desc')
       );
 
-      let unsubscribeWorkspaces: () => void;
+      let unsubscribeWorkspaces: (() => void) | undefined = undefined;
 
       const unsubscribeProjects = onSnapshot(projectsQuery, (projectsSnapshot) => {
         const projectsData = projectsSnapshot.docs.map(doc => ({
