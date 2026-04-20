@@ -11,6 +11,7 @@ import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
+import { useMessageStore } from '../store/useMessageStore';
 
 const extractChatParts = (raw: string): { message: string; thinking?: string; questions?: any[]; actionSummary?: string } => {
   if (!raw) return { message: '' };
@@ -51,15 +52,30 @@ const processSection = (data: any, existing?: SectionData, parseMarkdown = true)
 };
 
 export const useMessages = (channelRef: any) => {
-  const { 
-    user, 
-    currentWorkspaceId, 
-    setMessages, 
-    setShowNewItemModal, 
-    isZeroTouchMode, 
+  const {
+    user,
+    currentWorkspaceId,
+    setShowNewItemModal,
+    isZeroTouchMode,
     setIsGenerating,
     selectedModel
   } = useStore();
+
+  const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    const id = currentWorkspaceId;
+    if (!id) return;
+    if (typeof updater === 'function') {
+      useMessageStore.getState().setMessages(id, updater);
+    } else {
+      useMessageStore.getState().setMessages(id, () => updater);
+    }
+  };
+
+  const getCurrentMessages = (): Message[] => {
+    const id = currentWorkspaceId;
+    if (!id) return [];
+    return useMessageStore.getState().messagesByWorkspace[id] || [];
+  };
 
   const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => {
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
@@ -176,7 +192,7 @@ export const useMessages = (channelRef: any) => {
     const contextWindowSize = promptSettings?.contextWindowSize ?? 10;
 
     try {
-      const currentMessages = state.messages;
+      const currentMessages = getCurrentMessages();
       const documentContent = state.documentContent;
       
       // 1. Hybrid Search (RAG)
@@ -319,7 +335,7 @@ export const useMessages = (channelRef: any) => {
       } : m));
       
       if (channelRef.current) {
-        const finalMsg = useStore.getState().messages.find(m => m.id === aiMsgId);
+        const finalMsg = getCurrentMessages().find(m => m.id === aiMsgId);
         if (finalMsg) {
           channelRef.current.send({ 
             type: 'broadcast', 
@@ -380,8 +396,7 @@ export const useMessages = (channelRef: any) => {
   const handleToggleReaction = async (messageId: string, emoji: string) => {
     if (!user || !currentWorkspaceId) return;
     
-    const state = useStore.getState();
-    const message = state.messages.find(m => m.id === messageId);
+    const message = getCurrentMessages().find(m => m.id === messageId);
     if (!message) return;
 
     const currentReactions = message.reactions || [];
@@ -435,7 +450,7 @@ export const useMessages = (channelRef: any) => {
 
   const handleGenerateDocument = async () => {
     const state = useStore.getState();
-    const messages = state.messages;
+    const messages = getCurrentMessages();
     if (messages.length === 0 || !currentWorkspaceId) return;
     useStore.getState().setIsGeneratingDocument(true);
     

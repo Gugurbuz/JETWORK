@@ -6,17 +6,20 @@ import { DocumentData } from '../types';
 import { callGemini } from '../services/geminiService';
 import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { marked } from 'marked';
+import { useMessageStore } from '../store/useMessageStore';
 
 export const useDocument = () => {
-  const { 
-    currentWorkspaceId, 
-    documentContent, 
-    setDocumentContent, 
-    setIsGeneratingDocument, 
-    messages, 
+  const {
+    currentWorkspaceId,
+    documentContent,
+    setDocumentContent,
+    setIsGeneratingDocument,
     selectedModel,
     promptSettings
   } = useStore();
+
+  const messagesByWorkspace = useMessageStore(state => state.messagesByWorkspace);
+  const messages = currentWorkspaceId ? (messagesByWorkspace[currentWorkspaceId] || []) : [];
 
   const handleGenerateDocument = async () => {
     if (!currentWorkspaceId) return;
