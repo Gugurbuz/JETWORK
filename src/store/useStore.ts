@@ -1,175 +1,34 @@
-import { create } from 'zustand';
-import { Project, Workspace, Message, ActiveUser, TypingUser, DocumentData, PromptSettings, KnowledgeItem } from '../types';
+import { useUIStore, UIState } from './useUIStore';
+import { useDataStore, DataState } from './useDataStore';
+import { useDocumentStore, DocumentState } from './useDocumentStore';
+import { useSettingsStore, SettingsState } from './useSettingsStore';
 
-type ThemeType = 'monochrome' | 'energetic' | 'ocean';
+export { useUIStore, useDataStore, useDocumentStore, useSettingsStore };
 
-interface AppState {
-  // Auth
-  user: { uid: string; name: string; username?: string; firstName?: string; lastName?: string; role: string; email: string | null; photoURL: string | null; onboardingCompleted: boolean; color?: string } | null;
-  isAuthReady: boolean;
-  setUser: (user: any) => void;
-  setIsAuthReady: (ready: boolean) => void;
+export type AppState = UIState & DataState & DocumentState & SettingsState;
 
-  // Modals
-  showNewItemModal: boolean;
-  showNewProjectModal: boolean;
-  showSettingsModal: boolean;
-  showManageParticipantsModal: boolean;
-  editingProject: Project | null;
-  editingWorkspace: Workspace | null;
-  deletingProject: string | null;
-  deletingWorkspace: string | null;
-  setShowNewItemModal: (show: boolean) => void;
-  setShowNewProjectModal: (show: boolean) => void;
-  setShowSettingsModal: (show: boolean) => void;
-  setShowManageParticipantsModal: (show: boolean) => void;
-  setEditingProject: (project: Project | null) => void;
-  setEditingWorkspace: (workspace: Workspace | null) => void;
-  setDeletingProject: (id: string | null) => void;
-  setDeletingWorkspace: (id: string | null) => void;
+type Selector<T> = (state: AppState) => T;
 
-  // Data
-  projects: Project[];
-  setProjects: (projects: Project[]) => void;
-  currentWorkspaceId: string | null;
-  setCurrentWorkspaceId: (id: string | null) => void;
-  isLoadingWorkspace: boolean;
-  setIsLoadingWorkspace: (loading: boolean) => void;
-  currentProjectId: string | null;
-  setCurrentProjectId: (id: string | null) => void;
-  selectWorkspace: (id: string) => void;
-  selectProject: (id: string) => void;
+const getMergedState = (): AppState => ({
+  ...useUIStore.getState(),
+  ...useDataStore.getState(),
+  ...useDocumentStore.getState(),
+  ...useSettingsStore.getState(),
+});
 
-  // Chat & Presence
-  messages: Message[];
-  setMessages: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
-  activeUsers: ActiveUser[];
-  setActiveUsers: (users: ActiveUser[]) => void;
-  typingUsers: TypingUser[];
-  setTypingUsers: (users: TypingUser[] | ((prev: TypingUser[]) => TypingUser[])) => void;
-
-  // AI & Document
-  isGenerating: boolean;
-  setIsGenerating: (generating: boolean) => void;
-  isDiscussing: boolean;
-  setIsDiscussing: (discussing: boolean) => void;
-  isAiActive: boolean;
-  setIsAiActive: (active: boolean) => void;
-  isZeroTouchMode: boolean;
-  setIsZeroTouchMode: (active: boolean) => void;
-  activeZeroTouchRoles: string[];
-  setActiveZeroTouchRoles: (roles: string[]) => void;
-  aiHandRaised: string | null;
-  setAiHandRaised: (role: string | null) => void;
-  documentContent: DocumentData | null;
-  setDocumentContent: (content: DocumentData | null | ((prev: DocumentData | null) => DocumentData | null)) => void;
-  projectMemory: Record<string, string>;
-  setProjectMemory: (memory: Record<string, string>) => void;
-  selectedDocumentText: string;
-  setSelectedDocumentText: (text: string) => void;
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-
-  // Settings
-  selectedModel: string;
-  setSelectedModel: (model: string) => void;
-  theme: ThemeType;
-  setTheme: (theme: ThemeType) => void;
-  promptSettings: PromptSettings | null;
-  setPromptSettings: (settings: PromptSettings | null) => void;
-  showAISettingsModal: boolean;
-  setShowAISettingsModal: (show: boolean) => void;
-
-  // Memory & RAG
-  knowledgeBase: KnowledgeItem[];
-  setKnowledgeBase: (items: KnowledgeItem[]) => void;
-  addKnowledge: (item: KnowledgeItem) => void;
+// Facade hook: reads from all 4 split stores so existing call sites keep working.
+// New code should prefer the specific store (useUIStore, useDataStore, etc.).
+function useStoreFacade(): AppState;
+function useStoreFacade<T>(selector: Selector<T>): T;
+function useStoreFacade<T>(selector?: Selector<T>): T | AppState {
+  const ui = useUIStore((s) => s);
+  const data = useDataStore((s) => s);
+  const doc = useDocumentStore((s) => s);
+  const settings = useSettingsStore((s) => s);
+  const merged = { ...ui, ...data, ...doc, ...settings } as AppState;
+  return selector ? selector(merged) : merged;
 }
 
-export const useStore = create<AppState>((set) => ({
-  user: null,
-  isAuthReady: false,
-  setUser: (user) => set({ user }),
-  setIsAuthReady: (ready) => set({ isAuthReady: ready }),
-
-  showNewItemModal: false,
-  showNewProjectModal: false,
-  showSettingsModal: false,
-  showManageParticipantsModal: false,
-  editingProject: null,
-  editingWorkspace: null,
-  deletingProject: null,
-  deletingWorkspace: null,
-  setShowNewItemModal: (show) => set({ showNewItemModal: show }),
-  setShowNewProjectModal: (show) => set({ showNewProjectModal: show }),
-  setShowSettingsModal: (show) => set({ showSettingsModal: show }),
-  setShowManageParticipantsModal: (show) => set({ showManageParticipantsModal: show }),
-  setEditingProject: (project) => set({ editingProject: project }),
-  setEditingWorkspace: (workspace) => set({ editingWorkspace: workspace }),
-  setDeletingProject: (id) => set({ deletingProject: id }),
-  setDeletingWorkspace: (id) => set({ deletingWorkspace: id }),
-
-  projects: [],
-  setProjects: (projects) => set({ projects }),
-  currentWorkspaceId: null,
-  setCurrentWorkspaceId: (id) => set({ currentWorkspaceId: id }),
-  isLoadingWorkspace: false,
-  setIsLoadingWorkspace: (loading) => set({ isLoadingWorkspace: loading }),
-  currentProjectId: null,
-  setCurrentProjectId: (id) => set({ currentProjectId: id }),
-  selectWorkspace: (id) => set({ currentWorkspaceId: id, currentProjectId: null }),
-  selectProject: (id) => set({ currentProjectId: id, currentWorkspaceId: null }),
-
-  messages: [],
-  setMessages: (messages) => set((state) => ({ 
-    messages: typeof messages === 'function' ? messages(state.messages) : messages 
-  })),
-  activeUsers: [],
-  setActiveUsers: (users) => set({ activeUsers: users }),
-  typingUsers: [],
-  setTypingUsers: (users) => set((state) => ({
-    typingUsers: typeof users === 'function' ? users(state.typingUsers) : users
-  })),
-
-  isGenerating: false,
-  setIsGenerating: (generating) => set({ isGenerating: generating }),
-  isDiscussing: false,
-  setIsDiscussing: (discussing) => set({ isDiscussing: discussing }),
-  isAiActive: false,
-  setIsAiActive: (active) => set({ isAiActive: active }),
-  isZeroTouchMode: false,
-  setIsZeroTouchMode: (active) => set({ isZeroTouchMode: active }),
-  activeZeroTouchRoles: ['Business Analyst', 'Software Architect', 'QA Engineer'],
-  setActiveZeroTouchRoles: (roles) => set({ activeZeroTouchRoles: roles }),
-  aiHandRaised: null,
-  setAiHandRaised: (role) => set({ aiHandRaised: role }),
-  documentContent: null,
-  setDocumentContent: (content) => set((state) => ({
-    documentContent: typeof content === 'function' ? content(state.documentContent) : content
-  })),
-  projectMemory: {},
-  setProjectMemory: (memory) => set({ projectMemory: memory }),
-  selectedDocumentText: '',
-  setSelectedDocumentText: (text) => set({ selectedDocumentText: text }),
-  activeTab: 'BA Analiz',
-  setActiveTab: (tab) => set({ activeTab: tab }),
-
-  selectedModel: localStorage.getItem('selected_model') || 'gemini-3-flash-preview',
-  setSelectedModel: (model) => {
-    localStorage.setItem('selected_model', model);
-    set({ selectedModel: model });
-  },
-  theme: (localStorage.getItem('theme') as ThemeType) || 'monochrome',
-  setTheme: (theme) => {
-    localStorage.setItem('theme', theme);
-    set({ theme });
-  },
-  promptSettings: null,
-  setPromptSettings: (settings) => set({ promptSettings: settings }),
-  showAISettingsModal: false,
-  setShowAISettingsModal: (show) => set({ showAISettingsModal: show }),
-
-  knowledgeBase: [],
-  setKnowledgeBase: (items) => set({ knowledgeBase: items }),
-  addKnowledge: (item) => set((state) => ({ knowledgeBase: [...state.knowledgeBase, item] })),
-}));
+export const useStore = Object.assign(useStoreFacade, {
+  getState: getMergedState,
+});
