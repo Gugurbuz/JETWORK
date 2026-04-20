@@ -7,7 +7,7 @@ import { callGemini, callAiWithRetry } from '../services/geminiService';
 import { chatResponseJsonSchema } from '../schemas';
 import { saveDocumentAndVersion, applyPatch } from '../utils/documentUtils';
 import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
-import { buildSystemPrompt } from '../services/promptEngine';
+import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
 import { marked } from 'marked';
 
@@ -412,12 +412,15 @@ export const useMessages = (channelRef: any) => {
       const prompt = `${historyText}\n\nYukarıdaki konuşmalara dayanarak kapsamlı bir dokümantasyon oluştur.
       Lütfen aşağıdaki JSON formatında bir çıktı üret. Sadece geçerli bir JSON döndür, markdown kod bloğu kullanma:
       {
-        "businessAnalysis": "İş analizi dokümanı (Talep özeti, mevcut durum, hedeflenen durum, kullanıcı hikayeleri, kabul kriterleri, vb.) Markdown formatında. Eğer özel bir format (örn: Enerjisa) istendiyse, o formatı Markdown olarak buraya yaz.",
-        "code": "Geliştirme için teknik notlar, mimari kararlar, veritabanı şemaları, API tasarımları ve örnek kod blokları. Markdown formatında.",
-        "test": "Test senaryoları, birim testleri, entegrasyon testleri ve QA notları. Markdown formatında.",
-        "bpmn": "Geçerli bir BPMN 2.0 XML kodu. Eğer süreç bir akış veya entegrasyon içeriyorsa mutlaka doldur. DİKKAT: XML kodu mutlaka <bpmndi:BPMNDiagram> ve <bpmndi:BPMNPlane> etiketlerini içeren görsel (DI) kısımlarını da barındırmalıdır. Aksi takdirde ekranda çizilemez."
+        "businessAnalysis": "TAM YAPILANDIRILMIŞ İş Analizi Dokümanı. Aşağıdaki şablona birebir uy: kapak sayfası, içindekiler, numaralı bölümler (1., 1.1., 1.1.1.), tablolar ve kullanıcı hikayeleri içermelidir. Markdown + izin verilen HTML div blokları.",
+        "code": "Teknik mimari dokümanı. Numaralı başlıklar (## 1. Sistem Mimarisi, ## 2. Veritabanı Şeması, ## 3. API Endpoint'leri, ## 4. Entegrasyonlar) kullan. Tablolar ve kod blokları içermeli. Markdown formatında.",
+        "test": "Test dokümanı. Numaralı başlıklar (## 1. Test Stratejisi, ## 2. Test Senaryoları, ## 3. Kabul Kriterleri) kullan. Test senaryoları için tablo: | TC-ID | Senaryo | Adımlar | Beklenen Sonuç |. Markdown formatında.",
+        "review": "Proje değerlendirme dokümanı. Numaralı başlıklar ve risk/öneri tabloları içermeli. Markdown formatında.",
+        "bpmn": "Geçerli bir BPMN 2.0 XML kodu. <bpmndi:BPMNDiagram> ve <bpmndi:BPMNPlane> görsel kısımları bulunmalı."
       }
-      Tüm bölümler birbiriyle ilişkili ve tutarlı olmalıdır.`;
+      Tüm bölümler birbiriyle ilişkili ve tutarlı olmalıdır.
+
+      ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`;
 
       let accumulatedJson = '';
       

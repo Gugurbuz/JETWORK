@@ -4,7 +4,8 @@ import { supabase } from '../supabase';
 import { nowIso } from '../lib/mapping';
 import { DocumentData } from '../types';
 import { callGemini } from '../services/geminiService';
-import { buildSystemPrompt } from '../services/promptEngine';
+import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
+import { marked } from 'marked';
 
 export const useDocument = () => {
   const { 
@@ -30,13 +31,15 @@ export const useDocument = () => {
 
 ÇIKTI FORMATI:
 JSON formatında, aşağıdaki alanları içeren bir obje döndür:
-- businessAnalysis: İş analizi, gereksinimler, kullanıcı hikayeleri (Markdown)
-- code: Teknik mimari, veritabanı şeması, API uç noktaları (Markdown)
-- test: Test senaryoları, kabul kriterleri (Markdown)
+- businessAnalysis: Aşağıda verilen ŞABLONA birebir uyan, kapak sayfası + içindekiler + numaralı bölümler içeren tam yapılandırılmış bir İş Analizi Dokümanı (Markdown + izin verilen HTML div blokları)
+- code: Teknik mimari, veritabanı şeması, API uç noktaları (Markdown; ## 1., ## 2. numaralı başlıklarla)
+- test: Test senaryoları, kabul kriterleri (Markdown; ## 1., ## 2. numaralı başlıklarla, test senaryoları için tablo)
 - review: Proje özeti, riskler, öneriler (Markdown)
 - bpmn: Süreç akışını anlatan BPMN 2.0 XML formatında veri (Sadece XML içeriği, markdown code block OLMADAN)
 
-ÖNEMLİ: bpmn alanı kesinlikle geçerli bir XML olmalıdır. İçinde markdown (\`\`\`xml gibi) bulunmamalıdır.`
+ÖNEMLİ: bpmn alanı kesinlikle geçerli bir XML olmalıdır. İçinde markdown (\`\`\`xml gibi) bulunmamalıdır.
+
+${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`
       });
 
       const contents = [
@@ -64,7 +67,21 @@ JSON formatında, aşağıdaki alanları içeren bir obje döndür:
         onChunk: () => {} // We don't stream document generation to UI yet
       });
 
-      const newDoc = JSON.parse(response.text);
+      const rawDoc = JSON.parse(response.text);
+
+      const toSection = (md: string, parse = true) => ({
+        content: parse && md ? (marked.parse(md) as string) : (md || ''),
+        status: 'DRAFT' as const,
+        flags: [] as string[],
+      });
+
+      const newDoc = {
+        businessAnalysis: toSection(rawDoc.businessAnalysis),
+        code: toSection(rawDoc.code),
+        test: toSection(rawDoc.test),
+        review: toSection(rawDoc.review),
+        bpmn: toSection(rawDoc.bpmn, false),
+      };
       setDocumentContent(newDoc);
 
       await supabase.from('documents').upsert({
