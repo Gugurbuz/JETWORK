@@ -4,6 +4,8 @@ import { DocumentData, KnowledgeItem } from '../types';
 export interface DocumentState {
   isGenerating: boolean;
   setIsGenerating: (generating: boolean) => void;
+  isGeneratingDocument: boolean;
+  setIsGeneratingDocument: (generating: boolean) => void;
   isDiscussing: boolean;
   setIsDiscussing: (discussing: boolean) => void;
   isAiActive: boolean;
@@ -34,6 +36,8 @@ export interface DocumentState {
 export const useDocumentStore = create<DocumentState>((set) => ({
   isGenerating: false,
   setIsGenerating: (generating) => set({ isGenerating: generating }),
+  isGeneratingDocument: false,
+  setIsGeneratingDocument: (generating) => set({ isGeneratingDocument: generating }),
   isDiscussing: false,
   setIsDiscussing: (discussing) => set({ isDiscussing: discussing }),
   isAiActive: false,

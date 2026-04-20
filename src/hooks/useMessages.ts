@@ -10,6 +10,25 @@ import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
 import { marked } from 'marked';
+import { parse as parsePartialJson } from 'partial-json';
+
+const extractChatParts = (raw: string): { message: string; thinking?: string; questions?: any[]; actionSummary?: string } => {
+  if (!raw) return { message: '' };
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{')) return { message: raw };
+  try {
+    const parsed: any = parsePartialJson(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        message: typeof parsed.message === 'string' ? parsed.message : '',
+        thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
+        questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
+        actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
+      };
+    }
+  } catch {}
+  return { message: raw };
+};
 
 const processSection = (data: any, existing?: SectionData, parseMarkdown = true): SectionData => {
   let content = '';
@@ -230,32 +249,42 @@ export const useMessages = (channelRef: any) => {
         contents,
         responseSchema: chatResponseJsonSchema,
         onChunk: (text, thinking, tokenCount, functionCalls) => {
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? { 
-            ...m, 
-            text, 
-            thinkingText: thinking,
-            tokenCount 
+          const parts = extractChatParts(text);
+          const mergedThinking = parts.thinking || thinking;
+          setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+            ...m,
+            text: parts.message,
+            thinkingText: mergedThinking,
+            questions: parts.questions,
+            actionSummary: parts.actionSummary,
+            tokenCount
           } : m));
-          
+
           if (channelRef.current) {
-            channelRef.current.send({ 
-              type: 'broadcast', 
-              event: 'ai_stream_chunk', 
-              payload: { 
-                id: aiMsgId, 
-                text, 
-                thinkingText: thinking,
+            channelRef.current.send({
+              type: 'broadcast',
+              event: 'ai_stream_chunk',
+              payload: {
+                id: aiMsgId,
+                text: parts.message,
+                thinkingText: mergedThinking,
+                questions: parts.questions,
+                actionSummary: parts.actionSummary,
                 senderName: targetAgentName || 'JetWork AI',
                 senderRole: targetAgentName || 'Sistem Asistanı',
                 agentRole: targetAgentRole || undefined
-              } 
+              }
             });
           }
         }
       });
 
       let finalDocument = documentContent;
-      let fullText = response.text;
+      const finalParts = extractChatParts(response.text);
+      let fullText = finalParts.message || response.text;
+      const finalThinking = finalParts.thinking || response.thinking;
+      const finalQuestions = finalParts.questions;
+      const finalActionSummary = finalParts.actionSummary;
 
       if (response.functionCalls && response.functionCalls.length > 0) {
         for (const call of response.functionCalls) {
@@ -280,7 +309,14 @@ export const useMessages = (channelRef: any) => {
         }
       }
 
-      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullText, isTyping: false } : m));
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+        ...m,
+        text: fullText,
+        thinkingText: finalThinking,
+        questions: finalQuestions,
+        actionSummary: finalActionSummary,
+        isTyping: false
+      } : m));
       
       if (channelRef.current) {
         const finalMsg = useStore.getState().messages.find(m => m.id === aiMsgId);
@@ -401,7 +437,7 @@ export const useMessages = (channelRef: any) => {
     const state = useStore.getState();
     const messages = state.messages;
     if (messages.length === 0 || !currentWorkspaceId) return;
-    setIsGenerating(true);
+    useStore.getState().setIsGeneratingDocument(true);
     
     try {
       let historyText = "Sohbet Geçmişi:\n";
@@ -484,7 +520,7 @@ export const useMessages = (channelRef: any) => {
       };
       state.setDocumentContent(fallbackData);
     } finally {
-      setIsGenerating(false);
+      useStore.getState().setIsGeneratingDocument(false);
     }
   };
 

@@ -12,7 +12,7 @@ export const useDocument = () => {
     currentWorkspaceId, 
     documentContent, 
     setDocumentContent, 
-    setIsGenerating, 
+    setIsGeneratingDocument, 
     messages, 
     selectedModel,
     promptSettings
@@ -20,7 +20,7 @@ export const useDocument = () => {
 
   const handleGenerateDocument = async () => {
     if (!currentWorkspaceId) return;
-    setIsGenerating(true);
+    setIsGeneratingDocument(true);
 
     try {
       const systemInstruction = buildSystemPrompt({
@@ -96,7 +96,7 @@ ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`
     } catch (error) {
       console.error("Error generating document:", error);
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingDocument(false);
     }
   };
 

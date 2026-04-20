@@ -187,6 +187,7 @@ export function DocumentPanel({
   const setActiveTab = useStore(state => state.setActiveTab);
   const documentContent = useStore(state => state.documentContent);
   const isGenerating = useStore(state => state.isGenerating);
+  const isGeneratingDocument = useStore(state => state.isGeneratingDocument);
   const isDiscussing = useStore(state => state.isDiscussing);
   const isLoadingWorkspace = useStore(state => state.isLoadingWorkspace);
   const setSelectedDocumentText = useStore(state => state.setSelectedDocumentText);
@@ -573,7 +574,7 @@ export function DocumentPanel({
                   <div className="h-4 w-3/6 bg-theme-border/30 rounded" />
                 </div>
               </motion.div>
-            ) : !documentContent && !isGenerating && !isDiscussing && activeTab !== 'Review' ? (
+            ) : !documentContent && !isGeneratingDocument && !isDiscussing && activeTab !== 'Review' ? (
               <motion.div 
                 key="empty"
                 initial={{ opacity: 0, scale: 0.98 }}
@@ -602,7 +603,7 @@ export function DocumentPanel({
                   Dokümanı Oluştur
                 </button>
               </motion.div>
-            ) : !documentContent && isGenerating ? (
+            ) : !documentContent && isGeneratingDocument ? (
               <motion.div 
                 key="generating"
                 initial={{ opacity: 0 }}
