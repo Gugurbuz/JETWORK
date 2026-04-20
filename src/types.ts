@@ -67,6 +67,8 @@ export interface Message {
   replyToId?: string;
   isError?: boolean;
   retryPayload?: { text: string; attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string };
+  phase?: 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT' | null;
+  phaseLabel?: string;
 }
 
 export type WorkspaceType = 'Development' | 'Support' | 'Bug' | 'Improvement';

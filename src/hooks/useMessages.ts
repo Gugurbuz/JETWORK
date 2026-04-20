@@ -9,6 +9,7 @@ import { saveDocumentAndVersion, applyPatch } from '../utils/documentUtils';
 import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
+import { runBaAgentLoop } from '../services/baAgentLoop';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
@@ -259,71 +260,69 @@ export const useMessages = (channelRef: any) => {
         }
       }
 
-      const response = await callGemini({
+      const loopOutput = await runBaAgentLoop({
+        userMessage: messageText,
+        history,
+        documentContent,
+        knowledgeBase,
         model: selectedModel,
         systemInstruction,
-        contents,
-        responseSchema: chatResponseJsonSchema,
-        onChunk: (text, thinking, tokenCount, functionCalls) => {
-          const parts = extractChatParts(text);
-          const mergedThinking = parts.thinking || thinking;
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? {
-            ...m,
-            text: parts.message,
-            thinkingText: mergedThinking,
-            questions: parts.questions,
-            actionSummary: parts.actionSummary,
-            tokenCount
-          } : m));
-
+        onPhase: (phase, label) => {
+          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, phase, phaseLabel: label } : m));
           if (channelRef.current) {
             channelRef.current.send({
               type: 'broadcast',
               event: 'ai_stream_chunk',
               payload: {
                 id: aiMsgId,
-                text: parts.message,
-                thinkingText: mergedThinking,
-                questions: parts.questions,
-                actionSummary: parts.actionSummary,
+                phase,
+                phaseLabel: label,
                 senderName: targetAgentName || 'JetWork AI',
                 senderRole: targetAgentName || 'Sistem Asistanı',
                 agentRole: targetAgentRole || undefined
               }
             });
           }
+        },
+        onThinking: (thinkingText) => {
+          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, thinkingText } : m));
+        },
+        onActStream: (text, thinking, questions, actionSummary, tokenCount) => {
+          setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+            ...m,
+            text,
+            thinkingText: thinking,
+            questions,
+            actionSummary,
+            tokenCount
+          } : m));
+          if (channelRef.current) {
+            channelRef.current.send({
+              type: 'broadcast',
+              event: 'ai_stream_chunk',
+              payload: {
+                id: aiMsgId,
+                text,
+                thinkingText: thinking,
+                questions,
+                actionSummary,
+                senderName: targetAgentName || 'JetWork AI',
+                senderRole: targetAgentName || 'Sistem Asistanı',
+                agentRole: targetAgentRole || undefined
+              }
+            });
+          }
+        },
+        onGrounding: (urls) => {
+          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, groundingUrls: urls } : m));
         }
       });
 
       let finalDocument = documentContent;
-      const finalParts = extractChatParts(response.text);
-      let fullText = finalParts.message || response.text;
-      const finalThinking = finalParts.thinking || response.thinking;
-      const finalQuestions = finalParts.questions;
-      const finalActionSummary = finalParts.actionSummary;
-
-      if (response.functionCalls && response.functionCalls.length > 0) {
-        for (const call of response.functionCalls) {
-          if (call.name === 'apply_micro_edit') {
-            const args = call.args as { section: string; targetText: string; replacementText: string; actionSummary: string };
-            if (args.section) {
-              const newDoc = { ...finalDocument } as any;
-              const existingSection = newDoc[args.section];
-              const currentContent = existingSection?.content || '';
-              const newContent = applyPatch(currentContent, args.targetText || '', args.replacementText || '');
-              
-              newDoc[args.section] = {
-                content: newContent,
-                status: existingSection?.status || 'DRAFT',
-                flags: existingSection?.flags || []
-              };
-              finalDocument = newDoc;
-              useStore.getState().setDocumentContent(newDoc);
-              fullText += `\n\n*(Sistem Notu: ${args.actionSummary})*`;
-            }
-          }
-        }
-      }
+      let fullText = loopOutput.text;
+      const finalThinking = loopOutput.thinking;
+      const finalQuestions = loopOutput.questions;
+      const finalActionSummary = loopOutput.actionSummary;
 
       setMessages(prev => prev.map(m => m.id === aiMsgId ? {
         ...m,
@@ -331,6 +330,10 @@ export const useMessages = (channelRef: any) => {
         thinkingText: finalThinking,
         questions: finalQuestions,
         actionSummary: finalActionSummary,
+        groundingUrls: loopOutput.groundingUrls,
+        tokenCount: loopOutput.tokenCount,
+        phase: null,
+        phaseLabel: undefined,
         isTyping: false
       } : m));
       

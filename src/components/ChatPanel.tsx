@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
 import * as mammoth from 'mammoth';
-import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload } from 'lucide-react';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload } from 'lucide-react';
 import { Message, Question } from '../types';
 import { cn, stringToColor } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -324,8 +324,30 @@ const MessageItem = memo(({
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-theme-primary animate-pulse">
                 <MonogramSpinner />
-                <span>Strateji Belirleniyor...</span>
+                <span>{msg.phaseLabel || 'Strateji Belirleniyor...'}</span>
               </div>
+              {msg.phase && (
+                <div className="flex items-center gap-1.5 mt-1 w-full max-w-[220px]">
+                  {(['PLAN', 'RESEARCH', 'REFLECT', 'ACT'] as const).map((p) => {
+                    const order: Record<string, number> = { PLAN: 0, RESEARCH: 1, REFLECT: 2, ACT: 3 };
+                    const currentIdx = order[msg.phase as string] ?? -1;
+                    const thisIdx = order[p];
+                    const isActive = thisIdx === currentIdx;
+                    const isDone = thisIdx < currentIdx;
+                    return (
+                      <div
+                        key={p}
+                        className={cn(
+                          "h-1 flex-1 rounded-full transition-all duration-300",
+                          isDone && "bg-theme-primary",
+                          isActive && "bg-theme-primary/60 animate-pulse",
+                          !isDone && !isActive && "bg-theme-border"
+                        )}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-3 mt-1">
@@ -482,6 +504,8 @@ const MessageItem = memo(({
          prevProps.msg.thinkingText === nextProps.msg.thinkingText &&
          prevProps.msg.isTyping === nextProps.msg.isTyping &&
          prevProps.msg.questions === nextProps.msg.questions &&
+         prevProps.msg.phase === nextProps.msg.phase &&
+         prevProps.msg.phaseLabel === nextProps.msg.phaseLabel &&
          prevProps.msg.id === nextProps.msg.id;
 });
 
