@@ -327,6 +327,11 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 - "thinking" alanında adım adım nasıl bu sonuca vardığını yaz.
 - "actionSummary" alanında yaptığın işi 1 cümle özetle.
 - Eğer yeterli bilgi yoksa net soru sor, aksi halde dokümanı nasıl geliştirebileceğini açıkla.
+
+[5] DOKÜMAN YAZMA KISITI - ÇOK ÖNEMLİ
+${hasDocument
+  ? "- Çalışma dokümanı mevcut. Bu turda doğrudan dokümana yazma yetkin yok; önerilerini sohbette sun. Kullanıcı 'Dokümanı Güncelle' akışını başlattığında değişiklikler uygulanacak."
+  : "- Sağ paneldeki Çalışma Dokümanı henüz OLUŞTURULMAMIŞTIR. Sen bu turda dokümana yazı yazamazsın. Yanıtının sonunda kullanıcıya, sağ paneldeki 'Dokümanı Oluştur' butonuna tıklayarak analiz dokümanını başlatmasını nazikçe HATIRLAT. 'Doküman güncellendi', 'dokümana aktardım', 'sağ panele eklendim' gibi YANILTICI ifadeler KULLANMA."}
 `.trim();
 
   const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
