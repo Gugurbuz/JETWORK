@@ -77,12 +77,18 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
   );
 };
 
+const JETWORK_OUTER = "#FFC107";
+const JETWORK_INNER = "#FF9800";
+
 const JetWorkLogo = ({ className, isSpinning, isColorSwapping, color, innerColor, centerColor }: { className?: string, isSpinning?: boolean, isColorSwapping?: boolean, color?: string, innerColor?: string, centerColor?: string }) => {
+  const outerFill = color || JETWORK_OUTER;
+  const middleFill = innerColor || "var(--theme-surface)";
+  const centerFill = centerColor || (color ? color : JETWORK_INNER);
   return (
     <svg viewBox="0 0 100 100" className={cn("shrink-0", className, isSpinning && "animate-spin")}>
-      <rect x="10" y="10" width="80" height="80" fill={color || "currentColor"} className={cn(!color && "fill-theme-text", isColorSwapping && "animate-swap-black")} />
-      <rect x="30" y="30" width="40" height="40" fill={innerColor || "currentColor"} className={cn(!innerColor && "fill-theme-surface", isColorSwapping && "animate-swap-white")} />
-      <rect x="42" y="42" width="16" height="16" fill={centerColor || color || "currentColor"} className={cn(!centerColor && !color && "fill-theme-text", isColorSwapping && "animate-swap-black")} />
+      <rect x="10" y="10" width="80" height="80" fill={outerFill} className={cn(isColorSwapping && "animate-swap-black")} />
+      <rect x="30" y="30" width="40" height="40" fill={middleFill} className={cn(isColorSwapping && "animate-swap-white")} />
+      <rect x="42" y="42" width="16" height="16" fill={centerFill} className={cn(isColorSwapping && "animate-swap-black")} />
     </svg>
   );
 };
