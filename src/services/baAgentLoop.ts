@@ -214,7 +214,7 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
           if (onGrounding) onGrounding(urls);
         }
       });
-      webResearch = researchResponse.text;
+      webResearch = (researchResponse.text || '').slice(0, 3000);
     } catch (e) {
       console.warn("Research phase failed:", e);
     }
@@ -322,22 +322,41 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
   let finalQuestions: Question[] | undefined;
   let finalActionSummary: string | undefined;
 
-  const actResponse = await callGemini({
-    model,
-    systemInstruction: fullSystemInstruction,
-    contents,
-    responseSchema: chatResponseJsonSchema,
-    onChunk: (text, thinking, tokenCount) => {
-      const parts = extractActParts(text);
-      const mergedThinking = parts.thinking || thinking;
-      finalText = parts.message;
-      finalThinking = mergedThinking || '';
-      finalQuestions = parts.questions;
-      finalActionSummary = parts.actionSummary;
-      if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-      onActStream(parts.message, mergedThinking, parts.questions, parts.actionSummary, totalTokens);
-    }
-  });
+  // Clear any thinking leaked from earlier phases before ACT streams its own
+  onActStream('', '', undefined, undefined, totalTokens);
+
+  const runActCall = async (sysInstruction: string) => {
+    return await callGemini({
+      model,
+      systemInstruction: sysInstruction,
+      contents,
+      responseSchema: chatResponseJsonSchema,
+      onChunk: (text, thinking, tokenCount) => {
+        const parts = extractActParts(text);
+        const mergedThinking = parts.thinking || thinking;
+        finalText = parts.message;
+        finalThinking = mergedThinking || '';
+        finalQuestions = parts.questions;
+        finalActionSummary = parts.actionSummary;
+        if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
+        onActStream(parts.message, mergedThinking, parts.questions, parts.actionSummary, totalTokens);
+      }
+    });
+  };
+
+  let actResponse;
+  try {
+    actResponse = await runActCall(fullSystemInstruction);
+  } catch (err) {
+    console.warn('ACT phase failed with full context, retrying with minimal context:', err);
+    finalText = '';
+    finalThinking = '';
+    finalQuestions = undefined;
+    finalActionSummary = undefined;
+    // Fallback: retry with only the base systemInstruction (no research/reflect enrichment)
+    const fallbackSystem = `${systemInstruction}\n\n[NOT] Önceki araştırma/gözden geçirme adımlarında kısıtlama oluştu; doğrudan kullanıcıya en iyi yanıtı üret, gerekirse netleştirme soruları sor.`;
+    actResponse = await runActCall(fallbackSystem);
+  }
 
   const finalParts = extractActParts(actResponse.text);
   finalText = finalParts.message || actResponse.text;
