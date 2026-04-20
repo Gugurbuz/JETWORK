@@ -6,6 +6,7 @@ export const callGemini = async (params: {
   contents: any[];
   responseSchema?: any;
   tools?: any[];
+  currentDocument?: any;
   onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }) => {
@@ -25,7 +26,8 @@ export const callGemini = async (params: {
       systemInstruction: params.systemInstruction,
       contents: params.contents,
       responseSchema: params.responseSchema,
-      tools: params.tools
+      tools: params.tools,
+      currentDocument: params.currentDocument
     })
   });
 
@@ -33,6 +35,7 @@ export const callGemini = async (params: {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error || `API error: ${response.status}`);
   }
+
   if (!response.body) throw new Error("No response body");
 
   const reader = response.body.getReader();
@@ -58,6 +61,7 @@ export const callGemini = async (params: {
         
         try {
           const chunk = JSON.parse(dataStr);
+          
           if (chunk.usageMetadata) {
             tokenCount = chunk.usageMetadata.totalTokenCount;
           }
@@ -66,14 +70,23 @@ export const callGemini = async (params: {
           let chunkFunctionCalls: any[] = [];
           
           for (const part of parts) {
-            if (part.thought) {
+            if (part.thought === true && part.text) {
               fullThinking += part.text;
+            } else if (typeof part.thought === 'string') {
+              fullThinking += part.thought;
             } else if (part.text) {
               fullText += part.text;
             } else if (part.functionCall) {
               chunkFunctionCalls.push(part.functionCall);
               allFunctionCalls.push(part.functionCall);
             }
+          }
+          
+          // Fallback for <think> tags in text
+          const thinkMatch = fullText.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+          if (thinkMatch) {
+            fullThinking += (fullThinking ? '\n' : '') + thinkMatch[1];
+            fullText = fullText.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim();
           }
           
           const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -91,6 +104,7 @@ export const callGemini = async (params: {
       }
     }
   }
+
   return { text: fullText, thinking: fullThinking, tokenCount, functionCalls: allFunctionCalls };
 };
 

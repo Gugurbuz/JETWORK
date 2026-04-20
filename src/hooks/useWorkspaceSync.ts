@@ -3,7 +3,7 @@ import { db, doc, onSnapshot, getDocFromServer, setDoc, serverTimestamp } from '
 import { supabase } from '../supabase';
 import { useMessageStore } from '../store/useMessageStore';
 import { ActiveUser, TypingUser, DocumentData, Message } from '../types';
-import { ZERO_TOUCH_AGENTS, MOCK_COLLABORATORS } from '../constants';
+import { SYSTEM_AGENTS, MOCK_COLLABORATORS } from '../constants';
 import { saveDocumentAndVersion } from '../utils/documentUtils';
 import { User } from './useAuth';
 import { useStore } from '../store/useStore';
@@ -22,8 +22,6 @@ export function useWorkspaceSync(
   const setIsLoadingWorkspace = useStore(state => state.setIsLoadingWorkspace);
   const documentContent = useStore(state => state.documentContent);
   const setDocumentContent = useStore(state => state.setDocumentContent);
-  const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
-  const setIsAiActive = useStore(state => state.setIsAiActive);
   
   const channelRef = useRef<any>(null);
   const sessionId = useRef(Math.random().toString(36).substring(7));
@@ -45,19 +43,6 @@ export function useWorkspaceSync(
       }
     }
   };
-
-  // Manage AI active state based on workspace and zero touch mode
-  useEffect(() => {
-    if (currentWorkspaceId && !isZeroTouchMode) {
-      setIsAiActive(true);
-    }
-  }, [currentWorkspaceId, isZeroTouchMode, setIsAiActive]);
-
-  useEffect(() => {
-    if (isZeroTouchMode) {
-      setIsAiActive(false);
-    }
-  }, [isZeroTouchMode, setIsAiActive]);
 
   // Join room when workspace changes and fetch messages
   useEffect(() => {
@@ -132,8 +117,8 @@ export function useWorkspaceSync(
           setMessages(prev => {
             const exists = prev.find(m => m.id === data.id);
             
-            const derivedSenderName = data.senderName || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
-            const derivedSenderRole = data.senderRole || (data.agentRole ? ZERO_TOUCH_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
+            const derivedSenderName = data.senderName || (data.agentRole ? SYSTEM_AGENTS.find(a => a.role === data.agentRole)?.name || 'JetWork AI' : undefined);
+            const derivedSenderRole = data.senderRole || (data.agentRole ? SYSTEM_AGENTS.find(a => a.role === data.agentRole)?.name || 'Sistem Asistanı' : undefined);
 
             if (exists) {
               return prev.map(m => m.id === data.id ? { 

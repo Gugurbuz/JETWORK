@@ -45,7 +45,6 @@ export interface Message {
   text: string;
   senderName?: string;
   senderRole?: string;
-  senderColor?: string;
   isTyping?: boolean;
   actionSummary?: string;
   groundingUrls?: { uri: string; title: string }[];

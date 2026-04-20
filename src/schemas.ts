@@ -54,36 +54,33 @@ export const ChatResponseSchema = z.object({
     text: z.string(),
     options: z.array(z.string())
   })).optional().describe("Kullanıcıya sorulacak sorular ve olası cevap seçenekleri."),
-  document: DocumentDataSchema.optional().describe("SADECE EĞER ARAÇ (TOOL) KULLANAMIYORSAN BU ALANI DOLDUR. Eğer 'apply_micro_edit' aracına sahipsen bu alanı KESİNLİKLE BOŞ BIRAK.")
+  document: DocumentDataSchema.optional().describe("SADECE EĞER ARAÇ (TOOL) KULLANAMIYORSAN BU ALANI DOLDUR. Eğer 'update_document_section' aracına sahipsen bu alanı KESİNLİKLE BOŞ BIRAK.")
 });
 
-export const applyMicroEditTool = {
+export const updateDocumentSectionTool = {
   functionDeclarations: [
     {
-      name: "apply_micro_edit",
-      description: "Dokümanın belirli bir sekmesindeki mevcut bir metni yenisiyle değiştirir. Dokümanı güncellemek için SADECE bu aracı kullanmalısın.",
+      name: "update_document_section",
+      description: "Dokümanın belirli bir sekmesini (iş analizi, kod, test vb.) günceller. Dokümana içerik eklemek veya değiştirmek için SADECE bu aracı kullanmalısın.",
       parameters: {
         type: Type.OBJECT,
         properties: {
           section: {
             type: Type.STRING,
-            description: "Güncellenecek doküman sekmesi",
+            description: "Güncellenecek sekme adı.",
             enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
           },
-          targetText: {
+          content: {
             type: Type.STRING,
-            description: "Değiştirilecek cümlenin veya paragrafın dokümandaki birebir, harfi harfine mevcut hali. Eğer yeni bir metin ekliyorsan, eklenecek yerin hemen öncesindeki metni yaz."
+            description: "Eklenecek veya değiştirilecek içerik. Markdown formatında olmalıdır (BPMN hariç)."
           },
-          replacementText: {
+          action: {
             type: Type.STRING,
-            description: "Hedef metnin yerine geçecek yeni metin. Eğer sadece ekleme yapıyorsan, targetText + yeni metin şeklinde yaz."
-          },
-          explanation: {
-            type: Type.STRING,
-            description: "Chat ekranında kullanıcıya gösterilecek kısa özet (Örn: 'Kredi kartı modülünü IT mimarisine ekledim')."
+            description: "İçeriğin nasıl ekleneceği. 'append' var olanın sonuna ekler, 'overwrite' tamamen değiştirir.",
+            enum: ["append", "overwrite"]
           }
         },
-        required: ["section", "targetText", "replacementText", "explanation"]
+        required: ["section", "content", "action"]
       }
     }
   ]
@@ -93,8 +90,11 @@ export const applyMicroEditTool = {
 const sectionDataJsonType = {
   type: Type.OBJECT,
   properties: {
-    content: { type: Type.STRING },
-    status: { type: Type.STRING },
+    content: { 
+      type: Type.STRING,
+      description: "Geçerli ve semantik HTML formatında içerik metni. (Örn: <h1>, <h2>, <table class='border-collapse w-full'>, <ul> vb. Tiptap Editör için HTML ZORUNLUDUR)" 
+    },
+    status: { type: Type.STRING, description: "'DRAFT', 'NEEDS_REVISION', 'APPROVED'" },
     flags: { type: Type.ARRAY, items: { type: Type.STRING } }
   }
 };
@@ -132,6 +132,10 @@ export const chatResponseJsonSchema = {
       description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle.",
       additionalProperties: { type: Type.STRING }
     },
+    requiresUserInput: {
+      type: Type.BOOLEAN,
+      description: "Eğer kullanıcıya bir soru sorulacak ise bu alan 'true' olmalıdır ve 'questions' dizisi doldurulmalıdır."
+    },
     questions: {
       type: Type.ARRAY,
       description: "Kullanıcıya sorulacak sorular ve olası cevap seçenekleri. Eğer kullanıcıdan netleştirme isteniyorsa bu alanı kullan.",
@@ -148,9 +152,32 @@ export const chatResponseJsonSchema = {
         },
         required: ["id", "text", "options"]
       }
+    },
+    document: {
+      type: Type.OBJECT,
+      description: "DOKÜMAN GÜNCELLEMESİ YAPILACAKSA KULLANILACAK ALAN. Koca dokümanı baştan yazmak yerine sadece değişmesi/eklenmesi gereken kısımları Semantik HTML formatında doldur (Tiptap uyumlu).",
+      properties: {
+        businessAnalysis: sectionDataJsonType,
+        code: sectionDataJsonType,
+        test: sectionDataJsonType,
+        bpmn: sectionDataJsonType,
+        review: sectionDataJsonType
+      }
     }
   },
   required: ["message"]
+};
+
+export const documentGenerationJsonSchema = {
+  type: Type.OBJECT,
+  properties: {
+    businessAnalysis: sectionDataJsonType,
+    code: sectionDataJsonType,
+    test: sectionDataJsonType,
+    bpmn: sectionDataJsonType,
+    review: sectionDataJsonType
+  },
+  required: ["businessAnalysis", "code", "test"]
 };
 
 export type ZodChatResponse = z.infer<typeof ChatResponseSchema>;
@@ -163,8 +190,8 @@ export const agentTools: any[] = [
   {
     functionDeclarations: [
       {
-        name: "apply_micro_edit",
-        description: "Dokümanın belirli bir sekmesindeki mevcut bir metni yenisiyle değiştirir. Dokümanı güncellemek için SADECE bu aracı kullanmalısın.",
+        name: "update_document_section",
+        description: "Dokümanın belirli bir alanındaki içeriği (content) günceller. Koca bir dokümanı baştan yazmak yerine sadece değişmesi gereken yeri (Delta/Patch) göndermek için kullanılır.",
         parameters: {
           type: Type.OBJECT,
           properties: {
@@ -173,20 +200,21 @@ export const agentTools: any[] = [
               description: "Güncellenecek doküman sekmesi",
               enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
             },
-            targetText: {
+            operation: {
               type: Type.STRING,
-              description: "Değiştirilecek cümlenin veya paragrafın dokümandaki birebir, harfi harfine mevcut hali. Eğer yeni bir metin ekliyorsan, eklenecek yerin hemen öncesindeki metni yaz."
+              description: "Yapılacak işlem türü: 'append' (mevcut metnin sonuna ekle) veya 'replace' (mevcut metni tamamen yenisiyle değiştir). Varsayılan olarak append kullan.",
+              enum: ["append", "replace"]
             },
-            replacementText: {
+            content: {
               type: Type.STRING,
-              description: "Hedef metnin yerine geçecek yeni metin. Eğer sadece ekleme yapıyorsan, targetText + yeni metin şeklinde yaz."
+              description: "Eklenecek veya değiştirilecek Markdown veya XML (BPMN) formatındaki detaylı ve KISALTILMAMIŞ içerik."
             },
-            explanation: {
+            actionSummary: {
               type: Type.STRING,
-              description: "Chat ekranında kullanıcıya gösterilecek kısa özet (Örn: 'Kredi kartı modülünü IT mimarisine ekledim')."
+              description: "Sohbette gösterilecek 1 cümlelik özet. Örn: 'Veritabanı şeması eklendi.'"
             }
           },
-          required: ["section", "targetText", "replacementText", "explanation"]
+          required: ["section", "operation", "content", "actionSummary"]
         }
       },
       {
