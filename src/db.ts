@@ -13,7 +13,8 @@ export const onAuthStateChanged = (authObj: any, callback: (user: any) => void) 
     } : null;
     callback(user);
   });
-
+  
+  // Initial call
   supabase.auth.getSession().then(({ data: { session } }) => {
     const user = session?.user ? {
       uid: session.user.id,
@@ -23,7 +24,7 @@ export const onAuthStateChanged = (authObj: any, callback: (user: any) => void) 
     } : null;
     callback(user);
   });
-
+  
   return () => subscription.unsubscribe();
 };
 
@@ -55,13 +56,14 @@ export const signInWithUsernameOrEmail = async (authObj: any, input: string, pas
   let email = input;
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
   if (!isEmail) {
-    const { data, error } = await supabase.from('users').select('email').eq('username', input).maybeSingle();
+    const { data, error } = await supabase.from('users').select('email').eq('username', input).single();
     if (error || !data) throw new Error('Kullanıcı adı bulunamadı.');
     email = data.email;
   }
   return signInWithEmailAndPassword(authObj, email, password);
 };
 
+// Database mocks
 export const collection = (db: any, ...args: string[]) => {
   if (args.length === 1) return { table: args[0], filters: [] };
   if (args.length === 3) return { table: args[2], filters: [{ field: 'workspace_id', op: '==', value: args[1] }] };
@@ -69,30 +71,26 @@ export const collection = (db: any, ...args: string[]) => {
 };
 
 export const doc = (dbOrCollectionRef: any, ...args: any[]) => {
+  // Handle doc(collectionRef)
   if (args.length === 0 && typeof dbOrCollectionRef === 'object' && dbOrCollectionRef.table) {
     return { table: dbOrCollectionRef.table, id: crypto.randomUUID() };
   }
+  
+  // Handle doc(collectionRef, id)
   if (args.length === 1 && typeof dbOrCollectionRef === 'object' && dbOrCollectionRef.table) {
     return { table: dbOrCollectionRef.table, id: args[0] };
   }
+  
+  // Handle doc(db, 'collection', 'id')
   if (args.length === 2) return { table: args[0], id: args[1] };
+  
+  // Handle doc(db, 'workspaces', workspaceId, 'messages', messageId)
   if (args.length === 4) return { table: args[2], id: args[3], workspace_id: args[1] };
+  
+  // Handle doc(db, 'workspaces', workspaceId, 'documents', 'main', 'versions', messageId)
   if (args.length === 6) return { table: args[4], id: args[5], workspace_id: args[1], document_id: args[3] };
+  
   return { table: args[0], id: 'unknown' };
-};
-
-const mapRowToFirestore = (d: any, table: string) => {
-  const camelData: any = {};
-  for (const key in d) {
-    let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-    if (key === 'photo_url') camelKey = 'photoURL';
-    if (key === 'name' && table === 'users') camelKey = 'displayName';
-    camelData[camelKey] = d[key];
-    if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
-      camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
-    }
-  }
-  return camelData;
 };
 
 export const getDocFromServer = async (docRef: any) => {
@@ -103,14 +101,24 @@ export const getDocFromServer = async (docRef: any) => {
     req = req.eq('workspace_id', docRef.workspace_id);
   }
   const { data: d, error: e } = await req.maybeSingle();
-
+  
   if (e) throw e;
-
+  
   return {
     exists: () => !!d,
     data: () => {
       if (!d) return undefined;
-      return mapRowToFirestore(d, docRef.table);
+      const camelData: any = {};
+      for (const key in d) {
+        let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+        if (key === 'photo_url') camelKey = 'photoURL';
+        if (key === 'username') camelKey = 'displayName';
+        camelData[camelKey] = d[key];
+        if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
+          camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
+        }
+      }
+      return camelData;
     }
   };
 };
@@ -119,18 +127,18 @@ export const setDoc = async (docRef: any, data: any) => {
   const idField = docRef.table === 'users' ? 'uid' : 'id';
   const payload: any = { [idField]: docRef.id };
   if (docRef.workspace_id) payload.workspace_id = docRef.workspace_id;
-
+  
   for (const key in data) {
     let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
     if (key === 'photoURL') snakeKey = 'photo_url';
-    if (key === 'displayName') snakeKey = 'name';
+    if (key === 'displayName') snakeKey = 'username';
     if (key === 'createdAt' || key === 'lastUpdated' || key === 'updatedAt') {
       payload[snakeKey] = data[key] === 'SERVER_TIMESTAMP' ? new Date().toISOString() : new Date(data[key]).toISOString();
     } else {
       payload[snakeKey] = data[key];
     }
   }
-
+  
   const { error } = await supabase.from(docRef.table).upsert(payload);
   if (error) throw error;
 };
@@ -138,11 +146,11 @@ export const setDoc = async (docRef: any, data: any) => {
 export const updateDoc = async (docRef: any, data: any) => {
   const idField = docRef.table === 'users' ? 'uid' : 'id';
   const payload: any = {};
-
+  
   for (const key in data) {
     let snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
     if (key === 'photoURL') snakeKey = 'photo_url';
-    if (key === 'displayName') snakeKey = 'name';
+    if (key === 'displayName') snakeKey = 'username';
     if (data[key] && data[key].__isArrayUnion) {
       const { data: current } = await supabase.from(docRef.table).select(snakeKey).eq(idField, docRef.id).maybeSingle();
       const arr = (current as any)?.[snakeKey] || [];
@@ -157,7 +165,7 @@ export const updateDoc = async (docRef: any, data: any) => {
       payload[snakeKey] = data[key];
     }
   }
-
+  
   let req = supabase.from(docRef.table).update(payload).eq(idField, docRef.id);
   if (docRef.workspace_id) {
     req = req.eq('workspace_id', docRef.workspace_id);
@@ -206,16 +214,28 @@ export const getDocs = async (queryObj: any) => {
     const snakeField = queryObj.order.field.replace(/[A-Z]/g, (letter: string) => `_${letter.toLowerCase()}`);
     req = req.order(snakeField, { ascending: queryObj.order.direction === 'asc' });
   }
-
+  
   const { data, error } = await req;
   if (error) throw error;
-
+  
   return {
     empty: !data || data.length === 0,
-    docs: (data || []).map((d: any) => ({
-      id: d.uid || d.id,
-      data: () => mapRowToFirestore(d, queryObj.table)
-    }))
+    docs: (data || []).map((d: any) => {
+      const camelData: any = {};
+      for (const key in d) {
+        let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+        if (key === 'photo_url') camelKey = 'photoURL';
+        if (key === 'username') camelKey = 'displayName';
+        camelData[camelKey] = d[key];
+        if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
+          camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
+        }
+      }
+      return {
+        id: d.uid || d.id,
+        data: () => camelData
+      };
+    })
   };
 };
 
@@ -223,23 +243,35 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
   let isUnsubscribed = false;
   let channel: any = null;
   let currentDocs: any[] = [];
-
+  
   const isDoc = !!queryObj.id;
   const fetchFn = isDoc ? () => getDocFromServer(queryObj) : () => getDocs(queryObj);
-
-  const mapSupabaseRowToDoc = (d: any) => ({
-    id: d.uid || d.id,
-    data: () => mapRowToFirestore(d, queryObj.table)
-  });
+  
+  const mapSupabaseRowToDoc = (d: any) => {
+    const camelData: any = {};
+    for (const key in d) {
+      let camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      if (key === 'photo_url') camelKey = 'photoURL';
+      if (key === 'username') camelKey = 'displayName';
+      camelData[camelKey] = d[key];
+      if (key === 'created_at' || key === 'last_updated' || key === 'updated_at') {
+        camelData[camelKey] = { toMillis: () => new Date(d[key]).getTime() };
+      }
+    }
+    return {
+      id: d.uid || d.id,
+      data: () => camelData
+    };
+  };
 
   fetchFn().then(snapshot => {
     if (isUnsubscribed) return;
-
+    
     if (!isDoc) {
       currentDocs = snapshot.docs || [];
     }
     callback(snapshot);
-
+    
     let filterStr = undefined;
     if (isDoc) {
       const idField = queryObj.table === 'users' ? 'uid' : 'id';
@@ -250,11 +282,11 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
       if (f.op === '==') filterStr = `${snakeField}=eq.${f.value}`;
       if (f.op === 'array-contains') filterStr = `${snakeField}=cs.{${f.value}}`;
     }
-
+    
     channel = supabase.channel(`realtime:${queryObj.table}:${Math.random()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: queryObj.table, filter: filterStr }, (payload) => {
         if (isUnsubscribed) return;
-
+        
         if (isDoc) {
           fetchFn().then(newSnapshot => {
             if (!isUnsubscribed) callback(newSnapshot);
@@ -265,7 +297,7 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
           if (payload.eventType === 'INSERT') {
             const newDoc = mapSupabaseRowToDoc(payload.new);
             currentDocs = [...currentDocs, newDoc];
-
+            
             if (queryObj.order) {
               const field = queryObj.order.field;
               const dir = queryObj.order.direction === 'asc' ? 1 : -1;
@@ -288,14 +320,14 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
         }
       })
       .subscribe();
-
+      
     if (isUnsubscribed) {
       supabase.removeChannel(channel);
     }
   }).catch(e => {
     if (errorCallback) errorCallback(e);
   });
-
+  
   return () => {
     isUnsubscribed = true;
     if (channel) {
@@ -303,3 +335,4 @@ export const onSnapshot = (queryObj: any, callback: (snapshot: any) => void, err
     }
   };
 };
+

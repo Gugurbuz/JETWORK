@@ -6,6 +6,7 @@ export const callGemini = async (params: {
   contents: any[];
   responseSchema?: any;
   tools?: any[];
+  toolConfig?: any;
   onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }) => {
@@ -25,7 +26,8 @@ export const callGemini = async (params: {
       systemInstruction: params.systemInstruction,
       contents: params.contents,
       responseSchema: params.responseSchema,
-      tools: params.tools
+      tools: params.tools,
+      toolConfig: params.toolConfig
     })
   });
 

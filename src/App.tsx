@@ -18,9 +18,8 @@ import { useMessageStore } from './store/useMessageStore';
 import { useStore } from './store/useStore';
 import { supabase } from './supabase';
 import { saveDocumentAndVersion, saveRawResponse, parseBusinessAnalysis } from './utils/documentUtils';
-import { callGemini, callAiWithRetry } from './services/aiService';
-import { MOCK_COLLABORATORS, SYSTEM_INSTRUCTION } from './constants';
-import { useAI } from './hooks/useAI';
+import { MOCK_COLLABORATORS, ZERO_TOUCH_AGENTS, SYSTEM_INSTRUCTION } from './constants';
+import { useMessages } from './hooks/useMessages';
 import { useAuth } from './hooks/useAuth';
 import { useProjects } from './hooks/useProjects';
 import { useWorkspaceSync } from './hooks/useWorkspaceSync';
@@ -60,6 +59,10 @@ export default function App() {
   
   const isAiActive = useStore(state => state.isAiActive);
   const setIsAiActive = useStore(state => state.setIsAiActive);
+  const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
+  const setIsZeroTouchMode = useStore(state => state.setIsZeroTouchMode);
+  const activeZeroTouchRoles = useStore(state => state.activeZeroTouchRoles);
+  const setActiveZeroTouchRoles = useStore(state => state.setActiveZeroTouchRoles);
   
   const {
     activeUsers,
@@ -205,6 +208,7 @@ export default function App() {
     handleAddParticipant,
     handleRemoveParticipant,
     handleLeaveWorkspace,
+    handleToggleReaction
   } = useWorkspaceHandlers(
     user,
     currentWorkspace,
@@ -214,23 +218,18 @@ export default function App() {
   const selectWorkspace = useStore(state => state.selectWorkspace);
   const selectProject = useStore(state => state.selectProject);
 
+  const isGenerating = useStore(state => state.isGenerating);
+  const isDiscussing = useStore(state => state.isDiscussing);
+  const aiHandRaised = useStore(state => state.aiHandRaised);
+  const setAiHandRaised = useStore(state => state.setAiHandRaised);
+  const activeTab = useStore(state => state.activeTab);
+  const setActiveTab = useStore(state => state.setActiveTab);
+
   const {
-    isGenerating,
-    aiHandRaised,
-    setAiHandRaised,
-    activeTab,
-    setActiveTab,
     handleSendMessage,
     handleAcceptAiHandRaise,
-    handleGenerateDocument,
-    handleToggleReaction: handleAIToggleReaction
-  } = useAI({
-    currentWorkspaceId,
-    user,
-    messages,
-    setMessages,
-    channelRef
-  });
+    handleGenerateDocument
+  } = useMessages(channelRef);
 
   const handleUpdateDocument = async (newContent: DocumentData) => {
     setDocumentContent(newContent);
@@ -356,10 +355,20 @@ export default function App() {
           channelRef={channelRef}
           sessionId={sessionId}
           onSendMessage={handleSendMessage}
-          onToggleReaction={handleAIToggleReaction}
+          onToggleReaction={handleToggleReaction}
           onToggleAiActive={() => {
             const newValue = !isAiActive;
             setIsAiActive(newValue);
+            if (newValue && isZeroTouchMode) {
+              setIsZeroTouchMode(false);
+            }
+          }}
+          onToggleZeroTouchMode={() => {
+            const newValue = !isZeroTouchMode;
+            setIsZeroTouchMode(newValue);
+            if (newValue && isAiActive) {
+              setIsAiActive(false);
+            }
           }}
           onAcceptAiHandRaise={handleAcceptAiHandRaise}
           onDismissAiHandRaise={() => setAiHandRaised(null)}

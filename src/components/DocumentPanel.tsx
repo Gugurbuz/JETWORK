@@ -171,82 +171,6 @@ const stringToColor = (str: string) => {
   return colors[Math.abs(hash) % colors.length];
 };
 
-const getRoleConfig = (role?: string) => {
-  switch (role) {
-    case 'Moderatör': return { icon: Brain, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/20' };
-    case 'İş Analisti': return { icon: Briefcase, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' };
-    case 'Yazılım Mimarı': return { icon: Code, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' };
-    case 'Test Uzmanı': return { icon: Bug, color: 'text-green-500', bg: 'bg-green-500/10', border: 'border-green-500/20' };
-    case 'Product Owner': return { icon: Briefcase, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
-    case 'Scrum Master': return { icon: Users, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
-    case 'Kullanıcı': return { icon: User, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
-    default: return { icon: Bot, color: 'text-theme-text-muted', bg: 'bg-theme-surface-hover', border: 'border-theme-border' };
-  }
-};
-
-const getActiveSectionObject = (data: DocumentData | null, tab: string): SectionData | string | null | undefined => {
-  if (!data) return null;
-  switch (tab) {
-    case 'BA Analiz': return data.businessAnalysis;
-    case 'IT Analiz': return data.code;
-    case 'Test': return data.test;
-    case 'FLOW': return data.bpmn;
-    case 'Review': return data.review;
-    default: return null;
-  }
-};
-
-// ANTI-HALLUCINATION: AI'ın Markdown veya Backtick üretmesini Tiptap'ı bozmadan önce temizler
-const getActiveContent = (data: DocumentData | null, tab: string): string => {
-  const section = getActiveSectionObject(data, tab);
-  if (!section) return '';
-  const rawContent = typeof section === 'string' ? section : (section.content || '');
-  
-  // Clean markdown block wrappers completely
-  return rawContent
-    .replace(/^```html\s*/i, '')
-    .replace(/^```\s*/, '')
-    .replace(/```\s*$/i, '')
-    .trim();
-};
-
-const getDocumentTitle = (tab: string) => {
-  switch (tab) {
-    case 'BA Analiz': return 'İş Analizi';
-    case 'IT Analiz': return 'IT Analizi';
-    case 'Test': return 'Test';
-    case 'Review': return 'Değerlendirme';
-    default: return tab;
-  }
-};
-
-const CoverPage = ({ activeTab }: { activeTab: string }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-theme-border/50 p-12 mb-12 flex flex-col items-center select-none printable-cover">
-    <div className="mb-24 mt-8">
-      <div className="text-4xl font-black tracking-tighter text-[#1e1e1e] flex items-center">
-        ENERJİ<span className="bg-[#1a237e] text-white px-3 py-1 rounded-full text-[22px] leading-none tracking-normal ml-1 mb-1 font-medium">SA</span>
-      </div>
-    </div>
-    <div className="w-full flex items-center justify-center max-w-2xl mx-auto">
-       <div className="flex-[0.5] flex justify-end border-r-2 border-gray-400 pr-8 py-2">
-         <h1 className="text-4xl font-light text-[#0f172a] leading-[1.2] m-0 text-right">
-           {getDocumentTitle(activeTab)}<br/>Dokümanı
-         </h1>
-       </div>
-       <div className="flex-[0.5] text-left pl-8 flex flex-col justify-center gap-1">
-         <div className="text-xl text-[#0f172a] font-light">Talep Adı: <span className="font-normal">P4F Ürünü</span></div>
-         <div className="text-xl text-[#0f172a] font-light">19.04.2026</div>
-       </div>
-    </div>
-    <div className="w-full max-w-2xl mx-auto mt-24 mb-4">
-      <hr className="border-t border-gray-400" />
-    </div>
-    <div className="w-full max-w-2xl mx-auto text-left text-sm text-[#0f172a]">
-      Talep No: <a href="#" className="text-blue-600 underline font-normal">UA-437</a>
-    </div>
-  </div>
-);
-
 export function DocumentPanel({ 
   onGenerate, 
   hasMessages,
@@ -262,8 +186,10 @@ export function DocumentPanel({
   const setActiveTab = useStore(state => state.setActiveTab);
   const documentContent = useStore(state => state.documentContent);
   const isGenerating = useStore(state => state.isGenerating);
+  const isDiscussing = useStore(state => state.isDiscussing);
   const isLoadingWorkspace = useStore(state => state.isLoadingWorkspace);
   const setSelectedDocumentText = useStore(state => state.setSelectedDocumentText);
+  const currentUser = useStore(state => state.user);
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -284,6 +210,19 @@ export function DocumentPanel({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, activeTab, isAutoScrollEnabled]);
+
+  const getRoleConfig = (role?: string) => {
+    switch (role) {
+      case 'Moderatör': return { icon: Brain, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/20' };
+      case 'İş Analisti': return { icon: Briefcase, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' };
+      case 'Yazılım Mimarı': return { icon: Code, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' };
+      case 'Test Uzmanı': return { icon: Bug, color: 'text-green-500', bg: 'bg-green-500/10', border: 'border-green-500/20' };
+      case 'Product Owner': return { icon: Briefcase, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
+      case 'Scrum Master': return { icon: Users, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
+      case 'Kullanıcı': return { icon: User, color: 'text-theme-primary', bg: 'bg-theme-primary/10', border: 'border-theme-primary/20' };
+      default: return { icon: Bot, color: 'text-theme-text-muted', bg: 'bg-theme-surface-hover', border: 'border-theme-border' };
+    }
+  };
 
   const handleShare = async () => {
     if (!documentContent) return;
@@ -308,6 +247,27 @@ export function DocumentPanel({
     }
   };
 
+  // YENİ MİMARİ: Objeyi veya stringi güvenle okuyan yardımcı fonksiyonlar
+  const getActiveSectionObject = (data: DocumentData | null, tab: string): SectionData | string | null | undefined => {
+    if (!data) return null;
+    switch (tab) {
+      case 'BA Analiz': return data.businessAnalysis;
+      case 'IT Analiz': return data.code;
+      case 'Test': return data.test;
+      case 'FLOW': return data.bpmn;
+      case 'Review': return data.review;
+      default: return null;
+    }
+  };
+
+  const getActiveContent = (data: DocumentData | null, tab: string): string => {
+    const section = getActiveSectionObject(data, tab);
+    if (!section) return '';
+    // Geriye dönük uyumluluk: Eğer hala string ise direkt dön, objeyse content'i dön
+    return typeof section === 'string' ? section : (section.content || '');
+  };
+
+  // UI İçin Status ve Flags okuma
   const activeSectionObj = getActiveSectionObject(documentContent, activeTab);
   const isStateObject = activeSectionObj && typeof activeSectionObj === 'object';
   const currentStatus = isStateObject ? (activeSectionObj as SectionData).status : null;
@@ -363,6 +323,7 @@ export function DocumentPanel({
   useEffect(() => {
     if (editor && documentContent) {
       const content = getActiveContent(documentContent, activeTab);
+      // Only update if content is actually different to avoid cursor jumps
       if (editor.getHTML() !== content) {
         editor.commands.setContent(content);
       }
@@ -375,11 +336,13 @@ export function DocumentPanel({
     const htmlContent = editor.getHTML();
     const newContent = { ...documentContent };
     
+    // YENİ MİMARİ: Kaydederken objenin content kısmını güncelle
     const updateSection = (sectionKey: keyof DocumentData) => {
       const section = newContent[sectionKey];
       if (typeof section === 'object' && section !== null) {
         (newContent[sectionKey] as any) = { ...section, content: htmlContent };
       } else {
+        // Eski string tipindeyse onu objeye dönüştürerek kaydet
         (newContent[sectionKey] as any) = { content: htmlContent, status: 'DRAFT', flags: [] };
       }
     };
@@ -422,46 +385,52 @@ export function DocumentPanel({
         <meta charset="utf-8">
         <title>${activeTab} Dokümanı</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; line-height: 1.6; color: #18181b; }
-          table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; }
-          th, td { border: 1px solid #e4e4e7; padding: 12px; text-align: left; }
-          th { background-color: #f4f4f5; }
-          img { max-width: 100%; height: auto; border-radius: 8px; }
-          pre { background-color: #18181b; color: #f8fafc; padding: 1rem; border-radius: 8px; overflow-x: auto; }
-          code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-          blockquote { border-left: 4px solid #e4e4e7; margin: 0; padding-left: 1rem; color: #52525b; font-style: italic; }
-          .cover-page { display: flex; flex-direction: column; margin-bottom: 4rem; padding: 4rem; border: 1px solid #e4e4e7; border-radius: 12px; background: #fff; page-break-after: always; }
-          .cover-logo { text-align: center; font-size: 2.5rem; font-weight: 900; letter-spacing: -0.05em; margin-bottom: 6rem; margin-top: 2rem; color: #1e1e1e; }
-          .cover-logo span { background: #1a237e; color: #fff; border-radius: 50%; padding: 6px 14px; font-weight: 500; letter-spacing: normal; margin-left: 4px; font-size: 1.5rem; vertical-align: middle; }
-          .cover-container { display: flex; max-width: 800px; margin: 0 auto; width: 100%; }
-          .cover-left { flex: 0.5; padding-right: 2rem; text-align: right; border-right: 2px solid #9ca3af; }
-          .cover-right { flex: 0.5; padding-left: 2rem; display: flex; flex-direction: column; justify-content: center; }
-          .cover-title { font-size: 2.5rem; color: #0f172a; font-weight: 300; margin: 0; line-height: 1.2; }
-          .cover-meta { font-size: 1.25rem; color: #0f172a; font-weight: 300; margin-bottom: 0.5rem; }
-          .cover-meta strong { font-weight: 400; }
-          .cover-date { font-size: 1.25rem; color: #0f172a; font-weight: 300; }
-          .cover-divider { margin-top: 6rem; margin-bottom: 1rem; border: 0; border-top: 1px solid #9ca3af; width: 100%; max-width: 800px; }
-          .cover-footer { font-size: 0.875rem; color: #0f172a; max-width: 800px; margin: 0 auto; width: 100%; }
-          .cover-footer a { color: #2563eb; text-decoration: underline; }
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 2rem; 
+            line-height: 1.6;
+            color: #18181b;
+          }
+          table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            margin: 1.5rem 0;
+          }
+          th, td { 
+            border: 1px solid #e4e4e7; 
+            padding: 12px; 
+            text-align: left;
+          }
+          th {
+            background-color: #f4f4f5;
+          }
+          img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+          }
+          pre {
+            background-color: #18181b;
+            color: #f8fafc;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+          }
+          code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          }
+          blockquote {
+            border-left: 4px solid #e4e4e7;
+            margin: 0;
+            padding-left: 1rem;
+            color: #52525b;
+            font-style: italic;
+          }
         </style>
       </head>
       <body>
-        ${activeTab !== 'Review' ? `
-        <div class="cover-page">
-          <div class="cover-logo">ENERJİ<span>SA</span></div>
-          <div class="cover-container">
-            <div class="cover-left">
-              <h1 class="cover-title">${getDocumentTitle(activeTab)}<br/>Dokümanı</h1>
-            </div>
-            <div class="cover-right">
-              <div class="cover-meta">Talep Adı: <strong>P4F Ürünü</strong></div>
-              <div class="cover-date">19.04.2026</div>
-            </div>
-          </div>
-          <hr class="cover-divider" />
-          <div class="cover-footer">Talep No: <a href="#">UA-437</a></div>
-        </div>
-        ` : ''}
         ${content}
       </body>
       </html>
@@ -479,9 +448,11 @@ export function DocumentPanel({
 
   return (
     <div className="flex-1 flex flex-col bg-theme-bg h-full shrink-0 relative overflow-hidden border-l border-theme-border/50 transition-colors duration-300 z-10">
+      {/* Header */}
       <header className="h-16 flex items-center justify-between px-8 bg-theme-bg border-b border-theme-border sticky top-0 z-20 transition-colors duration-300 shadow-sm">
         <div className="flex items-center gap-1">
           {TABS.map((tab) => {
+            // Tablardaki bildirim/statü işaretçileri için
             const tabSection = getActiveSectionObject(documentContent, tab);
             const isTabObj = tabSection && typeof tabSection === 'object';
             const hasError = isTabObj && (tabSection as SectionData).status === 'NEEDS_REVISION';
@@ -576,6 +547,7 @@ export function DocumentPanel({
         </div>
       </header>
 
+      {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-6 bg-theme-bg transition-colors duration-300">
         <div className="max-w-3xl mx-auto">
           <AnimatePresence mode="wait">
@@ -593,8 +565,13 @@ export function DocumentPanel({
                   <div className="h-4 w-5/6 bg-theme-border/30 rounded" />
                   <div className="h-4 w-4/6 bg-theme-border/30 rounded" />
                 </div>
+                <div className="space-y-4 pt-8">
+                  <div className="h-4 w-full bg-theme-border/30 rounded" />
+                  <div className="h-4 w-full bg-theme-border/30 rounded" />
+                  <div className="h-4 w-3/6 bg-theme-border/30 rounded" />
+                </div>
               </motion.div>
-            ) : !documentContent && !isGenerating && activeTab !== 'Review' ? (
+            ) : !documentContent && !isGenerating && !isDiscussing && activeTab !== 'Review' ? (
               <motion.div 
                 key="empty"
                 initial={{ opacity: 0, scale: 0.98 }}
@@ -642,6 +619,25 @@ export function DocumentPanel({
                   Yapay zeka analizleri derliyor ve yapılandırıyor...
                 </p>
               </motion.div>
+            ) : !documentContent && isDiscussing && activeTab !== 'Review' ? (
+              <motion.div 
+                key="discussing"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="h-[60vh] flex flex-col items-center justify-center text-center"
+              >
+                <div className="relative w-12 h-12 mb-6">
+                  <div className="absolute inset-0 border-2 border-theme-border/50 rounded-full" />
+                  <div className="absolute inset-0 border-2 border-theme-primary border-t-transparent animate-spin rounded-full" />
+                </div>
+                <h3 className="text-lg font-semibold text-theme-text tracking-tight">
+                  Ajanlar Tartışıyor
+                </h3>
+                <p className="text-sm text-theme-text-muted mt-2">
+                  Yapay zeka ajanları konuyu analiz ediyor ve tartışıyor...
+                </p>
+              </motion.div>
             ) : (
               <motion.div 
                 key="content"
@@ -649,12 +645,15 @@ export function DocumentPanel({
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-theme-surface p-8 border border-theme-border/50 shadow-lg relative rounded-2xl"
               >
+                {/* Document Header Decoration */}
                 <div className="absolute top-0 left-0 right-0 h-1 bg-theme-primary rounded-t-2xl opacity-80" />
                 
+                {/* YENİ UI: Status ve Badge Gösterimi */}
                 <div className="mb-8 pb-4 border-b border-theme-border/50 flex justify-between items-center">
                   <h2 className="text-2xl font-semibold text-theme-text tracking-tight flex items-center gap-3">
                     {activeTab === 'Review' ? 'Değerlendirme' : activeTab} Raporu
                     
+                    {/* Statü Rozeti */}
                     {currentStatus && (
                       <span className={cn(
                         "text-[10px] px-3 py-1 font-bold uppercase tracking-widest rounded-full border",
@@ -667,14 +666,15 @@ export function DocumentPanel({
                     )}
                   </h2>
                   
-                  {isGenerating && (
+                  {(isGenerating || isDiscussing) && (
                     <div className="flex items-center gap-2 text-theme-primary text-xs font-medium animate-pulse">
                       <div className="w-4 h-4 rounded-full border-2 border-theme-primary border-t-transparent animate-spin" />
-                      Güncelleniyor...
+                      {isDiscussing ? 'Tartışılıyor...' : 'Güncelleniyor...'}
                     </div>
                   )}
                 </div>
 
+                {/* YENİ UI: İtirazlar (Flags) Listesi */}
                 {currentFlags && currentFlags.length > 0 && (
                   <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
                     <h4 className="flex items-center gap-2 text-red-500 font-bold text-sm mb-3">
@@ -742,8 +742,14 @@ export function DocumentPanel({
                                 <span className="text-[10px] text-theme-text-muted">{data.count} Mesaj</span>
                               </div>
                               <div className="flex gap-4 text-[10px] text-theme-text-muted">
-                                <div className="flex items-center gap-1"><Clock size={10} />{data.time}s Düşünme</div>
-                                <div className="flex items-center gap-1"><Coins size={10} />{data.tokens.toLocaleString()} Token</div>
+                                <div className="flex items-center gap-1">
+                                  <Clock size={10} />
+                                  {data.time}s Düşünme
+                                 </div>
+                                <div className="flex items-center gap-1">
+                                  <Coins size={10} />
+                                  {data.tokens.toLocaleString()} Token
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -776,35 +782,64 @@ export function DocumentPanel({
                       </div>
                     </div>
 
+                    {/* Live Discussion Feed */}
                     <div className="mt-8 bg-theme-surface rounded-2xl border border-theme-border/50 shadow-lg relative overflow-hidden">
                       <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-theme-primary via-purple-500 to-theme-primary opacity-80" />
+                      
                       <div className="p-6 border-b border-theme-border/50 flex items-center justify-between bg-theme-surface-hover/30">
                         <h3 className="text-lg font-semibold text-theme-text flex items-center gap-2">
-                          <Activity className="text-theme-primary" size={20} />
+                          <Activity className={cn("text-theme-primary", isDiscussing && "animate-pulse")} size={20} />
                           Ajan Etkileşim Özeti
                         </h3>
+                        {isDiscussing && (
+                          <span className="px-3 py-1 rounded-full bg-theme-primary/10 text-theme-primary text-xs font-medium flex items-center gap-2 border border-theme-primary/20">
+                            <span className="w-2 h-2 rounded-full bg-theme-primary animate-ping" />
+                            Ajanlar Analiz Ediyor
+                          </span>
+                        )}
                       </div>
-                      <div ref={scrollContainerRef} onScroll={handleScroll} className="p-6 max-h-[600px] overflow-y-auto custom-scrollbar">
+
+                      <div 
+                        ref={scrollContainerRef}
+                        onScroll={handleScroll}
+                        className="p-6 max-h-[600px] overflow-y-auto custom-scrollbar"
+                      >
                         <div className="relative border-l-2 border-theme-border/30 ml-4 space-y-8 pb-4">
                           <AnimatePresence initial={false}>
                             {messages.map((msg) => {
                               const isUser = msg.role === 'user';
                               const config = getRoleConfig(msg.senderRole || (isUser ? 'Kullanıcı' : undefined));
                               const Icon = config.icon;
-                              const currentUser = useStore(state => state.user);
                               const userColor = isUser 
                                 ? (msg.senderName === currentUser?.name && currentUser?.color ? currentUser.color : (msg.senderName ? stringToColor(msg.senderName) : undefined))
                                 : undefined;
                               
                               return (
-                                <motion.div key={msg.id} initial={{ opacity: 0, x: -20, y: 10 }} animate={{ opacity: 1, x: 0, y: 0 }} className="relative pl-8">
-                                  <div className={cn("absolute -left-[17px] top-1 w-8 h-8 rounded-full flex items-center justify-center border-2 bg-theme-surface shadow-sm", !userColor && config.border, !userColor && config.color)} style={userColor ? { borderColor: `${userColor}33`, color: userColor } : undefined}>
+                                <motion.div 
+                                  key={msg.id}
+                                  initial={{ opacity: 0, x: -20, y: 10 }}
+                                  animate={{ opacity: 1, x: 0, y: 0 }}
+                                  className="relative pl-8"
+                                >
+                                  {/* Timeline Dot */}
+                                  <div 
+                                    className={cn("absolute -left-[17px] top-1 w-8 h-8 rounded-full flex items-center justify-center border-2 bg-theme-surface shadow-sm", !userColor && config.border, !userColor && config.color)}
+                                    style={userColor ? { borderColor: `${userColor}33`, color: userColor } : undefined}
+                                  >
                                     <Icon size={14} />
                                   </div>
-                                  <div className={cn("p-4 rounded-xl border shadow-sm transition-all hover:shadow-md", !userColor && config.bg, !userColor && config.border)} style={userColor ? { backgroundColor: `${userColor}1a`, borderColor: `${userColor}33` } : undefined}>
+                                  
+                                  {/* Content Card */}
+                                  <div 
+                                    className={cn("p-4 rounded-xl border shadow-sm transition-all hover:shadow-md", !userColor && config.bg, !userColor && config.border)}
+                                    style={userColor ? { backgroundColor: `${userColor}1a`, borderColor: `${userColor}33` } : undefined}
+                                  >
                                     <div className="flex items-center justify-between mb-3">
                                       <div className="flex items-center gap-2">
-                                        <span className={cn("font-semibold text-sm", !userColor && config.color)} style={userColor ? { color: userColor } : undefined}>
+                                        <span 
+                                          className={cn("font-semibold text-sm", !userColor && config.color)}
+                                          style={userColor ? { color: userColor } : undefined}
+                                        >
                                           {msg.senderName || (isUser ? 'Siz' : 'Yapay Zeka')}
                                         </span>
                                         {msg.senderRole && (
@@ -814,8 +849,18 @@ export function DocumentPanel({
                                         )}
                                       </div>
                                       <div className="flex items-center gap-3 text-[10px] text-theme-text-muted font-medium">
-                                        {msg.thinkingTime && <span className="flex items-center gap-1" title="Düşünme Süresi"><Clock size={12} />{msg.thinkingTime}s</span>}
-                                        {msg.tokenCount && <span className="flex items-center gap-1" title="Token Sayısı"><Coins size={12} />{msg.tokenCount}</span>}
+                                        {msg.thinkingTime && (
+                                          <span className="flex items-center gap-1" title="Düşünme Süresi">
+                                            <Clock size={12} />
+                                            {msg.thinkingTime}s
+                                          </span>
+                                        )}
+                                        {msg.tokenCount && (
+                                          <span className="flex items-center gap-1" title="Token Sayısı">
+                                            <Coins size={12} />
+                                            {msg.tokenCount}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                     <div className="text-sm text-theme-text">
@@ -823,7 +868,9 @@ export function DocumentPanel({
                                         <p className="font-medium leading-relaxed">{msg.actionSummary}</p>
                                       ) : (
                                         <div className="prose prose-sm max-w-none prose-p:leading-relaxed line-clamp-2 opacity-80">
-                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {msg.text}
+                                          </ReactMarkdown>
                                         </div>
                                       )}
                                     </div>
@@ -842,11 +889,17 @@ export function DocumentPanel({
                                           ))}
                                         </ul>
                                         <div className="flex flex-wrap gap-2 border-t border-theme-border/50 pt-3">
-                                          <button onClick={() => setDiffModalData({ oldDoc: msg.previousDocumentSnapshot, newDoc: msg.documentSnapshot })} className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-surface hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm">
+                                          <button 
+                                            onClick={() => setDiffModalData({ oldDoc: msg.previousDocumentSnapshot, newDoc: msg.documentSnapshot })}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-surface hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
+                                          >
                                             <Eye size={12} /> Farkı Gör
                                           </button>
                                           {onRestoreDocument && (
-                                            <button onClick={() => onRestoreDocument(msg.documentSnapshot)} className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-surface hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm">
+                                            <button 
+                                              onClick={() => onRestoreDocument(msg.documentSnapshot)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted hover:text-theme-primary bg-theme-surface hover:bg-theme-surface-hover transition-colors border border-theme-border rounded-md shadow-sm"
+                                            >
                                               <RotateCcw size={12} /> Geri Yükle
                                             </button>
                                           )}
@@ -867,12 +920,25 @@ export function DocumentPanel({
                 
                 <AnimatePresence mode="wait">
                   {isEditing ? (
-                    <motion.div key="editor" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="bg-theme-surface border border-theme-border/50 rounded-lg overflow-hidden shadow-sm">
+                    <motion.div 
+                      key="editor"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="bg-theme-surface border border-theme-border/50 rounded-lg overflow-hidden shadow-sm"
+                    >
                       <MenuBar editor={editor} />
                       <EditorContent editor={editor} />
                     </motion.div>
                   ) : activeTab === 'FLOW' ? (
-                    <motion.div key="flow" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+                    <motion.div 
+                      key="flow"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       {getActiveContent(documentContent, 'FLOW') ? (
                         <BpmnViewer xml={getActiveContent(documentContent, 'FLOW')} />
                       ) : (
@@ -884,14 +950,26 @@ export function DocumentPanel({
                       )}
                     </motion.div>
                   ) : (
-                    <motion.article key="reader" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-blockquote:border-l-4 prose-blockquote:border-theme-primary prose-blockquote:bg-theme-surface-hover/50 prose-blockquote:p-4 prose-blockquote:italic prose-blockquote:rounded-r-lg prose-headings:text-theme-text prose-headings:font-bold prose-headings:tracking-tight prose-a:text-theme-primary prose-a:no-underline hover:prose-a:underline prose-strong:text-theme-text prose-strong:font-bold prose-table:border-collapse prose-th:bg-theme-surface-hover prose-th:p-3 prose-td:p-3 prose-td:border-b prose-td:border-theme-border/50">
-                      {activeTab !== 'Review' && <CoverPage activeTab={activeTab} />}
-                      <div className="document-content-view" dangerouslySetInnerHTML={{ __html: getActiveContent(documentContent, activeTab) }} onClick={(e) => {
+                    <motion.article 
+                      key="reader"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="prose prose-sm max-w-none prose-p:leading-relaxed prose-blockquote:border-l-2 prose-blockquote:p-6 prose-blockquote:italic prose-blockquote:rounded-r-lg"
+                    >
+                      <div 
+                        className="document-content-view" 
+                        dangerouslySetInnerHTML={{ __html: getActiveContent(documentContent, activeTab) }} 
+                        onClick={(e) => {
                           const target = e.target as Node;
                           const element = target.nodeType === Node.TEXT_NODE ? target.parentElement : target as Element;
                           const aTag = element?.closest('a');
-                          if (aTag) e.preventDefault();
-                        }} />
+                          if (aTag) {
+                            e.preventDefault();
+                          }
+                        }}
+                      />
                     </motion.article>
                   )}
                 </AnimatePresence>
@@ -902,9 +980,16 @@ export function DocumentPanel({
       </div>
 
       {diffModalData && (
-        <DiffViewerModal oldDoc={diffModalData.oldDoc} newDoc={diffModalData.newDoc} onClose={() => setDiffModalData(null)} onRestore={() => {
-            if (onRestoreDocument && diffModalData.newDoc) onRestoreDocument(diffModalData.newDoc);
-          }} />
+        <DiffViewerModal
+          oldDoc={diffModalData.oldDoc}
+          newDoc={diffModalData.newDoc}
+          onClose={() => setDiffModalData(null)}
+          onRestore={() => {
+            if (onRestoreDocument && diffModalData.newDoc) {
+              onRestoreDocument(diffModalData.newDoc);
+            }
+          }}
+        />
       )}
     </div>
   );

@@ -54,7 +54,8 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
       
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        displayName: username,
+        displayName: username, // db.ts'de 'username' sütununa mapleniyor
+        name: firstName,
         surname: lastName,
         role: role,
         onboardingCompleted: true

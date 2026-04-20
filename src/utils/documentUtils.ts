@@ -36,6 +36,22 @@ export const saveRawResponse = async (workspaceId: string, messageId: string, ra
   }
 };
 
+export const applyPatch = (sectionContent: string, targetText: string, replacementText: string): string => {
+  if (!targetText) {
+    // If targetText is empty, just append
+    return sectionContent ? sectionContent + '\n\n' + replacementText : replacementText;
+  }
+
+  // Try exact match
+  if (sectionContent.includes(targetText)) {
+    return sectionContent.replace(targetText, replacementText);
+  }
+
+  // Fallback: If exact match fails, try to find a partial match or just append
+  console.warn(`[DocumentUtils] Exact match failed for targetText: "${targetText}". Appending to the end.`);
+  return sectionContent ? sectionContent + '\n\n' + replacementText : replacementText;
+};
+
 export const parseBusinessAnalysis = (baContent: any): string => {
   if (typeof baContent === 'string') return baContent;
   if (!baContent || typeof baContent !== 'object') return '';

@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
+import { ZERO_TOUCH_AGENTS } from '../constants';
 import { useStore } from '../store/useStore';
 
 const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
@@ -174,6 +175,10 @@ interface ChatPanelProps {
   selectedDocumentText?: string;
   onRestoreDocument?: (doc: any) => void;
   hasDocument?: boolean;
+  isZeroTouchMode?: boolean;
+  onToggleZeroTouchMode?: () => void;
+  activeZeroTouchRoles?: string[];
+  setActiveZeroTouchRoles?: (roles: string[]) => void;
   isLoadingWorkspace?: boolean;
   onManageParticipants?: () => void;
 }
@@ -236,7 +241,7 @@ const MessageItem = memo(({
 
   const storeUser = useStore(state => state.user);
   const userColor = msg.role === 'user' 
-    ? (msg.senderName === storeUser?.name && storeUser?.color ? storeUser.color : (msg.senderName ? stringToColor(msg.senderName) : null))
+    ? (msg.senderColor || (msg.senderName === storeUser?.name && storeUser?.color ? storeUser.color : (msg.senderName ? stringToColor(msg.senderName) : null)))
     : null;
 
   return (
@@ -486,6 +491,8 @@ export function ChatPanel({
   onTypingStart, onTypingEnd, onToggleReaction, currentUser,
   isAiActive, onToggleAiActive, aiHandRaised, onAcceptAiHandRaise, onDismissAiHandRaise,
   selectedDocumentText, onRestoreDocument, hasDocument,
+  isZeroTouchMode, onToggleZeroTouchMode,
+  activeZeroTouchRoles, setActiveZeroTouchRoles,
   isLoadingWorkspace,
   onManageParticipants
 }: ChatPanelProps) {
@@ -501,6 +508,7 @@ export function ChatPanel({
   const [diffModalData, setDiffModalData] = useState<{ oldDoc?: any, newDoc?: any } | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showZeroTouchSettings, setShowZeroTouchSettings] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -937,6 +945,22 @@ export function ChatPanel({
             </div>
           )}
 
+          {/* Zero-Touch Mode Toggle Button */}
+          {onToggleZeroTouchMode && (
+            <button
+              onClick={() => setShowZeroTouchSettings(true)}
+              className={cn(
+                "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border mr-2",
+                isZeroTouchMode 
+                  ? "bg-amber-500 text-white border-amber-500 shadow-amber-500/20" 
+                  : "bg-theme-surface text-theme-text-muted border-theme-border hover:border-amber-500/50 hover:text-amber-500"
+              )}
+              title={isZeroTouchMode ? "Zero-Touch Mode Aktif" : "Zero-Touch Mode Pasif"}
+            >
+              <Zap size={16} className={cn(isZeroTouchMode && "animate-pulse")} />
+            </button>
+          )}
+
           {/* AI Toggle Button */}
           <button
             onClick={onToggleAiActive}
@@ -1344,6 +1368,114 @@ export function ChatPanel({
         />
       )}
 
+      {showZeroTouchSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-theme-bg border border-theme-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+          >
+            <div className="p-4 border-b border-theme-border flex items-center justify-between bg-theme-surface">
+              <div className="flex items-center gap-2 text-amber-500">
+                <Zap size={18} className="animate-pulse" />
+                <h3 className="font-semibold text-theme-text">Zero-Touch Mode Ayarları</h3>
+              </div>
+              <button 
+                onClick={() => setShowZeroTouchSettings(false)}
+                className="text-theme-text-muted hover:text-theme-text transition-colors p-1 rounded-md hover:bg-theme-surface-hover"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              <p className="text-sm text-theme-text-muted mb-4">
+                Toplantıya katılacak AI ajanlarını seçin. Seçilen ajanlar toplantı boyunca aktif olarak tartışmaya katılacaktır.
+              </p>
+              
+              <div className="space-y-2">
+                {ZERO_TOUCH_AGENTS.map(agent => {
+                  const isMandatory = agent.role === 'Orchestrator';
+                  const isSelected = isMandatory || (activeZeroTouchRoles?.includes(agent.role) ?? false);
+                  
+                  return (
+                    <label 
+                      key={agent.role} 
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-all",
+                        isMandatory ? "cursor-not-allowed opacity-80" : "cursor-pointer",
+                        isSelected 
+                          ? "border-amber-500/50 bg-amber-500/5" 
+                          : "border-theme-border bg-theme-surface hover:border-theme-border/80"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-5 h-5 rounded flex items-center justify-center border transition-colors",
+                        isSelected ? "bg-amber-500 border-amber-500 text-white" : "border-theme-border bg-theme-bg"
+                      )}>
+                        {isSelected && <Check size={14} />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-sm text-theme-text flex items-center gap-2">
+                          {agent.name}
+                          {isMandatory && <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded-full">Zorunlu</span>}
+                        </div>
+                        <div className="text-xs text-theme-text-muted">{agent.role}</div>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        className="hidden"
+                        checked={isSelected}
+                        disabled={isMandatory}
+                        onChange={() => {
+                          if (!setActiveZeroTouchRoles || !activeZeroTouchRoles || isMandatory) return;
+                          if (isSelected) {
+                            setActiveZeroTouchRoles(activeZeroTouchRoles.filter(r => r !== agent.role));
+                          } else {
+                            setActiveZeroTouchRoles([...activeZeroTouchRoles, agent.role]);
+                          }
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-theme-border bg-theme-surface flex justify-between items-center">
+              <div className="text-xs text-theme-text-muted">
+                {new Set([...(activeZeroTouchRoles || []), 'Orchestrator']).size} ajan seçili
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowZeroTouchSettings(false)}
+                  className="px-4 py-2 text-sm font-medium text-theme-text-muted hover:text-theme-text transition-colors"
+                >
+                  Kapat
+                </button>
+                <button 
+                  onClick={() => {
+                    if (onToggleZeroTouchMode) {
+                      onToggleZeroTouchMode();
+                    }
+                    setShowZeroTouchSettings(false);
+                  }}
+                  className={cn(
+                    "px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2",
+                    isZeroTouchMode 
+                      ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" 
+                      : "bg-amber-500 text-white hover:bg-amber-600"
+                  )}
+                >
+                  <Zap size={16} />
+                  {isZeroTouchMode ? "Modu Kapat" : "Modu Başlat"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
