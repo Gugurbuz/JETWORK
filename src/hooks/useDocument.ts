@@ -2,7 +2,7 @@ import { Type } from "@google/genai";
 import { useStore } from '../store/useStore';
 import { db, doc, setDoc, serverTimestamp } from '../db';
 import { DocumentData } from '../types';
-import { callGemini } from '../services/aiService';
+import { callGemini } from '../services/geminiService';
 import { buildSystemPrompt } from '../services/promptEngine';
 
 export const useDocument = () => {

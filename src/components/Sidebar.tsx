@@ -8,7 +8,7 @@ import { useStore } from '../store/useStore';
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
 interface SidebarProps {
-  user: { name: string; role: string; color?: string } | null;
+  user: { name: string; role: string } | null;
   onSelectWorkspace: (id: string) => void;
   onSelectProject: (id: string) => void;
   onEditProject?: (project: Project) => void;
