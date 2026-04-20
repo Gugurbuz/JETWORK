@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X, FileText } from 'lucide-react';
+import { EditWorkspaceInputSchema } from '../schemas';
 
 interface EditWorkspaceModalProps {
   workspace: { id: string; title: string };
@@ -10,11 +11,17 @@ interface EditWorkspaceModalProps {
 
 export function EditWorkspaceModal({ workspace, onClose, onSubmit }: EditWorkspaceModalProps) {
   const [title, setTitle] = useState(workspace.title);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
-    onSubmit(workspace.id, title);
+    const result = EditWorkspaceInputSchema.safeParse({ title });
+    if (!result.success) {
+      setErrorMsg(result.error.issues[0]?.message || 'Geçersiz giriş.');
+      return;
+    }
+    setErrorMsg('');
+    onSubmit(workspace.id, result.data.title);
   };
 
   return (
@@ -35,6 +42,11 @@ export function EditWorkspaceModal({ workspace, onClose, onSubmit }: EditWorkspa
         </div>
         
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {errorMsg && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-md text-red-500 text-xs leading-relaxed">
+              {errorMsg}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-bold text-theme-text-muted uppercase tracking-wider mb-2">
               Çalışma Alanı Adı

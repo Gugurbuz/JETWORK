@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X, FolderPlus } from 'lucide-react';
+import { NewProjectInputSchema } from '../schemas';
 
 interface NewProjectModalProps {
   onClose: () => void;
@@ -10,12 +11,17 @@ interface NewProjectModalProps {
 export function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim()) {
-      onSubmit({ name, description });
+    const result = NewProjectInputSchema.safeParse({ name, description });
+    if (!result.success) {
+      setErrorMsg(result.error.issues[0]?.message || 'Geçersiz giriş.');
+      return;
     }
+    setErrorMsg('');
+    onSubmit({ name: result.data.name, description: result.data.description || '' });
   };
 
   return (
@@ -40,6 +46,11 @@ export function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
+          {errorMsg && (
+            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-md text-red-500 text-xs leading-relaxed">
+              {errorMsg}
+            </div>
+          )}
           <div className="space-y-5">
             <div>
               <label className="block text-[10px] font-bold text-theme-text-muted mb-2 uppercase tracking-widest">

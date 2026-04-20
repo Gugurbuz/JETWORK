@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, User, Briefcase } from 'lucide-react';
 import { doc, updateDoc, db, auth, getDocs, collection } from '../db';
+import { OnboardingInputSchema } from '../schemas';
 
 interface OnboardingPageProps {
   user: { uid: string; name: string; username?: string; role: string; email: string | null; photoURL: string | null; };
@@ -43,32 +44,34 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || !firstName.trim() || !lastName.trim()) {
-      setErrorMsg('Lütfen tüm alanları doldurun.');
+    const result = OnboardingInputSchema.safeParse({ username, firstName, lastName, role });
+    if (!result.success) {
+      setErrorMsg(result.error.issues[0]?.message || 'Lütfen tüm alanları doldurun.');
       return;
     }
+    const parsed = result.data;
 
     try {
       setIsSaving(true);
       setErrorMsg('');
-      
+
       const userRef = doc(db, 'users', user.uid);
       await updateDoc(userRef, {
-        displayName: username, // db.ts'de 'username' sütununa mapleniyor
-        name: firstName,
-        surname: lastName,
-        role: role,
+        displayName: parsed.username, // db.ts'de 'username' sütununa mapleniyor
+        name: parsed.firstName,
+        surname: parsed.lastName,
+        role: parsed.role,
         onboardingCompleted: true
       });
 
-      const fullName = `${firstName} ${lastName}`.trim();
+      const fullName = `${parsed.firstName} ${parsed.lastName}`.trim();
       onComplete({
         ...user,
-        name: fullName || username,
-        username,
-        firstName,
-        lastName,
-        role,
+        name: fullName || parsed.username,
+        username: parsed.username,
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        role: parsed.role,
       });
     } catch (error: any) {
       console.error("Onboarding save failed", error);

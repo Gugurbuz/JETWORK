@@ -2,6 +2,23 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { Type } from "@google/genai";
 
+// Form Input Şemaları (client-side validation)
+export const NewProjectInputSchema = z.object({
+  name: z.string().trim().min(2, "Proje adı en az 2 karakter olmalıdır.").max(100, "Proje adı en fazla 100 karakter olabilir."),
+  description: z.string().trim().max(500, "Açıklama en fazla 500 karakter olabilir.").optional().default(""),
+});
+
+export const EditWorkspaceInputSchema = z.object({
+  title: z.string().trim().min(2, "Çalışma alanı adı en az 2 karakter olmalıdır.").max(120, "Çalışma alanı adı en fazla 120 karakter olabilir."),
+});
+
+export const OnboardingInputSchema = z.object({
+  username: z.string().trim().min(3, "Kullanıcı adı en az 3 karakter olmalıdır.").max(32, "Kullanıcı adı en fazla 32 karakter olabilir.").regex(/^[a-zA-Z0-9._-]+$/, "Kullanıcı adı yalnızca harf, rakam, nokta, alt çizgi ve tire içerebilir."),
+  firstName: z.string().trim().min(1, "Ad alanı zorunludur.").max(50, "Ad en fazla 50 karakter olabilir."),
+  lastName: z.string().trim().min(1, "Soyad alanı zorunludur.").max(50, "Soyad en fazla 50 karakter olabilir."),
+  role: z.string().trim().min(1, "Rol seçimi zorunludur."),
+});
+
 // YENİ EKLENEN: Bölüm (Section) Şeması
 export const SectionDataSchema = z.object({
   content: z.string().describe("Markdown formatında içerik metni."),
