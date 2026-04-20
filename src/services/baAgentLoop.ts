@@ -1,4 +1,5 @@
 import { Type } from "@google/genai";
+import { parse as parsePartialJson } from 'partial-json';
 import { callGemini } from './geminiService';
 import { chatResponseJsonSchema } from '../schemas';
 import { hybridSearch } from './contextManager';
@@ -94,16 +95,23 @@ const extractJson = (raw: string): any | null => {
 };
 
 const extractActParts = (raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string } => {
-  const parsed = extractJson(raw);
-  if (parsed && typeof parsed === 'object') {
-    return {
-      message: typeof parsed.message === 'string' ? parsed.message : '',
-      thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
-      questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
-      actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
-    };
+  if (!raw) return { message: '' };
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{')) return { message: raw };
+  try {
+    const parsed: any = parsePartialJson(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        message: typeof parsed.message === 'string' ? parsed.message : '',
+        thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
+        questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
+        actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
+      };
+    }
+  } catch {
+    // Streaming JSON not yet parseable; return empty so UI keeps last good state
   }
-  return { message: raw };
+  return { message: '' };
 };
 
 const briefDocumentSummary = (doc: DocumentData | null): string => {
