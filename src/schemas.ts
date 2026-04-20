@@ -165,6 +165,17 @@ export const chatResponseJsonSchema = {
         },
         required: ["id", "text", "options"]
       }
+    },
+    document: {
+      type: Type.OBJECT,
+      description: "Sağ paneldeki Çalışma Dokümanı. Araştırma ve analiz yeterliyse bu alanı TAM olarak doldur (mevcut doküman varsa koruyup genişleterek).",
+      properties: {
+        businessAnalysis: sectionDataJsonType,
+        code: sectionDataJsonType,
+        test: sectionDataJsonType,
+        bpmn: sectionDataJsonType,
+        review: sectionDataJsonType
+      }
     }
   },
   required: ["message"]

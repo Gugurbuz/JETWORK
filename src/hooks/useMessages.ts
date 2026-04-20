@@ -318,7 +318,27 @@ export const useMessages = (channelRef: any) => {
         }
       });
 
+      const emptySection = { content: '', status: 'DRAFT' as const, flags: [] };
+      const base = documentContent || {
+        businessAnalysis: { ...emptySection },
+        code: { ...emptySection },
+        test: { ...emptySection },
+      };
+      const aiDoc = loopOutput.document;
       let finalDocument = documentContent;
+      if (aiDoc) {
+        const mergeSection = (existing: any, incoming: any) => {
+          if (!incoming || !incoming.content || !incoming.content.trim()) return existing;
+          return incoming;
+        };
+        finalDocument = {
+          businessAnalysis: mergeSection(base.businessAnalysis, aiDoc.businessAnalysis) || base.businessAnalysis,
+          code: mergeSection(base.code, aiDoc.code) || base.code,
+          test: mergeSection(base.test, aiDoc.test) || base.test,
+          ...(aiDoc.bpmn || base.bpmn ? { bpmn: mergeSection(base.bpmn, aiDoc.bpmn) } : {}),
+          ...(aiDoc.review || base.review ? { review: mergeSection(base.review, aiDoc.review) } : {}),
+        } as DocumentData;
+      }
       let fullText = loopOutput.text;
       const finalThinking = loopOutput.thinking;
       const finalQuestions = loopOutput.questions;

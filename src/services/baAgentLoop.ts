@@ -3,7 +3,7 @@ import { parse as parsePartialJson } from 'partial-json';
 import { callGemini } from './geminiService';
 import { chatResponseJsonSchema } from '../schemas';
 import { hybridSearch } from './contextManager';
-import { DocumentData, KnowledgeItem, Question } from '../types';
+import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
@@ -29,6 +29,7 @@ export interface AgentLoopOutput {
   plan?: PlanOutput;
   research?: string;
   reflection?: ReflectOutput;
+  document?: DocumentData | null;
   tokenCount: number;
 }
 
@@ -94,7 +95,33 @@ const extractJson = (raw: string): any | null => {
   }
 };
 
-const extractActParts = (raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string } => {
+const sanitizeSection = (s: any): SectionData | undefined => {
+  if (!s || typeof s !== 'object') return undefined;
+  const content = typeof s.content === 'string' ? s.content : '';
+  if (!content.trim()) return undefined;
+  const status = ['DRAFT', 'NEEDS_REVISION', 'APPROVED'].includes(s.status) ? s.status : 'DRAFT';
+  const flags = Array.isArray(s.flags) ? s.flags.filter((f: any) => typeof f === 'string') : [];
+  return { content, status, flags };
+};
+
+const sanitizeDocument = (d: any): DocumentData | undefined => {
+  if (!d || typeof d !== 'object') return undefined;
+  const ba = sanitizeSection(d.businessAnalysis);
+  const code = sanitizeSection(d.code);
+  const test = sanitizeSection(d.test);
+  const bpmn = sanitizeSection(d.bpmn);
+  const review = sanitizeSection(d.review);
+  if (!ba && !code && !test && !bpmn && !review) return undefined;
+  return {
+    businessAnalysis: ba || { content: '', status: 'DRAFT', flags: [] },
+    code: code || { content: '', status: 'DRAFT', flags: [] },
+    test: test || { content: '', status: 'DRAFT', flags: [] },
+    ...(bpmn ? { bpmn } : {}),
+    ...(review ? { review } : {}),
+  };
+};
+
+const extractActParts = (raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string; document?: DocumentData } => {
   if (!raw) return { message: '' };
   const trimmed = raw.trim();
   if (!trimmed.startsWith('{')) return { message: raw };
@@ -106,6 +133,7 @@ const extractActParts = (raw: string): { message: string; thinking?: string; que
         thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
         questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
         actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
+        document: sanitizeDocument(parsed.document),
       };
     }
   } catch {
@@ -328,10 +356,14 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 - "actionSummary" alanında yaptığın işi 1 cümle özetle.
 - Eğer yeterli bilgi yoksa net soru sor, aksi halde dokümanı nasıl geliştirebileceğini açıkla.
 
-[5] DOKÜMAN YAZMA KISITI - ÇOK ÖNEMLİ
-${hasDocument
-  ? "- Çalışma dokümanı mevcut. Bu turda doğrudan dokümana yazma yetkin yok; önerilerini sohbette sun. Kullanıcı 'Dokümanı Güncelle' akışını başlattığında değişiklikler uygulanacak."
-  : "- Sağ paneldeki Çalışma Dokümanı henüz OLUŞTURULMAMIŞTIR. Sen bu turda dokümana yazı yazamazsın. Yanıtının sonunda kullanıcıya, sağ paneldeki 'Dokümanı Oluştur' butonuna tıklayarak analiz dokümanını başlatmasını nazikçe HATIRLAT. 'Doküman güncellendi', 'dokümana aktardım', 'sağ panele eklendim' gibi YANILTICI ifadeler KULLANMA."}
+[5] DOKÜMAN YAZMA KURALI
+- Analiz veya araştırma yeterli olgunluğa ulaştıysa, yanıtınla birlikte "document" alanını MUTLAKA doldur. Bu alan sağ paneldeki Çalışma Dokümanı'na yazılır.
+- "document" alanı şu bölümleri içerir: businessAnalysis (İş Analizi), code (Teknik/IT), test (Test/QA), opsiyonel review ve bpmn.
+- Her bölüm { content: Markdown metni, status: "DRAFT" | "NEEDS_REVISION" | "APPROVED", flags: string[] } yapısında olmalı.
+- Mevcut doküman varsa (${hasDocument ? "EVET" : "HAYIR"}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
+- Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları. En az 200 karakter içerik koy.
+- Yalnızca sohbet yanıtı yeterliyse (örn. kullanıcıya soru soracaksan) "document" alanını boş bırak; aksi halde doldurmak ZORUNLUDUR.
+- "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.
 `.trim();
 
   const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
@@ -352,6 +384,7 @@ ${hasDocument
   let finalThinking = '';
   let finalQuestions: Question[] | undefined;
   let finalActionSummary: string | undefined;
+  let finalDocument: DocumentData | undefined;
 
   // Clear any thinking leaked from earlier phases before ACT streams its own
   onActStream('', '', undefined, undefined, totalTokens);
@@ -369,6 +402,7 @@ ${hasDocument
         finalThinking = mergedThinking || '';
         finalQuestions = parts.questions;
         finalActionSummary = parts.actionSummary;
+        if (parts.document) finalDocument = parts.document;
         if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
         onActStream(parts.message, mergedThinking, parts.questions, parts.actionSummary, totalTokens);
       }
@@ -384,6 +418,7 @@ ${hasDocument
     finalThinking = '';
     finalQuestions = undefined;
     finalActionSummary = undefined;
+    finalDocument = undefined;
     // Fallback: retry with only the base systemInstruction (no research/reflect enrichment)
     const fallbackSystem = `${systemInstruction}\n\n[NOT] Önceki araştırma/gözden geçirme adımlarında kısıtlama oluştu; doğrudan kullanıcıya en iyi yanıtı üret, gerekirse netleştirme soruları sor.`;
     actResponse = await runActCall(fallbackSystem);
@@ -394,6 +429,7 @@ ${hasDocument
   finalThinking = finalParts.thinking || actResponse.thinking || finalThinking;
   finalQuestions = finalParts.questions || finalQuestions;
   finalActionSummary = finalParts.actionSummary || finalActionSummary;
+  if (finalParts.document) finalDocument = finalParts.document;
 
   return {
     text: finalText,
@@ -404,6 +440,7 @@ ${hasDocument
     plan,
     research: researchContext,
     reflection,
+    document: finalDocument,
     tokenCount: totalTokens
   };
 };
