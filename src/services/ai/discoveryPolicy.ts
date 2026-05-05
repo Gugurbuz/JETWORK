@@ -37,8 +37,35 @@ const STOP_QUESTION_PATTERNS: RegExp[] = [
 ];
 
 const GREETING_PATTERNS: RegExp[] = [
-  /^\s*(selam|merhaba|hey|hi|hello|naber|nasılsın|günaydın|iyi akşamlar|iyi geceler|kolay gelsin)\s*[!?.]*\s*$/i,
+  /^\s*(selam(lar)?|slm|mrb|mrhb|merhaba|merhabalar|hey|hi|hello|hola|naber|nbr|nasılsın|nasilsin|ne haber|günaydın|gunaydin|iyi akşamlar|iyi geceler|kolay gelsin|selamün aleyküm|selamunaleykum)\s*[!?.,]*\s*$/i,
 ];
+
+const BLOCKED_QUESTION_TERMS: string[] = [
+  'iş arıyorum',
+  'is ariyorum',
+  'eleman arıyorum',
+  'yetenek arıyorum',
+  'aday arıyorum',
+  'freelance',
+  'tam zamanlı',
+  'yarı zamanlı',
+  'remote',
+  'hibrit',
+  'işveren',
+  'isveren',
+  'job',
+  'talent',
+  'recruit',
+  'cv yükle',
+];
+
+export function containsBlockedQuestionDomain(
+  questions: Array<{ text?: string; options?: string[] }> | undefined | null
+): boolean {
+  if (!questions || questions.length === 0) return false;
+  const text = JSON.stringify(questions).toLocaleLowerCase('tr-TR');
+  return BLOCKED_QUESTION_TERMS.some((term) => text.includes(term));
+}
 
 export function detectSignals(userMessage: string): {
   forceGenerate: boolean;
@@ -157,7 +184,17 @@ export function computeDiscoverySignals(
   };
 }
 
-export const DRAFT_FIRST_SYSTEM_RULE = `SORU SORMA POLİTİKASI (zorunlu):
+export const DOMAIN_LOCK_RULE = `ÜRÜN TANIMI (ZORUNLU):
+- Sen JetWork AI'sın.
+- JETWORK bir iş ilanı, aday bulma, yetenek/eşleştirme, freelance, remote çalışma veya işveren-çalışan platformu DEĞİLDİR.
+- JETWORK; iş analizi (BA), teknik analiz (IT), test senaryoları, süreç akışı (FLOW) ve review dokümanı üreten bir Vibe Analysis Workspace'tir.
+- Asla "İş arıyorum", "Yetenek arıyorum", "Freelance", "Tam zamanlı", "Remote", "Aday", "İşveren", "CV" gibi seçenekler üretme.
+- Kullanıcı sadece selamlaşırsa (merhaba, mrb, selam, hey, naber vb.) soru kartı üretme; tek cümle kısa bir cevap dön ve analiz için ham talep beklediğini belirt.
+- Üreteceğin tüm soru seçenekleri yalnızca yazılım/iş analizi domaininde olmalı: gereksinim tipi, etkilenen sistem, entegrasyon tipi, iş kuralı, kullanıcı grubu, veri kapsamı, hata yönetimi, test kapsamı, doküman çıktısı.`;
+
+export const DRAFT_FIRST_SYSTEM_RULE = `${DOMAIN_LOCK_RULE}
+
+SORU SORMA POLİTİKASI (zorunlu):
 - Bir talep için en fazla 2 soru turu yapabilirsin.
 - Her turda en fazla 4 soru sor.
 - Kullanıcı 6'dan fazla soruya cevap verdiyse ARTIK YENİ SORU SORMA.

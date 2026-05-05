@@ -14,7 +14,7 @@ import {
 } from './ai/intentTypes';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { chatResponseJsonSchema } from '../schemas';
-import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE } from './ai/discoveryPolicy';
+import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE, containsBlockedQuestionDomain } from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
 
 // Strip any partial/complete JSON the model may emit before the UI sees it.
@@ -526,7 +526,7 @@ function runPreviewRequired(
 // Public entry
 // ---------------------------------------------------------------------------
 
-export const runSingleChatOrchestrator = async (
+const runSingleChatOrchestratorInner = async (
   input: SingleChatInput
 ): Promise<SingleChatResult> => {
   input.onPhase('INTENT', 'Niyet belirleniyor...');
@@ -537,18 +537,25 @@ export const runSingleChatOrchestrator = async (
     input.documentContent,
   );
 
-  // Short-circuit 1: pure greeting / small talk. Never fall back into discovery.
+  // Short-circuit 1: pure greeting / small talk. Deterministic, no LLM call,
+  // no questions, no document change. Prevents the model from drifting the
+  // JetWork domain into job/talent/freelance questions.
   if (signals.greetingOnly) {
     const greetingClassification = buildClassification('small_talk', {
       reason: 'greeting_detected',
     });
-    return runChatOnly(
-      {
-        ...input,
-        systemInstruction: `${input.systemInstruction}\n\n[MOD] Kısa selamlaşma. Soru sorma, dokümanı değiştirme. Tek satır dostça cevap.`,
-      },
-      greetingClassification,
-    );
+    const msg = 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.';
+    input.onPhase('ACT', 'Cevap hazırlanıyor...');
+    input.onStream(msg, '', undefined, 'small_talk_greeting', 0);
+    return {
+      text: msg,
+      thinking: '',
+      questions: undefined,
+      actionSummary: 'small_talk_greeting',
+      intent: 'chat_only',
+      classification: greetingClassification,
+      tokenCount: 0,
+    };
   }
 
   let classification = await classifyIntent({
@@ -632,4 +639,26 @@ export const runSingleChatOrchestrator = async (
     default:
       return runBaLoop(input, classification);
   }
+};
+
+export const runSingleChatOrchestrator = async (
+  input: SingleChatInput
+): Promise<SingleChatResult> => {
+  const result = await runSingleChatOrchestratorInner(input);
+  // Question domain guard: strip any questions that drifted outside the
+  // JetWork analysis domain (job / talent / freelance / remote etc.).
+  if (result.questions && containsBlockedQuestionDomain(result.questions as any)) {
+    return {
+      ...result,
+      questions: undefined,
+      text: result.text && result.text.trim().length > 0
+        ? result.text
+        : 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.',
+    };
+  }
+  // Also guard small_talk: never let questions leak through for pure greetings.
+  if (result.classification?.subIntent === 'small_talk' && result.questions) {
+    return { ...result, questions: undefined };
+  }
+  return result;
 };
