@@ -15,29 +15,38 @@ import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
 
+const stripCodeFences = (raw: string): string => {
+  let t = raw.trim();
+  // Remove ```json ... ``` or ``` ... ``` wrappers
+  const fenceMatch = t.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
+  if (fenceMatch) t = fenceMatch[1].trim();
+  return t;
+};
+
 const extractChatParts = (raw: string): { message: string; thinking?: string; questions?: any[]; actionSummary?: string } => {
   if (!raw) return { message: '' };
-  const trimmed = raw.trim();
+  const trimmed = stripCodeFences(raw);
   if (!trimmed.startsWith('{')) return { message: raw };
   try {
     const parsed: any = parsePartialJson(trimmed);
     if (parsed && typeof parsed === 'object') {
+      const msg = typeof parsed.message === 'string' ? parsed.message : '';
       return {
-        message: typeof parsed.message === 'string' ? parsed.message : '',
+        message: msg,
         thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
         questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
         actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
       };
     }
   } catch {}
-  return { message: raw };
+  // Parseable JSON-like but not our schema → never leak raw JSON to UI
+  return { message: '' };
 };
 
-// Last-resort sanitizer. Any text that looks like the { message, questions } JSON
-// must never reach the UI verbatim — strip it to just the message.
+// Last-resort sanitizer. Any text that looks like JSON must never reach the UI.
 const sanitizeDisplayText = (text: string): { text: string; questions?: any[]; actionSummary?: string } => {
   if (!text) return { text: '' };
-  const trimmed = text.trim();
+  const trimmed = stripCodeFences(text);
   if (!trimmed.startsWith('{')) return { text };
   const parts = extractChatParts(trimmed);
   return {

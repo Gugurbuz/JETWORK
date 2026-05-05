@@ -123,7 +123,9 @@ const sanitizeDocument = (d: any): DocumentData | undefined => {
 
 const extractActParts = (raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string; document?: DocumentData } => {
   if (!raw) return { message: '' };
-  const trimmed = raw.trim();
+  let trimmed = raw.trim();
+  const fenceMatch = trimmed.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
+  if (fenceMatch) trimmed = fenceMatch[1].trim();
   if (!trimmed.startsWith('{')) return { message: raw };
   try {
     const parsed: any = parsePartialJson(trimmed);
@@ -426,7 +428,11 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
   }
 
   const finalParts = extractActParts(actResponse.text);
-  finalText = finalParts.message || actResponse.text;
+  // Never let raw JSON leak to UI — if actResponse.text looks like JSON but we
+  // couldn't extract a message, fall back to the last good streamed text.
+  const rawTrimmed = (actResponse.text || '').trim();
+  const rawLooksLikeJson = rawTrimmed.startsWith('{') || rawTrimmed.startsWith('```');
+  finalText = finalParts.message || (rawLooksLikeJson ? (finalText || '') : actResponse.text);
   finalThinking = finalParts.thinking || actResponse.thinking || finalThinking;
   finalQuestions = finalParts.questions || finalQuestions;
   finalActionSummary = finalParts.actionSummary || finalActionSummary;
