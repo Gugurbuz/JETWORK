@@ -1,0 +1,7 @@
+export const FEATURE_FLAGS = {
+  ZERO_TOUCH: false,
+  SINGLE_AGENT_MENTIONS: false,
+  SINGLE_CHAT_ORCHESTRATOR: true,
+  DOCUMENT_COPILOT: true,
+  SELECTED_TEXT_ACTIONS: true,
+} as const;

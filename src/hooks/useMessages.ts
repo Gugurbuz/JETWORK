@@ -9,7 +9,8 @@ import { saveDocumentAndVersion, applyPatch } from '../utils/documentUtils';
 import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
-import { runBaAgentLoop } from '../services/baAgentLoop';
+import { runSingleChatOrchestrator } from '../services/singleChatOrchestrator';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
@@ -87,12 +88,16 @@ export const useMessages = (channelRef: any) => {
       return;
     }
 
-    const isZeroTouchModeActive = text.startsWith('/ekip') || isZeroTouchMode;
-    const isSingleAgentMode = text.startsWith('@');
-    
+    const isZeroTouchModeActive = FEATURE_FLAGS.ZERO_TOUCH && (text.startsWith('/ekip') || isZeroTouchMode);
+    const isSingleAgentMode = FEATURE_FLAGS.SINGLE_AGENT_MENTIONS && text.startsWith('@');
+
     let targetAgentRole = '';
     let targetAgentName = '';
     let messageText = text;
+
+    if (!FEATURE_FLAGS.ZERO_TOUCH && text.startsWith('/ekip')) {
+      messageText = text.replace('/ekip', '').trim() || text;
+    }
 
     if (isSingleAgentMode) {
       const match = text.match(/^@(\w+)\s+(.*)/);
@@ -227,8 +232,8 @@ export const useMessages = (channelRef: any) => {
         }).catch(console.error);
       }
 
-      const history = historyToSend.map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
+      const history: { role: 'user' | 'model'; parts: { text: string }[] }[] = historyToSend.map(m => ({
+        role: (m.role === 'user' ? 'user' : 'model') as 'user' | 'model',
         parts: [{ text: `[${m.senderName} - ${m.senderRole}]: ${m.text}` }]
       }));
 
@@ -260,13 +265,15 @@ export const useMessages = (channelRef: any) => {
         }
       }
 
-      const loopOutput = await runBaAgentLoop({
+      const selectedNodeContent = useStore.getState().selectedDocumentText || null;
+      const loopOutput = await runSingleChatOrchestrator({
         userMessage: messageText,
         history,
         documentContent,
         knowledgeBase,
         model: selectedModel,
         systemInstruction,
+        selectedNodeContent,
         onPhase: (phase, label) => {
           setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, phase, phaseLabel: label } : m));
           if (channelRef.current) {
@@ -287,7 +294,7 @@ export const useMessages = (channelRef: any) => {
         onThinking: (thinkingText) => {
           setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, thinkingText } : m));
         },
-        onActStream: (text, thinking, questions, actionSummary, tokenCount) => {
+        onStream: (text, thinking, questions, actionSummary, tokenCount) => {
           setMessages(prev => prev.map(m => m.id === aiMsgId ? {
             ...m,
             text,

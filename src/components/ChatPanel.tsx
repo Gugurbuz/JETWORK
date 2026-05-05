@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { useStore } from '../store/useStore';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
   const [answers, setAnswers] = useState<Record<string, { type: 'option' | 'custom', value: string }>>({});
@@ -967,7 +968,7 @@ export function ChatPanel({
           )}
 
           {/* Zero-Touch Mode Toggle Button */}
-          {onToggleZeroTouchMode && (
+          {FEATURE_FLAGS.ZERO_TOUCH && onToggleZeroTouchMode && (
             <button
               onClick={() => setShowZeroTouchSettings(true)}
               className={cn(
@@ -1389,7 +1390,7 @@ export function ChatPanel({
         />
       )}
 
-      {showZeroTouchSettings && (
+      {FEATURE_FLAGS.ZERO_TOUCH && showZeroTouchSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
