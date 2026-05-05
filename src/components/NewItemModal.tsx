@@ -98,7 +98,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (projectId && itemNumber.trim() && title.trim() && selectedUsers.length > 0) {
+    if (projectId && itemNumber.trim() && title.trim()) {
       // Map selected users to the expected team format for now
       onSubmit({ 
         projectId,
@@ -186,7 +186,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
             <div className="relative" ref={dropdownRef}>
               <label className="block text-[10px] font-bold text-theme-text-muted mb-3 uppercase tracking-widest flex items-center gap-2">
                 <Users size={14} />
-                Çalışma Ekibi (Kişiler)
+                Çalışma Ekibi (Kişiler) <span className="text-theme-text-muted/70 normal-case tracking-normal font-normal">— opsiyonel</span>
               </label>
               
               <div className="flex flex-col gap-2 mb-3">
@@ -291,7 +291,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
             </button>
             <button
               type="submit"
-              disabled={!projectId || !itemNumber.trim() || !title.trim() || selectedUsers.length === 0}
+              disabled={!projectId || !itemNumber.trim() || !title.trim()}
               className="px-6 py-2.5 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               Çalışma Alanı Başlat
