@@ -350,7 +350,8 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 
 [4] AKSİYON TALİMATLARI
 - Yukarıdaki araştırma ve reflection bulgularını yanıtına doğal şekilde entegre et.
-- EĞER kritik sorular varsa, "questions" alanını DOLDUR (her biri seçenekli 2-4 şık). Cevaplamadan varsayım yapma.
+- ZORUNLU: Yukarıdaki "Sorulması gereken kritik sorular" listesinde bir madde varsa VEYA kullanıcıya soracağını ima ediyorsan, "questions" alanını MUTLAKA doldur. Her soru: { id: "q1", text: "...", options: ["seçenek 1", "seçenek 2", "seçenek 3"] } formatında, 2-4 seçenekli olmalı. Seçenekler hızlı cevaplanabilir kısa ifadeler olsun (ör. "SAP BTP Integration Suite", "SAP PO", "Diğer"). Boş options ARRAY GEÇME; en az 2 seçenek koy.
+- Mesaj metninde "birkaç sorum olacak" / "şunu netleştirelim" gibi ifade kullandıysan questions alanını doldurmadan yanıt verme.
 - Cevabın Markdown formatında, tablo/madde/başlık ile yapılandırılmış olmalı.
 - "thinking" alanında adım adım nasıl bu sonuca vardığını yaz.
 - "actionSummary" alanında yaptığın işi 1 cümle özetle.

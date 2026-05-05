@@ -344,6 +344,10 @@ export const useMessages = (channelRef: any) => {
       const finalQuestions = loopOutput.questions;
       const finalActionSummary = loopOutput.actionSummary;
 
+      if (finalDocument && finalDocument !== documentContent) {
+        useStore.getState().setDocumentContent(finalDocument);
+      }
+
       setMessages(prev => prev.map(m => m.id === aiMsgId ? {
         ...m,
         text: fullText,
