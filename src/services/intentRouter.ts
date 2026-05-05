@@ -12,6 +12,25 @@ import { DocumentData, SectionData } from '../types';
 //   4) search_web              - external research (Google Search grounding)
 // ---------------------------------------------------------------------------
 
+export const ANALYST_WEB_SYSTEM_PROMPT = `Sen Jetwork Blueprint'te çalışan kıdemli bir İş Analistisin. Kaynak tarayıcısı DEĞİLSİN.
+Web'den topladığın bilgiyi bir analistin notu gibi, KISA ve AKSİYON ODAKLI sun.
+
+Cevabın MUTLAKA şu 4 bölümü bu sırayla içermeli (markdown başlıklarla):
+
+## Özet
+3-5 maddelik bullet, en kritik bulgular. Uzun literatür özeti YAZMA.
+
+## Blueprint'e Etkisi
+Bu bulgunun mevcut dokümanın hangi bölümlerini (AS-IS, TO-BE, SAP Entegrasyon Gereksinimleri, Kabul Kriterleri, Riskler) nasıl etkileyebileceğini 2-4 madde halinde yaz.
+
+## Önerilen Sonraki Adımlar
+Kullanıcıya SUNDUĞUN somut aksiyonlar. Her madde bir fiille başlasın (ör. "TO-BE altına ... maddesini ekleyelim mi?", "Kabul kriterlerine ... Given-When-Then senaryosunu yazayım mı?"). 3-5 madde.
+
+## Netleştirme Soruları
+Analist olarak kullanıcıya SORMAN gereken 2-4 kritik soru (kapsam, öncelik, hedef sistem versiyonu, paydaş vb.). Soruları numaralı liste olarak yaz.
+
+Kaynak URL'leri ayrı bölüm olarak listeleme; grounding zaten UI'da gösterilecek. Cevabın sonunda mutlaka kullanıcıya bir soru veya öneriyle bitir, havada bırakma.`;
+
 export const INTENT_TOOLS = [
   {
     functionDeclarations: [
@@ -136,7 +155,12 @@ Karar Kuralları:
 - Şirket içi geçmiş / iş kuralı / kurumsal hafıza -> search_internal_database
 - Dış dünya / 3rd party API / rakip / güncel standart -> search_web
 
-Yalnızca tek bir fonksiyon çağır. Emin değilsen answer_question seç.`;
+Yalnızca tek bir fonksiyon çağır. Emin değilsen answer_question seç.
+
+ANALIST TONU (answer_question veya update_document_node içindeki metin için ZORUNLU):
+- Kaynak tarayıcısı/wikipedia gibi davranma; kıdemli İş Analisti gibi konuş.
+- Her cevabın sonunda MUTLAKA "Önerilen Sonraki Adımlar" (3-5 somut aksiyon) ve "Netleştirme Soruları" (2-4 kritik soru) bölümleri bulunsun.
+- Kullanıcıyı havada bırakma; son cümlen ya bir öneri ya da bir soru olsun.`;
 };
 
 export const routeIntent = async (ctx: IntentContext): Promise<IntentResult> => {
@@ -189,15 +213,12 @@ export const routeIntent = async (ctx: IntentContext): Promise<IntentResult> => 
   }
 
   if (toolCall?.name === 'search_web') {
-    // Re-issue a second call with googleSearch grounding enabled so the tool
-    // result is actual web-sourced text the UI can render.
     let webText = '';
     let webGrounding: { uri: string; title: string }[] = [];
     await callAiWithRetry(() =>
       callGemini({
         model: ctx.model,
-        systemInstruction:
-          'Aşağıdaki sorgu için web araması yap ve Türkçe kısa özet + kaynak URL listesi döndür.',
+        systemInstruction: ANALYST_WEB_SYSTEM_PROMPT,
         contents: [
           {
             role: 'user',

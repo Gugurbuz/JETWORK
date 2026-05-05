@@ -10,7 +10,7 @@ import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
 import { runBaAgentLoop } from '../services/baAgentLoop';
-import { routeIntent } from '../services/intentRouter';
+import { routeIntent, ANALYST_WEB_SYSTEM_PROMPT } from '../services/intentRouter';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
@@ -254,7 +254,7 @@ export const useMessages = (channelRef: any) => {
               let webGrounding: { uri: string; title: string }[] = [];
               await callAiWithRetry(() => callGemini({
                 model: selectedModel,
-                systemInstruction: `Kullanıcının sorduğu "${tc.args.query}" konusunda güncel web kaynaklarından bilgi topla ve Türkçe, yapılandırılmış bir özet ile kaynak listesi döndür.`,
+                systemInstruction: ANALYST_WEB_SYSTEM_PROMPT,
                 contents: [{ role: 'user', parts: [{ text: tc.args.query }] }],
                 onChunk: (t) => { webText = t; },
                 onGrounding: (urls) => { webGrounding = urls; },
