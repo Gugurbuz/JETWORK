@@ -219,20 +219,62 @@ export const useMessages = (channelRef: any) => {
 
           if (tc.name === 'search_internal_database') {
             const hits = intent.searchHits || [];
-            const body = hits.length === 0
-              ? `Kurumsal hafızada "${tc.args.query}" için sonuç bulunamadı.`
-              : `**Kurumsal Hafıza Sonuçları (${tc.args.query}):**\n\n` +
+
+            if (hits.length > 0) {
+              const body = `**Kurumsal Hafıza Sonuçları (${tc.args.query}):**\n\n` +
                 hits.map((h, i) => `${i + 1}. ${h.content}`).join('\n\n');
+              setMessages(prev => [...prev, {
+                id: aiMsgId,
+                role: 'model',
+                text: body,
+                senderName: 'JetWork AI',
+                senderRole: 'Kurumsal Hafıza',
+                actionSummary: `search_internal_database(${tc.args.query})`,
+                tokenCount: intent.tokenCount,
+                createdAt: Date.now(),
+              }]);
+              return;
+            }
+
+            // No internal hits: transparently escalate to web search + synthesis.
             setMessages(prev => [...prev, {
               id: aiMsgId,
               role: 'model',
-              text: body,
+              text: `Kurumsal hafızada "${tc.args.query}" için kayıt bulunamadı, web kaynaklarından araştırıyorum...`,
               senderName: 'JetWork AI',
               senderRole: 'Kurumsal Hafıza',
-              actionSummary: `search_internal_database(${tc.args.query})`,
+              actionSummary: `search_internal_database(${tc.args.query}) -> 0 hit, fallback: search_web`,
               tokenCount: intent.tokenCount,
               createdAt: Date.now(),
+              isTyping: true,
             }]);
+
+            try {
+              let webText = '';
+              let webGrounding: { uri: string; title: string }[] = [];
+              await callAiWithRetry(() => callGemini({
+                model: selectedModel,
+                systemInstruction: `Kullanıcının sorduğu "${tc.args.query}" konusunda güncel web kaynaklarından bilgi topla ve Türkçe, yapılandırılmış bir özet ile kaynak listesi döndür.`,
+                contents: [{ role: 'user', parts: [{ text: tc.args.query }] }],
+                onChunk: (t) => { webText = t; },
+                onGrounding: (urls) => { webGrounding = urls; },
+              }));
+
+              setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+                ...m,
+                text: webText || `"${tc.args.query}" için sonuç üretilemedi.`,
+                senderRole: 'Web Araştırma',
+                groundingUrls: webGrounding,
+                isTyping: false,
+              } : m));
+            } catch (err) {
+              console.warn('Web fallback failed:', err);
+              setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+                ...m,
+                text: `Kurumsal hafızada ve web kaynaklarında "${tc.args.query}" için sonuç bulunamadı.`,
+                isTyping: false,
+              } : m));
+            }
             return;
           }
 
