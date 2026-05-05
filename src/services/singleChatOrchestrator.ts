@@ -89,17 +89,19 @@ const classifyIntent = async (
 
   const system = `Kullanıcının niyetini sınıflandır. Sadece JSON döndür.
 
-Intent kuralları:
-- "chat_only": Sadece açıklama / sohbet / beyin fırtınası. Dokümana dokunma istemi yok.
-- "analyze_request": Kullanıcı yeni bir talep/fikir anlatıyor ve BA/IT/Test dokümanı üretilmeli.
-- "revise_section": Kullanıcı mevcut dokümanın belirli bir bölümünü yeniden yazmamı istiyor (targetSection doldur).
-- "update_node": Kullanıcı seçili küçük bir metni güncelletmek istiyor. (Seçili metin varsa bu niyete öncelik ver.)
-- "generate_tests": Kullanıcı test senaryosu/kabul kriteri istiyor.
-- "generate_flow": Kullanıcı süreç/akış/BPMN istiyor.
-- "research_internal": Kurumsal hafıza / geçmiş epic / iş kuralı araması gerekiyor.
-- "research_web": Dış standart / 3rd party API / güncel veri gerekiyor.
+ÖNEMLİ: Varsayılan niyet "analyze_request"'tir. Kullanıcı bir ihtiyacı/talebi/projeyi anlatıyorsa analyze_request seç — bu mod zaten gerekirse web araştırması yapar VE dokümanı doldurur.
 
-Belirsizlikte "chat_only" seç.`;
+Intent kuralları:
+- "analyze_request": (VARSAYILAN) Kullanıcı bir talep/fikir/entegrasyon/proje/ihtiyaç anlatıyor. Doküman üretilmeli/geliştirilmeli. Bilgi eksikse bile bu niyeti seç; sistem sorular sorar.
+- "chat_only": SADECE net olarak sohbet/açıklama isteniyorsa ("nedir?", "açıkla", "selam"). Kısa (<30 karakter) küçük sohbet mesajları için.
+- "revise_section": Kullanıcı AÇIKÇA mevcut dokümanın belirli bir bölümünü yeniden yazmamı istiyor ("BA analizi bölümünü güncelle", "test kısmını yeniden yaz").
+- "update_node": SADECE seçili metin varsa VE kullanıcı o seçili metni değiştirmek istiyorsa.
+- "generate_tests": Kullanıcı AÇIKÇA test senaryosu/kabul kriteri üretilmesini istiyor.
+- "generate_flow": Kullanıcı AÇIKÇA süreç akışı/BPMN/diyagram istiyor.
+- "research_internal": Kullanıcı AÇIKÇA "geçmiş projelerimde ne yapmıştık", "bizim iş kuralı ne" gibi KURUMSAL HAFIZA sorgulaması yapıyor.
+- "research_web": SADECE kullanıcı AÇIKÇA "araştır", "bul", "güncel standart nedir" diyorsa. Bir talep anlattığında BU NİYETİ SEÇME — analyze_request zaten gerekirse web kullanır.
+
+Kural: Kullanıcı bir ihtiyacı/gereksinimi anlatıyorsa ve dokümana dönüşecek içerik varsa → analyze_request.`;
 
   const prompt = `[DOKÜMAN DURUMU] ${docSummary}${selectedSnippet}
 
