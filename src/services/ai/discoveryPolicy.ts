@@ -40,6 +40,54 @@ const GREETING_PATTERNS: RegExp[] = [
   /^\s*(selam(lar)?|slm|mrb|mrhb|merhaba|merhabalar|hey|hi|hello|hola|naber|nbr|nasılsın|nasilsin|ne haber|günaydın|gunaydin|iyi akşamlar|iyi geceler|kolay gelsin|selamün aleyküm|selamunaleykum)\s*[!?.,]*\s*$/i,
 ];
 
+const GREETING_TOKENS = [
+  'mrb', 'mrhb', 'merhaba', 'merhabalar',
+  'selam', 'selamlar', 'slm',
+  'hey', 'hi', 'hello', 'hola',
+  'naber', 'nbr', 'nasılsın', 'nasilsin',
+  'günaydın', 'gunaydin',
+];
+
+// Phrases that indicate the user is correcting / clarifying that they were
+// only greeting, or pushing back on question spam. These must never trigger
+// discovery / document generation.
+const SMALL_TALK_CORRECTION_PATTERNS: RegExp[] = [
+  /\b(selam|naber|mrb|slm|merhaba|hey)\b.*\b(dedim|yazdım|yazdim|söyledim|soyledim|verdim)\b/i,
+  /\bsadece\s+(selam|naber|mrb|slm|merhaba|hey)\b/i,
+  /\bne\s+sorusu\s*ya?\b/i,
+  /\bneden\s+soru\s+soruyorsun\b/i,
+  /\bsoru\s+sorma\s+sadece\b/i,
+  /\bben\s+sana\s+(selam|naber|mrb|slm|merhaba|hey)\b/i,
+];
+
+function normalizeTr(input: string): string {
+  return (input || '')
+    .trim()
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[.!?,;:]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function isGreetingLike(message: string): boolean {
+  const normalized = normalizeTr(message);
+  if (!normalized) return false;
+
+  // Exact greeting regex match
+  if (GREETING_PATTERNS.some((re) => re.test(message))) return true;
+
+  // Correction / pushback about greeting
+  if (SMALL_TALK_CORRECTION_PATTERNS.some((re) => re.test(message))) return true;
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  const hasGreetingToken = tokens.some((t) => GREETING_TOKENS.includes(t));
+  if (!hasGreetingToken) return false;
+
+  // Short messages that are dominated by a greeting token are small talk.
+  if (tokens.length <= 6) return true;
+
+  return false;
+}
+
 const BLOCKED_QUESTION_TERMS: string[] = [
   'iş arıyorum',
   'is ariyorum',
@@ -76,7 +124,7 @@ export function detectSignals(userMessage: string): {
   return {
     forceGenerate: FORCE_GENERATE_PATTERNS.some((re) => re.test(msg)),
     stopQuestions: STOP_QUESTION_PATTERNS.some((re) => re.test(msg)),
-    greetingOnly: GREETING_PATTERNS.some((re) => re.test(msg)),
+    greetingOnly: isGreetingLike(msg),
   };
 }
 

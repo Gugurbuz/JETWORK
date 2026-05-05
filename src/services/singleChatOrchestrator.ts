@@ -544,7 +544,10 @@ const runSingleChatOrchestratorInner = async (
     const greetingClassification = buildClassification('small_talk', {
       reason: 'greeting_detected',
     });
-    const msg = 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.';
+    const isCorrection = /\b(dedim|yazdım|yazdim|söyledim|soyledim|verdim|sadece|ne sorusu|neden soru)\b/i.test(input.userMessage || '');
+    const msg = isCorrection
+      ? 'Haklısın, sadece selamlaştın. İyiyim, teşekkür ederim. Analiz etmek istediğin bir talep olduğunda buradayım.'
+      : 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.';
     input.onPhase('ACT', 'Cevap hazırlanıyor...');
     input.onStream(msg, '', undefined, 'small_talk_greeting', 0);
     return {
@@ -656,9 +659,15 @@ export const runSingleChatOrchestrator = async (
         : 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.',
     };
   }
-  // Also guard small_talk: never let questions leak through for pure greetings.
-  if (result.classification?.subIntent === 'small_talk' && result.questions) {
-    return { ...result, questions: undefined };
+  // Also guard small_talk: never let questions leak through for pure greetings,
+  // and rewrite any "Birkaç soru hazırladım / aşağıdaki soruları" claims so the
+  // final message stays short and JetWork-domain appropriate.
+  if (result.classification?.subIntent === 'small_talk') {
+    const claimsQuestionsPrepared = /(soru hazırladım|birkaç kısa soru|aşağıdaki soruları|netleştirmek için .* soru)/i.test(result.text || '');
+    const cleanText = claimsQuestionsPrepared || !(result.text || '').trim()
+      ? 'Haklısın, sadece selamlaştın. İyiyim, teşekkür ederim. Analiz etmek istediğin bir talep olduğunda buradayım.'
+      : result.text;
+    return { ...result, questions: undefined, text: cleanText };
   }
   return result;
 };
