@@ -66,14 +66,37 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
           />
         </div>
       ))}
-      <button 
-        onClick={handleSubmit} 
+      <button
+        onClick={handleSubmit}
         disabled={Object.keys(answers).length === 0}
         className="w-full py-2.5 bg-theme-primary text-theme-primary-fg rounded-lg text-sm font-semibold hover:bg-theme-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         <Send className="w-4 h-4" />
         Cevapları Gönder
       </button>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+        <button
+          onClick={() => onSubmit('Bu bilgilerle dokümanı oluştur. Yeni soru sorma, varsayımlarla ilerle; eksikleri Review > Açık Sorular bölümüne yaz.')}
+          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
+          title="Mevcut bilgilerle taslak üret"
+        >
+          Bu bilgilerle dokümanı oluştur
+        </button>
+        <button
+          onClick={() => onSubmit('Varsayımlarla ilerle. Eksik bilgileri tahmini olarak doldur; sağ panelde taslağı üret.')}
+          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
+          title="Varsayımlarla taslak üret"
+        >
+          Varsayımlarla ilerle
+        </button>
+        <button
+          onClick={() => onSubmit('Daha fazla soru sorma. Mevcut bilgilerle ilerle ve sağ panelde dokümanı üret.')}
+          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
+          title="Soru turunu kapat"
+        >
+          Daha fazla soru sorma
+        </button>
+      </div>
     </div>
   );
 };

@@ -292,6 +292,7 @@ export const useMessages = (channelRef: any) => {
       const loopOutput = await runSingleChatOrchestrator({
         userMessage: messageText,
         history,
+        messageHistory: currentMessages,
         documentContent,
         knowledgeBase,
         model: selectedModel,

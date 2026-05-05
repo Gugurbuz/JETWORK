@@ -1,5 +1,5 @@
 import { parse as parsePartialJson } from 'partial-json';
-import { DocumentData, KnowledgeItem, Question } from '../types';
+import { DocumentData, KnowledgeItem, Message, Question } from '../types';
 import { callGemini, callAiWithRetry } from './geminiService';
 import { runBaAgentLoop, AgentPhase } from './baAgentLoop';
 import { applyNodeUpdate, ANALYST_WEB_SYSTEM_PROMPT } from './intentRouter';
@@ -13,6 +13,8 @@ import {
   SubIntent,
 } from './ai/intentTypes';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
+import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE } from './ai/discoveryPolicy';
+import { buildClassification } from './ai/intentClassifier';
 
 // Strip any partial/complete JSON the model may emit before the UI sees it.
 const extractParts = (
@@ -61,6 +63,7 @@ export interface SingleChatInput {
   systemInstruction: string;
   selectedNodeContent?: string | null;
   selectedSection?: DocumentSectionKey | null;
+  messageHistory?: Message[];
   onPhase: (phase: AgentPhase | 'INTENT', label: string) => void;
   onThinking: (text: string) => void;
   onStream: (
@@ -96,6 +99,8 @@ async function runChatOnly(input: SingleChatInput, classification: IntentClassif
   let tokens = 0;
   let lastParts: { message: string; questions?: Question[]; actionSummary?: string } = { message: '' };
   const sys = `${input.systemInstruction}
+
+${DRAFT_FIRST_SYSTEM_RULE}
 
 Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
 
@@ -347,7 +352,7 @@ async function runBaLoop(
     documentContent: input.documentContent,
     knowledgeBase: input.knowledgeBase,
     model: input.model,
-    systemInstruction: input.systemInstruction + focusHint,
+    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}`,
     onPhase: (phase, label) => input.onPhase(phase, label),
     onThinking: input.onThinking,
     onActStream: input.onStream,
@@ -456,13 +461,65 @@ export const runSingleChatOrchestrator = async (
 ): Promise<SingleChatResult> => {
   input.onPhase('INTENT', 'Niyet belirleniyor...');
 
-  const classification = await classifyIntent({
+  const signals = computeDiscoverySignals(
+    input.userMessage,
+    input.messageHistory || [],
+    input.documentContent,
+  );
+
+  // Short-circuit 1: pure greeting / small talk. Never fall back into discovery.
+  if (signals.greetingOnly) {
+    const greetingClassification = buildClassification('small_talk', {
+      reason: 'greeting_detected',
+    });
+    return runChatOnly(
+      {
+        ...input,
+        systemInstruction: `${input.systemInstruction}\n\n[MOD] Kısa selamlaşma. Soru sorma, dokümanı değiştirme. Tek satır dostça cevap.`,
+      },
+      greetingClassification,
+    );
+  }
+
+  let classification = await classifyIntent({
     userMessage: input.userMessage,
     document: input.documentContent,
     selectedText: input.selectedNodeContent ?? null,
     selectedSection: (input.selectedSection as DocumentSectionKey) ?? null,
     model: input.model,
   });
+
+  // Short-circuit 2: user explicitly asked to generate, or question budget
+  // is exhausted. Force a draft instead of another question round.
+  if (signals.mustGenerateNow) {
+    classification = {
+      ...classification,
+      primaryIntent: 'analysis_generation',
+      subIntent: classification.subIntent === 'generate_test_cases'
+        || classification.subIntent === 'generate_flow_diagram'
+        || classification.subIntent === 'generate_bpmn'
+        ? classification.subIntent
+        : 'generate_business_analysis',
+      documentImpact: 'updates_document',
+      operation: 'replace_or_create_section',
+      targetSection: classification.targetSection || 'businessAnalysis',
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      requiresPreview: false,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: classification.baAgentFocus || 'business_analysis',
+      confidence: Math.max(classification.confidence, 0.85),
+      reason: `discovery_guard:${signals.reason}`,
+    };
+    input.onPhase('ACT', 'Taslak dokümana geçiliyor...');
+    return runBaLoop(
+      {
+        ...input,
+        systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU] Kullanıcı "${signals.reason}" sinyali verdi. Yeni soru SORMA. Şu an elde olan bilgilerle sağ paneldeki dokümanı üret. Eksikleri Review > Açık Sorular bölümüne yaz; varsayımları dokümanda açıkça işaretle.`,
+      },
+      classification,
+    );
+  }
 
   const action = decideAction(classification, {
     hasSelectedText: !!input.selectedNodeContent,
