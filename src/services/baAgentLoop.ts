@@ -365,7 +365,7 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 - Her bölüm { content: Markdown metni, status: "DRAFT" | "NEEDS_REVISION" | "APPROVED", flags: string[] } yapısında olmalı.
 - Mevcut doküman varsa (${hasDocument ? "EVET" : "HAYIR"}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
 - Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları. En az 200 karakter içerik koy.
-- Yalnızca sohbet yanıtı yeterliyse (örn. kullanıcıya soru soracaksan) "document" alanını boş bırak; aksi halde doldurmak ZORUNLUDUR.
+- "document" alanı KURAL: Eğer kullanıcı analiz / doküman / tasarım / test / akış / mimari talep ediyorsa VEYA mesajı bir talep tanımı içeriyorsa (ör. "şunu analiz et", "dokümana geçir", "SAP CRM İYS entegrasyonu", entegrasyon/senaryo/iş kuralı/rol/süreç kelimeleri), "document" alanını MUTLAKA doldur. Yalnızca selamlaşma veya açık netleştirme sorusu soracaksan boş bırakabilirsin.
 - "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.
 `.trim();
 

@@ -422,9 +422,24 @@ ${DRAFT_FIRST_SYSTEM_RULE}
     }
   }
 
+  // Last-resort synthesis: if the BA loop still returned no `document` but the
+  // message text contains substantive analysis content, promote that text into
+  // the businessAnalysis section so the right panel is not left empty.
+  if (!finalDocument && opts.forceDraft && (finalText || '').trim().length > 300) {
+    const base = input.documentContent || ({} as DocumentData);
+    finalDocument = {
+      ...(base as any),
+      businessAnalysis: {
+        content: finalText,
+        status: 'DRAFT',
+        flags: [],
+      },
+    } as DocumentData;
+  }
+
   // Honesty guard: if the assistant text claims document was updated but no
   // document was actually produced, rewrite it to be truthful.
-  const claimsUpdate = /(doküman|sağ panel).{0,40}(güncellen|oluşturul|işlendi|eklen)/i.test(finalText || '');
+  const claimsUpdate = /(doküman|sağ panel).{0,40}(güncellen|oluşturul|işlendi|eklen|aktarıl)/i.test(finalText || '');
   if (claimsUpdate && !finalDocument) {
     finalText = 'Şu an doküman güncellemesi üretemedim. Lütfen talebi biraz daha netleştirin veya "Varsayımlarla ilerle" aksiyonunu seçin; eksik alanları varsayımla dolduracağım.';
   }
@@ -640,7 +655,10 @@ const runSingleChatOrchestratorInner = async (
     case 'RUN_BA_AGENT_LOOP':
     case 'UPDATE_DOCUMENT_SECTION':
     default:
-      return runBaLoop(input, classification);
+      // Analysis / document-update paths must ALWAYS end up with a document
+      // patch. forceDraft makes a second narrower call if the first attempt
+      // returns no `document` field.
+      return runBaLoop(input, classification, { forceDraft: true });
   }
 };
 
