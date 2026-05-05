@@ -11,7 +11,7 @@ import {
   DocumentSectionKey,
 } from './intentTypes';
 
-const SECTION_ENUM = ['businessAnalysis', 'code', 'test', 'bpmn', 'review', ''];
+const SECTION_ENUM = ['businessAnalysis', 'code', 'test', 'bpmn', 'review'];
 
 const classifierSchema = {
   type: Type.OBJECT,
@@ -24,12 +24,12 @@ const classifierSchema = {
     confidence: { type: Type.NUMBER },
     riskLevel: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
     requiresResearch: { type: Type.BOOLEAN },
-    researchType: { type: Type.STRING, enum: ['internal', 'web', 'uploaded_files', 'workspace_history', ''] },
+    researchType: { type: Type.STRING, enum: ['internal', 'web', 'uploaded_files', 'workspace_history'] },
     requiresClarification: { type: Type.BOOLEAN },
     clarificationQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
     requiresPreview: { type: Type.BOOLEAN },
     shouldRunBaAgentLoop: { type: Type.BOOLEAN },
-    baAgentFocus: { type: Type.STRING, enum: ['business_analysis', 'technical_analysis', 'test', 'flow', 'review', 'quality', ''] },
+    baAgentFocus: { type: Type.STRING, enum: ['business_analysis', 'technical_analysis', 'test', 'flow', 'review', 'quality'] },
     reason: { type: Type.STRING },
   },
   required: ['subIntent', 'confidence', 'riskLevel', 'reason'],
@@ -136,8 +136,8 @@ JSON ile cevapla.`;
       ? (parsed.subIntent as SubIntent)
       : fallbackSubIntent(input);
     const classification = buildClassification(sub, {
-      targetSection: (parsed.targetSection || undefined) as DocumentSectionKey | undefined,
-      secondaryTargetSection: (parsed.secondaryTargetSection || undefined) as DocumentSectionKey | undefined,
+      targetSection: (parsed.targetSection && String(parsed.targetSection).trim() ? parsed.targetSection : undefined) as DocumentSectionKey | undefined,
+      secondaryTargetSection: (parsed.secondaryTargetSection && String(parsed.secondaryTargetSection).trim() ? parsed.secondaryTargetSection : undefined) as DocumentSectionKey | undefined,
       operation: parsed.operation,
       documentImpact: parsed.documentImpact,
       confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.65,
