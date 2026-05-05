@@ -13,6 +13,7 @@ import {
   SubIntent,
 } from './ai/intentTypes';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
+import { chatResponseJsonSchema } from '../schemas';
 import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE } from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
 
@@ -324,7 +325,8 @@ async function runResearchWeb(
 
 async function runBaLoop(
   input: SingleChatInput,
-  classification: IntentClassification
+  classification: IntentClassification,
+  opts: { forceDraft?: boolean } = {}
 ): Promise<SingleChatResult> {
   const focus = classification.baAgentFocus;
   const target = classification.targetSection;
@@ -359,13 +361,81 @@ async function runBaLoop(
     onGrounding: input.onGrounding,
   });
 
+  let finalDocument = loopOutput.document;
+  let finalText = loopOutput.text;
+  let finalQuestions = loopOutput.questions;
+
+  // Force-draft fallback: BA loop finished without a document even though
+  // the caller required one. Make a second, narrower call that MUST return
+  // the document field per schema.
+  if (opts.forceDraft && !finalDocument) {
+    input.onPhase('ACT', 'Taslak zorla üretiliyor...');
+    try {
+      const fallbackSystem = `${input.systemInstruction}
+
+${DRAFT_FIRST_SYSTEM_RULE}
+
+[ZORUNLU DOKÜMAN ÜRETİMİ - SON ÇAĞRI]
+Önceki adımda \`document\` alanı dolmadı. Şimdi SADECE dokümanı üretmen gerekiyor.
+- \`questions\` alanı BOŞ olmalı.
+- \`document\` alanı zorunlu: businessAnalysis, code, test, review bölümlerini doldur.
+- Eksik bilgileri "[VARSAYIM]" etiketi ile doküman içinde işaretle.
+- Belirsizlikleri review.content içinde "## Açık Sorular" başlığı altında listele.
+- Mesaj 2-3 cümleyi geçmesin; detaylar dokümana yazılsın.`;
+
+      const fallbackContents: any[] = [
+        ...input.history,
+        {
+          role: 'user',
+          parts: [{ text: `Kullanıcı talebi ve konuşma geçmişindeki kararlara dayanarak ŞİMDİ dokümanı üret. Son kullanıcı mesajı: "${input.userMessage}"` }],
+        },
+      ];
+      if (input.documentContent) {
+        const first = fallbackContents[0]?.parts?.[0];
+        if (first && 'text' in first) {
+          first.text = `Mevcut Doküman (varsa genişlet):\n${JSON.stringify(input.documentContent, null, 2)}\n\n${first.text}`;
+        }
+      }
+
+      const fallback = await callGemini({
+        model: input.model,
+        systemInstruction: fallbackSystem,
+        contents: fallbackContents,
+        responseSchema: chatResponseJsonSchema,
+        onChunk: () => {},
+      });
+
+      try {
+        const parsed = JSON.parse((fallback.text || '').trim());
+        if (parsed && typeof parsed === 'object' && parsed.document) {
+          finalDocument = parsed.document;
+          if (typeof parsed.message === 'string' && parsed.message.trim()) {
+            finalText = parsed.message.trim();
+          }
+          finalQuestions = undefined;
+        }
+      } catch {
+        // noop — handled by honesty guard below
+      }
+    } catch (err) {
+      console.warn('Force-draft fallback call failed:', err);
+    }
+  }
+
+  // Honesty guard: if the assistant text claims document was updated but no
+  // document was actually produced, rewrite it to be truthful.
+  const claimsUpdate = /(doküman|sağ panel).{0,40}(güncellen|oluşturul|işlendi|eklen)/i.test(finalText || '');
+  if (claimsUpdate && !finalDocument) {
+    finalText = 'Şu an doküman güncellemesi üretemedim. Lütfen talebi biraz daha netleştirin veya "Varsayımlarla ilerle" aksiyonunu seçin; eksik alanları varsayımla dolduracağım.';
+  }
+
   return {
-    text: loopOutput.text,
+    text: finalText,
     thinking: loopOutput.thinking,
-    questions: loopOutput.questions,
+    questions: finalQuestions,
     actionSummary: loopOutput.actionSummary,
     groundingUrls: loopOutput.groundingUrls,
-    document: loopOutput.document,
+    document: finalDocument,
     intent: intentOut,
     classification,
     tokenCount: loopOutput.tokenCount,
@@ -515,9 +585,10 @@ export const runSingleChatOrchestrator = async (
     return runBaLoop(
       {
         ...input,
-        systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU] Kullanıcı "${signals.reason}" sinyali verdi. Yeni soru SORMA. Şu an elde olan bilgilerle sağ paneldeki dokümanı üret. Eksikleri Review > Açık Sorular bölümüne yaz; varsayımları dokümanda açıkça işaretle.`,
+        systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU DOKÜMAN ÜRETİMİ]\nKullanıcı "${signals.reason}" sinyali verdi. YENİ SORU SORMA. Cevabın chatResponse JSON şemasında olmalı ve \`document\` alanı ZORUNLU olarak şu bölümleri içermelidir:\n- businessAnalysis: BA Analiz içeriği (amaç, kapsam, paydaşlar, fonksiyonel/NFR gereksinimler, kabul kriterleri, varsayımlar).\n- code: IT / Teknik analiz (mimari, entegrasyon, veri modeli, güvenlik, loglama).\n- test: test stratejisi ve kabul kriterleri.\n- review: kararlar, riskler, açık sorular ("Açık Sorular" başlığı altında eksik bilgileri listele).\nEksik bilgileri doküman içinde "[VARSAYIM]" olarak işaretle ve Review > Açık Sorular bölümüne ekle. \`questions\` alanını BOŞ bırak.`,
       },
       classification,
+      { forceDraft: true },
     );
   }
 
