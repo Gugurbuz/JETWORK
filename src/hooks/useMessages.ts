@@ -10,6 +10,7 @@ import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
 import { runBaAgentLoop } from '../services/baAgentLoop';
+import { routeIntent } from '../services/intentRouter';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
@@ -169,6 +170,103 @@ export const useMessages = (channelRef: any) => {
     if (isZeroTouchModeActive) {
       runZeroTouchMode(newMsg, attachments);
       return;
+    }
+
+    // ---------------------------------------------------------------------
+    // Intent Router (Function Calling Niyet Motoru)
+    // Skip when user is addressing a specific agent via @AgentName.
+    // ---------------------------------------------------------------------
+    if (!isSingleAgentMode) {
+      const stateSnap = useStore.getState();
+      const currentMessagesForRouter = getCurrentMessages();
+      const routerHistory = currentMessagesForRouter.slice(-8).map(m => ({
+        role: (m.role === 'user' ? 'user' : 'model') as 'user' | 'model',
+        parts: [{ text: m.text }],
+      }));
+
+      try {
+        const intent = await routeIntent({
+          userMessage: messageText,
+          activeNodeId: null,
+          activeNodeContent: stateSnap.selectedDocumentText || null,
+          documentContent: stateSnap.documentContent,
+          history: routerHistory,
+          model: selectedModel,
+        });
+
+        const tc = intent.toolCall;
+        if (tc) {
+          const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+
+          if (tc.name === 'update_document_node' && intent.updatedDocument) {
+            stateSnap.setDocumentContent(intent.updatedDocument);
+            setMessages(prev => [...prev, {
+              id: aiMsgId,
+              role: 'model',
+              text: tc.args.explanation || 'Doküman güncellendi.',
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+              actionSummary: `update_document_node(${tc.args.node_id})`,
+              documentSnapshot: intent.updatedDocument,
+              tokenCount: intent.tokenCount,
+              createdAt: Date.now(),
+            }]);
+            try {
+              await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, intent.updatedDocument);
+            } catch (e) { console.warn(e); }
+            return;
+          }
+
+          if (tc.name === 'search_internal_database') {
+            const hits = intent.searchHits || [];
+            const body = hits.length === 0
+              ? `Kurumsal hafızada "${tc.args.query}" için sonuç bulunamadı.`
+              : `**Kurumsal Hafıza Sonuçları (${tc.args.query}):**\n\n` +
+                hits.map((h, i) => `${i + 1}. ${h.content}`).join('\n\n');
+            setMessages(prev => [...prev, {
+              id: aiMsgId,
+              role: 'model',
+              text: body,
+              senderName: 'JetWork AI',
+              senderRole: 'Kurumsal Hafıza',
+              actionSummary: `search_internal_database(${tc.args.query})`,
+              tokenCount: intent.tokenCount,
+              createdAt: Date.now(),
+            }]);
+            return;
+          }
+
+          if (tc.name === 'search_web') {
+            setMessages(prev => [...prev, {
+              id: aiMsgId,
+              role: 'model',
+              text: intent.rawText || `"${tc.args.query}" için web araması tamamlandı.`,
+              senderName: 'JetWork AI',
+              senderRole: 'Web Araştırma',
+              groundingUrls: intent.groundingUrls,
+              actionSummary: `search_web(${tc.args.query})`,
+              tokenCount: intent.tokenCount,
+              createdAt: Date.now(),
+            }]);
+            return;
+          }
+
+          if (tc.name === 'answer_question') {
+            setMessages(prev => [...prev, {
+              id: aiMsgId,
+              role: 'model',
+              text: tc.args.reply_text,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+              tokenCount: intent.tokenCount,
+              createdAt: Date.now(),
+            }]);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Intent router failed, falling back to agent loop:', e);
+      }
     }
 
     setIsGenerating(true);
