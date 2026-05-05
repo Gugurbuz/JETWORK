@@ -1,0 +1,834 @@
+JETWORK Vibe Analysis Platform Roadmap v2
+1. Yönetici Özeti
+JETWORK, mevcut haliyle sadece bir chatbot veya klasik doküman üretici değildir. Repo incelendiğinde ürünün doğru potansiyeli şudur: tekli JetWork AI chat deneyimi üzerinden çalışan, iş fikrini / talebi / geliştirme ihtiyacını etkileşimli şekilde olgunlaştıran ve sağ panelde kurumsal analiz, teknik mimari, test, süreç ve review dokümanlarını birlikte yöneten bir Vibe Analysis Workspace.
+Bu nedenle MVP yaklaşımı "basit chat + doküman üret" seviyesine indirgenmemelidir. MVP'de Zero-Touch ve çok ajanlı görünür ekip tartışması olmayacak; ancak mevcut repodaki ileri seviye AI yapı taşları tekli chat moduna taşınmalıdır. Kullanıcı tek bir JetWork AI ile konuşur; JetWork AI arka planda niyet anlar, eksik bilgi çıkarır, belgeyi günceller, gerekirse web veya kurumsal hafızadan bağlam toplar, seçili metni revize eder, değişiklikleri versiyonlar ve dokümanın olgunluk seviyesini yükseltir.
+MVP vizyonu:
+> Kullanıcı geliştirme fikrini serbest dille anlatır. JetWork AI bir kıdemli iş analisti / çözüm mimarı gibi yönlendirir, kritik soruları sorar, kararları hafızaya alır ve sağ panelde canlı bir analiz dokümanı oluşturur. Kullanıcı "şunu daha net yaz", "bunu teknik mimariye ekle", "buna test senaryosu üret" dediğinde sistem dokümanın doğru bölümünü cerrahi şekilde günceller.
+Bu doküman, JETWORK reposundaki mevcut yapıyı dikkate alarak ürün, mimari, UI, UX ve AI yeteneklerini kapsayan uygulanabilir roadmap'i tanımlar.
+---
+2. Doğru Ürün Konumlandırması
+2.1. JETWORK nedir?
+JETWORK; yazılım geliştirme, iş analizi ve proje dokümantasyonu için tasarlanmış bir AI destekli çalışma alanıdır. Ürünün ana deneyimi bir proje veya çalışma alanı içinde gerçekleşir. Sol tarafta proje/çalışma alanı yönetimi, orta alanda JetWork AI ile konuşma, sağ tarafta ise yaşayan doküman bulunur.
+Ürünü şu şekilde konumlandırmak daha doğru olur:
+> JETWORK, yazılım ekiplerinin fikirden analize, analizden teknik tasarıma, teknik tasarımdan test senaryolarına ilerlemesini sağlayan AI destekli Vibe Analysis ve dokümantasyon platformudur.
+2.2. Vibe Coding benzeri tarafı nedir?
+Vibe coding'de kullanıcı doğal dille niyetini anlatır, AI kodu üretir veya değiştirir. JETWORK'te bunun karşılığı vibe analysis olmalıdır:
+Kullanıcı doğal dille ihtiyacını anlatır.
+JetWork AI ihtiyacı ürün, iş analizi, teknik mimari ve test boyutlarında yorumlar.
+AI eksik yerleri soru olarak çıkarır.
+Kullanıcı cevap verdikçe doküman yaşayan bir artefakt olarak güncellenir.
+Seçili metin üzerinde doğal dille revizyon yapılır.
+Her revizyon versiyonlanır ve geri alınabilir olur.
+Sonunda kurumsal kaliteye yakın, geliştiriciye / BA'ya / QA'e aktarılabilir bir doküman seti oluşur.
+Burada ana değer "AI konuşuyor" değil, AI konuşmayı dokümana ve karara dönüştürüyor olmasıdır.
+---
+3. Repo İncelemesi - Mevcut Durum Bulguları
+3.1. Teknoloji yığını
+Repo Vite + React + TypeScript tabanlıdır. Bağımlılık setinde Gemini, Supabase, Tiptap, Mermaid, BPMN, Mammoth, Zod, Zustand, Markdown ve motion kütüphaneleri bulunmaktadır. Bu set, chat + doküman workspace + AI orchestration + belge görüntüleme / düzenleme için uygundur.
+Önemli mevcut kabiliyetler:
+Alan	Mevcut yapı	Değerlendirme
+Frontend	React, Vite, TypeScript	MVP için yeterli ve hızlı iterasyon sağlar.
+State	Zustand store'ları	UI, data, document ve settings ayrımı olumlu.
+Auth/DB	Supabase	Mesaj, workspace, doküman ve versiyon saklama için uygun.
+AI	Gemini Edge Function üzerinden streaming	Chat ve doküman üretimi için hazır temel var.
+Editor	Tiptap	Vibe editing / seçili metin revizyonu için doğru seçim.
+Doküman	BA, IT, Test, FLOW, Review sekmeleri	Ürün vaadiyle uyumlu.
+BPMN	bpmn-js	Süreç akışı tarafını güçlendirir.
+Dosya okuma	DOCX/PDF/TXT/CSV/image desteği	Analiz girdisi için değerli.
+3.2. Mevcut App mimarisi
+`App.tsx` uygulama seviyesinde birçok sorumluluğu bir araya getiriyor: auth, proje/workspace state'i, workspace sync, mesaj gönderimi, doküman güncelleme, tema, modallar ve ana layout. Bu kabul edilebilir bir prototip yapısıdır; ancak ürün büyüdükçe `App.tsx` orchestration katmanına dönüşme riski taşır.
+Mevcut ana akış şu şekildedir:
+```text
+Auth / Onboarding
+    -> Project / Workspace seçimi
+        -> WorkspaceView
+            -> ChatPanel
+            -> DocumentPanel
+```
+Bu akış ürün için doğru bir temeldir. Roadmap'te bu yapı korunmalı; ancak AI davranışı, doküman güncelleme ve intent routing daha net servis katmanlarına ayrılmalıdır.
+3.3. Mevcut doküman modeli
+`DocumentData` şu bölümleri içeriyor:
+```text
+businessAnalysis
+code
+test
+bpmn
+review
+```
+Her bölüm `SectionData` formatında tutuluyor:
+```text
+content
+status: DRAFT | NEEDS_REVISION | APPROVED
+flags: string[]
+```
+Bu çok değerli bir temel. Çünkü belge sadece düz metin değil; her bölümün durumu, revizyon ihtiyacı ve ajan/AI uyarıları izlenebilir. MVP'de bu yapı korunmalı ve UI'da daha anlamlı hale getirilmelidir.
+3.4. Mevcut AI çekirdeği
+Repoda birden fazla AI akışı var:
+`useMessages.ts` içindeki normal tekli chat akışı.
+`baAgentLoop.ts` içindeki PLAN -> RESEARCH -> REFLECT -> ACT döngüsü.
+`intentRouter.ts` içindeki tool tabanlı niyet yönlendirme.
+`AgentOrchestrator.ts` içindeki `apply_micro_edit` tabanlı doküman güncelleme.
+`agentRunner.ts` içindeki Zero-Touch / orchestration akışı.
+`contextManager.ts` içindeki hybrid search, özetleme ve key fact extraction.
+Bu, ürünün aslında güçlü bir AI altyapısına başladığını gösteriyor. Ancak problem şu: bu kabiliyetler tekli chat MVP deneyiminde tek bir tutarlı motor olarak birleşmemiş.
+3.5. En kritik mimari bulgu
+MVP'de Zero-Touch olmayacaksa, en doğru teknik hamle Zero-Touch kodunu tamamen çöpe atmak değildir. Onun içindeki bazı kabiliyetler tekli chat'e taşınmalıdır:
+Mevcut parça	Şu anki bağlam	MVP'deki doğru kullanım
+`runBaAgentLoop`	Tekli chat içinde kullanılıyor	Ana AI reasoning pipeline olarak kalmalı.
+`intentRouter`	Ayrı servis olarak var	Tekli chat öncesi niyet sınıflandırıcıya dönüşmeli.
+`AgentOrchestrator`	Zero-Touch içinde kullanılıyor	Tekli chat için document edit engine'e dönüştürülmeli.
+`apply_micro_edit`	Tool olarak var	Sağ panelde seçili bölüm/node güncellemenin ana yolu olmalı.
+`contextManager`	Local RAG / özetleme	Konuşma hafızası ve karar hafızası olarak güçlendirilmeli.
+`DocumentData.status/flags`	Var ama sınırlı kullanılıyor	Doküman kalite ve revizyon deneyiminin merkezi olmalı.
+---
+4. MVP Kapsamı - Dar Değil, Odaklı MVP
+4.1. Yanlış MVP yorumu
+Yanlış yaklaşım şudur:
+> Zero-Touch yoksa MVP sadece basit tekli chat olsun.
+Bu yanlış olur. Çünkü kullanıcı değeri tekli chat'te de ileri seviye olabilir. MVP'nin sadeleşmesi, AI yeteneklerinin basitleşmesi anlamına gelmemeli.
+4.2. Doğru MVP yorumu
+Doğru yaklaşım şudur:
+> MVP'de görünür çok ajanlı ekip tartışması yoktur. Ancak JetWork AI tekli chat içinde güçlü bir iş analisti, mimari danışman ve doküman editörü gibi çalışır.
+4.3. MVP dahilinde kalacak ana yetenekler
+Yetenek	MVP'de olmalı mı?	Açıklama
+Tekli JetWork AI chat	Evet	Ana ürün deneyimi.
+Sağ panelde yaşayan doküman	Evet	Chat'in çıktısı somut dokümana dönüşmeli.
+BA Analiz dokümanı	Evet	İlk ana çıktı.
+IT / Teknik Analiz	Evet	Vibe analysis ürününü güçlendirir.
+Test senaryoları	Evet	BA doküman kalitesini kapatır.
+FLOW / BPMN	Evet, kontrollü	İlk sürümde Mermaid veya BPMN seçimi sadeleştirilmeli.
+Review / karar notları	Evet	Konuşmadan karar ve açık nokta çıkarılmalı.
+Seçili metni AI ile revize et	Evet	Vibe coding benzeri hissin ana noktası.
+Interactive questions	Evet	AI soru sorup seçenekli cevap almalı.
+Doküman versiyonlama	Evet	Güven hissi verir.
+Diff / geri al	Evet	AI dokümana dokunuyorsa şart.
+RAG / hafıza	Evet, basit	Proje kararlarını hatırlamalı.
+Web araştırması	Evet, kontrollü	Güncel standart/API araştırması için.
+Zero-Touch çok ajan tartışması	Hayır	MVP sonrası.
+`/ekip` komutu	Hayır	Gizlenmeli veya feature flag arkasına alınmalı.
+Görünür PO/BA/IT/QA ajan münazarası	Hayır	MVP sonrası.
+AI Settings / prompt edit UI	Kısıtlı	Admin/developer modunda kalmalı, son kullanıcıya açılmamalı.
+---
+5. Hedef Deneyim - Tekli Chat ile Vibe Analysis
+5.1. Kullanıcı yolculuğu
+```text
+1. Kullanıcı yeni workspace açar
+2. Talebini serbest metinle yazar veya doküman yükler
+3. JetWork AI ilk analizi yapar
+4. Eksik bilgi varsa seçenekli sorular sorar
+5. Kullanıcı cevap verir
+6. JetWork AI sağ panelde BA Analiz taslağını oluşturur
+7. Kullanıcı seçili bölümü veya tüm dokümanı revize ettirir
+8. AI değişiklik önerisini uygular, farkı gösterir ve versiyonlar
+9. Teknik analiz, test ve flow aynı bağlamdan türetilir
+10. Doküman kalite puanı ve açık sorular kapanana kadar süreç devam eder
+```
+5.2. Ürün hissi
+Kullanıcı şunu hissetmeli:
+"Bir chatbot ile konuşmuyorum; yanımda kıdemli bir analist var."
+"Söylediklerim kaybolmuyor; dokümana dönüşüyor."
+"AI sadece uzun metin üretmiyor; doğru bölümü güncelliyor."
+"Eksik yerleri bana seçenekli ve hızlı cevaplanabilir şekilde soruyor."
+"Doküman değişikliklerini görebiliyor ve geri alabiliyorum."
+"Bu çıktı geliştiriciye veya yönetime verilebilir seviyeye yaklaşıyor."
+---
+6. Hedef AI Mimarisi
+6.1. Mevcut dağınık AI yapısı
+Şu an AI yetenekleri farklı servislerde bulunuyor. Bunlar güçlü ama tek bir ürün davranışına bağlanmalı.
+Mevcut parçalar:
+```text
+useMessages
+    -> runBaAgentLoop
+        -> PLAN / RESEARCH / REFLECT / ACT
+
+intentRouter
+    -> answer_question
+    -> update_document_node
+    -> search_internal_database
+    -> search_web
+
+AgentOrchestrator
+    -> apply_micro_edit
+
+contextManager
+    -> hybridSearch
+    -> summarizeConversation
+    -> extractKeyFacts
+```
+6.2. Önerilen tekli chat AI mimarisi
+Hedef mimari:
+```text
+User Message
+    -> Context Builder
+    -> Intent Router
+    -> Analysis Planner
+    -> Evidence / Memory Retrieval
+    -> Document Change Planner
+    -> Response + Document Patch
+    -> Versioning + Diff
+    -> Quality / Next Best Action
+```
+6.3. Modül önerisi
+Yeni servis yapısı şu şekilde tasarlanmalı:
+```text
+src/services/ai/
+  singleChatOrchestrator.ts
+  intentClassifier.ts
+  contextBuilder.ts
+  documentChangePlanner.ts
+  documentPatchEngine.ts
+  qualityEvaluator.ts
+  memoryService.ts
+  artifactGenerator.ts
+  promptContracts.ts
+```
+Bu ayrımın amacı App veya hook seviyesindeki karmaşıklığı azaltmak ve AI davranışını test edilebilir hale getirmektir.
+6.4. SingleChatOrchestrator sorumluluğu
+`SingleChatOrchestrator`, tekli chat MVP'nin ana beyni olmalı.
+Sorumlulukları:
+Kullanıcı mesajını alır.
+Mevcut workspace, mesaj geçmişi, seçili doküman metni ve doküman state'ini toplar.
+Niyeti belirler.
+Gerekirse hafıza veya web araştırması yapar.
+Dokümana yazılması gereken patch'i planlar.
+Kullanıcıya kısa, yönetilebilir cevap üretir.
+Sağ panelde ilgili bölümü günceller.
+Değişiklikleri versiyonlar.
+Sonraki en iyi aksiyonu üretir.
+6.5. AI intent sınıfları
+MVP'de desteklenmesi gereken niyetler:
+Intent	Açıklama	Beklenen aksiyon
+`ask_question`	Kullanıcı açıklama veya fikir sorar	Chat cevabı
+`start_analysis`	Yeni talep anlatılır	İlk soru seti veya BA taslağı
+`answer_clarification`	Kullanıcı AI sorusunu cevaplar	Memory + doküman güncelleme
+`generate_document`	Doküman oluştur denir	Section üretimi
+`revise_section`	Belirli bölüm revize edilir	Patch + diff
+`improve_selected_text`	Seçili metin iyileştirilir	Node-level patch önerisi
+`generate_tests`	Test istenir	Test tab'ını güncelle
+`generate_flow`	Süreç akışı istenir	FLOW tab'ını güncelle
+`review_quality`	Doküman kalite kontrol istenir	Review + score + açık sorular
+`research`	Güncel bilgi veya standart gerekir	Web/internal search + öneri
+6.6. Tool set önerisi
+Tekli chat için araçlar şunlar olmalı:
+```text
+answer_question
+ask_clarifying_questions
+update_document_section
+update_document_node
+search_project_memory
+search_web
+generate_artifact
+evaluate_document_quality
+create_document_version
+```
+Önemli nokta: AI uzun doküman içeriğini chat mesajına yığmamalı. Chat mesajı kısa özet olmalı, uzun çıktı sağ panele yazılmalı.
+---
+7. Doküman Mimarisi
+7.1. Mevcut DocumentData geliştirilmeli
+Mevcut model iyi ama MVP için biraz daha zenginleştirilmeli.
+Önerilen model:
+```typescript
+interface DocumentSection {
+  id: 'businessAnalysis' | 'code' | 'test' | 'bpmn' | 'review';
+  title: string;
+  content: string;
+  status: 'EMPTY' | 'DRAFT' | 'NEEDS_REVISION' | 'REVIEW_READY' | 'APPROVED';
+  flags: SectionFlag[];
+  lastUpdatedBy: 'user' | 'ai';
+  lastUpdatedAt: string;
+  sourceMessageIds: string[];
+  qualityScore?: number;
+}
+
+interface SectionFlag {
+  id: string;
+  severity: 'info' | 'warning' | 'critical';
+  reason: string;
+  suggestedAction?: string;
+}
+```
+7.2. Doküman bölümleri
+MVP'de sağ panelde şu bölümler korunmalı:
+Sekme	Amaç	MVP davranışı
+BA Analiz	İş analizi dokümanı	Ana çıktı, en yüksek kalite hedefi.
+IT Analiz	Mimari ve teknik kararlar	BA'dan türetilir, kullanıcıya varsayımlar açık gösterilir.
+Test	Senaryo ve kabul kriterleri	BA ve IT ile izlenebilir olmalı.
+FLOW	Süreç akışı	İlk aşamada Mermaid/BPMN sade UX ile verilmeli.
+Review	Kararlar, riskler, açık sorular	Konuşmanın yönetici özeti ve kalite kontrol alanı.
+7.3. Doküman kalitesi için zorunlu kurallar
+BA Analiz dokümanı şu bölümleri minimum içermeli:
+Amaç
+Kapsam dahil / hariç
+Mevcut durum
+Hedef durum
+Paydaşlar
+Fonksiyonel gereksinimler
+Fonksiyonel olmayan gereksinimler
+İş kuralları
+User story ve kabul kriterleri
+Entegrasyon noktaları
+Veri alanları / veri eşleştirme
+Hata / istisna senaryoları
+Açık sorular
+Riskler ve varsayımlar
+IT Analiz dokümanı minimum şunları içermeli:
+Mimari yaklaşım
+Sistem bileşenleri
+Entegrasyon akışı
+Veri modeli
+API / servis kontratları
+Güvenlik
+Loglama / izleme
+Performans ve ölçeklenebilirlik
+Deployment notları
+Teknik riskler
+Test dokümanı minimum şunları içermeli:
+Test stratejisi
+Kabul kriterleri
+Pozitif senaryolar
+Negatif senaryolar
+Edge case'ler
+Entegrasyon testleri
+Regression kapsamı
+Test verisi ihtiyacı
+UAT kontrol listesi
+---
+8. UI Roadmap
+8.1. Ana layout
+Mevcut ChatPanel + DocumentPanel yapısı korunmalı. Ancak MVP hissi için layout daha görev odaklı hale getirilmeli.
+Hedef masaüstü layout:
+```text
+[Sidebar] [Chat / AI Workbench] [Living Document Panel]
+```
+Sol panel:
+Projeler
+Workspace listesi
+Son güncelleme
+Doküman durumu
+Orta panel:
+JetWork AI chat
+Prompt input
+Dosya yükleme
+Slash commands
+Önerilen aksiyon chip'leri
+Interactive question kartları
+AI phase indicator
+Sağ panel:
+BA / IT / Test / FLOW / Review tab'leri
+Status badge
+Quality badge
+Flags / open issues
+Edit / save / diff / download
+Selected text actions
+8.2. MVP'de gizlenmesi gereken UI parçaları
+Zero-Touch MVP'de olmayacağı için şu parçalar son kullanıcıdan gizlenmeli:
+`/ekip` önerisi
+Zero-Touch toggle
+Çoklu ajan role selector
+Active Zero-Touch roles UI
+AI hand raise / ekip tartışması metaforu
+PO/BA/IT/QA görünür ajan tartışma modu
+Bunlar koddan silinmek zorunda değil; feature flag arkasına alınmalı.
+```typescript
+features: {
+  zeroTouchMode: false,
+  agentDebateMode: false,
+  singleChatMode: true,
+  documentCopilot: true,
+  selectedTextActions: true
+}
+```
+8.3. Chat input UX
+Chat input sadece serbest metin kutusu olmamalı. Kullanıcıya vibe analysis hissi veren hızlı aksiyonlar sunmalı:
+Aksiyon	Örnek
+Talebi analiz et	"Bu talebi BA dokümanına dönüştür"
+Eksikleri çıkar	"Bu talepte eksik noktaları bul"
+Sorular üret	"Kullanıcıya sorulacak kritik soruları çıkar"
+Teknik mimari yaz	"Bu ihtiyaç için teknik yaklaşım öner"
+Test üret	"Bu analizden test senaryoları çıkar"
+Seçili metni düzelt	"Seçili bölümü daha kurumsal yaz"
+Riskleri bul	"Bu çözümün risklerini çıkar"
+8.4. Interactive question kartları
+Mevcut InteractiveQuestions yapısı değerli. MVP'de daha merkezi hale getirilmeli.
+Önerilen tasarım:
+```text
+JetWork AI aşağıdaki 4 konuyu netleştirmek istiyor:
+
+1. Hedef kullanıcı kim?
+   [İç kullanıcı] [Müşteri] [Bayi/Partner] [Diğer]
+
+2. Bu geliştirme hangi sistemleri etkiliyor?
+   [CRM] [Web] [Mobil] [SAP/ERP] [Bilinmiyor]
+
+[Cevapları Gönder]
+```
+Bu cevaplar sadece chat mesajı olarak kalmamalı; aynı zamanda `projectMemory` ve `review.openQuestions` alanlarına işlenmeli.
+8.5. Doküman panel UX
+Sağ panel dokümanın sadece çıktısı değil, AI ile etkileşime girilen alan olmalı.
+Gerekli UX özellikleri:
+Sekme bazlı status: EMPTY, DRAFT, NEEDS_REVISION, REVIEW_READY
+Bölüm kalite puanı
+Açık flag sayısı
+Son güncelleme zamanı
+AI tarafından değiştirilen kısımları highlight
+Değişiklik sonrası mini diff
+Geri al / versiyona dön
+Seçili metin için floating action bar
+Floating action bar örnekleri:
+```text
+[Kurumsal yaz] [Kısalt] [Detaylandır] [Test ekle] [Risk bul] [IT etkisini çıkar]
+```
+8.6. Loading / phase UX
+Repoda PLAN, RESEARCH, REFLECT, ACT fazları var. Bunlar kullanıcıya sade gösterilmeli:
+Teknik faz	Kullanıcıya gösterilecek ifade
+PLAN	Talep anlaşılıyor
+RESEARCH	Bağlam ve kaynaklar kontrol ediliyor
+REFLECT	Eksikler ve riskler değerlendiriliyor
+ACT	Cevap ve doküman hazırlanıyor
+Kullanıcıya iç düşünce dökümü gösterilmemeli; bunun yerine işlem özeti ve hangi adımların tamamlandığı gösterilmeli.
+---
+9. UX Roadmap
+9.1. İlk açılış deneyimi
+Kullanıcı yeni workspace açtığında boş ekran yerine yönlendirici bir başlangıç ekranı görmeli.
+Önerilen boş state:
+```text
+JETWORK ile yeni analiz başlat
+
+Talebini yazabilir, mevcut dokümanı yükleyebilir veya hazır başlangıçlardan birini seçebilirsin.
+
+[Ham talep yazacağım]
+[Mevcut analiz dokümanı yükleyeceğim]
+[Bir bug / improvement analiz edeceğim]
+[Bir entegrasyon tasarlayacağım]
+```
+9.2. İlk mesajdan sonra AI davranışı
+Kullanıcı ilk ham talebi yazdığında AI iki yoldan birini seçmeli:
+Bilgi yeterliyse ilk BA taslağı oluşturmalı.
+Bilgi eksikse en fazla 3-5 kritik soru sormalı.
+AI asla 15 soruluk yorucu liste üretmemeli. Vibe deneyiminin ana kuralı: ilerleyerek netleştir, baştan kullanıcıyı boğma.
+9.3. Doküman üretim eşiği
+AI doküman üretmek için mükemmel bilgi beklememeli. Belirsiz alanları "Henüz netleşmedi" veya "Varsayım" olarak işaretleyerek taslak oluşturmalı.
+Önerilen davranış:
+```text
+Talebin ilk taslağını oluşturdum. Aşağıdaki 3 konu netleşirse doküman kalitesi artacak:
+1. Hedef sistem
+2. Entegrasyon yöntemi
+3. İstisna senaryoları
+```
+9.4. Revizyon deneyimi
+Kullanıcı şu tip cümleler yazabilmeli:
+"Kapsamı daha net yaz."
+"Bunu SAP CRM entegrasyonu gibi düşün."
+"Test kısmı zayıf, edge case ekle."
+"Bu bölümü yöneticiye sunulacak hale getir."
+"Şu seçili metni daha teknik yaz."
+"Buna kabul kriteri ekle."
+AI bu komutları ilgili tab ve bölümle eşleştirmeli. Kullanıcıdan tekrar tekrar "hangi bölümü güncelleyeyim?" diye sormamalı; eğer seçili metin varsa onu bağlam kabul etmeli.
+---
+10. İleri Seviye AI Yetenekleri
+10.1. Gereken AI yetenek seviyesi
+JETWORK'ün ayrışması için AI şu seviyeye çıkmalı:
+Yetenek	MVP hedefi
+Niyet anlama	Kullanıcının chat mi, doküman revizyonu mu, araştırma mı istediğini anlamalı.
+Bağlam yönetimi	Workspace, mesaj geçmişi, doküman ve seçili metni birlikte okumalı.
+Eksik bilgi tespiti	Varsayım yapmadan kritik eksikleri çıkarmalı.
+Karar hafızası	Kullanıcının verdiği kararları saklamalı ve sonraki çıktılara yansıtmalı.
+Doküman patch	Doğru bölümü/node'u güncellemeli.
+Kalite değerlendirme	Dokümanın açık noktalarını ve risklerini gösterebilmeli.
+Araştırma	Dış standart/API bilgisi gerektiğinde araştırma yapmalı.
+İzlenebilirlik	BA gereksiniminden test senaryosuna bağlantı kurmalı.
+10.2. AI cevap standardı
+Chat yanıtları şu formata yakın olmalı:
+```text
+Yaptığım işlem:
+- Talebin kapsamını BA Analiz bölümüne ekledim.
+- Açık kalan 3 noktayı Review bölümüne işledim.
+- Test sekmesi için ilk kabul kriterlerini oluşturdum.
+
+Dokümanda güncellenen alanlar:
+- BA Analiz > Kapsam
+- Test > Kabul Kriterleri
+- Review > Açık Sorular
+
+Sonraki en iyi adım:
+- Entegrasyon sistemini netleştirirsek IT Analiz bölümünü güçlendirebilirim.
+```
+10.3. Hidden evaluator yaklaşımı
+MVP'de görünür çok ajan yok. Ancak tek JetWork AI yanıt üretmeden önce kendi içinde şu checklist'leri çalıştırabilir:
+BA checklist
+IT checklist
+QA checklist
+Risk checklist
+UX checklist
+Bu görünür ajan tartışması değildir. Kullanıcı tek asistanla konuşur; asistan daha kaliteli cevap vermek için arka planda kontrol listeleri kullanır.
+10.4. Kalite puanı
+Doküman kalite puanı sadece dekoratif olmamalı. Aşağıdaki boyutlardan hesaplanmalı:
+Boyut	Ağırlık
+Kapsam netliği	20
+İş kuralları	15
+Kullanıcı akışı	15
+Fonksiyonel gereksinimler	15
+NFR / güvenlik / performans	10
+Test edilebilirlik	15
+Açık soruların yönetimi	10
+Skor yorumu:
+```text
+0-49: Ham talep
+50-69: Analiz taslağı
+70-84: Geliştirmeye hazırlanabilir
+85-100: Review-ready analiz
+```
+10.5. AI güvenlik ve halüsinasyon kontrolü
+AI şu kurallara uymalı:
+Şirket içi sistemleri uydurmamalı.
+Entegrasyon noktası belirsizse seçenekli soru sormalı.
+Varsayım yaptıysa bunu dokümanda "Varsayım" olarak işaretlemeli.
+Web araştırması sonucu varsa kaynakları chat içinde sade göstermeli.
+Mevcut dokümanı tamamen ezmemeli; patch yaklaşımı kullanmalı.
+Doküman güncelledim diyorsa gerçekten document state değişmiş olmalı.
+---
+11. Teknik Mimari Roadmap
+11.1. Kısa vadeli hedef mimari
+```text
+ChatPanel
+  -> useMessages
+    -> singleChatOrchestrator
+      -> contextBuilder
+      -> intentClassifier
+      -> baAgentLoop / planner
+      -> memoryService
+      -> documentPatchEngine
+      -> qualityEvaluator
+    -> save message
+    -> save document version
+
+DocumentPanel
+  -> selected text
+  -> edit/save/diff/download
+  -> status/flags/quality
+```
+11.2. useMessages sadeleştirme
+`useMessages.ts` şu an çok fazla sorumluluk taşıyor:
+Mesaj oluşturma
+Supabase'e kaydetme
+Zero-Touch branch'i
+Single agent mention branch'i
+RAG context toplama
+AI çağrısı
+Streaming update
+Document merge
+Key fact extraction
+Bu hook sadeleşmeli.
+Önerilen ayrım:
+```text
+useMessages
+  - UI event handler
+  - optimistic message add
+  - orchestrator çağırma
+  - response'u store'a yazma
+
+singleChatOrchestrator
+  - AI karar ve aksiyon mantığı
+
+messageRepository
+  - Supabase message save/load
+
+documentRepository
+  - document + version save/load
+```
+11.3. Zero-Touch kodunun yönetimi
+MVP'de Zero-Touch olmayacağı için silme yerine feature flag:
+```typescript
+const FEATURE_FLAGS = {
+  ZERO_TOUCH: false,
+  SINGLE_AGENT_MENTIONS: false,
+  SINGLE_CHAT_ORCHESTRATOR: true,
+  DOCUMENT_COPILOT: true,
+  SELECTED_TEXT_ACTIONS: true,
+};
+```
+Kullanıcı `/ekip` yazsa bile MVP'de sistem bunu çoklu ajan moduna sokmamalı. Bunun yerine şöyle cevap verebilir:
+```text
+Ekip modu bu sürümde aktif değil. Bu talebi tekli JetWork AI modu ile analiz edip dokümana aktarabilirim.
+```
+11.4. IntentRouter entegrasyonu
+`intentRouter.ts` güçlü ama normal akışa bağlanmalı. Önerilen akış:
+```text
+handleSendMessage
+  -> buildContext
+  -> routeIntent
+  -> if answer_question: chat response
+  -> if update_document_node: patch + diff + summary
+  -> if search_internal_database: RAG result + answer
+  -> if search_web: grounded answer + suggested document update
+```
+Ancak `routeIntent` tek başına yeterli değildir. Route sonrası `documentChangePlanner` çalışmalı. Çünkü kullanıcı "bunu dokümana ekle" dediğinde sadece node update değil; hangi bölüm, hangi başlık, hangi format soruları da çözülmelidir.
+11.5. DocumentPatchEngine
+Mevcut `applyPatch` exact string match kullanıyor. Bu kırılgan olabilir. Daha sağlam yapı:
+Tiptap node id varsa node bazlı değiştir.
+Section key varsa section bazlı değiştir.
+Heading anchor varsa heading altına ekle.
+Exact match yoksa semantic insertion point bul.
+Değişiklik diff olarak göster.
+Kullanıcı onayı veya otomatik uygulama kuralına göre kaydet.
+MVP için önerilen kural:
+Küçük revizyonlar otomatik uygulanır.
+Büyük bölüm değişiklikleri için "Uygula / Önizle" seçeneği sunulur.
+11.6. Versioning ve diff
+Mevcut `documents` ve `document_versions` kullanımı korunmalı. Geliştirme önerisi:
+```typescript
+interface DocumentVersion {
+  id: string;
+  workspaceId: string;
+  messageId: string;
+  content: DocumentData;
+  changeSummary: string;
+  changedSections: string[];
+  createdBy: 'user' | 'ai';
+  createdAt: string;
+}
+```
+Diff paneli şu sorulara cevap vermeli:
+Hangi bölüm değişti?
+Ne eklendi?
+Ne çıkarıldı?
+Bu değişikliği hangi kullanıcı mesajı tetikledi?
+Geri dönülebilir mi?
+---
+12. Veri Modeli Roadmap
+12.1. Workspace
+Workspace sadece bir chat odası değil, analiz çalışmasının kapsayıcısı olmalı.
+Önerilen ek alanlar:
+```typescript
+workspace: {
+  id,
+  projectId,
+  issueKey,
+  title,
+  type,
+  status,
+  analysisStage,
+  qualityScore,
+  openQuestionCount,
+  lastAiActionSummary,
+  createdAt,
+  lastUpdated
+}
+```
+12.2. Project memory
+`projectMemory` ve `knowledgeBase` daha ürünleşmiş hale getirilmeli.
+Önerilen veri türleri:
+Memory türü	Örnek
+Decision	"MVP'de Zero-Touch olmayacak"
+Constraint	"İlk odak tekli chat modu"
+System	"Supabase kullanılacak"
+Business rule	"Onay kodu süresi dolunca yeniden gönderilecek"
+Open question	"Hedef sistem CRM mi web mi?"
+Assumption	"İlk sürüm web tabanlı varsayıldı"
+12.3. Open questions
+Açık sorular chat içinde kaybolmamalı. Review sekmesinde ve workspace metadata'sında tutulmalı.
+```typescript
+interface OpenQuestion {
+  id: string;
+  text: string;
+  options: string[];
+  status: 'open' | 'answered' | 'dismissed';
+  answer?: string;
+  sourceMessageId: string;
+  createdAt: string;
+}
+```
+---
+13. Prompt ve AI Contract Roadmap
+13.1. Prompt sorunu
+Mevcut prompt'lar güçlü ama bazı yerlerde ürün davranışıyla çakışıyor. Özellikle:
+Bir yerde tool kullan deniyor.
+Başka yerde document objesi döndür deniyor.
+Bazı akışlar chat'e uzun cevap yazdırıyor.
+Bazı akışlar sağ panele yazdırıyor.
+Zero-Touch persona prompt'ları MVP'de görünür değil ama sistemde duruyor.
+Bu nedenle prompt'lar ürün contract'ına bağlanmalı.
+13.2. Tekli chat sistem prompt standardı
+Önerilen üst kural:
+```text
+Sen JetWork AI'sın. Kullanıcı tek bir AI asistanla konuşuyor.
+Görünür çok ajan tartışması yapma.
+Ancak yanıtlarını BA, IT, QA ve UX kalite kontrol listelerine göre değerlendir.
+Uzun doküman içeriklerini chat'e yığma; doküman güncellemesi gerekiyorsa document patch üret.
+Kullanıcıya en fazla 3-5 netleştirici soru sor.
+Her önemli kullanıcı cevabını proje hafızasına karar veya kısıt olarak kaydet.
+```
+13.3. AI çıktı contract'ı
+Tekli chat orchestrator her zaman şu yapıda sonuç üretmeli:
+```typescript
+interface SingleChatResult {
+  message: string;
+  questions?: Question[];
+  documentPatch?: DocumentPatch;
+  memoryUpdates?: MemoryUpdate[];
+  qualityUpdate?: QualityResult;
+  nextBestActions?: NextBestAction[];
+  groundingUrls?: Source[];
+  changedSections?: string[];
+}
+```
+Bu contract, UI'ın ne göstereceğini netleştirir.
+---
+14. MVP Faz Planı
+Faz 1 - Tekli Chat Omurgasını Sağlamlaştırma
+Amaç: JetWork AI tekli chat modunu ürünün ana omurgası yapmak.
+Kapsam:
+Zero-Touch UI ve `/ekip` akışını feature flag arkasına almak.
+`useMessages` içindeki tekli chat akışını sadeleştirmek.
+`singleChatOrchestrator` servisini oluşturmak.
+PLAN/RESEARCH/REFLECT/ACT fazlarını tekli chat'te korumak.
+Chat cevabını kısa, doküman çıktısını sağ panel odaklı yapmak.
+Hata durumlarını kullanıcı dostu hale getirmek.
+Kabul kriterleri:
+ID	Kriter
+KK1	Kullanıcı normal mesaj yazdığında sistem Zero-Touch'a düşmez.
+KK2	AI faz göstergesi sade şekilde görünür.
+KK3	AI gerekli durumda soru kartı üretir.
+KK4	AI dokümana yazdıysa sağ panel gerçekten güncellenir.
+KK5	Chat mesajı uzun doküman içeriğiyle şişmez.
+Faz 2 - Doküman Copilot ve Patch Engine
+Amaç: Vibe coding benzeri deneyimi doküman üzerinde hissettirmek.
+Kapsam:
+`update_document_section` ve `update_document_node` akışlarını tekli chat'e bağlamak.
+Seçili metin üzerinden AI aksiyonları eklemek.
+Diff / preview / apply akışını güçlendirmek.
+Değişiklik özetini mesajda göstermek.
+Versiyon kaydına change summary eklemek.
+Kabul kriterleri:
+ID	Kriter
+KK1	Kullanıcı seçili metni AI ile revize ettirebilir.
+KK2	AI doğru tab veya node üzerinde değişiklik yapar.
+KK3	Büyük değişikliklerde diff gösterilir.
+KK4	Kullanıcı eski versiyona dönebilir.
+KK5	Exact match bulunamazsa sistem sessizce bozulmaz, güvenli fallback uygular.
+Faz 3 - Analiz Kalitesi ve Maturity
+Amaç: JETWORK'ün çıktısını sıradan AI metninden ayırmak.
+Kapsam:
+BA doküman kalite skoru.
+Açık sorular yönetimi.
+Kapsam / iş kuralı / NFR / test edilebilirlik kontrolü.
+Review sekmesinde kararlar ve riskler.
+Next best action önerileri.
+Kabul kriterleri:
+ID	Kriter
+KK1	Doküman kalite puanı sadece mesajda değil sağ panelde görünür.
+KK2	Açık sorular Review sekmesine işlenir.
+KK3	Kullanıcı soru cevapladığında ilgili açık soru kapanır.
+KK4	Kalite puanı hangi eksiklerden kırıldığını açıklar.
+KK5	AI bir sonraki en iyi aksiyonu önerir.
+Faz 4 - RAG, Hafıza ve Araştırma
+Amaç: AI'ın konuşma boyunca kararları unutmamasını ve gerektiğinde kaynaklı araştırma yapmasını sağlamak.
+Kapsam:
+Key fact extraction'ı memory service'e bağlamak.
+Workspace bazlı karar hafızası oluşturmak.
+Internal search ve web search intent'lerini tekli chat'e bağlamak.
+Web kaynaklarını sade UI ile göstermek.
+Araştırma sonucu doküman etkisi önerisi üretmek.
+Kabul kriterleri:
+ID	Kriter
+KK1	Kullanıcının kritik kararları memory olarak saklanır.
+KK2	AI sonraki mesajlarda bu kararları bağlam olarak kullanır.
+KK3	Web araştırması yapıldığında kaynaklar görünür.
+KK4	Araştırma çıktısı sadece bilgi değil, dokümana etkisiyle sunulur.
+KK5	Hafıza kapatılabilir / yönetilebilir olur.
+Faz 5 - Export ve Paylaşım Kalitesi
+Amaç: Üretilen çıktının gerçek dünyada kullanılabilir olması.
+Kapsam:
+HTML download yerine daha kaliteli DOCX/PDF export.
+Kurumsal doküman şablonları.
+Section bazlı export.
+Tüm dokümanı tek paket export.
+Paylaşım linki yetkilendirme.
+Kabul kriterleri:
+ID	Kriter
+KK1	BA dokümanı DOCX olarak indirilebilir.
+KK2	Test ve IT dokümanı ayrı veya birleşik export edilebilir.
+KK3	Export'ta tablolar bozulmaz.
+KK4	Paylaşılan link read-only görüntülenir.
+KK5	Doküman başlık ve versiyon bilgisi içerir.
+---
+15. Geliştirici Backlog'u
+Epic 1 - Single Chat Orchestrator
+Amaç: Tekli JetWork AI deneyimini ana ürün motoru haline getirmek.
+Story	Açıklama	Öncelik
+SC-01	`singleChatOrchestrator` servisini oluştur	Çok yüksek
+SC-02	`useMessages` hook'unu sadeleştir	Çok yüksek
+SC-03	Zero-Touch branch'ini feature flag arkasına al	Çok yüksek
+SC-04	PLAN/RESEARCH/REFLECT/ACT fazlarını tekli moda bağla	Yüksek
+SC-05	AI response contract oluştur	Yüksek
+Epic 2 - Document Copilot
+Story	Açıklama	Öncelik
+DC-01	Section bazlı update aracı	Çok yüksek
+DC-02	Node bazlı selected text update	Çok yüksek
+DC-03	Diff preview modal entegrasyonu	Yüksek
+DC-04	Change summary ve version metadata	Yüksek
+DC-05	Floating selected text action bar	Orta
+Epic 3 - Analysis Quality Engine
+Story	Açıklama	Öncelik
+AQ-01	BA doküman kalite rubric'i	Yüksek
+AQ-02	Açık sorular modeli	Yüksek
+AQ-03	Review sekmesine karar/risk yazımı	Yüksek
+AQ-04	Next best action üretimi	Orta
+AQ-05	Section status otomasyonu	Orta
+Epic 4 - Memory and Research
+Story	Açıklama	Öncelik
+MR-01	Decision memory modeli	Yüksek
+MR-02	Key fact extraction iyileştirme	Orta
+MR-03	Internal search tool entegrasyonu	Orta
+MR-04	Web search intent entegrasyonu	Orta
+MR-05	Source drawer UI	Düşük
+Epic 5 - UI/UX Refinement
+Story	Açıklama	Öncelik
+UX-01	Empty state yeniden tasarım	Yüksek
+UX-02	Chat action chips	Yüksek
+UX-03	Document status badges	Yüksek
+UX-04	Phase indicator sadeleştirme	Orta
+UX-05	Mobile responsive workspace	Düşük
+---
+16. Önerilen İlk 10 Teknik Aksiyon
+Zero-Touch ve agent mention UI'larını feature flag ile gizle.
+`singleChatOrchestrator.ts` oluştur.
+`useMessages.ts` içindeki AI mantığını orchestrator'a taşı.
+`intentRouter.ts` akışını normal tekli chat'e entegre et.
+`AgentOrchestrator` içindeki `apply_micro_edit` yaklaşımını Zero-Touch bağımlılığından çıkar.
+Document patch için section/node bazlı güvenli patch engine yaz.
+AI response contract'ını tek tipe indir.
+`DocumentData` modeline changedSections, qualityScore ve sourceMessageIds ekle.
+Interactive questions cevaplarını memory + review sekmesine bağla.
+Sağ panelde diff / change summary deneyimini güçlendir.
+---
+17. Riskler ve Önlemler
+Risk	Etki	Önlem
+AI uzun ve kontrolsüz doküman üretir	Kullanıcı yorulur, UI şişer	Chat kısa, doküman panel uzun çıktı kuralı.
+Doküman patch yanlış yere uygulanır	Güven kaybı	Diff preview, node id, fallback ve versioning.
+Exact match patch kırılır	İçerik bozulur	Tiptap node id ve heading-anchor tabanlı patch.
+MVP yine çok genişler	Teslim gecikir	Zero-Touch dışarıda, tekli chat içinde güçlü ama kontrollü yetenekler.
+AI varsayım yapar	Yanlış analiz çıkar	Varsayım/açık soru ayrımı ve kalite rubric'i.
+State karmaşası büyür	Bakım zorlaşır	AI, repository, UI hook ayrımı.
+Prompt'lar çelişir	Tutarsız cevap	Tek response contract ve prompt registry.
+---
+18. Nihai MVP Tanımı
+JETWORK MVP şu değildir:
+Basit chatbot
+Sadece doküman generator
+Görünür çok ajanlı ekip tartışması
+Slash command demo uygulaması
+JETWORK MVP şudur:
+> Tekli JetWork AI chat üzerinden çalışan, kullanıcının ham talebini etkileşimli olarak olgunlaştıran, eksik bilgileri soran, kararları hafızaya alan, sağ panelde yaşayan BA/IT/Test/FLOW/Review dokümanlarını güncelleyen, seçili metin üzerinden vibe editing sağlayan ve her değişikliği versiyonlayan ileri seviye analiz workspace'i.
+Bu MVP yeterince odaklıdır çünkü tekli chat deneyimine odaklanır. Aynı zamanda yeterince güçlüdür çünkü AI'ın sadece cevap vermesini değil, workspace ve doküman üzerinde gerçek aksiyon almasını sağlar.
+---
+19. Yönetici Özeti - Sonuç
+Repo detaylı incelendiğinde JETWORK'ün potansiyeli çok net: ürün doğru yerde, ancak yetenekler dağınık. Mevcut kodda chat, doküman paneli, Tiptap editör, Gemini streaming, Supabase kayıt, versiyonlama, interactive questions, memory, RAG, web search, apply_micro_edit ve PLAN/RESEARCH/REFLECT/ACT gibi güçlü parçalar var. Sorun bu parçaların tekli MVP deneyiminde net ve tutarlı bir ürün akışına bağlanmamış olması.
+Bu nedenle önerilen yön şu olmalı:
+MVP'yi tekli JetWork AI chat üzerine kur.
+Zero-Touch'u MVP dışı bırak ama değerli altyapı parçalarını tekli moda taşı.
+AI'ı sadece cevap veren değil, dokümana kontrollü değişiklik yapan bir copilot haline getir.
+Sağ paneli yaşayan, versiyonlanan, kalite skoru olan bir analiz artefaktına dönüştür.
+UI/UX'i "chat + doküman" değil, "AI ile analiz olgunlaştırma workspace'i" olarak yeniden tasarla.
+İlk hedefi tek bir güçlü kullanım senaryosuna indir: ham talepten kaliteli BA/IT/Test/FLOW doküman setine ilerlemek.
+Bu yönde ilerlenirse JETWORK, sıradan bir AI doküman üreticisi değil; iş analizi ve geliştirme hazırlığı için kullanılabilir, gerçek değer üreten bir Vibe Analysis Platformu haline gelir.
