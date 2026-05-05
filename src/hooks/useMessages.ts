@@ -33,6 +33,20 @@ const extractChatParts = (raw: string): { message: string; thinking?: string; qu
   return { message: raw };
 };
 
+// Last-resort sanitizer. Any text that looks like the { message, questions } JSON
+// must never reach the UI verbatim — strip it to just the message.
+const sanitizeDisplayText = (text: string): { text: string; questions?: any[]; actionSummary?: string } => {
+  if (!text) return { text: '' };
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return { text };
+  const parts = extractChatParts(trimmed);
+  return {
+    text: parts.message || '',
+    questions: parts.questions,
+    actionSummary: parts.actionSummary,
+  };
+};
+
 const processSection = (data: any, existing?: SectionData, parseMarkdown = true): SectionData => {
   let content = '';
   let status: 'DRAFT' | 'NEEDS_REVISION' | 'APPROVED' = existing?.status || 'DRAFT';
@@ -295,12 +309,16 @@ export const useMessages = (channelRef: any) => {
           setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, thinkingText } : m));
         },
         onStream: (text, thinking, questions, actionSummary, tokenCount) => {
+          const sanitized = sanitizeDisplayText(text);
+          const cleanText = sanitized.text;
+          const cleanQuestions = questions || sanitized.questions;
+          const cleanActionSummary = actionSummary || sanitized.actionSummary;
           setMessages(prev => prev.map(m => m.id === aiMsgId ? {
             ...m,
-            text,
+            text: cleanText,
             thinkingText: thinking,
-            questions,
-            actionSummary,
+            questions: cleanQuestions,
+            actionSummary: cleanActionSummary,
             tokenCount
           } : m));
           if (channelRef.current) {
@@ -346,13 +364,33 @@ export const useMessages = (channelRef: any) => {
           ...(aiDoc.review || base.review ? { review: mergeSection(base.review, aiDoc.review) } : {}),
         } as DocumentData;
       }
-      let fullText = loopOutput.text;
+      const sanitizedFinal = sanitizeDisplayText(loopOutput.text);
+      let fullText = sanitizedFinal.text || loopOutput.text;
+      if (fullText.trim().startsWith('{')) fullText = '';
       const finalThinking = loopOutput.thinking;
-      const finalQuestions = loopOutput.questions;
-      const finalActionSummary = loopOutput.actionSummary;
+      const finalQuestions = loopOutput.questions || sanitizedFinal.questions;
+      const finalActionSummary = loopOutput.actionSummary || sanitizedFinal.actionSummary;
 
-      if (finalDocument && finalDocument !== documentContent) {
-        useStore.getState().setDocumentContent(finalDocument);
+      // If AI produced a document but no usable chat text, craft a concise summary
+      // instead of showing raw/empty content.
+      if ((!fullText || !fullText.trim()) && finalDocument && finalDocument !== documentContent) {
+        const changedSections: string[] = [];
+        if (finalDocument.businessAnalysis?.content && finalDocument.businessAnalysis !== base.businessAnalysis) changedSections.push('BA Analiz');
+        if (finalDocument.code?.content && finalDocument.code !== base.code) changedSections.push('IT Analiz');
+        if (finalDocument.test?.content && finalDocument.test !== base.test) changedSections.push('Test');
+        if (finalDocument.bpmn?.content) changedSections.push('FLOW');
+        if (finalDocument.review?.content) changedSections.push('Review');
+        fullText = changedSections.length > 0
+          ? `Sağ panelde şu bölümler güncellendi: ${changedSections.join(', ')}.`
+          : 'İşlem tamamlandı.';
+      }
+
+      const docActuallyChanged = !!finalDocument && finalDocument !== documentContent;
+      if (docActuallyChanged) {
+        useStore.getState().setDocumentContent(finalDocument!);
+      } else if (fullText && /sağ panel|dokümana işlen|dokümanlara işlen|belgeye eklen/i.test(fullText)) {
+        // AI claimed a document update that did not actually happen — note it honestly.
+        fullText += '\n\n_Not: Dokümanda otomatik güncelleme yapılmadı. Devam etmek için yönergelerinizi netleştirebilir misiniz?_';
       }
 
       setMessages(prev => prev.map(m => m.id === aiMsgId ? {
