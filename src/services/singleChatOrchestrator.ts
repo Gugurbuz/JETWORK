@@ -1,10 +1,35 @@
 import { Type } from '@google/genai';
+import { parse as parsePartialJson } from 'partial-json';
 import { DocumentData, KnowledgeItem, Question } from '../types';
 import { callGemini, callAiWithRetry } from './geminiService';
 import { runBaAgentLoop, AgentPhase } from './baAgentLoop';
 import { applyNodeUpdate, ANALYST_WEB_SYSTEM_PROMPT } from './intentRouter';
 import { hybridSearch } from './contextManager';
 import { supabase } from '../supabase';
+
+// Streaming AI responses may come back as partial JSON (message/questions/...).
+// Extract the user-facing parts so we never show raw JSON in the UI.
+const extractParts = (
+  raw: string
+): { message: string; questions?: Question[]; actionSummary?: string; thinking?: string } => {
+  if (!raw) return { message: '' };
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{')) return { message: raw };
+  try {
+    const parsed: any = parsePartialJson(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        message: typeof parsed.message === 'string' ? parsed.message : '',
+        questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
+        actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
+        thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
+      };
+    }
+  } catch {
+    return { message: '' };
+  }
+  return { message: raw };
+};
 
 export type SingleChatIntent =
   | 'chat_only'          // Pure Q&A, no doc touch
@@ -146,28 +171,44 @@ export const runSingleChatOrchestrator = async (
   // -------- CHAT-ONLY: short reply, no document touch --------
   if (intent === 'chat_only') {
     input.onPhase('ACT', 'Yanıt hazırlanıyor...');
-    let text = '';
+    let raw = '';
     let thinking = '';
     let tokens = 0;
-    const res = await callAiWithRetry(() =>
+    let lastParts: { message: string; questions?: Question[]; actionSummary?: string } = { message: '' };
+    const chatOnlySystem = `${input.systemInstruction}
+
+Kullanıcıyla kısa, net ve yardımcı konuş. Dokümanı güncelleme. Uzun analiz üretme.
+
+ÇIKTI FORMAT KURALLARI:
+- Yanıtı MUTLAKA şu JSON şemasıyla üret: { "message": string, "questions": Question[]?, "actionSummary": string? }.
+- "message" kullanıcıya gösterilecek düz metin/Markdown olsun. JSON'u "message" içine YAZMA; sadece doğal dil.
+- Eğer netleştirici soru soracaksan "questions" alanını doldur: her soru { id, text, options: string[] }.
+- Emin olmadığında sadece "message" alanını doldur.`;
+    await callAiWithRetry(() =>
       callGemini({
         model: input.model,
-        systemInstruction: `${input.systemInstruction}\n\nKullanıcıyla kısa, net ve yardımcı bir şekilde konuş. Dokümanı güncelleme. Uzun analiz üretme.`,
+        systemInstruction: chatOnlySystem,
         contents: [
           ...input.history,
           { role: 'user', parts: [{ text: input.userMessage }] },
         ],
         onChunk: (t, think, tk) => {
-          text = t;
+          raw = t;
           if (think) thinking = think;
           if (tk) tokens = tk;
-          input.onStream(text, thinking, undefined, undefined, tokens);
+          const parts = extractParts(raw);
+          lastParts = parts;
+          input.onStream(parts.message || '', thinking, parts.questions, parts.actionSummary, tokens);
         },
       })
     );
+    const finalParts = extractParts(raw);
+    const finalMessage = finalParts.message || lastParts.message || raw;
     return {
-      text: res.text || text,
+      text: finalMessage,
       thinking,
+      questions: finalParts.questions || lastParts.questions,
+      actionSummary: finalParts.actionSummary || lastParts.actionSummary,
       intent,
       tokenCount: tokens,
     };
