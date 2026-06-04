@@ -4,7 +4,7 @@ import {
   GenerateConceptualDesignInput,
   GenerateConceptualDesignResult,
 } from './conceptualDesignTypes';
-import { ConceptualDesignDocumentSchema, conceptualDesignJsonSchema } from './conceptualDesignSchemas';
+import { ConceptualDesignDocumentSchema } from './conceptualDesignSchemas';
 import {
   buildConceptualDesignSystemPrompt,
   buildConceptualDesignUserPrompt,
@@ -65,10 +65,12 @@ export async function generateConceptualDesign(
   const systemInstruction = buildConceptualDesignSystemPrompt();
   let accumulatedText = '';
 
+  // The conceptual design schema is large and nested. Passing the full JSON schema to
+  // Gemini can be rejected by the edge function/model schema validator. We therefore
+  // enforce JSON through the prompt, then validate the returned object locally with Zod.
   await callAiWithRetry(() => callGemini({
     model,
     systemInstruction,
-    responseSchema: conceptualDesignJsonSchema,
     contents: buildContents(input),
     onChunk: text => {
       accumulatedText = text;
