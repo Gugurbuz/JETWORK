@@ -9,6 +9,7 @@ import {
   buildConceptualDesignSystemPrompt,
   buildConceptualDesignUserPrompt,
 } from './conceptualDesignPrompt';
+import { normalizeConceptualDesignRequirements } from './requirementNormalizer';
 import { runConceptualDesignQualityCheck } from './qualityChecker';
 
 function stripCodeFences(raw: string): string {
@@ -35,6 +36,11 @@ function parseConceptualDesign(raw: string): ConceptualDesignDocument {
   const jsonText = extractJson(raw);
   const parsed = JSON.parse(jsonText);
   return ConceptualDesignDocumentSchema.parse(parsed) as ConceptualDesignDocument;
+}
+
+function prepareConceptualDesign(document: ConceptualDesignDocument): ConceptualDesignDocument {
+  const normalizationResult = normalizeConceptualDesignRequirements(document);
+  return normalizationResult.document;
 }
 
 function buildContents(input: GenerateConceptualDesignInput) {
@@ -69,7 +75,8 @@ export async function generateConceptualDesign(
     },
   }));
 
-  const document = parseConceptualDesign(accumulatedText);
+  const parsedDocument = parseConceptualDesign(accumulatedText);
+  const document = prepareConceptualDesign(parsedDocument);
   const qualityReport = runConceptualDesignQualityCheck(document);
 
   return {
@@ -83,7 +90,8 @@ export async function generateConceptualDesign(
 }
 
 export function tryParseConceptualDesign(raw: string): GenerateConceptualDesignResult {
-  const document = parseConceptualDesign(raw);
+  const parsedDocument = parseConceptualDesign(raw);
+  const document = prepareConceptualDesign(parsedDocument);
   const qualityReport = runConceptualDesignQualityCheck(document);
 
   return {
