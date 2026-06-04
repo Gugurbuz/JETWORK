@@ -14,6 +14,10 @@ import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
+import { detectAiActionIntent, shouldRunActionImmediately } from '../modules/ai-actions/actionIntentRouter';
+import { runConceptualDesignOrchestration } from '../modules/conceptual-design/conceptualDesignOrchestrator';
+import { conceptualDesignToDocumentData } from '../modules/conceptual-design/conceptualDesignToDocumentData';
+import type { AnalysisInputAttachment } from '../modules/conceptual-design/conceptualDesignTypes';
 
 const stripCodeFences = (raw: string): string => {
   let t = raw.trim();
@@ -75,6 +79,18 @@ const processSection = (data: any, existing?: SectionData, parseMarkdown = true)
 
   return { content, status, flags };
 };
+
+const toAnalysisAttachments = (
+  attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[],
+): AnalysisInputAttachment[] => (attachments || []).map(attachment => ({
+  name: attachment.name,
+  mimeType: attachment.mimeType,
+  data: attachment.data,
+}));
+
+const buildConversationNotes = (messages: Message[]): string => messages
+  .map(message => `${message.senderName || 'Kullanıcı'} (${message.senderRole || 'Bilinmiyor'}): ${message.text}`)
+  .join('\n');
 
 export const useMessages = (channelRef: any) => {
   const {
@@ -199,8 +215,13 @@ export const useMessages = (channelRef: any) => {
       return;
     }
 
+    const analysisAttachments = toAnalysisAttachments(attachments);
+    const actionIntent = detectAiActionIntent(messageText, analysisAttachments);
+    const shouldRunIntentAction = !isSingleAgentMode && !targetAgentRole && shouldRunActionImmediately(actionIntent);
+
     setIsGenerating(true);
     const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+    const aiCreatedAt = Date.now();
     
     setMessages(prev => [...prev, {
       id: aiMsgId,
@@ -209,7 +230,7 @@ export const useMessages = (channelRef: any) => {
       senderName: targetAgentName || 'JetWork AI',
       senderRole: targetAgentName ? targetAgentName : 'Sistem Asistanı',
       agentRole: targetAgentRole || undefined,
-      createdAt: Date.now(),
+      createdAt: aiCreatedAt,
       isTyping: true
     }]);
 
@@ -223,6 +244,69 @@ export const useMessages = (channelRef: any) => {
     try {
       const currentMessages = getCurrentMessages();
       const documentContent = state.documentContent;
+
+      if (shouldRunIntentAction && actionIntent.type === 'generate-conceptual-design') {
+        setMessages(prev => prev.map(m => m.id === aiMsgId ? {
+          ...m,
+          phase: 'analysis',
+          phaseLabel: 'Kavramsal tasarım analiz motoru çalışıyor...'
+        } : m));
+
+        const notes = buildConversationNotes(currentMessages);
+        const result = await runConceptualDesignOrchestration({
+          notes,
+          conversationSummary: documentContent ? `Mevcut doküman: ${JSON.stringify(documentContent)}` : undefined,
+          attachments: analysisAttachments,
+          model: selectedModel,
+          templateGuidance: 'Kullanıcı doğal dille iş analizi/kavramsal tasarım istedi. Mevcut konuşma, ek dosyalar ve ekran görüntülerine göre yapılandırılmış kavramsal tasarım üret.',
+        });
+
+        const finalDocument = conceptualDesignToDocumentData(result.document);
+        useStore.getState().setDocumentContent(finalDocument);
+
+        await supabase.from('workspaces').update({ last_updated: nowIso() }).eq('id', currentWorkspaceId);
+        await saveDocumentAndVersion(currentWorkspaceId, `conceptual-${Date.now()}`, finalDocument);
+
+        const fullText = [
+          'Kavramsal tasarım analizi tamamlandı. Sağ panelde BA Analiz, IT Analiz, Test, Review ve FLOW bölümleri güncellendi.',
+          '',
+          `Kalite puanı: ${result.qualityReport.score}/100`,
+          result.qualityReport.summary,
+          '',
+          `Algılanan aksiyon: ${actionIntent.type}`,
+        ].join('\n');
+
+        const completedAiMessage: Message = {
+          id: aiMsgId,
+          role: 'model',
+          text: fullText,
+          senderName: 'JetWork AI',
+          senderRole: 'Analiz Orkestratörü',
+          agentRole: actionIntent.type,
+          createdAt: aiCreatedAt,
+          isTyping: false,
+          score: result.qualityReport.score,
+          scoreExplanation: result.qualityReport.summary,
+        };
+
+        setMessages(prev => prev.map(m => m.id === aiMsgId ? completedAiMessage : m));
+
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'ai_stream_end',
+            payload: completedAiMessage,
+          });
+        }
+
+        const aiPayload = camelToSnake<Record<string, any>>(completedAiMessage);
+        aiPayload.workspace_id = currentWorkspaceId;
+        aiPayload.created_at = nowIso();
+        const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
+        if (aiErr) throw aiErr;
+
+        return;
+      }
       
       // 1. Hybrid Search (RAG)
       let retrievedContext = "";
