@@ -5,3 +5,7 @@ export * from './conceptualDesignGenerator';
 export * from './qualityChecker';
 export * from './requirementNormalizer';
 export * from './processModelBuilder';
+export * from './messageCatalogBuilder';
+export * from './kpiBuilder';
+export * from './intakeAnalyzer';
+export * from './conceptualDesignOrchestrator';
