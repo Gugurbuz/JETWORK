@@ -6,6 +6,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function hasUnsupportedSchemaReference(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+
+  const schema = value as Record<string, unknown>
+  if ('$ref' in schema || '$defs' in schema || 'definitions' in schema) return true
+
+  return Object.values(schema).some(child => {
+    if (Array.isArray(child)) return child.some(hasUnsupportedSchemaReference)
+    return hasUnsupportedSchemaReference(child)
+  })
+}
+
+function isSupportedGeminiSchema(responseSchema: unknown): boolean {
+  if (!responseSchema || typeof responseSchema !== 'object') return false
+  return !hasUnsupportedSchemaReference(responseSchema)
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -13,6 +30,7 @@ serve(async (req) => {
 
   try {
     const { model, systemInstruction, contents, responseSchema, tools, toolConfig } = await req.json()
+    const supportedResponseSchema = isSupportedGeminiSchema(responseSchema) ? responseSchema : null
     
     const apiKey = Deno.env.get('GEMINI_API_KEY')
     if (!apiKey) {
@@ -23,17 +41,17 @@ serve(async (req) => {
 
     const config: any = {
       systemInstruction: systemInstruction,
-      responseMimeType: responseSchema ? "application/json" : "text/plain",
+      responseMimeType: supportedResponseSchema ? "application/json" : "text/plain",
       thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
     }
 
-    if (responseSchema) {
-      config.responseSchema = responseSchema
+    if (supportedResponseSchema) {
+      config.responseSchema = supportedResponseSchema
     }
     
     if (tools && tools.length > 0) {
       config.tools = tools
-    } else if (!responseSchema) {
+    } else if (!supportedResponseSchema) {
       config.tools = [{ googleSearch: {} }]
     }
 
