@@ -4,6 +4,7 @@ import { callGemini } from './geminiService';
 import { chatResponseJsonSchema } from '../schemas';
 import { hybridSearch } from './contextManager';
 import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
+import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
@@ -91,6 +92,15 @@ const extractJson = (raw: string): any | null => {
   try {
     return JSON.parse(trimmed);
   } catch {
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 };
@@ -139,7 +149,7 @@ const extractActParts = (raw: string): { message: string; thinking?: string; que
       };
     }
   } catch {
-    // Streaming JSON not yet parseable; return empty so UI keeps last good state
+    // Streaming JSON not yet parseable; return empty so UI keeps last good state.
   }
   return { message: '' };
 };
@@ -150,21 +160,92 @@ const briefDocumentSummary = (doc: DocumentData | null): string => {
   const addSection = (name: string, label: string) => {
     const s = (doc as any)[name];
     if (s?.content) {
-      const preview = String(s.content).slice(0, 400);
-      sections.push(`### ${label} (${s.status || 'DRAFT'})\n${preview}${s.content.length > 400 ? '…' : ''}`);
+      const preview = String(s.content).slice(0, 700);
+      sections.push(`### ${label} (${s.status || 'DRAFT'})\n${preview}${s.content.length > 700 ? '…' : ''}`);
     }
   };
   addSection('businessAnalysis', 'BA');
   addSection('code', 'IT');
   addSection('test', 'QA');
   addSection('review', 'Review');
+  addSection('bpmn', 'FLOW');
   return sections.length > 0 ? sections.join('\n\n') : "(Doküman bölümleri boş.)";
 };
+
+const CONCEPTUAL_DESIGN_DEPTH_STANDARD = `
+[6] KAVRAMSAL TASARIM / İŞ ANALİZİ DERİNLİK STANDARDI
+Bu bölüm JetWork AI'ın ana çalışma standardıdır. Ayrı bir buton, ayrı yan pipeline veya ayrı doküman motoru çalıştırma; aynı sohbet orkestrasyonu içinde document alanını üret/güncelle.
+
+Kullanıcı kavramsal tasarım, iş analizi, gereksinim, süreç modeli, ekran analizi, toast/validasyon, BPMN, doküman yönetimi, entegrasyon veya Word dokümanı istiyorsa aşağıdaki derinlikte çalış:
+
+A) businessAnalysis.content şu yapıyı mümkün olduğunca doldurmalı:
+1. Proje Kimlik Kartı
+   - Proje adı, talep no, kapsam yöneticisi, proje yöneticisi, uygulama sorumlusu, paydaşlar.
+2. Katılımcılar ve Roller
+   - Rol, isim varsa isim, sorumluluk ve karar/yetki kapsamı.
+3. Amaç ve İş Değeri
+   - Projenin neden yapıldığı, hangi operasyonel problemi çözdüğü, beklenen faydalar.
+4. Kapsam ve Kapsam Dışı
+   - Kullanıcının verdiği bilgiye göre kapsamı yaz; belirsizleri [VARSAYIM] olarak işaretle.
+5. Süreç Modelleri
+   - Her süreç için: amaç, aktörler, tetikleyici, giriş/çıkış koşulları, iş kuralları, ekranlar, dokümanlar, entegrasyonlar, hata durumları.
+   - P0-P8 gibi ifadeleri kalıcı ürün kuralı gibi yazma. Bunlar yalnızca mevcut örnek/MVP kodu olabilir; ürün dinamik süreç sayısını desteklemelidir.
+6. İş Gerekleri ve Gereksinimler
+   - Tekrarlı yazma. Gereksinimleri kodla: BR, FR, NFR, UI, INT, DOC, RPT, SEC, PERF.
+   - Her gereksinimde: kod, açıklama, öncelik, kabul kriteri, ilgili ekran/süreç, veri kaynağı.
+7. KPI ve Ölçümleme
+   - Her süreç için en az: ilerleme oranı, açık görev sayısı, eksik doküman sayısı, gecikme göstergesi.
+   - KPI formülü, veri kaynağı, hedef değer ve raporlama yeri yaz.
+8. Kullanıcı Mesajları / Toast / Validasyon / Modal Standardı
+   - Success, error, warning, info toast örnekleri.
+   - Inline validasyon mesajları.
+   - Bloklayıcı modal örnekleri.
+   - Hangi durumda mesajın gösterileceğini yaz.
+9. Doküman Yönetimi
+   - Zorunlu/opsiyonel dokümanlar, dosya türleri, versiyonlama, FileNet/harici saklama, audit ve hata yönetimi.
+10. Bildirim Yönetimi
+   - Uygulama içi bildirim, e-posta, hatırlatma, okundu bilgisi, rol bazlı alıcı kuralları.
+11. Yetki ve Güvenlik
+   - Rol bazlı menü/işlem yetkisi, sadece görüntüleme, admin yetkileri, audit log, oturum kuralları.
+12. Açık Konular ve Varsayımlar
+   - Emin olmadığın her noktayı review yerine de yansıt.
+
+B) code.content teknik analiz olmalı:
+- Modül mimarisi, veri modeli, entity ilişkileri, API/servis ihtiyaçları, entegrasyonlar, FileNet/SAP/Azure AD gibi sistemlerle veri alışverişi, hata/retry/audit stratejisi, güvenlik ve performans notları.
+
+C) test.content test/kabul paketi olmalı:
+- UAT senaryoları, pozitif/negatif testler, yetki testleri, entegrasyon hata testleri, doküman yükleme ve validasyon testleri.
+
+D) review.content kalite raporu olmalı:
+- Talep karşılanma kontrolü, eksik bilgiler, riskler, tekrar eden gereksinimler, açık sorular, sonraki aksiyonlar.
+
+E) bpmn.content FLOW bölümünü doldurmalı:
+- BPMN XML üretemiyorsan geçici olarak süreç akışını Mermaid veya metinsel BPMN taslağı olarak yaz; boş bırakma.
+
+F) Derinlik kuralı:
+- Chat mesajı kısa özet olmalı; detaylar document alanına yazılmalı.
+- Eğer kullanıcı "oluştur", "hazırla", "dokümana işle", "devam et", "varsayımlarla ilerle" diyorsa yeni soru sormadan taslak üret.
+- Eksik bilgileri bahane edip boş doküman bırakma; varsayımları açıkça işaretle.
+- Her bölümde yalnızca 200 karakterlik yüzeysel içerik yeterli değildir. İş analizi üretiminde her ana bölüm karar verilebilir seviyede detaylandırılmalıdır.
+`.trim();
+
+function buildFallbackPlan(userMessage: string): PlanOutput {
+  return {
+    plan: `Kullanıcının talebini ana sohbet hattında analiz et, gerekiyorsa doküman üret/güncelle: ${userMessage.slice(0, 160)}`,
+    assumptions: [],
+    needsWebSearch: false,
+    searchQueries: [],
+    documentGapsToCheck: ['Süreçler', 'Gereksinimler', 'KPI', 'Kullanıcı mesajları', 'Entegrasyonlar', 'Doküman yönetimi'],
+    clarificationsNeeded: [],
+  };
+}
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
   const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding } = input;
 
   let totalTokens = 0;
+  const actionIntent = detectAiActionIntent(userMessage, []);
+  const actionIntentContext = buildActionIntentContext(actionIntent);
 
   // ============ PHASE 1: PLAN ============
   onPhase('PLAN', 'Strateji belirleniyor...');
@@ -173,9 +254,10 @@ Sen kıdemli bir İş Analistisin. Göreve başlamadan önce bir plan yapıyorsu
 KURALLAR:
 - Önce problemi anla, sonra strateji kur.
 - Varsayımlarını açıkça yaz.
+- Kullanıcı doküman/tasarım/analiz istiyorsa planını doküman bölümlerine göre kur.
 - Emin olmadığın konularda "needsWebSearch: true" yap.
 - Belirsizlikte en kritik 1-3 soruyu netleştirmek için "clarificationsNeeded" listele.
-- Dokümanın hangi bölümünde çalışacağını düşün.
+- Ancak kullanıcı açıkça oluştur/güncelle/devam et diyorsa soru sormayı değil, varsayımlarla taslak üretmeyi tercih et.
 Çıktı JSON olacak.
 `.trim();
 
@@ -184,38 +266,38 @@ KURALLAR:
 [KULLANICI TALEBİ]
 ${userMessage}
 
+[OTONOM NİYET SİNYALİ]
+${actionIntentContext || 'Özel aksiyon sinyali yok.'}
+
 [MEVCUT DOKÜMAN DURUMU]
 ${docSummary}
 
 [SON KONUŞMA ÖZETİ]
-${history.slice(-4).map(h => h.parts[0].text).join('\n').slice(0, 1200)}
+${history.slice(-6).map(h => h.parts[0].text).join('\n').slice(0, 2200)}
 
 Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON formatında çıkar.
 `.trim();
 
-  const planResponse = await callGemini({
-    model,
-    systemInstruction: planSystem,
-    contents: [{ role: 'user', parts: [{ text: planPrompt }] }],
-    responseSchema: planSchema,
-    onChunk: (_text, thinking, tokenCount) => {
-      if (thinking) onThinking(thinking);
-      if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-    }
-  });
-  const plan: PlanOutput = extractJson(planResponse.text) || {
-    plan: "Doğrudan yanıt ver.",
-    assumptions: [],
-    needsWebSearch: false,
-    searchQueries: [],
-    documentGapsToCheck: [],
-    clarificationsNeeded: []
-  };
+  let plan: PlanOutput = buildFallbackPlan(userMessage);
+  try {
+    const planResponse = await callGemini({
+      model,
+      systemInstruction: planSystem,
+      contents: [{ role: 'user', parts: [{ text: planPrompt }] }],
+      responseSchema: planSchema,
+      onChunk: (_text, thinking, tokenCount) => {
+        if (thinking) onThinking(thinking);
+        if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
+      }
+    });
+    plan = extractJson(planResponse.text) || plan;
+  } catch (e) {
+    console.warn('Plan phase failed, using fallback plan:', e);
+  }
 
   // ============ PHASE 2: RESEARCH ============
   onPhase('RESEARCH', plan.needsWebSearch ? 'Kaynaklar taranıyor...' : 'Kurumsal hafıza taranıyor...');
 
-  // Knowledge base lookup (local)
   const kbQueries = [userMessage, ...(plan.searchQueries || [])];
   const kbHits = new Map<string, KnowledgeItem>();
   for (const q of kbQueries) {
@@ -226,12 +308,11 @@ Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON fo
     .map(k => `- ${k.content} (önem: ${k.importance}/10)`)
     .join('\n');
 
-  // Web search via Gemini googleSearch (only if plan requests it)
   let webResearch = '';
   let groundingUrls: { uri: string; title: string }[] = [];
   if (plan.needsWebSearch && plan.searchQueries && plan.searchQueries.length > 0) {
     const researchPrompt = `
-Aşağıdaki konularda kısa, güncel ve güvenilir bilgi özeti çıkar (maddeler halinde, her madde 1-2 cümle):
+Aşağıdaki konularda kısa, güncel ve güvenilir bilgi özeti çıkar. Her madde 1-2 cümle olsun.
 
 ${plan.searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 
@@ -240,9 +321,8 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
     try {
       const researchResponse = await callGemini({
         model,
-        systemInstruction: "Sen bir araştırma asistanısın. Internetten kısa, doğru, referanslı bilgi toplarsın.",
+        systemInstruction: 'Sen bir araştırma asistanısın. Internetten kısa, doğru, referanslı bilgi toplarsın.',
         contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
-        // no responseSchema -> edge function enables googleSearch tool
         onChunk: (_text, thinking, tokenCount) => {
           if (thinking) onThinking(thinking);
           if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
@@ -254,7 +334,7 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
       });
       webResearch = (researchResponse.text || '').slice(0, 3000);
     } catch (e) {
-      console.warn("Research phase failed:", e);
+      console.warn('Research phase failed:', e);
     }
   }
 
@@ -264,7 +344,6 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
   ].filter(Boolean).join('\n\n') || '(İlgili ek kaynak bulunamadı.)';
 
   // ============ PHASE 3: REFLECT ============
-  // Skip reflection when there's no document to review and no research to critique.
   const hasDocument = !!documentContent && Object.values(documentContent).some(
     (s: any) => s && typeof s === 'object' && typeof s.content === 'string' && s.content.trim().length > 0
   );
@@ -275,22 +354,22 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
     flagsToRaise: [],
     criticalQuestionsForUser: plan.clarificationsNeeded || [],
     readyToAct: true,
-    reasoning: ""
+    reasoning: ''
   };
 
   if (shouldReflect) {
-  onPhase('REFLECT', hasDocument ? 'Doküman gözden geçiriliyor...' : 'Bulgular değerlendiriliyor...');
-  const reflectSystem = `
+    onPhase('REFLECT', hasDocument ? 'Doküman gözden geçiriliyor...' : 'Bulgular değerlendiriliyor...');
+    const reflectSystem = `
 Sen kıdemli bir İş Analistisin. Mevcut dokümanı ve plan/araştırma bulgularını eleştirel gözle inceliyorsun.
 KURALLAR:
 - Eksik, çelişkili veya belirsiz noktaları tespit et.
 - Hangi bölümlere "NEEDS_REVISION" flag'i gerekiyor söyle.
-- Kullanıcıya sorulması KESİNLİKLE gereken en kritik 0-3 soruyu belirle.
-- Elinde yeterli bilgi varsa "readyToAct: true" dön. Yoksa false.
+- Kullanıcıya sorulması kesin gereken en kritik 0-3 soruyu belirle.
+- Elinde yeterli bilgi varsa "readyToAct: true" dön.
 Çıktı JSON olacak.
 `.trim();
 
-  const reflectPrompt = `
+    const reflectPrompt = `
 [PLAN]
 ${plan.plan}
 Varsayımlar: ${(plan.assumptions || []).join('; ') || '-'}
@@ -308,25 +387,25 @@ ${userMessage}
 Yukarıdaki bağlama göre reflection çıkar.
 `.trim();
 
-  try {
-    const reflectResponse = await Promise.race([
-      callGemini({
-        model,
-        systemInstruction: reflectSystem,
-        contents: [{ role: 'user', parts: [{ text: reflectPrompt }] }],
-        responseSchema: reflectSchema,
-        onChunk: (_text, thinking, tokenCount) => {
-          if (thinking) onThinking(thinking);
-          if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-        }
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('reflect timeout')), 30000))
-    ]);
-    const parsedReflection = extractJson(reflectResponse.text);
-    if (parsedReflection) reflection = parsedReflection;
-  } catch (e) {
-    console.warn('Reflect phase skipped:', e);
-  }
+    try {
+      const reflectResponse = await Promise.race([
+        callGemini({
+          model,
+          systemInstruction: reflectSystem,
+          contents: [{ role: 'user', parts: [{ text: reflectPrompt }] }],
+          responseSchema: reflectSchema,
+          onChunk: (_text, thinking, tokenCount) => {
+            if (thinking) onThinking(thinking);
+            if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
+          }
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('reflect timeout')), 30000))
+      ]);
+      const parsedReflection = extractJson(reflectResponse.text);
+      if (parsedReflection) reflection = parsedReflection;
+    } catch (e) {
+      console.warn('Reflect phase skipped:', e);
+    }
   }
 
   // ============ PHASE 4: ACT ============
@@ -335,14 +414,17 @@ Yukarıdaki bağlama göre reflection çıkar.
   const actContext = `
 [AJAN ÇALIŞMA DOSYASI]
 
-[1] STRATEJİK PLAN
+[1] OTONOM NİYET SİNYALİ
+${actionIntentContext || '- Genel sohbet/analiz.'}
+
+[2] STRATEJİK PLAN
 ${plan.plan}
 ${plan.assumptions?.length ? `Varsayımlar: ${plan.assumptions.join('; ')}` : ''}
 
-[2] ARAŞTIRMA BULGULARI
+[3] ARAŞTIRMA BULGULARI
 ${researchContext}
 
-[3] DOKÜMAN GÖZDEN GEÇİRME
+[4] DOKÜMAN GÖZDEN GEÇİRME
 Bulunan eksikler:
 ${(reflection.gapsFound || []).map(g => `- ${g}`).join('\n') || '- Belirgin eksik yok.'}
 Flag önerileri:
@@ -350,23 +432,25 @@ ${(reflection.flagsToRaise || []).map(f => `- ${f.section}: ${f.reason}`).join('
 Sorulması gereken kritik sorular:
 ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '- Yok.'}
 
-[4] AKSİYON TALİMATLARI
+[5] AKSİYON TALİMATLARI
 - Yukarıdaki araştırma ve reflection bulgularını yanıtına doğal şekilde entegre et.
-- ZORUNLU: Yukarıdaki "Sorulması gereken kritik sorular" listesinde bir madde varsa VEYA kullanıcıya soracağını ima ediyorsan, "questions" alanını MUTLAKA doldur. Her soru: { id: "q1", text: "...", options: ["seçenek 1", "seçenek 2", "seçenek 3"] } formatında, 2-4 seçenekli olmalı. Seçenekler hızlı cevaplanabilir kısa ifadeler olsun (ör. "SAP BTP Integration Suite", "SAP PO", "Diğer"). Boş options ARRAY GEÇME; en az 2 seçenek koy.
+- ZORUNLU: Yukarıdaki "Sorulması gereken kritik sorular" listesinde bir madde varsa VEYA kullanıcıya soracağını ima ediyorsan, "questions" alanını MUTLAKA doldur.
+- Her soru: { id: "q1", text: "...", options: ["seçenek 1", "seçenek 2", "seçenek 3"] } formatında, 2-4 seçenekli olmalı.
 - Mesaj metninde "birkaç sorum olacak" / "şunu netleştirelim" gibi ifade kullandıysan questions alanını doldurmadan yanıt verme.
-- Cevabın Markdown formatında, tablo/madde/başlık ile yapılandırılmış olmalı.
-- "thinking" alanında adım adım nasıl bu sonuca vardığını yaz.
+- Cevabın kullanıcıya gösterilecek chat mesajı kısa ve net olmalı; detayları document alanına yaz.
+- "thinking" alanında kısa çalışma özetini yaz. Özel zincir düşünce veya gizli akıl yürütme yazma.
 - "actionSummary" alanında yaptığın işi 1 cümle özetle.
-- Eğer yeterli bilgi yoksa net soru sor, aksi halde dokümanı nasıl geliştirebileceğini açıkla.
 
-[5] DOKÜMAN YAZMA KURALI
+[6] DOKÜMAN YAZMA KURALI
 - Analiz veya araştırma yeterli olgunluğa ulaştıysa, yanıtınla birlikte "document" alanını MUTLAKA doldur. Bu alan sağ paneldeki Çalışma Dokümanı'na yazılır.
 - "document" alanı şu bölümleri içerir: businessAnalysis (İş Analizi), code (Teknik/IT), test (Test/QA), opsiyonel review ve bpmn.
 - Her bölüm { content: Markdown metni, status: "DRAFT" | "NEEDS_REVISION" | "APPROVED", flags: string[] } yapısında olmalı.
-- Mevcut doküman varsa (${hasDocument ? "EVET" : "HAYIR"}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
-- Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları. En az 200 karakter içerik koy.
-- "document" alanı KURAL: Eğer kullanıcı analiz / doküman / tasarım / test / akış / mimari talep ediyorsa VEYA mesajı bir talep tanımı içeriyorsa (ör. "şunu analiz et", "dokümana geçir", "SAP CRM İYS entegrasyonu", entegrasyon/senaryo/iş kuralı/rol/süreç kelimeleri), "document" alanını MUTLAKA doldur. Yalnızca selamlaşma veya açık netleştirme sorusu soracaksan boş bırakabilirsin.
+- Mevcut doküman varsa (${hasDocument ? 'EVET' : 'HAYIR'}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
+- Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları.
+- "document" alanı KURAL: Eğer kullanıcı analiz / doküman / tasarım / test / akış / mimari talep ediyorsa VEYA mesajı bir talep tanımı içeriyorsa, "document" alanını MUTLAKA doldur.
 - "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.
+
+${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
 `.trim();
 
   const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
@@ -377,8 +461,8 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
   ];
 
   if (documentContent) {
-    const firstPart = contents[0].parts[0];
-    if ('text' in firstPart) {
+    const firstPart = contents[0]?.parts?.[0];
+    if (firstPart && 'text' in firstPart) {
       firstPart.text = `Mevcut Doküman:\n${JSON.stringify(documentContent, null, 2)}\n\n${firstPart.text}`;
     }
   }
@@ -389,15 +473,14 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
   let finalActionSummary: string | undefined;
   let finalDocument: DocumentData | undefined;
 
-  // Clear any thinking leaked from earlier phases before ACT streams its own
   onActStream('', '', undefined, undefined, totalTokens);
 
-  const runActCall = async (sysInstruction: string) => {
+  const runActCall = async (sysInstruction: string, useSchema = true) => {
     return await callGemini({
       model,
       systemInstruction: sysInstruction,
       contents,
-      responseSchema: chatResponseJsonSchema,
+      ...(useSchema ? { responseSchema: chatResponseJsonSchema } : {}),
       onChunk: (text, thinking, tokenCount) => {
         const parts = extractActParts(text);
         const mergedThinking = parts.thinking || thinking;
@@ -414,22 +497,19 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 
   let actResponse;
   try {
-    actResponse = await runActCall(fullSystemInstruction);
+    actResponse = await runActCall(fullSystemInstruction, true);
   } catch (err) {
-    console.warn('ACT phase failed with full context, retrying with minimal context:', err);
+    console.warn('ACT phase failed with schema/full context, retrying without schema:', err);
     finalText = '';
     finalThinking = '';
     finalQuestions = undefined;
     finalActionSummary = undefined;
     finalDocument = undefined;
-    // Fallback: retry with only the base systemInstruction (no research/reflect enrichment)
-    const fallbackSystem = `${systemInstruction}\n\n[NOT] Önceki araştırma/gözden geçirme adımlarında kısıtlama oluştu; doğrudan kullanıcıya en iyi yanıtı üret, gerekirse netleştirme soruları sor.`;
-    actResponse = await runActCall(fallbackSystem);
+    const fallbackSystem = `${systemInstruction}\n\n${actContext}\n\n[NOT] Önceki şemalı çağrı başarısız oldu. Aynı JSON yapısını düz metin olarak döndür; markdown kod bloğu kullanma.`;
+    actResponse = await runActCall(fallbackSystem, false);
   }
 
   const finalParts = extractActParts(actResponse.text);
-  // Never let raw JSON leak to UI — if actResponse.text looks like JSON but we
-  // couldn't extract a message, fall back to the last good streamed text.
   const rawTrimmed = (actResponse.text || '').trim();
   const rawLooksLikeJson = rawTrimmed.startsWith('{') || rawTrimmed.startsWith('```');
   finalText = finalParts.message || (rawLooksLikeJson ? (finalText || '') : actResponse.text);
