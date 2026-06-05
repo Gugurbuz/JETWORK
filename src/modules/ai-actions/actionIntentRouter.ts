@@ -127,8 +127,28 @@ export function detectAiActionIntent(
   };
 }
 
-export function shouldRunActionImmediately(intent: AiActionIntent): boolean {
-  if (intent.type === 'chat') return false;
-  if (intent.requiresConfirmation) return false;
-  return intent.confidence >= 0.34;
+export function buildActionIntentContext(intent: AiActionIntent): string {
+  if (intent.type === 'chat') return '';
+
+  return `
+[OTONOM AKSİYON NİYETİ]
+- Tahmin edilen kullanıcı niyeti: ${intent.type}
+- Güven: ${Math.round(intent.confidence * 100)}%
+- Gerekçe: ${intent.reason}
+
+Bu bilgi sadece yönlendirme sinyalidir. Ayrı bir buton/yan akış çalıştırma. Aynı sohbet orkestrasyonunda davran:
+- Kullanıcı doküman istiyorsa sağ paneldeki document alanını üret veya güncelle.
+- Kullanıcı revizyon istiyorsa mevcut dokümanı koruyarak ilgili bölümü değiştir.
+- Kullanıcı BPMN/akış istiyorsa FLOW/bpmn bölümünü üret veya güncelle.
+- Kullanıcı UI/UX/toast/validasyon istiyorsa BA Analiz ve Review içinde ekran davranışlarını ve mesaj standardını güncelle.
+- Emin değilsen kısa netleştirici soru sor, ama kullanıcı açıkça oluştur/güncelle diyorsa yeni soru sormadan taslak üret.
+`.trim();
+}
+
+export function shouldRunActionImmediately(_intent: AiActionIntent): boolean {
+  // JetWork AI tek bir konuşma orkestrasyonu gibi davranmalı. Bu router artık
+  // doğrudan yan pipeline başlatmaz; sadece ana single-chat orchestrator'a niyet
+  // sinyali sağlar. Özel capability'ler ileride singleChatOrchestrator içinde
+  // tool/handler olarak bağlanmalıdır.
+  return false;
 }
