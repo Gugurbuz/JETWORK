@@ -1,27 +1,22 @@
 import { useStore } from '../store/useStore';
 import { supabase } from '../supabase';
-import { Message, DocumentData, SectionData } from '../types';
+import { Message, DocumentData } from '../types';
 import { camelToSnake, nowIso } from '../lib/mapping';
 import { runZeroTouchMode } from '../services/agentRunner';
-import { callGemini, callAiWithRetry } from '../services/geminiService';
-import { chatResponseJsonSchema } from '../schemas';
-import { saveDocumentAndVersion, applyPatch } from '../utils/documentUtils';
-import { SYSTEM_INSTRUCTION, ZERO_TOUCH_AGENTS } from '../constants';
-import { buildSystemPrompt, BA_DOCUMENT_TEMPLATE_INSTRUCTION } from '../services/promptEngine';
+import { saveDocumentAndVersion } from '../utils/documentUtils';
+import { ZERO_TOUCH_AGENTS } from '../constants';
+import { buildSystemPrompt } from '../services/promptEngine';
 import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
 import { runSingleChatOrchestrator } from '../services/singleChatOrchestrator';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
-import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
-import { detectAiActionIntent, shouldRunActionImmediately } from '../modules/ai-actions/actionIntentRouter';
-import { runConceptualDesignOrchestration } from '../modules/conceptual-design/conceptualDesignOrchestrator';
-import { conceptualDesignToDocumentData } from '../modules/conceptual-design/conceptualDesignToDocumentData';
+import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
 import type { AnalysisInputAttachment } from '../modules/conceptual-design/conceptualDesignTypes';
+import { postProcessDocumentData } from '../services/documentPostProcessor';
 
 const stripCodeFences = (raw: string): string => {
   let t = raw.trim();
-  // Remove ```json ... ``` or ``` ... ``` wrappers
   const fenceMatch = t.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
   if (fenceMatch) t = fenceMatch[1].trim();
   return t;
@@ -34,20 +29,17 @@ const extractChatParts = (raw: string): { message: string; thinking?: string; qu
   try {
     const parsed: any = parsePartialJson(trimmed);
     if (parsed && typeof parsed === 'object') {
-      const msg = typeof parsed.message === 'string' ? parsed.message : '';
       return {
-        message: msg,
+        message: typeof parsed.message === 'string' ? parsed.message : '',
         thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
         questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
         actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
       };
     }
   } catch {}
-  // Parseable JSON-like but not our schema → never leak raw JSON to UI
   return { message: '' };
 };
 
-// Last-resort sanitizer. Any text that looks like JSON must never reach the UI.
 const sanitizeDisplayText = (text: string): { text: string; questions?: any[]; actionSummary?: string } => {
   if (!text) return { text: '' };
   const trimmed = stripCodeFences(text);
@@ -60,26 +52,6 @@ const sanitizeDisplayText = (text: string): { text: string; questions?: any[]; a
   };
 };
 
-const processSection = (data: any, existing?: SectionData, parseMarkdown = true): SectionData => {
-  let content = '';
-  let status: 'DRAFT' | 'NEEDS_REVISION' | 'APPROVED' = existing?.status || 'DRAFT';
-  let flags: string[] = existing?.flags || [];
-
-  if (data && typeof data === 'object' && 'content' in data) {
-    content = data.content || '';
-    status = data.status || status;
-    flags = data.flags || flags;
-  } else {
-    content = typeof data === 'string' ? data : JSON.stringify(data);
-  }
-
-  if (parseMarkdown && content) {
-    content = marked.parse(content) as string;
-  }
-
-  return { content, status, flags };
-};
-
 const toAnalysisAttachments = (
   attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[],
 ): AnalysisInputAttachment[] => (attachments || []).map(attachment => ({
@@ -88,9 +60,7 @@ const toAnalysisAttachments = (
   data: attachment.data,
 }));
 
-const buildConversationNotes = (messages: Message[]): string => messages
-  .map(message => `${message.senderName || 'Kullanıcı'} (${message.senderRole || 'Bilinmiyor'}): ${message.text}`)
-  .join('\n');
+const hasDocumentIntent = (text: string): boolean => /dok[üu]man|kavramsal tasar[ıi]m|iş analizi|is analizi|gereksinim|bpmn|ak[ıi]ş|toast|validasyon|modal|rapor/i.test(text);
 
 export const useMessages = (channelRef: any) => {
   const {
@@ -116,6 +86,16 @@ export const useMessages = (channelRef: any) => {
     const id = currentWorkspaceId;
     if (!id) return [];
     return useMessageStore.getState().messagesByWorkspace[id] || [];
+  };
+
+  const persistAiMessage = async (message: Message) => {
+    if (!currentWorkspaceId) return;
+    const { phase: _p, phaseLabel: _pl, isTyping: _it, retryPayload: _rp, ...persistable } = message as any;
+    const aiPayload = camelToSnake<Record<string, any>>(persistable);
+    aiPayload.workspace_id = currentWorkspaceId;
+    aiPayload.created_at = nowIso();
+    const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
+    if (aiErr) throw aiErr;
   };
 
   const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => {
@@ -148,7 +128,7 @@ export const useMessages = (channelRef: any) => {
           targetAgentRole = agent.role;
           targetAgentName = agent.name;
         } else {
-           setMessages(prev => [...prev, {
+          setMessages(prev => [...prev, {
             id: Date.now().toString(),
             role: 'model',
             text: `❌ Hata: "@${agentName}" adında bir ajan bulunamadı. Lütfen geçerli bir ajan adı girin (örn: @BA, @IT).`,
@@ -160,16 +140,16 @@ export const useMessages = (channelRef: any) => {
           return;
         }
       } else {
-         setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            role: 'model',
-            text: `❌ Hata: Ajan adından sonra bir mesaj girmelisiniz (örn: "@BA bana bir analiz yaz").`,
-            senderName: 'Sistem',
-            senderRole: 'Hata',
-            createdAt: Date.now(),
-            isError: true
-          }]);
-          return;
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'model',
+          text: `❌ Hata: Ajan adından sonra bir mesaj girmelisiniz (örn: "@BA bana bir analiz yaz").`,
+          senderName: 'Sistem',
+          senderRole: 'Hata',
+          createdAt: Date.now(),
+          isError: true
+        }]);
+        return;
       }
     } else if (text.startsWith('/ekip')) {
       messageText = text.replace('/ekip', '').trim();
@@ -203,7 +183,7 @@ export const useMessages = (channelRef: any) => {
         .eq('id', currentWorkspaceId);
       if (wsErr) throw wsErr;
     } catch (err) {
-      console.error("Failed to save user message to database:", err);
+      console.error('Failed to save user message to database:', err);
     }
 
     if (channelRef.current) {
@@ -217,7 +197,7 @@ export const useMessages = (channelRef: any) => {
 
     const analysisAttachments = toAnalysisAttachments(attachments);
     const actionIntent = detectAiActionIntent(messageText, analysisAttachments);
-    const shouldRunIntentAction = !isSingleAgentMode && !targetAgentRole && shouldRunActionImmediately(actionIntent);
+    const actionIntentContext = buildActionIntentContext(actionIntent);
 
     setIsGenerating(true);
     const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
@@ -244,86 +224,19 @@ export const useMessages = (channelRef: any) => {
     try {
       const currentMessages = getCurrentMessages();
       const documentContent = state.documentContent;
-
-      if (shouldRunIntentAction && actionIntent.type === 'generate-conceptual-design') {
-        setMessages(prev => prev.map(m => m.id === aiMsgId ? {
-          ...m,
-          phase: 'analysis',
-          phaseLabel: 'Kavramsal tasarım analiz motoru çalışıyor...'
-        } : m));
-
-        const notes = buildConversationNotes(currentMessages);
-        const result = await runConceptualDesignOrchestration({
-          notes,
-          conversationSummary: documentContent ? `Mevcut doküman: ${JSON.stringify(documentContent)}` : undefined,
-          attachments: analysisAttachments,
-          model: selectedModel,
-          templateGuidance: 'Kullanıcı doğal dille iş analizi/kavramsal tasarım istedi. Mevcut konuşma, ek dosyalar ve ekran görüntülerine göre yapılandırılmış kavramsal tasarım üret.',
-        });
-
-        const finalDocument = conceptualDesignToDocumentData(result.document);
-        useStore.getState().setDocumentContent(finalDocument);
-
-        await supabase.from('workspaces').update({ last_updated: nowIso() }).eq('id', currentWorkspaceId);
-        await saveDocumentAndVersion(currentWorkspaceId, `conceptual-${Date.now()}`, finalDocument);
-
-        const fullText = [
-          'Kavramsal tasarım analizi tamamlandı. Sağ panelde BA Analiz, IT Analiz, Test, Review ve FLOW bölümleri güncellendi.',
-          '',
-          `Kalite puanı: ${result.qualityReport.score}/100`,
-          result.qualityReport.summary,
-          '',
-          `Algılanan aksiyon: ${actionIntent.type}`,
-        ].join('\n');
-
-        const completedAiMessage: Message = {
-          id: aiMsgId,
-          role: 'model',
-          text: fullText,
-          senderName: 'JetWork AI',
-          senderRole: 'Analiz Orkestratörü',
-          agentRole: actionIntent.type,
-          createdAt: aiCreatedAt,
-          isTyping: false,
-          score: result.qualityReport.score,
-          scoreExplanation: result.qualityReport.summary,
-        };
-
-        setMessages(prev => prev.map(m => m.id === aiMsgId ? completedAiMessage : m));
-
-        if (channelRef.current) {
-          channelRef.current.send({
-            type: 'broadcast',
-            event: 'ai_stream_end',
-            payload: completedAiMessage,
-          });
-        }
-
-        const aiPayload = camelToSnake<Record<string, any>>(completedAiMessage);
-        aiPayload.workspace_id = currentWorkspaceId;
-        aiPayload.created_at = nowIso();
-        const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
-        if (aiErr) throw aiErr;
-
-        return;
-      }
       
-      // 1. Hybrid Search (RAG)
-      let retrievedContext = "";
+      let retrievedContext = '';
       if (memoryEnabled && knowledgeBase.length > 0) {
         const relevantKnowledge = hybridSearch(messageText, knowledgeBase, 3);
         if (relevantKnowledge.length > 0) {
-          retrievedContext = "\n\n[KURUMSAL HAFIZA / GEÇMİŞ BİLGİLER]\n" + 
+          retrievedContext = '\n\n[KURUMSAL HAFIZA / GEÇMİŞ BİLGİLER]\n' + 
             relevantKnowledge.map(k => `- ${k.content} (Önem: ${k.importance}/10)`).join('\n');
         }
       }
 
-      // 2. Context Window Management
-      let historyToSend = currentMessages.slice(-contextWindowSize);
+      const historyToSend = currentMessages.slice(-contextWindowSize);
       
-      // Smart Summarization Trigger
       if (memoryEnabled && currentMessages.length > contextWindowSize + 5) {
-        // Background task: Summarize older messages
         const messagesToSummarize = currentMessages.slice(0, currentMessages.length - contextWindowSize);
         summarizeConversation(messagesToSummarize).then(summary => {
           if (summary) {
@@ -344,32 +257,10 @@ export const useMessages = (channelRef: any) => {
         parts: [{ text: `[${m.senderName} - ${m.senderRole}]: ${m.text}` }]
       }));
 
-      let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext: retrievedContext });
+      const additionalContext = [retrievedContext, actionIntentContext].filter(Boolean).join('\n\n');
+      let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext });
       if (targetAgentRole) {
-        systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext: retrievedContext });
-      }
-
-      const contents = [
-        ...history,
-        {
-          role: 'user',
-          parts: [
-            { text: `[${user.name} - Kullanıcı]: ${messageText}` },
-            ...(attachments?.map(a => ({
-              inlineData: {
-                data: a.data,
-                mimeType: a.mimeType
-              }
-            })) || [])
-          ]
-        }
-      ];
-
-      if (documentContent) {
-        const firstPart = contents[0].parts[0];
-        if ('text' in firstPart) {
-          firstPart.text = `Mevcut Doküman:\n${JSON.stringify(documentContent, null, 2)}\n\n` + firstPart.text;
-        }
+        systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext });
       }
 
       const selectedNodeContent = useStore.getState().selectedDocumentText || null;
@@ -404,15 +295,12 @@ export const useMessages = (channelRef: any) => {
         },
         onStream: (text, thinking, questions, actionSummary, tokenCount) => {
           const sanitized = sanitizeDisplayText(text);
-          const cleanText = sanitized.text;
-          const cleanQuestions = questions || sanitized.questions;
-          const cleanActionSummary = actionSummary || sanitized.actionSummary;
           setMessages(prev => prev.map(m => m.id === aiMsgId ? {
             ...m,
-            text: cleanText,
+            text: sanitized.text,
             thinkingText: thinking,
-            questions: cleanQuestions,
-            actionSummary: cleanActionSummary,
+            questions: questions || sanitized.questions,
+            actionSummary: actionSummary || sanitized.actionSummary,
             tokenCount
           } : m));
           if (channelRef.current) {
@@ -421,10 +309,10 @@ export const useMessages = (channelRef: any) => {
               event: 'ai_stream_chunk',
               payload: {
                 id: aiMsgId,
-                text,
+                text: sanitized.text,
                 thinkingText: thinking,
-                questions,
-                actionSummary,
+                questions: questions || sanitized.questions,
+                actionSummary: actionSummary || sanitized.actionSummary,
                 senderName: targetAgentName || 'JetWork AI',
                 senderRole: targetAgentName || 'Sistem Asistanı',
                 agentRole: targetAgentRole || undefined
@@ -437,27 +325,6 @@ export const useMessages = (channelRef: any) => {
         }
       });
 
-      const emptySection = { content: '', status: 'DRAFT' as const, flags: [] };
-      const base = documentContent || {
-        businessAnalysis: { ...emptySection },
-        code: { ...emptySection },
-        test: { ...emptySection },
-      };
-      const aiDoc = loopOutput.document;
-      let finalDocument = documentContent;
-      if (aiDoc) {
-        const mergeSection = (existing: any, incoming: any) => {
-          if (!incoming || !incoming.content || !incoming.content.trim()) return existing;
-          return incoming;
-        };
-        finalDocument = {
-          businessAnalysis: mergeSection(base.businessAnalysis, aiDoc.businessAnalysis) || base.businessAnalysis,
-          code: mergeSection(base.code, aiDoc.code) || base.code,
-          test: mergeSection(base.test, aiDoc.test) || base.test,
-          ...(aiDoc.bpmn || base.bpmn ? { bpmn: mergeSection(base.bpmn, aiDoc.bpmn) } : {}),
-          ...(aiDoc.review || base.review ? { review: mergeSection(base.review, aiDoc.review) } : {}),
-        } as DocumentData;
-      }
       const sanitizedFinal = sanitizeDisplayText(loopOutput.text);
       let fullText = sanitizedFinal.text || loopOutput.text;
       if (fullText.trim().startsWith('{')) fullText = '';
@@ -465,15 +332,31 @@ export const useMessages = (channelRef: any) => {
       const finalQuestions = loopOutput.questions || sanitizedFinal.questions;
       const finalActionSummary = loopOutput.actionSummary || sanitizedFinal.actionSummary;
 
-      // If AI produced a document but no usable chat text, craft a concise summary
-      // instead of showing raw/empty content.
+      let finalDocument: DocumentData | null = documentContent;
+      let changedSections: string[] = [];
+      let qualityScore = documentContent?.score;
+      let qualityExplanation = documentContent?.scoreExplanation;
+
+      if (loopOutput.document) {
+        const postProcessResult = postProcessDocumentData(loopOutput.document, documentContent);
+        finalDocument = postProcessResult.document;
+        changedSections = postProcessResult.changedSections;
+        qualityScore = postProcessResult.qualityGate.score;
+        qualityExplanation = postProcessResult.qualityGate.reason;
+
+        if (!postProcessResult.qualityGate.canPublishToPanel && hasDocumentIntent(messageText)) {
+          fullText = [
+            'Taslak oluşturdum ancak kalite kapısı dokümanın hâlâ yüzeysel olduğunu gösteriyor. Sağ panelde eksik alanları da işaretledim.',
+            '',
+            `Kalite puanı: ${postProcessResult.qualityGate.score}/100`,
+            `Eksik/zayıf alanlar: ${postProcessResult.qualityGate.missingSections.join(', ') || 'Yok'}`,
+            '',
+            'Daha iyi sonuç için ekran görüntüleri, talep dokümanı veya süreç notlarını ekleyebilirsin; mevcut bilgilerle çalışmaya devam edebilirim.'
+          ].join('\n');
+        }
+      }
+
       if ((!fullText || !fullText.trim()) && finalDocument && finalDocument !== documentContent) {
-        const changedSections: string[] = [];
-        if (finalDocument.businessAnalysis?.content && finalDocument.businessAnalysis !== base.businessAnalysis) changedSections.push('BA Analiz');
-        if (finalDocument.code?.content && finalDocument.code !== base.code) changedSections.push('IT Analiz');
-        if (finalDocument.test?.content && finalDocument.test !== base.test) changedSections.push('Test');
-        if (finalDocument.bpmn?.content) changedSections.push('FLOW');
-        if (finalDocument.review?.content) changedSections.push('Review');
         fullText = changedSections.length > 0
           ? `Sağ panelde şu bölümler güncellendi: ${changedSections.join(', ')}.`
           : 'İşlem tamamlandı.';
@@ -483,12 +366,12 @@ export const useMessages = (channelRef: any) => {
       if (docActuallyChanged) {
         useStore.getState().setDocumentContent(finalDocument!);
       } else if (fullText && /sağ panel|dokümana işlen|dokümanlara işlen|belgeye eklen/i.test(fullText)) {
-        // AI claimed a document update that did not actually happen — note it honestly.
         fullText += '\n\n_Not: Dokümanda otomatik güncelleme yapılmadı. Devam etmek için yönergelerinizi netleştirebilir misiniz?_';
       }
 
-      setMessages(prev => prev.map(m => m.id === aiMsgId ? {
-        ...m,
+      const completedAiMessage: Message = {
+        id: aiMsgId,
+        role: 'model',
         text: fullText,
         thinkingText: finalThinking,
         questions: finalQuestions,
@@ -497,48 +380,38 @@ export const useMessages = (channelRef: any) => {
         tokenCount: loopOutput.tokenCount,
         phase: null,
         phaseLabel: undefined,
-        isTyping: false
-      } : m));
-      
-      if (channelRef.current) {
-        const finalMsg = getCurrentMessages().find(m => m.id === aiMsgId);
-        if (finalMsg) {
-          channelRef.current.send({ 
-            type: 'broadcast', 
-            event: 'ai_stream_end', 
-            payload: { 
-              id: aiMsgId, 
-              text: finalMsg.text, 
-              thinkingText: finalMsg.thinkingText,
-              senderName: targetAgentName || 'JetWork AI',
-              senderRole: targetAgentName || 'Sistem Asistanı',
-              agentRole: targetAgentRole || undefined
-            } 
-          });
-          
-          const { phase: _p, phaseLabel: _pl, isTyping: _it, retryPayload: _rp, ...persistable } = finalMsg as any;
-          const aiPayload = camelToSnake<Record<string, any>>(persistable);
-          aiPayload.workspace_id = currentWorkspaceId;
-          aiPayload.created_at = nowIso();
-          const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
-          if (aiErr) throw aiErr;
+        isTyping: false,
+        senderName: targetAgentName || 'JetWork AI',
+        senderRole: targetAgentName || 'Sistem Asistanı',
+        agentRole: targetAgentRole || actionIntent.type,
+        createdAt: aiCreatedAt,
+        score: qualityScore,
+        scoreExplanation: qualityExplanation,
+      };
 
-          if (finalDocument && Object.keys(finalDocument).length > 0) {
-            await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, finalDocument);
-          }
-        }
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? completedAiMessage : m));
+      if (channelRef.current) {
+        channelRef.current.send({ 
+          type: 'broadcast', 
+          event: 'ai_stream_end', 
+          payload: completedAiMessage,
+        });
+      }
+      await persistAiMessage(completedAiMessage);
+
+      if (docActuallyChanged && finalDocument && Object.keys(finalDocument).length > 0) {
+        await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, finalDocument);
       }
 
     } catch (error) {
-      console.error("AI Error:", error);
+      console.error('AI Error:', error);
       setMessages(prev => prev.map(m => m.id === aiMsgId ? { 
         ...m, 
-        text: "Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.", 
+        text: 'Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.', 
         isTyping: false,
         isError: true 
       } : m));
     } finally {
-      // Background task: Extract key facts from user message
       if (memoryEnabled) {
         extractKeyFacts(messageText).then(facts => {
           facts.forEach(f => {
@@ -546,7 +419,7 @@ export const useMessages = (channelRef: any) => {
               addKnowledge({
                 id: Date.now().toString() + Math.random().toString(36).substring(7),
                 content: f.fact,
-                keywords: f.fact.toLowerCase().split(' ').slice(0, 5), // Simple keywords
+                keywords: f.fact.toLowerCase().split(' ').slice(0, 5),
                 importance: f.importance,
                 createdAt: Date.now(),
                 projectId: currentWorkspaceId
@@ -595,7 +468,7 @@ export const useMessages = (channelRef: any) => {
         .eq('workspace_id', currentWorkspaceId);
       if (error) throw error;
     } catch (error) {
-      console.error("Error updating reaction:", error);
+      console.error('Error updating reaction:', error);
     }
   };
 
@@ -616,94 +489,7 @@ export const useMessages = (channelRef: any) => {
   };
 
   const handleGenerateDocument = async () => {
-    const state = useStore.getState();
-    const messages = getCurrentMessages();
-    if (messages.length === 0 || !currentWorkspaceId) return;
-    useStore.getState().setIsGeneratingDocument(true);
-    
-    try {
-      let historyText = "Sohbet Geçmişi:\n";
-      messages.forEach(m => {
-        historyText += `${m.senderName || 'Kullanıcı'} (${m.senderRole || 'Bilinmiyor'}): ${m.text}\n`;
-      });
-
-      const prompt = `${historyText}\n\nYukarıdaki konuşmalara dayanarak kapsamlı bir dokümantasyon oluştur.
-      Lütfen aşağıdaki JSON formatında bir çıktı üret. Sadece geçerli bir JSON döndür, markdown kod bloğu kullanma:
-      {
-        "businessAnalysis": "TAM YAPILANDIRILMIŞ İş Analizi Dokümanı. Aşağıdaki şablona birebir uy: kapak sayfası, içindekiler, numaralı bölümler (1., 1.1., 1.1.1.), tablolar ve kullanıcı hikayeleri içermelidir. Markdown + izin verilen HTML div blokları.",
-        "code": "Teknik mimari dokümanı. Numaralı başlıklar (## 1. Sistem Mimarisi, ## 2. Veritabanı Şeması, ## 3. API Endpoint'leri, ## 4. Entegrasyonlar) kullan. Tablolar ve kod blokları içermeli. Markdown formatında.",
-        "test": "Test dokümanı. Numaralı başlıklar (## 1. Test Stratejisi, ## 2. Test Senaryoları, ## 3. Kabul Kriterleri) kullan. Test senaryoları için tablo: | TC-ID | Senaryo | Adımlar | Beklenen Sonuç |. Markdown formatında.",
-        "review": "Proje değerlendirme dokümanı. Numaralı başlıklar ve risk/öneri tabloları içermeli. Markdown formatında.",
-        "bpmn": "Geçerli bir BPMN 2.0 XML kodu. <bpmndi:BPMNDiagram> ve <bpmndi:BPMNPlane> görsel kısımları bulunmalı."
-      }
-      Tüm bölümler birbiriyle ilişkili ve tutarlı olmalıdır.
-
-      ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`;
-
-      let accumulatedJson = '';
-      
-      await callAiWithRetry(() => callGemini({
-        model: "gemini-3-flash-preview",
-        systemInstruction: "Sen bir yazılım mimarı ve iş analistisin. Verilen sohbet geçmişine dayanarak kapsamlı bir dokümantasyon oluşturuyorsun.",
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        onChunk: (text, thinking, tokens) => {
-          accumulatedJson = text;
-        }
-      }));
-
-      let jsonText = accumulatedJson.trim();
-      
-      // Try to extract JSON from markdown blocks if present
-      const jsonBlockMatch = jsonText.match(/```(?:json)?\n([\s\S]*?)(```|$)/);
-      if (jsonBlockMatch) {
-        jsonText = jsonBlockMatch[1].trim();
-      } else {
-        const firstBraceIndex = jsonText.indexOf('{');
-        if (firstBraceIndex >= 0) {
-          jsonText = jsonText.substring(firstBraceIndex).trim();
-        }
-      }
-      
-      if (jsonText.endsWith('```')) {
-        jsonText = jsonText.replace(/\n?```$/, '');
-      }
-      
-      const data = JSON.parse(jsonText);
-      
-      // Convert Markdown to HTML for each section
-      const htmlData: DocumentData = {
-        businessAnalysis: processSection(data.businessAnalysis, undefined, true),
-        code: processSection(data.code, undefined, true),
-        test: processSection(data.test, undefined, true),
-        review: processSection(data.review, undefined, true),
-        bpmn: processSection(data.bpmn, undefined, false),
-        score: data.score,
-        scoreExplanation: data.scoreExplanation
-      };
-      
-      state.setDocumentContent(htmlData);
-      
-      try {
-        await supabase.from('workspaces').update({ last_updated: nowIso() }).eq('id', currentWorkspaceId);
-        await saveDocumentAndVersion(currentWorkspaceId, `gen-${Date.now()}`, htmlData);
-      } catch (err) {
-        console.error("Failed to save generated document to database:", err);
-      }
-      
-    } catch (error) {
-      console.error('Error generating document:', error);
-      // Fallback if JSON parsing fails
-      const fallbackData: DocumentData = {
-        businessAnalysis: { content: "Doküman oluşturulurken veya JSON ayrıştırılırken bir hata oluştu. Lütfen tekrar deneyin.", status: 'DRAFT', flags: [] },
-        code: { content: "", status: 'DRAFT', flags: [] },
-        test: { content: "", status: 'DRAFT', flags: [] },
-        review: { content: "", status: 'DRAFT', flags: [] },
-        bpmn: { content: "", status: 'DRAFT', flags: [] }
-      };
-      state.setDocumentContent(fallbackData);
-    } finally {
-      useStore.getState().setIsGeneratingDocument(false);
-    }
+    await handleSendMessage('Bu konuşmaya göre kapsamlı kavramsal tasarım dokümanı oluştur. Süreç modelleri, iş gerekleri, KPI, toast/validasyon mesajları, doküman yönetimi, entegrasyonlar, test senaryoları ve FLOW bölümünü detaylandır.');
   };
 
   return { handleSendMessage, handleToggleReaction, handleAcceptAiHandRaise, handleGenerateDocument };
