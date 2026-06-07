@@ -17,7 +17,6 @@ const stripHtml = (value = ''): string => value
   .trim();
 
 const sectionText = (section?: SectionData): string => stripHtml(section?.content || '');
-
 const hasAny = (value: string, patterns: RegExp[]): boolean => patterns.some(pattern => pattern.test(value));
 
 const hasTableLikeContent = (raw = ''): boolean => (
@@ -37,24 +36,17 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
     return {
       canPublishToPanel: false,
       score: 0,
-      reason: 'Yayınlanacak doküman bulunmuyor.',
-      missingSections: ['Doküman'],
+      reason: 'Yayınlanacak BA analiz dokümanı bulunmuyor.',
+      missingSections: ['BA Analiz'],
       warnings: [],
     };
   }
 
   const baRaw = document.businessAnalysis?.content || '';
-  const itRaw = document.code?.content || '';
-  const testRaw = document.test?.content || '';
   const reviewRaw = document.review?.content || '';
-  const flowRaw = document.bpmn?.content || '';
-
   const ba = sectionText(document.businessAnalysis);
-  const it = sectionText(document.code);
-  const test = sectionText(document.test);
   const review = sectionText(document.review);
-  const flow = stripHtml(flowRaw);
-  const all = `${ba}\n${it}\n${test}\n${review}\n${flow}`;
+  const all = `${ba}\n${review}`;
 
   const missingSections: string[] = [];
   const warnings: string[] = [];
@@ -64,7 +56,7 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
     {
       ok: ba.length >= 2500,
       label: 'BA Analiz detay seviyesi',
-      penalty: 18,
+      penalty: 20,
       warning: 'BA Analiz bölümü karar verilebilir seviyede detaylı değil.',
     },
     {
@@ -74,22 +66,32 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
       warning: 'Dokümanda numaralı/formatlı başlık yapısı bulunmuyor.',
     },
     {
-      ok: hasAny(ba, [/proje kimlik kart/i, /proje adı/i, /katılımc/i]),
-      label: 'Proje kimlik kartı ve katılımcılar',
+      ok: hasAny(ba, [/proje kimlik kart/i, /proje adı/i, /katılımc/i, /paydaş/i]),
+      label: 'Proje kimlik kartı / katılımcılar',
       penalty: 8,
     },
     {
-      ok: hasAny(ba, [/süreç modeli/i, /süreçler/i, /akış/i, /tetikleyici/i]),
+      ok: hasAny(ba, [/amaç/i, /iş değeri/i, /beklenen fayda/i]),
+      label: 'Amaç ve iş değeri',
+      penalty: 7,
+    },
+    {
+      ok: hasAny(ba, [/kapsam/i, /kapsam dışı/i, /varsayım/i]),
+      label: 'Kapsam ve varsayımlar',
+      penalty: 7,
+    },
+    {
+      ok: hasAny(ba, [/süreç modeli/i, /süreçler/i, /iş akışı/i, /tetikleyici/i, /giriş koşulu/i, /çıkış koşulu/i]),
       label: 'Süreç modelleri',
       penalty: 12,
     },
     {
-      ok: hasAny(all, [/\bBR[-–]?\d+/i, /\bFR[-–]?\d+/i, /gereksinim/i, /iş gereği/i]),
-      label: 'İş gerekleri ve gereksinimler',
+      ok: hasAny(all, [/\bBR[-–]?\d+/i, /\bFR[-–]?\d+/i, /gereksinim/i, /iş gereği/i, /kabul kriter/i]),
+      label: 'İş gerekleri ve kabul kriterleri',
       penalty: 12,
     },
     {
-      ok: hasAny(all, [/\bKPI\b/i, /ölçüm/i, /tamamlanma oranı/i, /hedef değer/i]),
+      ok: hasAny(all, [/\bKPI\b/i, /ölçüm/i, /tamamlanma oranı/i, /hedef değer/i, /veri kaynağı/i]),
       label: 'KPI ve ölçümleme',
       penalty: 10,
     },
@@ -104,24 +106,12 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
       penalty: 8,
     },
     {
-      ok: it.length >= 900,
-      label: 'IT Analiz',
-      penalty: 10,
-      warning: 'IT Analiz bölümü mimari, entegrasyon ve veri modeli açısından yetersiz.',
-    },
-    {
-      ok: test.length >= 700,
-      label: 'Test / UAT',
-      penalty: 8,
-      warning: 'Test bölümü UAT ve negatif senaryoları kapsayacak kadar detaylı değil.',
-    },
-    {
-      ok: Boolean(flow.trim()) && hasAny(flow, [/bpmn/i, /mermaid/i, /start/i, /başla/i, /süreç/i, /akış/i]),
-      label: 'FLOW / BPMN',
+      ok: hasAny(all, [/açık soru/i, /eksik bilgi/i, /risk/i, /review/i, /kalite/i]),
+      label: 'Review / açık konular',
       penalty: 6,
     },
     {
-      ok: hasTableLikeContent(baRaw) || hasTableLikeContent(itRaw) || hasTableLikeContent(testRaw) || hasTableLikeContent(reviewRaw),
+      ok: hasTableLikeContent(baRaw) || hasTableLikeContent(reviewRaw),
       label: 'Tablo kullanımı',
       penalty: 8,
       warning: 'Doküman kurumsal analiz formatı için yeterli tablo içermiyor.',
@@ -137,20 +127,14 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
   });
 
   score = Math.max(0, Math.min(100, score));
-
-  const blockingMissing = missingSections.filter(section => ![
-    'Tablo kullanımı',
-    'FLOW / BPMN',
-  ].includes(section));
-
-  const canPublishToPanel = score >= 62 && blockingMissing.length <= 4;
+  const canPublishToPanel = score >= 68 && missingSections.length <= 4;
 
   return {
     canPublishToPanel,
     score,
     reason: canPublishToPanel
-      ? 'Doküman sağ panelde taslak olarak gösterilebilir seviyede.'
-      : `Doküman çok yüzeysel. Eksik/zayıf alanlar: ${missingSections.join(', ')}.`,
+      ? 'BA analiz dokümanı sağ panelde taslak olarak gösterilebilir seviyede.'
+      : `BA analiz dokümanı yüzeysel. Eksik/zayıf alanlar: ${missingSections.join(', ')}.`,
     missingSections,
     warnings,
   };
