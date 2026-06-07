@@ -41,11 +41,14 @@ supabase functions deploy analyze
 
 The frontend also needs the public Supabase URL and anon key through the Vite environment variables documented in the root `.env.example`.
 
+## Username login
+
+The frontend supports signing in with either email or username. Username sign-in uses the `lookup_email_for_username` RPC, which returns only the matching email address and avoids granting anonymous clients direct `users` table reads.
+
 ## Security notes
 
 This is a functional baseline, not the final authorization model.
 
-- `users` is readable by anonymous clients so the current username login flow can look up the matching email before sign-in. A production version should replace that with a narrow `lookup_email_for_username` RPC or an auth-side username flow.
 - `shared_analyses` can be read by any authenticated user who has a share id. This matches the current share-link flow, but a production version should add expiry, owner controls, or signed access tokens.
 - `settings` can currently be managed by any authenticated user because the app does not yet model administrators. Once admin roles are added, this policy should be restricted.
 - Workspace collaborators are stored as JSON email entries today. A normalized membership table would make access rules easier to audit and safer to evolve.
