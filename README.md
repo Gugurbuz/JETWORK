@@ -1,20 +1,119 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# JetWork
 
-# Run and deploy your AI Studio app
+JetWork is an AI-assisted business analysis and conceptual design workspace. It combines a realtime project chat, collaborative workspaces, Supabase-backed documents, and Gemini-powered document generation for BA analysis and review workflows.
 
-This contains everything you need to run your app locally.
+## What This App Does
 
-View your app in AI Studio: https://ai.studio/apps/3b531d10-549d-428f-b0a2-e29e90b632e8
+- Authenticates users with Supabase Auth.
+- Manages projects, workspaces, participants, messages, documents, and document versions in Supabase.
+- Streams Gemini responses through the `supabase/functions/gemini-chat` Edge Function.
+- Generates and updates BA analysis / conceptual design documents in the right-side document panel.
+- Applies a document quality gate before presenting generated analysis output.
+
+## Tech Stack
+
+- React 19
+- Vite 6
+- TypeScript
+- Tailwind CSS 4
+- Zustand
+- Supabase Auth, Realtime, Database, and Edge Functions
+- Google Gemini via `@google/genai`
+- Tiptap, marked, bpmn-js, mammoth
+
+## Prerequisites
+
+- Node.js 20 or newer
+- npm
+- A Supabase project
+- Supabase CLI, if you deploy Edge Functions locally or from the command line
+- A Gemini API key
+
+## Environment Variables
+
+Create `.env.local` from `.env.example`:
+
+```bash
+cp .env.example .env.local
+```
+
+Fill these values:
+
+```bash
+VITE_SUPABASE_URL="https://your-project-ref.supabase.co"
+VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
+GEMINI_API_KEY="your-gemini-api-key"
+```
+
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are used by the browser app. `GEMINI_API_KEY` is used by the Supabase Edge Function and should be configured as a Supabase secret in deployed environments.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+Install dependencies:
 
+```bash
+npm install
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Start the Vite dev server:
+
+```bash
+npm run dev
+```
+
+Run type checks:
+
+```bash
+npm run lint
+```
+
+Build for production:
+
+```bash
+npm run build
+```
+
+## Supabase Edge Function
+
+The Gemini proxy lives at:
+
+```text
+supabase/functions/gemini-chat/index.ts
+```
+
+Set the Gemini key as a Supabase secret before deploying:
+
+```bash
+supabase secrets set GEMINI_API_KEY="your-gemini-api-key"
+```
+
+Deploy the function:
+
+```bash
+supabase functions deploy gemini-chat
+```
+
+## Database Notes
+
+The frontend expects these Supabase tables to exist:
+
+- `users`
+- `roles`
+- `projects`
+- `workspaces`
+- `messages`
+- `documents`
+- `document_versions`
+- `shared_analyses`
+- `settings`
+- `raw_responses`
+
+Migration and RLS policy files should be kept under `supabase/migrations` so the database can be reproduced consistently across environments.
+
+## Deployment
+
+The app can be deployed to Vercel as a Vite application. Configure the browser environment variables in Vercel and configure `GEMINI_API_KEY` as a Supabase secret for the Edge Function.
+
+## Current Product Focus
+
+The current document model makes BA analysis / conceptual design the primary generated section. IT analysis, test, and BPMN/FLOW fields are retained for backward compatibility and may be reintroduced as advanced sections later.
