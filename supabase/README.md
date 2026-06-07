@@ -4,7 +4,7 @@ This folder contains the database baseline inferred from the current JetWork fro
 
 ## What the baseline creates
 
-The initial migration creates the tables currently used by the app:
+The migrations create the tables currently used by the app:
 
 - `users` and `roles` for auth profile and onboarding data.
 - `projects` and `workspaces` for the project tree.
@@ -12,7 +12,7 @@ The initial migration creates the tables currently used by the app:
 - `shared_analyses` for share links.
 - `settings` for prompt and AI configuration.
 
-The migration also enables row level security and adds policies around workspace membership. Workspace membership is determined by the workspace owner or by an email entry in the workspace `collaborators` JSON array.
+The baseline also enables row level security and adds policies around workspace membership. Workspace membership is determined by the workspace owner or by an email entry in the workspace `collaborators` JSON array.
 
 ## Apply locally
 
@@ -45,10 +45,11 @@ The frontend also needs the public Supabase URL and anon key through the Vite en
 
 This is a functional baseline, not the final authorization model.
 
+- `users` is readable by anonymous clients so the current username login flow can look up the matching email before sign-in. A production version should replace that with a narrow `lookup_email_for_username` RPC or an auth-side username flow.
 - `shared_analyses` can be read by any authenticated user who has a share id. This matches the current share-link flow, but a production version should add expiry, owner controls, or signed access tokens.
 - `settings` can currently be managed by any authenticated user because the app does not yet model administrators. Once admin roles are added, this policy should be restricted.
 - Workspace collaborators are stored as JSON email entries today. A normalized membership table would make access rules easier to audit and safer to evolve.
 
 ## Realtime
 
-The migration adds realtime publication entries for `projects`, `workspaces`, `messages`, and `documents`, which are the tables currently subscribed to by the app.
+The initial migration adds realtime publication entries for `projects`, `workspaces`, `messages`, and `documents`, which are the tables currently subscribed to by the app.
