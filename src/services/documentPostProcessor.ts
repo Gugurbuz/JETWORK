@@ -1,10 +1,17 @@
 import { marked } from 'marked';
 import type { DocumentData, SectionData } from '../types';
 import { evaluateDocumentQualityGate, type DocumentQualityGateResult } from './documentQualityGate';
+import {
+  buildBaQualityReviewMarkdown,
+  evaluateBaQualityV2,
+  replaceBaEngineReviewBlock,
+  type BaQualityReportV2,
+} from '../modules/ai-ba-engine';
 
 export interface DocumentPostProcessResult {
   document: DocumentData;
   qualityGate: DocumentQualityGateResult;
+  qualityReportV2: BaQualityReportV2;
   changedSections: string[];
 }
 
@@ -92,12 +99,26 @@ export function postProcessDocumentData(
     }, document.review, true);
   }
 
-  document.score = qualityGate.score;
-  document.scoreExplanation = qualityGate.reason;
+  const qualityReportV2 = evaluateBaQualityV2(document);
+  const qualityReportHtml = renderMarkdownToHtml(buildBaQualityReviewMarkdown(qualityReportV2));
+  const reviewFlags = Array.from(new Set([
+    ...(document.review?.flags || []),
+    ...qualityReportV2.warnings,
+    ...(!qualityReportV2.canPublish ? qualityReportV2.priorityFixes.slice(0, 4) : []),
+  ]));
+
+  document.review = {
+    content: replaceBaEngineReviewBlock(document.review?.content || '', qualityReportHtml),
+    status: qualityReportV2.canPublish ? (document.review?.status || 'DRAFT') : 'NEEDS_REVISION',
+    flags: reviewFlags,
+  };
+
+  document.score = Math.min(qualityGate.score, qualityReportV2.score);
+  document.scoreExplanation = qualityReportV2.summary;
 
   const changedSections = Object.entries(SECTION_LABELS)
     .filter(([key]) => sectionsDiffer((document as any)[key], (base as any)[key]))
     .map(([, label]) => label);
 
-  return { document, qualityGate, changedSections };
+  return { document, qualityGate, qualityReportV2, changedSections };
 }
