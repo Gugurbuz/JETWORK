@@ -10,9 +10,6 @@ export interface DocumentPostProcessResult {
 
 const SECTION_LABELS: Record<string, string> = {
   businessAnalysis: 'BA Analiz',
-  code: 'IT Analiz',
-  test: 'Test',
-  bpmn: 'FLOW',
   review: 'Review',
 };
 
@@ -61,15 +58,11 @@ export function postProcessDocumentData(
 ): DocumentPostProcessResult {
   const base = existing || {
     businessAnalysis: { content: '', status: 'DRAFT' as const, flags: [] },
-    code: { content: '', status: 'DRAFT' as const, flags: [] },
-    test: { content: '', status: 'DRAFT' as const, flags: [] },
+    review: { content: '', status: 'DRAFT' as const, flags: [] },
   };
 
   const document: DocumentData = {
     businessAnalysis: normalizeSection(incoming.businessAnalysis, base.businessAnalysis, true),
-    code: normalizeSection(incoming.code, base.code, true),
-    test: normalizeSection(incoming.test, base.test, true),
-    ...(incoming.bpmn || base.bpmn ? { bpmn: normalizeSection(incoming.bpmn, base.bpmn, false) } : {}),
     ...(incoming.review || base.review ? { review: normalizeSection(incoming.review, base.review, true) } : {}),
     suggestions: incoming.suggestions || base.suggestions,
   };
@@ -84,7 +77,7 @@ export function postProcessDocumentData(
     document.review = normalizeSection({
       content: [
         document.review?.content || '',
-        '## Doküman Kalite Kapısı',
+        '## BA Analiz Kalite Kapısı',
         `**Kalite Puanı:** ${qualityGate.score}/100`,
         `**Durum:** ${qualityGate.canPublishToPanel ? 'Taslak yayınlanabilir' : 'Eksik / yüzeysel taslak'}`,
         '',
