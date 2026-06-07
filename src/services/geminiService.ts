@@ -11,7 +11,11 @@ export const callGemini = async (params: {
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }) => {
   const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!session?.access_token) {
+    throw new Error('Yapay zeka isteği için aktif oturum bulunamadı.');
+  }
+
+  const token = session.access_token;
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   
   const response = await fetch(`${supabaseUrl}/functions/v1/gemini-chat`, {
