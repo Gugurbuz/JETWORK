@@ -43,9 +43,10 @@ Fill these values:
 VITE_SUPABASE_URL="https://your-project-ref.supabase.co"
 VITE_SUPABASE_ANON_KEY="your-supabase-anon-key"
 GEMINI_API_KEY="your-gemini-api-key"
+ALLOWED_ORIGINS="http://localhost:5173,https://your-app.vercel.app"
 ```
 
-`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are used by the browser app. `GEMINI_API_KEY` is used by the Supabase Edge Function and should be configured as a Supabase secret in deployed environments.
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are used by the browser app. `GEMINI_API_KEY` and `ALLOWED_ORIGINS` are used by the Supabase Edge Function and should be configured as Supabase secrets in deployed environments.
 
 ## Run Locally
 
@@ -81,11 +82,14 @@ The Gemini proxy lives at:
 supabase/functions/gemini-chat/index.ts
 ```
 
-Set the Gemini key as a Supabase secret before deploying:
+Set the Gemini key and allowed browser origins as Supabase secrets before deploying:
 
 ```bash
 supabase secrets set GEMINI_API_KEY="your-gemini-api-key"
+supabase secrets set ALLOWED_ORIGINS="http://localhost:5173,https://your-app.vercel.app"
 ```
+
+If `ALLOWED_ORIGINS` is omitted, the function keeps permissive CORS behavior. Set it in production to restrict browser calls to known app domains.
 
 Deploy the function:
 
@@ -112,7 +116,7 @@ Migration and RLS policy files should be kept under `supabase/migrations` so the
 
 ## Deployment
 
-The app can be deployed to Vercel as a Vite application. Configure the browser environment variables in Vercel and configure `GEMINI_API_KEY` as a Supabase secret for the Edge Function.
+The app can be deployed to Vercel as a Vite application. Configure the browser environment variables in Vercel and configure `GEMINI_API_KEY` and `ALLOWED_ORIGINS` as Supabase secrets for the Edge Function.
 
 ## Current Product Focus
 
