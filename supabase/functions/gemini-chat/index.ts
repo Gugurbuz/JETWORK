@@ -1,10 +1,31 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { GoogleGenAI, ThinkingLevel } from "npm:@google/genai"
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+const corsHeaderBase = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Vary': 'Origin',
+}
+
+function getAllowedOrigins(): string[] {
+  return (Deno.env.get('ALLOWED_ORIGINS') || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+}
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const allowedOrigins = getAllowedOrigins()
+  if (allowedOrigins.length === 0) {
+    return { ...corsHeaderBase, 'Access-Control-Allow-Origin': '*' }
+  }
+
+  const requestOrigin = req.headers.get('Origin')
+  const allowOrigin = requestOrigin && allowedOrigins.includes(requestOrigin)
+    ? requestOrigin
+    : allowedOrigins[0]
+
+  return { ...corsHeaderBase, 'Access-Control-Allow-Origin': allowOrigin }
 }
 
 function getBearerToken(req: Request): string | null {
@@ -31,7 +52,7 @@ function isAuthenticatedToken(token: string): boolean {
   return payload?.role === 'authenticated' && typeof payload?.sub === 'string' && payload.sub.length > 0
 }
 
-function jsonError(message: string, status: number): Response {
+function jsonError(message: string, status: number, corsHeaders: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: message }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     status,
@@ -56,13 +77,15 @@ function isSupportedGeminiSchema(responseSchema: unknown): boolean {
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req)
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   const bearerToken = getBearerToken(req)
   if (!bearerToken || !isAuthenticatedToken(bearerToken)) {
-    return jsonError('Authentication required', 401)
+    return jsonError('Authentication required', 401, corsHeaders)
   }
 
   try {
@@ -129,6 +152,6 @@ serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.error("Function error:", error)
-    return jsonError(message, 400)
+    return jsonError(message, 400, corsHeaders)
   }
 })
