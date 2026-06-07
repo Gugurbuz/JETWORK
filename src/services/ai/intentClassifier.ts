@@ -10,8 +10,14 @@ import {
   SLASH_COMMAND_MAP,
   DocumentSectionKey,
 } from './intentTypes';
+import {
+  buildBaClarifyingQuestions,
+  buildBaDiscoveryState,
+  buildBaEnginePromptContext,
+  isLikelyBaDiscoveryAnswer,
+} from '../../modules/ai-ba-engine';
 
-const SECTION_ENUM = ['businessAnalysis', 'code', 'test', 'bpmn', 'review'];
+const SECTION_ENUM = ['businessAnalysis', 'review'];
 
 const classifierSchema = {
   type: Type.OBJECT,
@@ -40,17 +46,22 @@ Görünür çok ajan tartışması başlatma. Zero-Touch MVP'de kapalıdır.
 Sadece geçerli JSON döndür. Markdown, açıklama veya serbest metin yazma.
 
 KURALLAR:
+- Görünür doküman yüzeyi şimdilik sadece businessAnalysis ve review sekmeleridir. Teknik analiz, test veya flow istenirse targetSection olarak businessAnalysis ya da review seç; baAgentFocus ile odağı belirt.
 - Sadece açıklama isteniyorsa documentImpact = 'none'.
 - Dokümana ekle/yaz/güncelle/çıkar/hazırla deniyorsa uygun targetSection belirle.
 - Seçili metin varsa "bunu/şunu" önce selectedText'e bağlanır.
 - Silme, komple baştan yazma, restore gibi riskli işlemlerde requiresPreview = true.
 - Emin değilsen requiresClarification = true yap; doküman güncelleme önerme.
+- Ancak kullanıcı "devam", "oluştur", "hazırla", "varsayımlarla ilerle", "bu bilgilerle" diyorsa soru sorma; analysis_generation ve shouldRunBaAgentLoop kullan.
+- Kullanıcı önceki soru kartlarına cevap veriyorsa bunu yeni BA girdisi say; generate_business_analysis veya add_requirement_detail seç.
 - Bilinmeyen kurumsal bilgi varsa uydurma; assumption/open question üret.
 - Kullanıcı bir talep/fikir/entegrasyon anlatıyorsa ve boş dokümana yazılacaksa -> generate_business_analysis (analysis_generation).
 - "araştır / güncel bilgi / best practice" açıkça geçiyorsa research_* intentleri kullan.
 - /ekip -> zero_touch_requested.
 
 ÖNEMLİ: Yanıt yalnızca şu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
+
+const GENERATE_WITH_ASSUMPTIONS_RE = /\b(devam|ilerle|olu[şs]tur|haz[ıi]rla|yaz|taslak|varsay[ıi]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba[şs]la)\b/i;
 
 function docSummary(doc: DocumentData | null): string {
   if (!doc) return 'boş';
@@ -105,20 +116,77 @@ export interface ClassifyInput {
   model: string;
 }
 
+function normalizeVisibleSection(section?: DocumentSectionKey): DocumentSectionKey | undefined {
+  if (!section) return undefined;
+  return section === 'review' ? 'review' : 'businessAnalysis';
+}
+
+function shouldApplyBaDiscovery(classification: IntentClassification): boolean {
+  return classification.primaryIntent === 'analysis_generation'
+    || classification.primaryIntent === 'document_editing'
+    || classification.documentImpact !== 'none'
+    || classification.shouldRunBaAgentLoop;
+}
+
+function applyBaDiscovery(input: ClassifyInput, classification: IntentClassification): IntentClassification {
+  const state = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
+  const userForcesDraft = GENERATE_WITH_ASSUMPTIONS_RE.test(input.userMessage);
+  const userIsAnswering = isLikelyBaDiscoveryAnswer(input.userMessage);
+  const normalized: IntentClassification = {
+    ...classification,
+    targetSection: normalizeVisibleSection(classification.targetSection),
+    secondaryTargetSection: normalizeVisibleSection(classification.secondaryTargetSection),
+  };
+
+  if (!shouldApplyBaDiscovery(normalized)) return normalized;
+
+  if (userForcesDraft || userIsAnswering) {
+    return {
+      ...normalized,
+      primaryIntent: 'analysis_generation',
+      subIntent: input.document ? 'add_requirement_detail' : 'generate_business_analysis',
+      targetSection: normalized.targetSection || 'businessAnalysis',
+      documentImpact: 'updates_document',
+      operation: input.document ? 'append_to_section' : 'replace_or_create_section',
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: normalized.baAgentFocus || 'business_analysis',
+      confidence: Math.max(normalized.confidence, 0.82),
+      reason: `${normalized.reason}; ba_engine:${userIsAnswering ? 'answer_mapper' : 'force_draft'}`,
+    };
+  }
+
+  const criticalDiscoveryGap = !input.document && state.readinessScore < 55 && state.criticalMissing.length >= 2;
+  const lowConfidence = normalized.confidence < 0.55;
+  const shouldAsk = normalized.requiresClarification || lowConfidence || criticalDiscoveryGap;
+  if (!shouldAsk) return normalized;
+
+  const discoveryQuestions = buildBaClarifyingQuestions(state, 4).map((question) => question.text);
+  if (discoveryQuestions.length === 0) return normalized;
+
+  return {
+    ...normalized,
+    requiresClarification: true,
+    clarificationQuestions: discoveryQuestions,
+    documentImpact: 'none',
+    operation: 'none',
+    shouldRunBaAgentLoop: false,
+    confidence: Math.max(normalized.confidence, 0.58),
+    reason: `${normalized.reason}; ba_engine:missing_discovery_context`,
+  };
+}
+
 export async function classifyIntent(input: ClassifyInput): Promise<IntentClassification> {
   const slash = parseSlashCommand(input.userMessage);
-  if (slash) return slash;
+  if (slash) return applyBaDiscovery(input, slash);
 
+  const discoveryState = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
   const selection = input.selectedText
     ? `\n[SEÇİLİ METİN (${input.selectedSection || '?'})]\n"""${String(input.selectedText).slice(0, 400)}"""`
     : '';
 
-  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}
-
-[KULLANICI MESAJI]
-${input.userMessage}
-
-JSON ile cevapla.`;
+  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}\n\n${buildBaEnginePromptContext(discoveryState)}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
 
   try {
     const res = await callAiWithRetry(() =>
@@ -151,10 +219,13 @@ JSON ile cevapla.`;
       baAgentFocus: parsed.baAgentFocus,
       reason: parsed.reason || 'classifier',
     });
-    return classification;
+    return applyBaDiscovery(input, classification);
   } catch (e) {
     console.warn('Intent classifier failed, using heuristic fallback:', e);
-    return buildClassification(fallbackSubIntent(input), { confidence: 0.45, reason: 'classifier_fallback' });
+    return applyBaDiscovery(
+      input,
+      buildClassification(fallbackSubIntent(input), { confidence: 0.45, reason: 'classifier_fallback' })
+    );
   }
 }
 
@@ -162,15 +233,16 @@ function fallbackSubIntent(input: ClassifyInput): SubIntent {
   const msg = input.userMessage.trim().toLowerCase();
   const hasDoc = !!(input.document && Object.values(input.document).some((s: any) => s?.content));
 
-  if (msg.length < 30 && /(selam|merhaba|hi|nasılsın|naber)/i.test(msg)) return 'small_talk';
-  if (input.selectedText && /(bunu|şunu|burayı)/i.test(msg) && /(açıkla|anlat)/i.test(msg)) return 'explain_selected_text';
-  if (input.selectedText && /(bunu|şunu|burayı)/i.test(msg)) return 'improve_selected_text';
+  if (isLikelyBaDiscoveryAnswer(input.userMessage)) return hasDoc ? 'add_requirement_detail' : 'generate_business_analysis';
+  if (msg.length < 30 && /(selam|merhaba|hi|nas[ıi]ls[ıi]n|naber)/i.test(msg)) return 'small_talk';
+  if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg) && /(a[çc][ıi]kla|anlat)/i.test(msg)) return 'explain_selected_text';
+  if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg)) return 'improve_selected_text';
   if (/(test|kabul kriter|uat)/i.test(msg)) return 'generate_test_cases';
-  if (/(akış|bpmn|mermaid|flow|süreç)/i.test(msg)) return 'generate_flow_diagram';
+  if (/(ak[ıi]ş|bpmn|mermaid|flow|s[üu]re[çc])/i.test(msg)) return 'generate_flow_diagram';
   if (/(risk|eksik|review|kalite|inceleme)/i.test(msg)) return 'find_risks';
-  if (/(araştır|best practice|güncel|standart)/i.test(msg)) return 'research_web';
-  if (/(indir|export|paylaş|versiyon)/i.test(msg)) return 'export_document';
-  if (/(nedir|açıkla|anlat|nasıl kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
+  if (/(ara[şs]t[ıi]r|best practice|g[üu]ncel|standart)/i.test(msg)) return 'research_web';
+  if (/(indir|export|payla[şs]|versiyon)/i.test(msg)) return 'export_document';
+  if (/(nedir|a[çc][ıi]kla|anlat|nas[ıi]l kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
   if (hasDoc) return 'add_requirement_detail';
   return 'generate_business_analysis';
 }
