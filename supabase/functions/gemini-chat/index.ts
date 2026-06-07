@@ -4,6 +4,38 @@ import { GoogleGenAI, ThinkingLevel } from "npm:@google/genai"
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+function getBearerToken(req: Request): string | null {
+  const authHeader = req.headers.get('Authorization') || ''
+  const match = authHeader.match(/^Bearer\s+(.+)$/i)
+  return match?.[1]?.trim() || null
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    return JSON.parse(atob(padded))
+  } catch (_error) {
+    return null
+  }
+}
+
+function isAuthenticatedToken(token: string): boolean {
+  const payload = decodeJwtPayload(token)
+  return payload?.role === 'authenticated' && typeof payload?.sub === 'string' && payload.sub.length > 0
+}
+
+function jsonError(message: string, status: number): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    status,
+  })
 }
 
 function hasUnsupportedSchemaReference(value: unknown): boolean {
@@ -26,6 +58,11 @@ function isSupportedGeminiSchema(responseSchema: unknown): boolean {
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  const bearerToken = getBearerToken(req)
+  if (!bearerToken || !isAuthenticatedToken(bearerToken)) {
+    return jsonError('Authentication required', 401)
   }
 
   try {
@@ -90,10 +127,8 @@ serve(async (req) => {
       },
     })
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     console.error("Function error:", error)
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
-    })
+    return jsonError(message, 400)
   }
 })
