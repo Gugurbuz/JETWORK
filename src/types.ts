@@ -55,7 +55,7 @@ export interface Message {
   documentSnapshot?: DocumentData;
   previousDocumentSnapshot?: DocumentData;
   documentActions?: string[];
-  agentRole?: 'BA' | 'IT' | 'QA' | 'Orchestrator' | 'PO' | 'SM' | string;
+  agentRole?: 'BA' | 'Orchestrator' | 'PO' | 'SM' | string;
   score?: number;
   scoreExplanation?: string;
   tokenCount?: number;
@@ -83,20 +83,23 @@ export interface Collaborator {
   email?: string;
 }
 
-// YENİ EKLENEN KISIM: Ajanların birbirine itiraz edebilmesi (Flag) ve durum takibi için yapısal bölüm
 export interface SectionData {
   content: string;
-  status: 'DRAFT' | 'NEEDS_REVISION' | 'APPROVED'; // Ajanların o bölümdeki çalışma durumu
-  flags: string[]; // Diğer ajanların (Örn QA'in) bu bölüme düştüğü hata/itiraz notları
+  status: 'DRAFT' | 'NEEDS_REVISION' | 'APPROVED';
+  flags: string[];
 }
 
-// GÜNCELLENEN KISIM: DocumentData artık sadece metin değil, bir "Durum Makinesi"
 export interface DocumentData {
+  /** Ana ve şimdilik tek üretim bölümü: kavramsal tasarım / BA analiz raporu. */
   businessAnalysis: SectionData;
-  code: SectionData;
-  test: SectionData;
-  bpmn?: SectionData;
+  /** Kalite notları, açık sorular ve revizyon değerlendirmesi. */
   review?: SectionData;
+  /** Geriye dönük uyumluluk için tutulur; yeni üretimde UI'da gösterilmez ve modelden istenmez. */
+  code?: SectionData;
+  /** Geriye dönük uyumluluk için tutulur; yeni üretimde UI'da gösterilmez ve modelden istenmez. */
+  test?: SectionData;
+  /** Geriye dönük uyumluluk için tutulur; yeni üretimde UI'da gösterilmez ve modelden istenmez. */
+  bpmn?: SectionData;
   suggestions?: string[];
   score?: number;
   scoreExplanation?: string;
@@ -116,7 +119,7 @@ export interface TypingUser {
 export interface Workspace {
   id: string;
   projectId: string;
-  issueKey: string; // e.g., JET-123
+  issueKey: string;
   title: string;
   type: WorkspaceType;
   status: WorkspaceStatus;
