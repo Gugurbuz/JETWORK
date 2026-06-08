@@ -151,9 +151,8 @@ function preserveGenerationSubIntent(input: ClassifyInput, normalized: IntentCla
 }
 
 function shouldApplyBaDiscovery(classification: IntentClassification): boolean {
-  return classification.primaryIntent === 'analysis_generation'
-    || classification.primaryIntent === 'document_editing'
-    || classification.documentImpact !== 'none'
+  return ['requirement_intake', 'analysis_generation', 'document_editing', 'quality_review'].includes(classification.primaryIntent)
+    || classification.documentImpact === 'updates_document'
     || classification.shouldRunBaAgentLoop;
 }
 
