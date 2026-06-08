@@ -1,4 +1,5 @@
 import { DocumentData, Message } from '../../types';
+import { buildBaDiscoveryState, isLikelyBaDiscoveryAnswer } from '../../modules/ai-ba-engine';
 
 export interface DiscoverySignals {
   forceGenerate: boolean;
@@ -7,6 +8,9 @@ export interface DiscoverySignals {
   answeredQuestionCount: number;
   questionRoundCount: number;
   documentReadinessScore: number;
+  baDiscoveryReadiness: number;
+  missingDiscoveryFields: string[];
+  isAnsweringDiscovery: boolean;
   mustGenerateNow: boolean;
   reason: string;
 }
@@ -19,14 +23,15 @@ const FORCE_GENERATE_PATTERNS: RegExp[] = [
   /\bhadi\b/i,
   /\bfdd('?yi|.?yi)?\s*(hazırla|başlat|oluştur|üret|yaz)/i,
   /\bfdd\s*başlasın\b/i,
-  /\b(dokümanı|dokümanı)\s*(oluştur|üret|hazırla|yaz|başlat)/i,
-  /\b(analiz(?:i|e)?)\s*(geç|başla|oluştur|hazırla|üret)/i,
+  /\b(dokümanı|dokumanı|doküman|dokuman)\s*(oluştur|üret|hazırla|yaz|başlat)/i,
+  /\b(analiz(?:i|e)?)\s*(geç|başla|oluştur|hazırla|üret|yaz)/i,
   /\bba\s*(analiz(?:i|e)?)\s*(oluştur|hazırla|yaz|üret)/i,
   /\bbu\s+bilgilerle\s+(ilerle|devam|oluştur|yaz|hazırla)/i,
-  /\bvarsayımlarla\s+(devam|ilerle|oluştur)/i,
+  /\bvarsayımlarla\s+(devam|ilerle|oluştur|hazırla)/i,
   /\bmevcut\s+bilgilerle\b/i,
   /\btaslak\s*(oluştur|çıkar|hazırla|yaz)/i,
   /\btamam[,\s!.?]*\s*(oluştur|yaz|hazırla|başla|başlayalım)/i,
+  /\buygula\b/i,
 ];
 
 const STOP_QUESTION_PATTERNS: RegExp[] = [
@@ -48,9 +53,6 @@ const GREETING_TOKENS = [
   'günaydın', 'gunaydin',
 ];
 
-// Phrases that indicate the user is correcting / clarifying that they were
-// only greeting, or pushing back on question spam. These must never trigger
-// discovery / document generation.
 const SMALL_TALK_CORRECTION_PATTERNS: RegExp[] = [
   /\b(selam|naber|mrb|slm|merhaba|hey)\b.*\b(dedim|yazdım|yazdim|söyledim|soyledim|verdim)\b/i,
   /\bsadece\s+(selam|naber|mrb|slm|merhaba|hey)\b/i,
@@ -71,21 +73,13 @@ function normalizeTr(input: string): string {
 function isGreetingLike(message: string): boolean {
   const normalized = normalizeTr(message);
   if (!normalized) return false;
-
-  // Exact greeting regex match
   if (GREETING_PATTERNS.some((re) => re.test(message))) return true;
-
-  // Correction / pushback about greeting
   if (SMALL_TALK_CORRECTION_PATTERNS.some((re) => re.test(message))) return true;
 
   const tokens = normalized.split(' ').filter(Boolean);
   const hasGreetingToken = tokens.some((t) => GREETING_TOKENS.includes(t));
   if (!hasGreetingToken) return false;
-
-  // Short messages that are dominated by a greeting token are small talk.
-  if (tokens.length <= 6) return true;
-
-  return false;
+  return tokens.length <= 6;
 }
 
 const BLOCKED_QUESTION_TERMS: string[] = [
@@ -128,66 +122,38 @@ export function detectSignals(userMessage: string): {
   };
 }
 
+const getSender = (message: Message): string => String((message as any).sender || message.role || '').toLowerCase();
+
 function countQuestionRounds(messages: Message[]): number {
-  // A round = an assistant message that surfaced questions.
-  let rounds = 0;
-  for (const m of messages) {
-    if (m.sender === 'ai' && Array.isArray((m as any).questions) && (m as any).questions.length > 0) {
-      rounds += 1;
-    }
-  }
-  return rounds;
+  return messages.filter((m) => getSender(m) === 'ai' || getSender(m) === 'model')
+    .filter((m) => Array.isArray((m as any).questions) && (m as any).questions.length > 0)
+    .length;
 }
 
 function countAnsweredQuestions(messages: Message[]): number {
-  // User replies containing the "Soru N:" / "Cevap:" pattern from InteractiveQuestions.
   let total = 0;
   for (const m of messages) {
-    if (m.sender === 'user' && typeof m.text === 'string') {
-      const matches = m.text.match(/\*\*Soru\s+\d+:\*\*/g);
-      if (matches) total += matches.length;
+    if (getSender(m) === 'user' && typeof m.text === 'string') {
+      const markerMatches = m.text.match(/\*\*Soru\s+\d+:\*\*/g);
+      const answerMatches = m.text.match(/\bCevap\s*:/gi);
+      total += Math.max(markerMatches?.length || 0, answerMatches?.length || 0);
     }
   }
   return total;
 }
 
-// Document readiness. Very rough heuristic over content length + coverage of
-// canonical integration fields. Returns 0-100.
 function scoreDocumentReadiness(document: DocumentData | null, history: Message[]): number {
-  let score = 0;
+  const discovery = buildBaDiscoveryState({ document, messages: history });
+  let lengthScore = 0;
   if (document) {
     const ba = String((document as any).businessAnalysis?.content || '');
-    const code = String((document as any).code?.content || '');
-    const test = String((document as any).test?.content || '');
     const review = String((document as any).review?.content || '');
-    if (ba.length > 200) score += 20;
-    if (ba.length > 800) score += 10;
-    if (code.length > 200) score += 15;
-    if (test.length > 200) score += 10;
-    if (review.length > 100) score += 5;
+    if (ba.length > 200) lengthScore += 20;
+    if (ba.length > 800) lengthScore += 15;
+    if (ba.length > 2500) lengthScore += 15;
+    if (review.length > 100) lengthScore += 10;
   }
-
-  // Check for keyword coverage across the user's answered content.
-  const combined = history
-    .filter((m) => m.sender === 'user')
-    .map((m) => (m.text || '').toLowerCase())
-    .join('\n');
-
-  const topics: RegExp[] = [
-    /\b(middleware|cpi|mulesoft|apigee|integration\s*suite)\b/,
-    /\b(senkron|asenkron|sync|realtime|gerçek\s*zaman|batch)\b/,
-    /\b(oauth|basic auth|jwt|api key|güvenlik)\b/,
-    /\b(retry|yeniden dene|kuyruk|queue)\b/,
-    /\b(log|z\s*tablo|izleme|monitoring)\b/,
-    /\b(rest|soap|odata|service)\b/,
-    /\b(hata|error|istisna|exception)\b/,
-    /\b(rol|yetki|role)\b/,
-  ];
-  for (const re of topics) {
-    if (re.test(combined)) score += 5;
-  }
-
-  return Math.min(100, score);
+  return Math.min(100, Math.max(discovery.readinessScore, lengthScore));
 }
 
 export function computeDiscoverySignals(
@@ -196,9 +162,11 @@ export function computeDiscoverySignals(
   document: DocumentData | null
 ): DiscoverySignals {
   const { forceGenerate, stopQuestions, greetingOnly } = detectSignals(userMessage);
+  const discovery = buildBaDiscoveryState({ userMessage, messages, document });
   const questionRoundCount = countQuestionRounds(messages);
-  const answeredQuestionCount = countAnsweredQuestions(messages);
+  const answeredQuestionCount = Math.max(countAnsweredQuestions(messages), discovery.answeredQuestionCount);
   const documentReadinessScore = scoreDocumentReadiness(document, messages);
+  const isAnsweringDiscovery = isLikelyBaDiscoveryAnswer(userMessage);
 
   let reason = '';
   let mustGenerateNow = false;
@@ -209,6 +177,9 @@ export function computeDiscoverySignals(
   } else if (stopQuestions) {
     mustGenerateNow = true;
     reason = 'user_stop_questions';
+  } else if (isAnsweringDiscovery && (answeredQuestionCount >= 1 || questionRoundCount > 0)) {
+    mustGenerateNow = true;
+    reason = 'user_answered_discovery_questions';
   } else if (answeredQuestionCount >= 6) {
     mustGenerateNow = true;
     reason = 'enough_answers_collected';
@@ -227,6 +198,9 @@ export function computeDiscoverySignals(
     answeredQuestionCount,
     questionRoundCount,
     documentReadinessScore,
+    baDiscoveryReadiness: discovery.readinessScore,
+    missingDiscoveryFields: discovery.missingFields.map((field) => field.label),
+    isAnsweringDiscovery,
     mustGenerateNow,
     reason,
   };
@@ -235,18 +209,22 @@ export function computeDiscoverySignals(
 export const DOMAIN_LOCK_RULE = `ÜRÜN TANIMI (ZORUNLU):
 - Sen JetWork AI'sın.
 - JETWORK bir iş ilanı, aday bulma, yetenek/eşleştirme, freelance, remote çalışma veya işveren-çalışan platformu DEĞİLDİR.
-- JETWORK; iş analizi (BA), teknik analiz (IT), test senaryoları, süreç akışı (FLOW) ve review dokümanı üreten bir Vibe Analysis Workspace'tir.
+- JETWORK; iş analizi, kavramsal tasarım, gereksinim, süreç, kabul kriteri, risk ve review dokümanı üreten bir Vibe Analysis Workspace'tir.
+- Görünür doküman sekmeleri şimdilik yalnızca BA Analiz ve Review'dür. Teknik analiz, test ve flow isteklerini BA Analiz içinde ilgili alt başlıklara; risk ve kalite notlarını Review içine yerleştir.
 - Asla "İş arıyorum", "Yetenek arıyorum", "Freelance", "Tam zamanlı", "Remote", "Aday", "İşveren", "CV" gibi seçenekler üretme.
 - Kullanıcı sadece selamlaşırsa (merhaba, mrb, selam, hey, naber vb.) soru kartı üretme; tek cümle kısa bir cevap dön ve analiz için ham talep beklediğini belirt.
-- Üreteceğin tüm soru seçenekleri yalnızca yazılım/iş analizi domaininde olmalı: gereksinim tipi, etkilenen sistem, entegrasyon tipi, iş kuralı, kullanıcı grubu, veri kapsamı, hata yönetimi, test kapsamı, doküman çıktısı.`;
+- Üreteceğin tüm soru seçenekleri yalnızca yazılım/iş analizi domaininde olmalı: gereksinim tipi, etkilenen sistem, entegrasyon tipi, iş kuralı, kullanıcı grubu, veri kapsamı, hata yönetimi, kabul kriteri, doküman çıktısı.`;
 
 export const DRAFT_FIRST_SYSTEM_RULE = `${DOMAIN_LOCK_RULE}
 
-SORU SORMA POLİTİKASI (zorunlu):
+AI BA ENGINE V1 ÇALIŞMA POLİTİKASI (zorunlu):
+- Önce niyeti belirle: sohbet, keşif sorusu, BA üretimi, revizyon, review/kalite veya araştırma.
+- Soru soracaksan AI BA keşif checklist'ine göre en kritik en fazla 4 soruyu sor: problem, hedef, kapsam, iş kuralı, fonksiyonel gereksinim, kabul kriteri, süreç, veri/entegrasyon, NFR, risk.
+- Her soru hızlı cevaplanabilir olmalı ve 2-4 seçenek içermeli.
 - Bir talep için en fazla 2 soru turu yapabilirsin.
-- Her turda en fazla 4 soru sor.
 - Kullanıcı 6'dan fazla soruya cevap verdiyse ARTIK YENİ SORU SORMA.
-- Kullanıcı "başlayalım", "doküman oluştur", "FDD hazırla", "bu bilgilerle ilerle", "varsayımlarla devam" dediyse soru sorma, dokümanı üret.
-- Mükemmel bilgi bekleme. Eksik bilgileri VARSAYIM olarak doküman içinde açıkça işaretle, kalan belirsizlikleri Review > Açık Sorular bölümüne yaz.
+- Kullanıcı "başlayalım", "doküman oluştur", "FDD hazırla", "bu bilgilerle ilerle", "varsayımlarla devam", "uygula" dediyse soru sorma, dokümanı üret.
+- Kullanıcı soru kartlarına cevap verdiyse cevapları BA hafızası gibi ele al; dokümana gereksinim, varsayım, iş kuralı veya açık soru olarak işle.
+- Mükemmel bilgi bekleme. Eksik bilgileri [VARSAYIM] olarak doküman içinde açıkça işaretle, kalan belirsizlikleri Review > Açık Sorular bölümüne yaz.
 - Chat cevabın kısa olsun; uzun detaylar sağ paneldeki dokümana yazılır.
 - Selamlaşma veya küçük sohbete sorularla karşılık verme; kısa cevap dön.`;
