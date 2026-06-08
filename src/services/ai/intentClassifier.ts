@@ -68,4 +68,244 @@ KURALLAR:
 - "araÅŸtÄ±r / gÃ¼ncel bilgi / best practice" aÃ§Ä±kÃ§a geÃ§iyorsa research_* intentleri kullan.
 - /ekip -> zero_touch_requested.
 
-Ã–NEMLÄ°3†–æ—B–ÆìK¦6Y÷R¥4ôã¢²7V$–çFVçBÂF&vWE6V7F–öâÂ6V6öæF'•F&vWE6V7F–öâÂ÷W&F–öâÂFö7VÖVçD–×7BÂ6öæf–FVæ6RƒÓ’Â&—6´ÆWfVÂÂ&WV—&W5&W6V&6‚Â&W6V&6…G—RÂ&WV—&W46Æ&–f–6F–öâÂ6Æ&–f–6F–öåVW7F–öç2Â&WV—&W5&Wf–WrÂ6†÷VÆE'Vä&vVçDÆö÷Â&vVçDfö7W2Â&V6öâÒæ° ¦6öç7BtTäU$DUõt•D…ô55TÕD”ôå5õ$RÒõÆ"†FWf×Æ–ÆW&ÆWÆöÇU¼Y÷5×GW'Æ†¥¼K•×&ÆÇ–§ÇF6Æ·Çf'6•¼K•ÖÖÆ&ÆÆ'R&–Æv–ÆW&ÆWÆÖWf7WB&–Æv–ÆW&ÆWÇW–wVÆÆ&¼Y÷5ÖÆ•Æ"ö“° ¦gVæ7F–öâf÷&ÖD6Æ76–f–W%VW7F–öâ‡FW‡C¢7G&–ærÂ÷F–öç3¢7G&–æuµÒÒµÒ“¢7G&–ær°¢&WGW&â÷F–öç2æÆVæwF‚âòG·FW‡GÕÆå6\:vVæV¶ÆW#¢G¶÷F–öç2æ¦ö–â‚rÂr—Ö¢FW‡C°§Ð ¦gVæ7F–öâ'V–ÆD6öçFW‡GVÄ6Æ&–f–6F–öåVW7F–öç2‡W6W$ÖW76vS¢7G&–ær“¢7G&–æuµÒ°¢6öç7B—56——2Ò÷6Ç2¶7&Òö’çFW7B‡W6W$ÖW76vR’bbö——7Æ•µÂâÓ÷•µÂâÓ÷7Æ–ÆWF’•¶ü;eÖæWF–Ò6—7FVÖ’ö’çFW7B‡W6W$ÖW76vR“°¢–b‚—56——2’&WGW&âµÓ° ¢&WGW&â°¢f÷&ÖD6Æ76–f–W%VW7F–öâ‚|K•2—¦–â¶6ÜK†æv’–ÆWFœYö–Ò¶æÆÆ,KìKœ:vW&ÖVÆ“òrÂ²u4Õ2ôÔU4¢²Uõ5D²$ÔrÂu6FV6R4Õ2ôUõ5DrÂuf'6œKÖÆL;ÆÒ¶æÆÆ"uÒ’À¢f÷&ÖD6Æ76–f–W%VW7F–öâ‚|Yæ—&¶WBK•2F&lKæFFV²Ö&¶¶öGR×RÂ:vö¶ÇRÖ&¶–K<KÜK·VÆÆìK–÷#òrÂ²uFV²Ö&¶¶öGRrÂ|8vö¶ÇRÖ&¶rÂuf'6œKÖÆ:vö¶ÇRÖ&¶FW7FV¶ÆVç6–âuÒ’À¢f÷&ÖD6Æ76–f–W%VW7F–öâ‚u45$Ò–ÆRK•2&<KæF†æv’&¶FÖâf'6œKÇ<KãòrÂ²u45’rÂu4’õòrÂuf'6œKÖÆ5’fW–ò¶&,K:|K²¶Ç<KâuÒ’À¢f÷&ÖD6Æ76–f–W%VW7F–öâ‚|KÆ²·F,KÒfR|;ÆæÌ;Æ²×WF&¶B¶6ÜKæ<KÂVÆRÌKç<KãòrÂ²t–æ—F–ÂÆöB²|;ÆæÌ;Æ²FVÇFrÂu6FV6R|;ÆæÌ;Æ²FVÇFrÂuf'6œKÖÆ–¶—6’FR¶6ÖFuÒ’À¢Ó°§Ð ¦gVæ7F–öâFö57VÖÖ'’†Fö3¢Fö7VÖVçDFFÂçVÆÂ“¢7G&–ær°¢–b‚Fö2’&WGW&âv&üYòs°¢6öç7B'G2Òö&¦V7BæVçG&–W2†Fö22ç’¢æf–ÇFW"‚…²ÂeÓ¢·7G&–ærÂç•Ò’Óâcòæ6öçFVçB¢æÖ‚…¶²ÂeÓ¢·7G&–ærÂç•Ò’ÓâG¶·Ó¢G·bç7FGW2ÇÂtE$eBwÒ‚Gµ7G&–ær‡bæ6öçFVçB’æÆVæwF‡Ö2–“°¢&WGW&â'G2æÆVæwF‚âò'G2æ¦ö–â‚s²r’¢v&üYòs°§Ð ¦gVæ7F–öâ'6U6Æ6„6öÖÖæB†×6s¢7G&–ær“¢–çFVçD6Æ76–f–6F–öâÂçVÆÂ°¢6öç7BG&–ÖÖVBÒ×6rçG&–Ò‚“°¢–b‚G&–ÖÖVBç7F'G5v—F‚‚ròr’’&WGW&âçVÆÃ°¢6öç7Bf—'7BÒG&–ÖÖVBç7Æ—B‚õÇ2²ò•³ÒçFôÆ÷vW$66R‚“°¢6öç7BÖÒ4Ä4…ô4ôÔÔäEôÔ¶f—'7EÓ°¢–b‚Ö’°¢&WGW&â'V–ÆD6Æ76–f–6F–öâ‚v–çfÆ–Eö6öÖÖæBrÂ²&V6öã¢&–Æ–æÖW–Vâ¶ö×WC¢G¶f—'7GÖÒ“°¢Ð¢&WGW&â'V–ÆD6Æ76–f–6F–öâ†Öç7V"Â²F&vWE6V7F–öã¢ÖçF&vWBÂ&V6öã¢6Æ6‚6öÖÖæC¢G¶f—'7GÖÒ“°§Ð ¦W‡÷'BgVæ7F–öâ'V–ÆD6Æ76–f–6F–öâ€¢7V#¢7V$–çFVçBÀ¢÷fW'&–FW3¢'F–ÃÄ–çFVçD6Æ76–f–6F–öãâÒ·Ð¢“¢–çFVçD6Æ76–f–6F–öâ°¢6öç7BFVfVÇG2Ò”åDTåEôDTdTÅE5·7V%ÒÇÂ²–×7C¢væöæRr26öç7BÂ÷W&F–öã¢væöæRr26öç7BÂ&—6³¢vÆ÷rr26öç7BÓ°¢6öç7B&–Ö'’Ò$”Ô%•ô%•õ5T%·7V%Ó°¢&WGW&â°¢&–Ö'”–çFVçC¢&–Ö'’À¢7V$–çFVçC¢7V"À¢F&vWE6V7F–öã¢÷fW'&–FW2çF&vWE6V7F–öâóòFVfVÇG2çF&vWE6V7F–öâÀ¢6V6öæF'•F&vWE6V7F–öã¢÷fW'&–FW2ç6V6öæF'•F&vWE6V7F–öâÀ¢÷W&F–öã¢÷fW'&–FW2æ÷W&F–öâóòFVfVÇG2æ÷W&F–öâÀ¢Fö7VÖVçD–×7C¢÷fW'&–FW2æFö7VÖVçD–×7BóòFVfVÇG2æ–×7BÀ¢6öæf–FVæ6S¢÷fW'&–FW2æ6öæf–FVæ6RóòãrÀ¢&—6´ÆWfVÃ¢÷fW'&–FW2ç&—6´ÆWfVÂóòFVfVÇG2ç&—6²À¢&WV—&W5&W6V&6ƒ¢÷fW'&–FW2ç&WV—&W5&W6V&6‚óòfÇ6RÀ¢&W6V&6…G—S¢÷fW'&–FW2ç&W6V&6…G—RÀ¢&WV—&W46Æ&–f–6F–öã¢÷fW'&–FW2ç&WV—&W46Æ&–f–6F–öâóòfÇ6RÀ¢6Æ&–f–6F–öåVW7F–öç3¢÷fW'&–FW2æ6Æ&–f–6F–öåVW7F–öç2À¢&WV—&W5&Wf–Ws¢÷fW'&–FW2ç&WV—&W5&Wf–Wróò†FVfVÇG2ç&—6²ÓÓÒv†–v‚r’À¢6†÷VÆE'Vä&vVçDÆö÷¢÷fW'&–FW2ç6†÷VÆE'Vä&vVçDÆö÷óòFVfVÇG2ç6†÷VÆE'Vä&vVçDÆö÷À¢&vVçDfö7W3¢÷fW'&–FW2æ&vVçDfö7W2óòFVfVÇG2æ&vVçDfö7W2À¢&V6öã¢÷fW'&–FW2ç&V6öâóòFVfVÇBÖ–ærf÷"G·7V'ÖÀ¢Ó°§Ð ¦W‡÷'B–çFW&f6R6Æ76–g”–çWB°¢W6W$ÖW76vS¢7G&–æs°¢Fö7VÖVçC¢Fö7VÖVçDFFÂçVÆÃ°¢6VÆV7FVEFW‡Có¢7G&–ærÂçVÆÃ°¢6VÆV7FVE6V7F–öãó¢Fö7VÖVçE6V7F–öä¶W’ÂçVÆÃ°¢ÖöFVÃ¢7G&–æs°§Ð ¦gVæ7F–öâæ÷&ÖÆ—¦Uf—6–&ÆU6V7F–öâ‡6V7F–öãó¢Fö7VÖVçE6V7F–öä¶W’“¢Fö7VÖVçE6V7F–öä¶W’ÂVæFVf–æVB°¢–b‚6V7F–öâ’&WGW&âVæFVf–æVC°¢&WGW&â6V7F–öâÓÓÒw&Wf–Wrròw&Wf–Wrr¢v'W6–æW74æÇ—6—2s°§Ð ¦gVæ7F–öâfö7W4g&öÕ7V$–çFVçB‡7V$–çFVçC¢7V$–çFVçB“¢&vVçDfö7W2ÂVæFVf–æVB°¢–b…²vvVæW&FU÷FW7Eö66W2rÂvvVæW&FUöW'&÷%÷66Væ&–÷2rÂv6†V6µ÷FW7F&–Æ—G’rÂv6†V6µ÷G&6V&–Æ—G’uÒæ–æ6ÇVFW2‡7V$–çFVçB’’&WGW&âwFW7Bs°¢–b…²vvVæW&FUöfÆ÷uöF–w&ÒrÂvvVæW&FUö'ÖârÂvvVæW&FUöÖW&Ö–BuÒæ–æ6ÇVFW2‡7V$–çFVçB’’&WGW&âvfÆ÷rs°¢–b…²vvVæW&FU÷FV6†æ–6ÅöæÇ—6—2rÂvvVæW&FUö–çFVw&F–öåöæÇ—6—2rÂvvVæW&FUö•ö6öçG&7BrÂvvVæW&FUöFWfVÆ÷W%ö†æFöfbuÒæ–æ6ÇVFW2‡7V$–çFVçB’’&WGW&âwFV6†æ–6ÅöæÇ—6—2s°¢–b…²w&Wf–WuöFö7VÖVçE÷VÆ—G’rÂw66÷&UöFö7VÖVçBuÒæ–æ6ÇVFW2‡7V$–çFVçB’’&WGW&âwVÆ—G’s°¢–b…²vvVæW&FU÷&Wf–Wu÷&W÷'BrÂvf–æE÷&—6·2rÂvf–æEöÖ—76–æu÷6V7F–öç2rÂvf–æEö÷Vå÷VW7F–öç2rÂw&W&U÷&Wf–Wu÷7VÖÖ'’rÂw&W&UöÖævVÖVçE÷7VÖÖ'’uÒæ–æ6ÇVFW2‡7V$–çFVçB’’&WGW&âw&Wf–Wrs°¢&WGW&âVæFVf–æVC°§Ð ¦gVæ7F–öâf—6–&ÆU6V7F–öäf÷$fö7W2†fö7W3ó¢&vVçDfö7W2ÂfÆÆ&6³ó¢Fö7VÖVçE6V7F–öä¶W’“¢Fö7VÖVçE6V7F–öä¶W’°¢–b†fö7W2ÓÓÒw&Wf–WrrÇÂfö7W2ÓÓÒwVÆ—G’r’&WGW&âw&Wf–Wrs°¢&WGW&âæ÷&ÖÆ—¦Uf—6–&ÆU6V7F–öâ†fÆÆ&6²’ÇÂv'W6–æW74æÇ—6—2s°§Ð ¦gVæ7F–öâ&W6W'fTvVæW&F–öå7V$–çFVçB†–çWC¢6Æ76–g”–çWBÂæ÷&ÖÆ—¦VC¢–çFVçD6Æ76–f–6F–öâÂW6W$—4ç7vW&–æs¢&ööÆVâ“¢7V$–çFVçB°¢–b‡W6W$—4ç7vW&–ær’&WGW&â–çWBæFö7VÖVçBòvFE÷&WV—&VÖVçEöFWF–Âr¢vvVæW&FUö'W6–æW75öæÇ—6—2s°¢–b†æ÷&ÖÆ—¦VBç&–Ö'”–çFVçBÓÓÒvæÇ—6—5övVæW&F–öâr’&WGW&âæ÷&ÖÆ—¦VBç7V$–çFVçC°¢–b†æ÷&ÖÆ—¦VBæ&vVçDfö7W2ÓÓÒwFW7Br’&WGW&âvvVæW&FU÷FW7Eö66W2s°¢–b†æ÷&ÖÆ—¦VBæ&vVçDfö7W2ÓÓÒvfÆ÷rr’&WGW&âvvVæW&FUöfÆ÷uöF–w&Òs°¢–b†æ÷&ÖÆ—¦VBæ&vVçDfö7W2ÓÓÒwFV6†æ–6ÅöæÇ—6—2r’&WGW&âvvVæW&FU÷FV6†æ–6ÅöæÇ—6—2s°¢–b†æ÷&ÖÆ—¦VBæ&vVçDfö7W2ÓÓÒw&Wf–WrrÇÂæ÷&ÖÆ—¦VBæ&vVçDfö7W2ÓÓÒwVÆ—G’r’&WGW&âvvVæW&FU÷&Wf–Wu÷&W÷'Bs°¢&WGW&â–çWBæFö7VÖVçBòvFE÷&WV—&VÖVçEöFWF–Âr¢vvVæW&FUö'W6–æW75öæÇ—6—2s°§Ð ¦gVæ7F–öâ6†÷VÆDÇ”&F—66÷fW'’†6Æ76–f–6F–öã¢–çFVçD6Æ76–f–6F–öâ“¢&ööÆVâ°¢&WGW&â²w&WV—&VÖVçEö–çF¶RrÂvæÇ—6—5övVæW&F–öârÂvFö7VÖVçEöVF—F–ærrÂwVÆ—G•÷&Wf–WruÒæ–æ6ÇVFW2†6Æ76–f–6F–öâç&–Ö'”–çFVçB¢ÇÂ6Æ76–f–6F–öâæFö7VÖVçD–×7BÓÓÒwWFFW5öFö7VÖVçBp¢ÇÂ6Æ76–f–6F–öâç6†÷VÆE'Vä&vVçDÆö÷°§Ð ¦W‡÷'BgVæ7F–öâæ÷&ÖÆ—¦T&6Æ76–f–W$÷WGWB†–çWC¢6Æ76–g”–çWBÂ6Æ76–f–6F–öã¢–çFVçD6Æ76–f–6F–öâ“¢–çFVçD6Æ76–f–6F–öâ°¢6öç7B7FFRÒ'V–ÆD&F—66÷fW'•7FFR‡²W6W$ÖW76vS¢–çWBçW6W$ÖW76vRÂFö7VÖVçC¢–çWBæFö7VÖVçBÒ“°¢6öç7BW6W$f÷&6W4G&gBÒtTäU$DUõt•D…ô55TÕD”ôå5õ$RçFW7B†–çWBçW6W$ÖW76vR“°¢6öç7BW6W$—4ç7vW&–ærÒ—4Æ–¶VÇ”&F—66÷fW'”ç7vW"†–çWBçW6W$ÖW76vR“°¢6öç7BW‡FW&æÄ¶æ÷vÆVFvTæVVFVBÒ&WV—&W4W‡FW&æÄ¶æ÷vÆVFvR†–çWBçW6W$ÖW76vR“°¢6öç7BFVW&ÖöFRÒ6†÷VÆEW6TFVW&76—7FçB†–çWBçW6W$ÖW76vR“°¢6öç7Bæ÷&ÖÆ—¦VC¢–çFVçD6Æ76–f–6F–öâÒ°¢ââæ6Æ76–f–6F–öâÀ¢F&vWE6V7F–öã¢æ÷&ÖÆ—¦Uf—6–&ÆU6V7F–öâ†6Æ76–f–6F–öâçF&vWE6V7F–öâ’À¢6V6öæF'•F&vWE6V7F–öã¢æ÷&ÖÆ—¦Uf—6–&ÆU6V7F–öâ†6Æ76–f–6F–öâç6V6öæF'•F&vWE6V7F–öâ’À¢&vVçDfö7W3¢6Æ76–f–6F–öâæ&vVçDfö7W2ÇÂfö7W4g&öÕ7V$–çFVçB†6Æ76–f–6F–öâç7V$–çFVçB’À¢&WV—&W5&W6V&6ƒ¢6Æ76–f–6F–öâç&WV—&W5&W6V&6‚ÇÂW‡FW&æÄ¶æ÷vÆVFvTæVVFVBÀ¢&W6V&6…G—S¢6Æ76–f–6F–öâç&W6V&6…G—RÇÂ†W‡FW&æÄ¶æ÷vÆVFvTæVVFVBòwvV"r¢VæFVf–æVB’À¢Ó° ¢–b‚6†÷VÆDÇ”&F—66÷fW'’†æ÷&ÖÆ—¦VB’’&WGW&âæ÷&ÖÆ—¦VC° ¢–b‡W6W$f÷&6W4G&gBÇÂW6W$—4ç7vW&–ær’°¢6öç7BæW‡E7V$–çFVçBÒ&W6W'fTvVæW&F–öå7V$–çFVçB†–çWBÂæ÷&ÖÆ—¦VBÂW6W$—4ç7vW&–ær“°¢6öç7BæW‡Dfö7W2Òæ÷&ÖÆ—¦VBæ&vVçDfö7W2ÇÂfö7W4g&öÕ7V$–çFVçB†æW‡E7V$–çFVçB’ÇÂv'W6–æW75öæÇ—6—2s°¢&WGW&â°¢ââææ÷&ÖÆ—¦VBÀ¢&–Ö'”–çFVçC¢væÇ—6—5övVæW&F–öârÀ¢7V$–çFVçC¢æW‡E7V$–çFVçBÀ¢F&vWE6V7F–öã¢f—6–&ÆU6V7F–öäf÷$fö7W2†æW‡Dfö7W2Âæ÷&ÖÆ—¦VBçF&vWE6V7F–öâ’À¢Fö7VÖVçD–×7C¢wWFFW5öFö7VÖVçBrÀ¢÷W&F–öã¢–çWBæFö7VÖVçBbbW6W$—4ç7vW&–æròvVæE÷Fõ÷6V7F–öâr¢†æ÷&ÖÆ—¦VBæ÷W&F–öâÓÓÒvæöæRròw&WÆ6Uö÷%ö7&VFU÷6V7F–öâr¢æ÷&ÖÆ—¦VBæ÷W&F–öâ’À¢&WV—&W46Æ&–f–6F–öã¢fÇ6RÀ¢6Æ&–f–6F–öåVW7F–öç3¢VæFVf–æVBÀ¢6†÷VÆE'Vä&vVçDÆö÷¢G'VRÀ¢&vVçDfö7W3¢æW‡Dfö7W2À¢6öæf–FVæ6S¢ÖF‚æÖ‚†æ÷&ÖÆ—¦VBæ6öæf–FVæ6RÂãƒ"’À¢&WV—&W5&W6V&6ƒ¢æ÷&ÖÆ—¦VBç&WV—&W5&W6V&6‚ÇÂFVW&ÖöFRÀ¢&W6V&6…G—S¢æ÷&ÖÆ—¦VBç&W6V&6…G—RÇÂ†FVW&ÖöFRòwvV"r¢VæFVf–æVB’À¢&V6öã¢G¶æ÷&ÖÆ—¦VBç&V6öçÓ²&öVæv–æS¢G·W6W$—4ç7vW&–æròvç7vW%öÖW"r¢vf÷&6UöG&gBwÓ²fö7W3¢G¶æW‡Dfö7W7ÒG¶FVW&ÖöFRòs²FVWö&ö76—7FçE÷c"r¢rwÖÀ¢Ó°¢Ð ¢6öç7B7&—F–6ÄF—66÷fW'”vÒ–çWBæFö7VÖVçBbb7FFRç&VF–æW7566÷&RÂSRbb7FFRæ7&—F–6ÄÖ—76–æræÆVæwF‚ãÒ#°¢6öç7BÆ÷t6öæf–FVæ6RÒæ÷&ÖÆ—¦VBæ6öæf–FVæ6RÂãSS°¢6öç7B6†÷VÆD6²Òæ÷&ÖÆ—¦VBç&WV—&W46Æ&–f–6F–öâÇÂÆ÷t6öæf–FVæ6RÇÂ7&—F–6ÄF—66÷fW'”v°¢–b‚6†÷VÆD6²’&WGW&âæ÷&ÖÆ—¦VC° ¢6öç7BF—66÷fW'•VW7F–öç2Ò°¢ââæ'V–ÆD6öçFW‡GVÄ6Æ&–f–6F–öåVW7F–öç2†–çWBçW6W$ÖW76vR’À¢ââæ'V–ÆD&6Æ&–g––æuVW7F–öç2‡7FFRÂB’æÖ‚‡VW7F–öâ’Óâf÷&ÖD6Æ76–f–W%VW7F–öâ‡VW7F–öâçFW‡BÂVW7F–öâæ÷F–öç2’’À¢Òç6Æ–6RƒÂB“°¢–b†F—66÷fW'•VW7F–öç2æÆVæwF‚ÓÓÒ’&WGW&âæ÷&ÖÆ—¦VC° ¢&WGW&â°¢ââææ÷&ÖÆ—¦VBÀ¢&WV—&W46Æ&–f–6F–öã¢G'VRÀ¢6Æ&–f–6F–öåVW7F–öç3¢F—66÷fW'•VW7F–öç2À¢Fö7VÖVçD–×7C¢væöæRrÀ¢÷W&F–öã¢væöæRrÀ¢6†÷VÆE'Vä&vVçDÆö÷¢fÇ6RÀ¢6öæf–FVæ6S¢ÖF‚æÖ‚†æ÷&ÖÆ—¦VBæ6öæf–FVæ6RÂãS‚’À¢&V6öã¢G¶æ÷&ÖÆ—¦VBç&V6öçÓ²&öVæv–æS¦Ö—76–æuöF—66÷fW'•ö6öçFW‡FÀ¢Ó°§Ð ¦W‡÷'B7–æ2gVæ7F–öâ6Æ76–g”–çFVçB†–çWC¢6Æ76–g”–çWB“¢&öÖ—6SÄ–çFVçD6Æ76–f–6F–öãâ°¢6öç7B6Æ6‚Ò'6U6Æ6„6öÖÖæB†–çWBçW6W$ÖW76vR“°¢–b‡6Æ6‚’&WGW&âæ÷&ÖÆ—¦T&6Æ76–f–W$÷WGWB†–çWBÂ6Æ6‚“° ¢6öç7BF—66÷fW'•7FFRÒ'V–ÆD&F—66÷fW'•7FFR‡²W6W$ÖW76vS¢–çWBçW6W$ÖW76vRÂFö7VÖVçC¢–çWBæFö7VÖVçBÒ“°¢6öç7B6VÆV7F–öâÒ–çWBç6VÆV7FVEFW‡@¢òÆåµ4\8|KÌKÔULKâ‚G¶–çWBç6VÆV7FVE6V7F–öâÇÂsòwÒ•ÕÆâ"""Gµ7G&–ær†–çWBç6VÆV7FVEFW‡B’ç6Æ–6RƒÂC—Ò""& ¢¢rs° ¢6öç7B&ö×BÒ´Dô¼9ÄÔâEU%TÕUÒG¶Fö57VÖÖ'’†–çWBæFö7VÖVçB—ÒG·6VÆV7F–öçÕÆåÆâG¶'V–ÆD&Væv–æU&ö×D6öçFW‡B†F—66÷fW'•7FFR—ÕÆåÆå´µTÄÄä”4’ÔU4¤•ÕÆâG¶–çWBçW6W$ÖW76vWÕÆåÆä¥4ôâ–ÆR6WfÆæ° ¢G'’°¢6öç7B&W2Òv—B6ÆÄ•v—F…&WG'’‚‚’Óà¢6ÆÄvVÖ–æ’‡°¢ÖöFVÃ¢–çWBæÖöFVÂÀ¢7—7FVÔ–ç7G'V7F–öã¢5•5DTÕõ$ôÕBÀ¢6öçFVçG3¢·²&öÆS¢wW6W"rÂ'G3¢·²FW‡C¢&ö×BÕÒÕÒÀ¢&W7öç6U66†VÖ¢6Æ76–f–W%66†VÖÀ¢öä6‡Væ³¢‚’Óâ·ÒÀ¢Ò¢“°¢6öç7B&rÒ‡&W2çFW‡BÇÂrr’çG&–Ò‚’ç&WÆ6R‚õæ§6öåÇ2¢ö’Ârr’ç&WÆ6R‚öÇ2¢BòÂrr“°¢6öç7B'6VBÒ¥4ôâç'6R‡&r’2'F–ÃÄ–çFVçD6Æ76–f–6F–öãã°¢6öç7B7V"Ò‡'6VBç7V$–çFVçBbb$”Ô%•ô%•õ5T%·'6VBç7V$–çFVçB27V$–çFVçEÒ¢ò‡'6VBç7V$–çFVçB27V$–çFVçB¢¢fÆÆ&6µ7V$–çFVçB†–çWB“°¢6öç7B6Æ76–f–6F–öâÒ'V–ÆD6Æ76–f–6F–öâ‡7V"Â°¢F&vWE6V7F–öã¢‡'6VBçF&vWE6V7F–öâbb7G&–ær‡'6VBçF&vWE6V7F–öâ’çG&–Ò‚’ò'6VBçF&vWE6V7F–öâ¢VæFVf–æVB’2Fö7VÖVçE6V7F–öä¶W’ÂVæFVf–æVBÀ¢6V6öæF'•F&vWE6V7F–öã¢‡'6VBç6V6öæF'•F&vWE6V7F–öâbb7G&–ær‡'6VBç6V6öæF'•F&vWE6V7F–öâ’çG&–Ò‚’ò'6VBç6V6öæF'•F&vWE6V7F–öâ¢VæFVf–æVB’2Fö7VÖVçE6V7F–öä¶W’ÂVæFVf–æVBÀ¢÷W&F–öã¢'6VBæ÷W&F–öâÀ¢Fö7VÖVçD–×7C¢'6VBæFö7VÖVçD–×7BÀ¢6öæf–FVæ6S¢G—Vöb'6VBæ6öæf–FVæ6RÓÓÒvçVÖ&W"rò'6VBæ6öæf–FVæ6R¢ãcRÀ¢&—6´ÆWfVÃ¢'6VBç&—6´ÆWfVÂÀ¢&WV—&W5&W6V&6ƒ¢'6VBç&WV—&W5&W6V&6‚À¢&W6V&6…G—S¢'6VBç&W6V&6…G—RÀ¢&WV—&W46Æ&–f–6F–öã¢'6VBç&WV—&W46Æ&–f–6F–öâÀ¢6Æ&–f–6F–öåVW7F–öç3¢'6VBæ6Æ&–f–6F–öåVW7F–öç2À¢&WV—&W5&Wf–Ws¢'6VBç&WV—&W5&Wf–WrÀ¢6†÷VÆE'Vä&vVçDÆö÷¢'6VBç6†÷VÆE'Vä&vVçDÆö÷À¢&vVçDfö7W3¢'6VBæ&vVçDfö7W2À¢&V6öã¢'6VBç&V6öâÇÂv6Æ76–f–W"rÀ¢Ò“°¢&WGW&âæ÷&ÖÆ—¦T&6Æ76–f–W$÷WGWB†–çWBÂ6Æ76–f–6F–öâ“°¢Ò6F6‚†R’°¢6öç6öÆRçv&â‚t–çFVçB6Æ76–f–W"f–ÆVBÂW6–ær†WW&—7F–2fÆÆ&6³¢rÂR“°¢&WGW&âæ÷&ÖÆ—¦T&6Æ76–f–W$÷WGWB€¢–çWBÀ¢'V–ÆD6Æ76–f–6F–öâ†fÆÆ&6µ7V$–çFVçB†–çWB’Â²6öæf–FVæ6S¢ãCRÂ&V6öã¢v6Æ76–f–W%öfÆÆ&6²rÒ¢“°¢Ð§Ð ¦gVæ7F–öâfÆÆ&6µ7V$–çFVçB†–çWC¢6Æ76–g”–çWB“¢7V$–çFVçB°¢6öç7B×6rÒ–çWBçW6W$ÖW76vRçG&–Ò‚’çFôÆ÷vW$66R‚“°¢6öç7B†4Fö2Ò†–çWBæFö7VÖVçBbbö&¦V7BçfÇVW2†–çWBæFö7VÖVçB’ç6öÖR‚‡3¢ç’’Óâ3òæ6öçFVçB’“° ¢–b†—4Æ–¶VÇ”&F—66÷fW'”ç7vW"†–çWBçW6W$ÖW76vR’’&WGW&â†4Fö2òvFE÷&WV—&VÖVçEöFWF–Âr¢vvVæW&FUö'W6–æW75öæÇ—6—2s°¢–b†×6ræÆVæwF‚Â3bbò‡6VÆ×ÆÖW&†&Æ†—Ææ5¼K•ÖÇ5¼K•ÖçÆæ&W"’ö’çFW7B†×6r’’&WGW&âw6ÖÆÅ÷FÆ²s°¢–b†–çWBç6VÆV7FVEFW‡Bbbò†'VçWÌY÷VçWÆ'W&•¼K•Ò’ö’çFW7B†×6r’bbò†¼:v5Õ¼K•Ö¶ÆÆæÆB’ö’çFW7B†×6r’’&WGW&âvW‡Æ–å÷6VÆV7FVE÷FW‡Bs°¢–b†–çWBç6VÆV7FVEFW‡Bbbò†'VçWÌY÷VçWÆ'W&•¼K•Ò’ö’çFW7B†×6r’’&WGW&âv–×&÷fU÷6VÆV7FVE÷FW‡Bs°¢–b‚ò‡FW7GÆ¶'VÂ·&—FW'ÇVGÇ6Væ'–ò’ö’çFW7B†×6r’’&WGW&âvvVæW&FU÷FW7Eö66W2s°¢–b‚ò†µ¼K•ÜY÷Æ'ÖçÆÖW&Ö–GÆfÆ÷wÇ5¼;ÇU×&U¼:v5Ò’ö’çFW7B†×6r’’&WGW&âvvVæW&FUöfÆ÷uöF–w&Òs°¢–b‚ò†’¶öçG&GÆ’6öçG&7GÆVæGö–çGÇ6W'f—2<;g¦Æ\YöÖW6—Ç6W'f—26÷¦ÆW6ÖW6’’ö’çFW7B†×6r’’&WGW&âvvVæW&FUö•ö6öçG&7Bs°¢–b‚ò†VçFVw&7–öçÆ–çFVw&F–öâ’ö’çFW7B†×6r’’&WGW&âvvVæW&FUö–çFVw&F–öåöæÇ—6—2s°¢–b‚ò‡FV¶æ–·ÆÖ–Ö&—ÆFWfVÆ÷W"†æFöfgÆvVÆœY÷F—&–6’FWg&—ÆvVÆ—7F—&–6’FWg&’’ö’çFW7B†×6r’’&WGW&âvvVæW&FU÷FV6†æ–6ÅöæÇ—6—2s°¢–b‚ò‡&—6·ÆV·6–·Ç&Wf–WwÆ¶Æ—FWÆ–æ6VÆVÖR’ö’çFW7B†×6r’’&WGW&âvf–æE÷&—6·2s°¢–b‚ò†&¼Y÷5×E¼K•×'Æ&W7B&7F–6WÆu¼;ÇUÖæ6VÇÇ7FæF'B’ö’çFW7B†×6r’’&WGW&âw&W6V&6…÷vV"s°¢–b‚ò†–æF—'ÆW‡÷'GÇ–Æ¼Y÷5×ÇfW'6—–öâ’ö’çFW7B†×6r’’&WGW&âvW‡÷'EöFö7VÖVçBs°¢–b‚ò†æVF—'Æ¼:v5Õ¼K•Ö¶ÆÆæÆGÆæ5¼K•ÖÂ·VÆÆâ’ö’çFW7B†×6r’bb×6ræÆVæwF‚Âƒ’&WGW&âv6µöW‡ÆæF–öâs°¢–b††4Fö2’&WGW&âvFE÷&WV—&VÖVçEöFWF–Âs°¢&WGW&âvvVæW&FUö'W6–æW75öæÇ—6—2s°§Ð
+Ã–NEMLÄ°3†} YanÄ±t yalnÄ±zca ÅŸu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
+
+const GENERATE_WITH_ASSUMPTIONS_RE = /\b(devam|ilerle|olu[ÅŸs]tur|haz[Ä±i]rla|yaz|taslak|varsay[Ä±i]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba[ÅŸs]la)\b/i;
+
+function formatClassifierQuestion(text: string, options: string[] = []): string {
+  return options.length > 0 ? `${text}\nSeÃ§enekler: ${options.join(' | ')}` : text;
+}
+
+function buildContextualClarificationQuestions(userMessage: string): string[] {
+  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[o,Ã¶]netim sistemi/i.test(userMessage);
+  if (!isSapIys) return [];
+
+  return [
+    formatClassifierQuestion('Ä°YS izin kapsamÄ± hangi iletiÅŸim kanallarÄ±nÄ± iÃ§ermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'VarsayÄ±mla tÃ¼m kanallar']),
+    formatClassifierQuestion('Åžirket Ä°YS tarafÄ±nda tek marka kodu mu, Ã§oklu marka yapÄ±sÄ± mÄ± kullanÄ±yor?', ['Tek marka kodu', 'Ã‡oklu marka', 'VarsayÄ±mla Ã§oklu marka desteklensin']),
+    formatClassifierQuestion('SAP CRM ile Ä°YS arasÄ±nda hangi ara katman varsayÄ±lsÄ±n?', ['SAP CPI', 'SAP PI/PO', 'VarsayÄ±mla CPI veya PO kararÄ± aÃ§Ä±k kalsÄ±n']),
+    formatClassifierQuestion('Ä°lk aktarÄ±m ve gÃ¼nlÃ¼k mutabakat kapsamÄ± nasÄ±l ele alÄ±nsÄ±n?', ['Initial load + gÃ¼nlÃ¼k delta', 'Sadece gÃ¼nlÃ¼k delta', 'VarsayÄ±mla ikisi de kapsamda']),
+  ];
+}
+
+function docSummary(doc: DocumentData | null): string {
+  if (!doc) return 'boÅŸ';
+  const parts = Object.entries(doc as any)
+    .filter(([, v]: [string, any]) => v?.content)
+    .map(([k, v]: [string, any]) => `${k}:${v.status || 'DRAFT'}(${String(v.content).length}c)`);
+  return parts.length > 0 ? parts.join('; ') : 'boÅŸ';
+}
+
+function parseSlashCommand(msg: string): IntentClassification | null {
+  const trimmed = msg.trim();
+  if (!trimmed.startsWith('/')) return null;
+  const first = trimmed.split(/\s+/)[0].toLowerCase();
+  const map = SLASH_COMMAND_MAP[first];
+  if (!map) {
+    return buildClassification('invalid_command', { reason: `Bilinmeyen komut: ${first}` });
+  }
+  return buildClassification(map.sub, { targetSection: map.target, reason: `Slash command: ${first}` });
+}
+
+export function buildClassification(
+  sub: SubIntent,
+  overrides: Partial<IntentClassification> = {}
+): IntentClassification {
+  const defaults = INTENT_DEFAULTS[sub] || { impact: 'none' as const, operation: 'none' as const, risk: 'low' as const };
+  const primary = PRIMARY_BY_SUB[sub];
+  return {
+    primaryIntent: primary,
+    subIntent: sub,
+    targetSection: overrides.targetSection ?? defaults.targetSection,
+    secondaryTargetSection: overrides.secondaryTargetSection,
+    operation: overrides.operation ?? defaults.operation,
+    documentImpact: overrides.documentImpact ?? defaults.impact,
+    confidence: overrides.confidence ?? 0.7,
+    riskLevel: overrides.riskLevel ?? defaults.risk,
+    requiresResearch: overrides.requiresResearch ?? false,
+    researchType: overrides.researchType,
+    requiresClarification: overrides.requiresClarification ?? false,
+    clarificationQuestions: overrides.clarificationQuestions,
+    requiresPreview: overrides.requiresPreview ?? (defaults.risk === 'high'),
+    shouldRunBaAgentLoop: overrides.shouldRunBaAgentLoop ?? !!defaults.shouldRunBaAgentLoop,
+    baAgentFocus: overrides.baAgentFocus ?? defaults.baAgentFocus,
+    reason: overrides.reason ?? `Default mapping for ${sub}`,
+  };
+}
+
+export interface ClassifyInput {
+  userMessage: string;
+  document: DocumentData | null;
+  selectedText?: string | null;
+  selectedSection?: DocumentSectionKey | null;
+  model: string;
+}
+
+function normalizeVisibleSection(section?: DocumentSectionKey): DocumentSectionKey | undefined {
+  if (!section) return undefined;
+  return section === 'review' ? 'review' : 'businessAnalysis';
+}
+
+function focusFromSubIntent(subIntent: SubIntent): BaAgentFocus | undefined {
+  if (['generate_test_cases', 'generate_error_scenarios', 'check_testability', 'check_traceability'].includes(subIntent)) return 'test';
+  if (['generate_flow_diagram', 'generate_bpmn', 'generate_mermaid'].includes(subIntent)) return 'flow';
+  if (['generate_technical_analysis', 'generate_integration_analysis', 'generate_api_contract', 'generate_developer_handoff'].includes(subIntent)) return 'technical_analysis';
+  if (['review_document_quality', 'score_document'].includes(subIntent)) return 'quality';
+  if (['generate_review_report', 'find_risks', 'find_missing_sections', 'find_open_questions', 'prepare_review_summary', 'prepare_management_summary'].includes(subIntent)) return 'review';
+  return undefined;
+}
+
+function visibleSectionForFocus(focus?: BaAgentFocus, fallback?: DocumentSectionKey): DocumentSectionKey {
+  if (focus === 'review' || focus === 'quality') return 'review';
+  return normalizeVisibleSection(fallback) || 'businessAnalysis';
+}
+
+function preserveGenerationSubIntent(input: ClassifyInput, normalized: IntentClassification, userIsAnswering: boolean): SubIntent {
+  if (userIsAnswering) return input.document ? 'add_requirement_detail' : 'generate_business_analysis';
+  if (normalized.primaryIntent === 'analysis_generation') return normalized.subIntent;
+  if (normalized.baAgentFocus === 'test') return 'generate_test_cases';
+  if (normalized.baAgentFocus === 'flow') return 'generate_flow_diagram';
+  if (normalized.baAgentFocus === 'technical_analysis') return 'generate_technical_analysis';
+  if (normalized.baAgentFocus === 'review' || normalized.baAgentFocus === 'quality') return 'generate_review_report';
+  return input.document ? 'add_requirement_detail' : 'generate_business_analysis';
+}
+
+function shouldApplyBaDiscovery(classification: IntentClassification): boolean {
+  return ['requirement_intake', 'analysis_generation', 'document_editing', 'quality_review'].includes(classification.primaryIntent)
+    || classification.documentImpact === 'updates_document'
+    || classification.shouldRunBaAgentLoop;
+}
+
+export function normalizeBaClassifierOutput(input: ClassifyInput, classification: IntentClassification): IntentClassification {
+  const state = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
+  const userForcesDraft = GENERATE_WITH_ASSUMPTIONS_RE.test(input.userMessage);
+  const userIsAnswering = isLikelyBaDiscoveryAnswer(input.userMessage);
+  const externalKnowledgeNeeded = requiresExternalKnowledge(input.userMessage);
+  const deepBaMode = shouldUseDeepBaAssistant(input.userMessage);
+  const normalized: IntentClassification = {
+    ...classification,
+    targetSection: normalizeVisibleSection(classification.targetSection),
+    secondaryTargetSection: normalizeVisibleSection(classification.secondaryTargetSection),
+    baAgentFocus: classification.baAgentFocus || focusFromSubIntent(classification.subIntent),
+    requiresResearch: classification.requiresResearch || externalKnowledgeNeeded,
+    researchType: classification.researchType || (externalKnowledgeNeeded ? 'web' : undefined),
+  };
+
+  if (!shouldApplyBaDiscovery(normalized)) return normalized;
+
+  if (userForcesDraft || userIsAnswering) {
+    const nextSubIntent = preserveGenerationSubIntent(input, normalized, userIsAnswering);
+    const nextFocus = normalized.baAgentFocus || focusFromSubIntent(nextSubIntent) || 'business_analysis';
+    return {
+      ...normalized,
+      primaryIntent: 'analysis_generation',
+      subIntent: nextSubIntent,
+      targetSection: visibleSectionForFocus(nextFocus, normalized.targetSection),
+      documentImpact: 'updates_document',
+      operation: input.document && userIsAnswering ? 'append_to_section' : (normalized.operation === 'none' ? 'replace_or_create_section' : normalized.operation),
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: nextFocus,
+      confidence: Math.max(normalized.confidence, 0.82),
+      requiresResearch: normalized.requiresResearch || deepBaMode,
+      researchType: normalized.researchType || (deepBaMode ? 'web' : undefined),
+      reason: `${normalized.reason}; ba_engine:${userIsAnswering ? 'answer_mapper' : 'force_draft'}; focus:${nextFocus}${deepBaMode ? '; deep_ba_assistant_v2' : ''}`,
+    };
+  }
+
+  const criticalDiscoveryGap = !input.document && state.readinessScore < 55 && state.criticalMissing.length >= 2;
+  const lowConfidence = normalized.confidence < 0.55;
+  const shouldAsk = normalized.requiresClarification || lowConfidence || criticalDiscoveryGap;
+  if (!shouldAsk) return normalized;
+
+  const discoveryQuestions = [
+    ...buildContextualClarificationQuestions(input.userMessage),
+    ...buildBaClarifyingQuestions(state, 4).map((question) => formatClassifierQuestion(question.text, question.options)),
+  ].slice(0, 4);
+  if (discoveryQuestions.length === 0) return normalized;
+
+  return {
+    ...normalized,
+    requiresClarification: true,
+    clarificationQuestions: discoveryQuestions,
+    documentImpact: 'none',
+    operation: 'none',
+    shouldRunBaAgentLoop: false,
+    confidence: Math.max(normalized.confidence, 0.58),
+    reason: `${normalized.reason}; ba_engine:missing_discovery_context`,
+  };
+}
+
+export async function classifyIntent(input: ClassifyInput): Promise<IntentClassification> {
+  const slash = parseSlashCommand(input.userMessage);
+  if (slash) return normalizeBaClassifierOutput(input, slash);
+
+  const discoveryState = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
+  const selection = input.selectedText
+    ? `\n[SEÃ‡Ä°LÄ° METÄ°N (${input.selectedSection || '?'})]\n"""${String(input.selectedText).slice(0, 400)}"""`
+    : '';
+
+  const prompt = `[DOKÃœMAN DURUMU] ${docSummary(input.document)}${selection}\n\n${buildBaEnginePromptContext(discoveryState)}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
+
+  try {
+    const res = await callAiWithRetry(() =>
+      callGemini({
+        model: input.model,
+        systemInstruction: SYSTEM_PROMPT,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        responseSchema: classifierSchema,
+        onChunk: () => {},
+      })
+    );
+    const raw = (res.text || '').trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '');
+    const parsed = JSON.parse(raw) as Partial<IntentClassification>;
+    const sub = (parsed.subIntent && PRIMARY_BY_SUB[parsed.subIntent as SubIntent])
+      ? (parsed.subIntent as SubIntent)
+      : fallbackSubIntent(input);
+    const classification = buildClassification(sub, {
+      targetSection: (parsed.targetSection && String(parsed.targetSection).trim() ? parsed.targetSection : undefined) as DocumentSectionKey | undefined,
+      secondaryTargetSection: (parsed.secondaryTargetSection && String(parsed.secondaryTargetSection).trim() ? parsed.secondaryTargetSection : undefined) as DocumentSectionKey | undefined,
+      operation: parsed.operation,
+      documentImpact: parsed.documentImpact,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.65,
+      riskLevel: parsed.riskLevel,
+      requiresResearch: parsed.requiresResearch,
+      researchType: parsed.researchType,
+      requiresClarification: parsed.requiresClarification,
+      clarificationQuestions: parsed.clarificationQuestions,
+      requiresPreview: parsed.requiresPreview,
+      shouldRunBaAgentLoop: parsed.shouldRunBaAgentLoop,
+      baAgentFocus: parsed.baAgentFocus,
+      reason: parsed.reason || 'classifier',
+    });
+    return normalizeBaClassifierOutput(input, classification);
+  } catch (e) {
+    console.warn('Intent classifier failed, using heuristic fallback:', e);
+    return normalizeBaClassifierOutput(
+      input,
+      buildClassification(fallbackSubIntent(input), { confidence: 0.45, reason: 'classifier_fallback' })
+    );
+  }
+}
+
+function fallbackSubIntent(input: ClassifyInput): SubIntent {
+  const msg = input.userMessage.trim().toLowerCase();
+  const hasDoc = !!(input.document && Object.values(input.document).some((s: any) => s?.content));
+
+  if (isLikelyBaDiscoveryAnswer(input.userMessage)) return hasDoc ? 'add_requirement_detail' : 'generate_business_analysis';
+  if (msg.length < 30 && /(selam|merhaba|hi|nas[Ä±i]ls[Ä±i]n|naber)/i.test(msg)) return 'small_talk';
+  if (input.selectedText && /(bunu|ÅŸunu|buray[Ä±i])/i.test(msg) && /(a[Ã§c][Ä±i]kla|anlat)/i.test(msg)) return 'explain_selected_text';
+  if (input.selectedText && /(bunu|ÅŸunu|buray[Ä±i])/i.test(msg)) return 'improve_selected_text';
+  if (/(test|kabul kriter|uat|senaryo)/i.test(msg)) return 'generate_test_cases';
+  if (/(ak[Ä±i]ÅŸ|bpmn|mermaid|flow|s[Ã¼u]re[Ã§c])/i.test(msg)) return 'generate_flow_diagram';
+  if (/(api kontrat|api contract|endpoint|servis sÃ¶zleÅŸmesi|servis sozlesmesi)/i.test(msg)) return 'generate_api_contract';
+  if (/(entegrasyon|integration)/i.test(msg)) return 'generate_integration_analysis';
+  if (/(teknik|mimari|developer handoff|geliÅŸtirici devri|gelistirici devri)/i.test(msg)) return 'generate_technical_analysis';
+  if (/(risk|eksik|review|kalite|inceleme)/i.test(msg)) return 'find_risks';
+  if (/(ara[ÅŸs]t[Ä±i]r|best practice|g[Ã¼u]ncel|standart)/i.test(msg)) return 'research_web';
+  if (/(indir|export|payla[ÅŸs]|versiyon)/i.test(msg)) return 'export_document';
+  if (/(nedir|a[Ã§c][Ä±i]kla|anlat|nas[Ä±i]l kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
+  if (hasDoc) return 'add_requirement_detail';
+  return 'generate_business_analysis';
+}
