@@ -73,6 +73,15 @@ const reviewIntent = normalizeBaClassifierOutput(
 assert(reviewIntent.targetSection === 'review', 'Review focused output should land in visible Review tab');
 assert(reviewIntent.baAgentFocus === 'review', 'Review focus should be preserved');
 
+const exportIntent = normalizeBaClassifierOutput(
+  { userMessage: 'Dokümanı indir.', document: null, model: 'test-model' },
+  buildClassification('export_document', { reason: 'export_request' }),
+);
+assert(exportIntent.subIntent === 'export_document', 'Workflow/export intent should not be rewritten by BA discovery');
+assert(exportIntent.documentImpact === 'workflow_action_only', 'Workflow/export intent should keep workflow impact');
+assert(!exportIntent.requiresClarification, 'Workflow/export intent should not ask BA discovery questions');
+assert(!exportIntent.shouldRunBaAgentLoop, 'Workflow/export intent should not run BA loop');
+
 const answerText = '**Soru 1:** Kapsam nedir?\n**Cevap:** İlk sürümde talep oluşturma, onay ve raporlama olacak.';
 assert(isLikelyBaDiscoveryAnswer(answerText), 'Structured question answer should be detected');
 
