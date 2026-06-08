@@ -6,6 +6,12 @@ import {
   shouldUseDeepBaAssistant,
 } from '../src/modules/deep-ba-assistant';
 import { buildClassification, normalizeBaClassifierOutput } from '../src/services/ai/intentClassifier';
+import {
+  CONCEPTUAL_TEMPLATE_PROMPT,
+  conceptualTemplateCoverage,
+  ensureConceptualTemplateStructure,
+  isConceptualTemplateCompliant,
+} from '../src/services/conceptualTemplate';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -35,6 +41,38 @@ assertIncludes(actInstructions, 'MESAJ', 'Deep instructions should include IYS c
 assertIncludes(actInstructions, 'EPOSTA', 'Deep instructions should include e-mail consent channel');
 assertIncludes(actInstructions, 'ARAMA', 'Deep instructions should include call consent channel');
 assertIncludes(actInstructions, 'recipient', 'Deep instructions should include API recipient concept');
+
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'KAVRAMSAL TASARIM RAPORU', 'Corporate prompt should require the report title');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KİMLİK KARTI', 'Corporate prompt should require project identity card');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Doküman Tarihçesi', 'Corporate prompt should require document history');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'SÜREÇ MODELİ', 'Corporate prompt should require process model blocks');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'EK A', 'Corporate prompt should require appendix A');
+
+const legacyBaDraft = {
+  businessAnalysis: {
+    content: '# BA Analiz Raporu\n\n## Amaç ve İş Değeri\nSAP CRM İYS entegrasyonu için kısa taslak.\n\n## Kapsam\nİzin aktarımı ve mutabakat.',
+    status: 'DRAFT' as const,
+    flags: [],
+  },
+  review: {
+    content: 'Riskler ve açık sorular daha sonra netleştirilecek.',
+    status: 'DRAFT' as const,
+    flags: [],
+  },
+};
+
+assert(!isConceptualTemplateCompliant(legacyBaDraft.businessAnalysis.content), 'Legacy BA draft should not pass corporate conceptual template');
+const templatedDocument = ensureConceptualTemplateStructure(legacyBaDraft);
+const templatedContent = templatedDocument.businessAnalysis.content;
+assert(isConceptualTemplateCompliant(templatedContent), 'Post processor fallback should produce a compliant conceptual template');
+assertIncludes(templatedContent, 'KAVRAMSAL TASARIM RAPORU', 'Fallback should start from conceptual report title');
+assertIncludes(templatedContent, 'PROJE KİMLİK KARTI', 'Fallback should include project identity card');
+assertIncludes(templatedContent, 'Doküman Tarihçesi', 'Fallback should include document history');
+assertIncludes(templatedContent, 'SÜREÇ TASARIMI', 'Fallback should include process design');
+assertIncludes(templatedContent, 'EK A', 'Fallback should include appendix A');
+assert((templatedDocument.businessAnalysis.flags || []).includes('CONCEPTUAL_TEMPLATE_APPLIED'), 'Fallback should mark conceptual template application');
+const coverage = conceptualTemplateCoverage(templatedContent);
+assert(coverage.passed >= coverage.total - 2, 'Fallback template should cover almost all required headings');
 
 const generated = normalizeBaClassifierOutput(
   { userMessage: assumptionFollowUp, document: null, model: 'test-model' },
