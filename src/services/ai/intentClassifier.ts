@@ -68,23 +68,23 @@ KURALLAR:
 - "araştır / güncel bilgi / best practice" açıkça geçiyorsa research_* intentleri kullan.
 - /ekip -> zero_touch_requested.
 
-ÖNEMLİ3�} Yanıt yalnızca şu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
+ÖNEMLİ: Yanıt yalnızca şu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
 
 const GENERATE_WITH_ASSUMPTIONS_RE = /\b(devam|ilerle|olu[şs]tur|haz[ıi]rla|yaz|taslak|varsay[ıi]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba[şs]la)\b/i;
 
 function formatClassifierQuestion(text: string, options: string[] = []): string {
-  return options.length > 0 ? `${text}\nSeçenekler: ${options.join(' | ')}` : text;
+  return options.length > 0 ? `${text}\nSecenekler: ${options.join(' | ')}` : text;
 }
 
 function buildContextualClarificationQuestions(userMessage: string): string[] {
-  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[o,ö]netim sistemi/i.test(userMessage);
+  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   if (!isSapIys) return [];
 
   return [
-    formatClassifierQuestion('İYS izin kapsamı hangi iletişim kanallarını içermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayımla tüm kanallar']),
-    formatClassifierQuestion('Şirket İYS tarafında tek marka kodu mu, çoklu marka yapısı mı kullanıyor?', ['Tek marka kodu', 'Çoklu marka', 'Varsayımla çoklu marka desteklensin']),
-    formatClassifierQuestion('SAP CRM ile İYS arasında hangi ara katman varsayılsın?', ['SAP CPI', 'SAP PI/PO', 'Varsayımla CPI veya PO kararı açık kalsın']),
-    formatClassifierQuestion('İlk aktarım ve günlük mutabakat kapsamı nasıl ele alınsın?', ['Initial load + günlük delta', 'Sadece günlük delta', 'Varsayımla ikisi de kapsamda']),
+    formatClassifierQuestion('IYS izin kapsami hangi iletisim kanallarini icermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayimla tum kanallar']),
+    formatClassifierQuestion('Sirket IYS tarafinda tek marka kodu mu, coklu marka yapisi mi kullaniyor?', ['Tek marka kodu', 'Coklu marka', 'Varsayimla coklu marka desteklensin']),
+    formatClassifierQuestion('SAP CRM ile IYS arasinda hangi ara katman varsayilsin?', ['SAP CPI', 'SAP PI/PO', 'Varsayimla CPI veya PO karari acik kalsin']),
+    formatClassifierQuestion('Ilk aktarim ve gunluk mutabakat kapsami nasil ele alinsin?', ['Initial load + gunluk delta', 'Sadece gunluk delta', 'Varsayimla ikisi de kapsamda']),
   ];
 }
 

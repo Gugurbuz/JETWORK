@@ -11,27 +11,27 @@ export interface DeepBaResearchPlan {
 const TOPIC_RESEARCH_TRIGGERS = [
   /sap/i,
   /\bcrm\b/i,
-  /\biys\b|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi/i,
-  /kvkk|gdpr|mevzuat|y[öo]netmelik|kanun|uyum/i,
+  /\biys\b|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i,
+  /kvkk|gdpr|mevzuat|y[oö]netmelik|kanun|uyum/i,
   /api|entegrasyon|integration|middleware|oauth|sso/i,
-  /e[- ]?(fatura|ar[şs]iv|irsaliye|devlet)/i,
+  /e[- ]?(fatura|ar[şs]iv|arsiv|irsaliye|devlet)/i,
   /pci|iso\s?\d+/i,
 ];
 
 const DOCUMENT_DEPTH_TRIGGERS = [
-  /ba analiz|i[şs] analizi|business analysis/i,
-  /kavramsal tasar[ıi]m|conceptual design/i,
+  /ba analiz|i[şs] analizi|is analizi|business analysis/i,
+  /kavramsal tasar[ıi]m|kavramsal tasarim|conceptual design/i,
   /brd|fdd|gereksinim|requirement/i,
-  /dok[üu]man|rapor|taslak|word/i,
+  /dok[üu]man|dokuman|rapor|taslak|word/i,
   /entegrasyon/i,
 ];
 
 const FORCE_DRAFT_TRIGGERS = [
-  /varsay[ıi]mlarla ilerle/i,
+  /varsay[ıi]mlarla ilerle|varsayimlarla ilerle/i,
   /daha fazla soru sorma/i,
   /bu bilgilerle/i,
-  /dok[üu]man[ıi] olu[şs]tur/i,
-  /haz[ıi]rla|devam et|olu[şs]tur/i,
+  /dok[üu]man[ıi] olu[şs]tur|dokumani olustur/i,
+  /haz[ıi]rla|hazirla|devam et|olu[şs]tur|olustur/i,
 ];
 
 function unique(values: string[]): string[] {
@@ -56,11 +56,11 @@ export function requiresExternalKnowledge(userMessage = ''): boolean {
   if (!text) return false;
   return shouldUseDeepBaAssistant(text)
     || TOPIC_RESEARCH_TRIGGERS.some((pattern) => pattern.test(text))
-    || /g[üu]ncel|resmi kaynak|best practice|referans|kaynak/i.test(text);
+    || /g[üu]ncel|guncel|resmi kaynak|best practice|referans|kaynak/i.test(text);
 }
 
 export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
-  const isIysSap = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi/i.test(userMessage);
+  const isIysSap = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   const enabled = requiresExternalKnowledge(userMessage);
   const genericQueries = [
     `${userMessage} resmi kaynak mevzuat API`,
@@ -99,7 +99,7 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
 }
 
 export function buildDeepBaActInstructions(userMessage = ''): string {
-  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi/i.test(userMessage);
+  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   const sapIysAddendum = isSapIys
     ? `
 - SAP CRM <-> IYS baglaminda su alanlari ozellikle isle: 6563 uyum amaci, onay/ret yonetimi, ret sonrasi ticari ileti durdurma, 3 is gunu aktarim kuralini kaynak varsa dogrulanmis olarak; kaynak yoksa [DOGRULAMA GEREKIR] notuyla.

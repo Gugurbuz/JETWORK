@@ -337,15 +337,15 @@ async function runBaLoop(
   const focus = classification.baAgentFocus;
   const target = classification.targetSection;
   const focusHint = focus === 'test'
-    ? '\n\n[ODAK] Test stratejisi, UAT ve kabul senaryolarÄ±nÄ± BA Analiz iÃ§inde detaylÄ± alt baÅŸlÄ±k olarak yaz; ayrÄ± test sekmesi Ã¼retmeye zorlama.'
+    ? '\n\n[ODAK] Test stratejisi, UAT ve kabul senaryolarini BA Analiz icinde detayli alt baslik olarak yaz; ayri test sekmesi uretmeye zorlama.'
     : focus === 'flow'
-      ? '\n\n[ODAK] SÃ¼reÃ§ akÄ±ÅŸÄ±nÄ± BA Analiz iÃ§inde metinsel/Mermaid taslak olarak yaz; ayrÄ± bpmn sekmesi Ã¼retmeye zorlama.'
+      ? '\n\n[ODAK] Surec akisini BA Analiz icinde metinsel/Mermaid taslak olarak yaz; ayri bpmn sekmesi uretmeye zorlama.'
       : focus === 'technical_analysis'
-        ? '\n\n[ODAK] Teknik analiz, API, veri modeli ve entegrasyon mimarisini BA Analiz iÃ§inde kavramsal tasarÄ±m alt baÅŸlÄ±klarÄ± olarak yaz.'
+        ? '\n\n[ODAK] Teknik analiz, API, veri modeli ve entegrasyon mimarisini BA Analiz icinde kavramsal tasarim alt basliklari olarak yaz.'
         : focus === 'review'
-          ? '\n\n[ODAK] "review" bÃ¶lÃ¼mÃ¼nde riskler, aÃ§Ä±k sorular ve kalite gÃ¶zden geÃ§irmesi Ã¼ret.'
+          ? '\n\n[ODAK] "review" bolumunde riskler, acik sorular ve kalite gozden gecirmesi uret.'
           : target
-            ? `\n\n[ODAK] Ã–zellikle "${target}" bÃ¶lÃ¼mÃ¼nÃ¼ gÃ¼ncelle; diÄŸer bÃ¶lÃ¼mleri koru.`
+            ? `\n\n[ODAK] Ozellikle "${target}" bolumunu guncelle; diger bolumleri koru.`
             : '';
 
   const intentOut: SingleChatIntent =
@@ -381,14 +381,14 @@ async function runBaLoop(
 
 ${DRAFT_FIRST_SYSTEM_RULE}
 
-[ZORUNLU DERÄ°N BA DOKÃœMAN ÃœRETÄ°MÄ° - SON Ã‡AÄžRI]
-Ã–nceki adÄ±mda \`document\` alanÄ± dolmadÄ±. Åžimdi SADECE dokÃ¼manÄ± Ã¼retmen gerekiyor.
+[ZORUNLU DERIN BA DOKUMAN URETIMI - SON CAGRI]
+Onceki adimda \`document\` alani dolmadi. Simdi SADECE dokumani uretmen gerekiyor.
 - \`questions\` alanÄ± BOÅž olmalÄ±.
-- \`document\` alanÄ± zorunlu: businessAnalysis ve review bÃ¶lÃ¼mlerini doldur.
-- Teknik analiz, test ve sÃ¼reÃ§ akÄ±ÅŸÄ±nÄ± businessAnalysis iÃ§inde alt baÅŸlÄ±k olarak yaz; code/test/bpmn alanlarÄ±nÄ± zorunlu Ã¼retme.
-- Eksik bilgileri "[VARSAYIM]" etiketi ile dokÃ¼man iÃ§inde iÅŸaretle.
-- Belirsizlikleri review.content iÃ§inde "## AÃ§Ä±k Sorular" baÅŸlÄ±ÄŸÄ± altÄ±nda listele.
-- Mesaj 2-3 cÃ¼mleyi geÃ§mesin; detaylar dokÃ¼mana yazÄ±lsÄ±n.
+- \`document\` alani zorunlu: businessAnalysis ve review bolumlerini doldur.
+- Teknik analiz, test ve surec akisini businessAnalysis icinde alt baslik olarak yaz; code/test/bpmn alanlarini zorunlu uretme.
+- Eksik bilgileri "[VARSAYIM]" etiketi ile dokuman icinde isaretle.
+- Belirsizlikleri review.content icinde "## Acik Sorular" basligi altinda listele.
+- Mesaj 2-3 cumleyi gecmesin; detaylar dokumana yazilsin.
 
 ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
 
@@ -570,4 +570,131 @@ const runSingleChatOrchestratorInner = async (
     });
     const isCorrection = /\b(dedim|yazdÄ±m|yazdim|sÃ¶yledim|soyledim|verdim|sadece|ne sorusu|neden soru)\b/i.test(input.userMessage || '');
     const msg = isCorrection
-      ? 'HaklÄ±sÄ±n, sadece selamlaÅŸtÄ±n. Ä°yiyiÅ´°Ñ—}•­¯ñÈ•‘•É¥´¸¹…±¥è•Ñµ•¬¥ÍÑ•‘§}¥¸‰¥ÈÑ…±•À½±‘×}Õ¹‘„‰ÕÉ…‘…çÅ´¸œ(€€€€€€è€5•É¡…‰„°¡…ëÅËÅ´¸¹…±¥è•Ñµ•¬¥ÍÑ•‘§}¥¸Ñ…±•‰¤å…é…‰¥±¥ÈÙ•å„µ•ÙÕÐ‰¥È‘½¯ñµ…»ÄÁ…å±‡}…‰¥±¥ÉÍ¥¸¸œì(€€€¥¹ÁÕÐ¹½¹A¡…Í” Pœ°€•Ù…À¡…ëÅÉ±…»Åå½È¸¸¸œ¤ì(€€€¥¹ÁÕÐ¹½¹MÑÉ•…´¡µÍœ°€œœ°Õ¹‘•™¥¹•°€Íµ…±±}Ñ…±­}É••Ñ¥¹œœ°€À¤ì(€€€É•ÑÕÉ¸ì(€€€€€Ñ•áÐèµÍœ°(€€€€€Ñ¡¥¹­¥¹œè€œœ°(€€€€€ÅÕ•ÍÑ¥½¹ÌèÕ¹‘•™¥¹•°(€€€€€…Ñ¥½¹MÕµµ…Éäè€Íµ…±±}Ñ…±­}É••Ñ¥¹œœ°(€€€€€¥¹Ñ•¹Ðè€¡…Ñ}½¹±äœ°(€€€€€±…ÍÍ¥™¥…Ñ¥½¸èÉ••Ñ¥¹±…ÍÍ¥™¥…Ñ¥½¸°(€€€€€Ñ½­•¹½Õ¹Ðè€À°(€€€ôì(€ô((€±•Ð±…ÍÍ¥™¥…Ñ¥½¸€ô…Ý…¥Ð±…ÍÍ¥™å%¹Ñ•¹Ð¡ì(€€€ÕÍ•É5•ÍÍ…”è¥¹ÁÕÐ¹ÕÍ•É5•ÍÍ…”°(€€€‘½Õµ•¹Ðè¥¹ÁÕÐ¹‘½Õµ•¹Ñ½¹Ñ•¹Ð°(€€€Í•±•Ñ•‘Q•áÐè¥¹ÁÕÐ¹Í•±•Ñ•‘9½‘•½¹Ñ•¹Ð€üü¹Õ±°°(€€€Í•±•Ñ•‘M•Ñ¥½¸è€¡¥¹ÁÕÐ¹Í•±•Ñ•‘M•Ñ¥½¸…Ì½Õµ•¹ÑM•Ñ¥½¹-•ä¤€üü¹Õ±°°(€€€µ½‘•°è¥¹ÁÕÐ¹µ½‘•°°(€ô¤ì((€€¼¼M¡½ÉÐµ¥ÉÕ¥Ð€ÈèÕÍ•È•áÁ±¥¥Ñ±ä…Í­•Ñ¼•¹•É…Ñ”°½ÈÅÕ•ÍÑ¥½¸‰Õ‘•Ð(€€¼¼¥Ì•á¡…ÕÍÑ•¸½É”„‘É…™Ð¥¹ÍÑ•…½˜…¹½Ñ¡•ÈÅÕ•ÍÑ¥½¸É½Õ¹¸(€¥˜€¡Í¥¹…±Ì¹µÕÍÑ•¹•É…Ñ•9½Ü¤ì(€€€±…ÍÍ¥™¥…Ñ¥½¸€ôì(€€€€€€¸¸¹±…ÍÍ¥™¥…Ñ¥½¸°(€€€€€ÁÉ¥µ…Éå%¹Ñ•¹Ðè€…¹…±åÍ¥Í}•¹•É…Ñ¥½¸œ°(€€€€€ÍÕ‰%¹Ñ•¹Ðè±…ÍÍ¥™¥…Ñ¥½¸¹ÍÕ‰%¹Ñ•¹Ð€ôôô€•¹•É…Ñ•}Ñ•ÍÑ}…Í•Ìœ(€€€€€€€ñð±…ÍÍ¥™¥…Ñ¥½¸¹ÍÕ‰%¹Ñ•¹Ð€ôôô€•¹•É…Ñ•}™±½Ý}‘¥…É…´œ(€€€€€€€ñð±…ÍÍ¥™¥…Ñ¥½¸¹ÍÕ‰%¹Ñ•¹Ð€ôôô€•¹•É…Ñ•}‰Áµ¸œ(€€€€€€€€ü±…ÍÍ¥™¥…Ñ¥½¸¹ÍÕ‰%¹Ñ•¹Ð(€€€€€€€€è€•¹•É…Ñ•}‰ÕÍ¥¹•ÍÍ}…¹…±åÍ¥Ìœ°(€€€€€‘½Õµ•¹Ñ%µÁ…Ðè€ÕÁ‘…Ñ•Í}‘½Õµ•¹Ðœ°(€€€€€½Á•É…Ñ¥½¸è€É•Á±…•}½É}É•…Ñ•}Í•Ñ¥½¸œ°(€€€€€Ñ…É•ÑM•Ñ¥½¸è±…ÍÍ¥™¥…Ñ¥½¸¹Ñ…É•ÑM•Ñ¥½¸ñð€‰ÕÍ¥¹•ÍÍ¹…±åÍ¥Ìœ°(€€€€€É•ÅÕ¥É•Í±…É¥™¥…Ñ¥½¸è™…±Í”°(€€€€€±…É¥™¥…Ñ¥½¹EÕ•ÍÑ¥½¹ÌèÕ¹‘•™¥¹•°(€€€€€É•ÅÕ¥É•ÍAÉ•Ù¥•Üè™…±Í”°(€€€€€Í¡½Õ±‘IÕ¹	…•¹Ñ1½½ÀèÑÉÕ”°(€€€€€‰…•¹Ñ½ÕÌè±…ÍÍ¥™¥…Ñ¥½¸¹‰…•¹Ñ½ÕÌñð€‰ÕÍ¥¹•ÍÍ}…¹…±åÍ¥Ìœ°(€€€€€½¹™¥‘•¹”è5…Ñ ¹µ…à¡±…ÍÍ¥™¥…Ñ¥½¸¹½¹™¥‘•¹”°€À¸àÔ¤°(€€€€€É•…Í½¸è‘¥Í½Ù•Éå}Õ…Éè‘íÍ¥¹…±Ì¹É•…Í½¹õ€°(€€€ôì(€€€¥¹ÁÕÐ¹½¹A¡…Í” Pœ°€Q…Í±…¬‘½¯ñµ…¹„—¥±¥å½È¸¸¸œ¤ì(€€€É•ÑÕÉ¸ÉÕ¹	…1½½À (€€€€€ì(€€€€€€€€¸¸¹¥¹ÁÕÐ°(€€€€€€€ÍåÍÑ•µ%¹ÍÑÉÕÑ¥½¸è€‘í¥¹ÁÕÐ¹ÍåÍÑ•µ%¹ÍÑÉÕÑ¥½¹õq¹q¸‘íIQ}%IMQ}MeMQ5}IU1õq¹q¹mi=IU91TKÁ8	=/q58ƒqISÁ7Áuq¹-Õ±±…»ÅÄ€ˆ‘íÍ¥¹…±Ì¹É•…Í½¹ôˆÍ¥¹å…±¤Ù•É‘¤¸e;ÀM=ITM=I5¸•Ù…‹Å¸¡…ÑI•ÍÁ½¹Í”)M=8ƒ}•µ…ÏÅ¹‘„½±µ…³ÄÙ”q‘½Õµ•¹Ñq€…±…»Äi=IU91T½±…É…¬ŸÙËñ»ñÈƒñËñ¸çñé•å¥¹‘•­¤‹Ù³ñµ±•É¤§•Éµ•±¥‘¥Èéq¸´‰ÕÍ¥¹•ÍÍ¹…±åÍ¥Ìè	¹…±¥è€¼­…ÙÉ…µÍ…°Ñ…Í…ËÅ´§•É§}¤¸µ‡œ°­…ÁÍ…´°Á…å‘‡}±…È°Ìµ%Ì½Q¼µ	”°ÏñÉ—±•È°	H½H½9H½%9P½IAP½M•É•­Í¥¹¥µ±•È°Ù•É¤µ½‘•±¤°•¹Ñ•É…Íå½¸µ¥µ…É¥Í¤°•­É…¸½Ù…±¥‘…Íå½¸½‰¥±‘¥É¥´°¡…Ñ„çÙ¹•Ñ¥µ¤°UPÙ”­…‰Õ°­É¥Ñ•É±•É¤…å»Ä‹Ù³ñµ‘”­…É…ÈÙ•É¥±•‰¥±¥ÈÍ•Ù¥å•‘”å…ëÅ³ÅÈ¹q¸´É•Ù¥•Üè­…å¹…¬½‘¿}ÉÕ±…µ„ƒÙé•Ñ¤°É¥Í­±•È°‡ŸÅ¬Í½ÉÕ±…È°Ù…ÉÍ…çÅµ±…È°­…±¥Ñ”­…ÃÅÏÄÙ”Í½¹É…­¤…­Í¥å½¹±…È¹q¸´½‘”½Ñ•ÍÐ½‰Áµ¸…±…¹±…ËÅ»Äé½ÉÕ¹±ÔƒñÉ•Ñµ”ìÑ•­¹¥¬°Ñ•ÍÐÙ”…¯Ç|‘•Ñ…å±…ËÅ»Ä‰ÕÍ¥¹•ÍÍ¹…±åÍ¥Ì§¥¹‘”…±Ð‰‡}³Å¬½±…É…¬å…è¹q¹­Í¥¬‰¥±¥±•É¤‘½¯ñµ…¸§¥¹‘”€‰mYIMe%5tˆ½±…É…¬§}…É•Ñ±”Ù”I•Ù¥•Ü€øŸÅ¬M½ÉÕ±…È‹Ù³ñ·ñ¹”•­±”¸qÅÕ•ÍÑ¥½¹Íq€…±…»Å»Ä	?x‹ÅÉ…¬¹q¹q¸‘í‰Õ¥±‘••Á	…Ñ%¹ÍÑÉÕÑ¥½¹Ì¡‰Õ¥±‘I••¹ÑMÕ‰©•Ð¡¥¹ÁÕÐ¤¥õ€°(€€€€€ô°(€€€€€±…ÍÍ¥™¥…Ñ¥½¸°(€€€€€ì™½É•É…™ÐèÑÉÕ”ô°(€€€€¤ì(€ô((€½¹ÍÐ…Ñ¥½¸€ô‘•¥‘•Ñ¥½¸¡±…ÍÍ¥™¥…Ñ¥½¸°ì(€€€¡…ÍM•±•Ñ•‘Q•áÐè€„…¥¹ÁÕÐ¹Í•±•Ñ•‘9½‘•½¹Ñ•¹Ð°(€€€é•É½Q½Õ¡¹…‰±•èQUI}1L¹iI=}Q=U °(€ô¤ì((€ÍÝ¥Ñ €¡…Ñ¥½¸¹ÑåÁ”¤ì(€€€…Í”€MeMQ5}5MMœè(€€€€€É•ÑÕÉ¸ÉÕ¹MåÍÑ•µ5•ÍÍ…”¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸°…Ñ¥½¸¹½‘”ñð€U9MUAA=IQœ¤ì(€€€…Í”€M-}1I%e%9}EUMQ%=9Lœè(€€€€€É•ÑÕÉ¸ÉÕ¹Í­±…É¥™å¥¹EÕ•ÍÑ¥½¹Ì¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸°…Ñ¥½¸¹½‘”¤ì(€€€…Í”€AIY%]}=U59Q}!9œè(€€€€€É•ÑÕÉ¸ÉÕ¹AÉ•Ù¥•ÝI•ÅÕ¥É•¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€…Í”€!Q}=91dœè(€€€€€É•ÑÕÉ¸ÉÕ¹¡…Ñ=¹±ä¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€…Í”€UAQ}M1Q}QaPœè(€€€€€É•ÑÕÉ¸ÉÕ¹UÁ‘…Ñ•M•±•Ñ•‘Q•áÐ¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€…Í”€IU9}IMI œèì(€€€€€½¹ÍÐÉÐ€ô±…ÍÍ¥™¥…Ñ¥½¸¹É•Í•…É¡QåÁ”ì(€€€€€¥˜€¡ÉÐ€ôôô€¥¹Ñ•É¹…°œñðÉÐ€ôôô€Ý½É­ÍÁ…•}¡¥ÍÑ½Éäœñð±…ÍÍ¥™¥…Ñ¥½¸¹ÍÕ‰%¹Ñ•¹Ð€ôôô€É•Í•…É¡}¥¹Ñ•É¹…±}­¹½Ý±•‘”œñð±…ÍÍ¥™¥…Ñ¥½¸¹ÍÕ‰%¹Ñ•¹Ð€ôôô€É•Í•…É¡}Ý½É­ÍÁ…•}¡¥ÍÑ½Éäœ¤ì(€€€€€€€É•ÑÕÉ¸ÉÕ¹I•Í•…É¡%¹Ñ•É¹…°¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€€€ô(€€€€€É•ÑÕÉ¸ÉÕ¹I•Í•…É¡]•ˆ¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€ô(€€€…Í”€MUMQ}=U59Q}UAQœè(€€€€€€¼¼MÕ•ÍÐµ½¹±ä™±½ÜèÁÉ½‘Õ”…¸…¹ÍÝ•ÈÝ¥Ñ¡½ÕÐÑ½Õ¡¥¹œÑ¡”‘½Õµ•¹Ð°(€€€€€€¼¼‰ÕÐ¥¹±Õ‘”„Q™½ÈÑ¡”ÕÍ•ÈÑ¼…ÁÁ±ä¥Ð¸M…µ”Á…Ñ …Ì¡…Ñ}½¹±ä(€€€€€€¼¼‰ÕÐÍ••Ñ¡”ÁÉ½µÁÐÝ¥Ñ „€‰ÍÕ•ÍÐ°‘½¸Ð…ÁÁ±äˆ¡¥¹Ð¸(€€€€€É•ÑÕÉ¸ÉÕ¹¡…Ñ=¹±ä (€€€€€€€ì€¸¸¹¥¹ÁÕÐ°ÍåÍÑ•µ%¹ÍÑÉÕÑ¥½¸è€‘í¥¹ÁÕÐ¹ÍåÍÑ•µ%¹ÍÑÉÕÑ¥½¹õq¹q¹m5=tƒY¹•É¤µ½‘Ôè‘½¯ñµ…¹„å…éµ…‘…¸¹”•­±•å•‰¥±•—}¥¹¤ƒÙé•Ñ±”Ù”Í½¹Õ¹‘„€‰½¯ñµ…¹„§}±•å•å¥´µ¤üˆ‘¥å”Í½È¹€ô°(€€€€€€€±…ÍÍ¥™¥…Ñ¥½¸°(€€€€€€¤ì(€€€…Í”€55=Ie}Q%=8œè(€€€€€É•ÑÕÉ¸ÉÕ¹5•µ½ÉåMÑÕˆ¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€…Í”€]=I-1=]}Q%=8œè(€€€€€É•ÑÕÉ¸ÉÕ¹]½É­™±½ÝMÑÕˆ¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸¤ì(€€€…Í”€IU9}	}9Q}1==@œè(€€€…Í”€UAQ}=U59Q}MQ%=8œè(€€€‘•™…Õ±Ðè(€€€€€€¼¼¹…±åÍ¥Ì€¼‘½Õµ•¹ÐµÕÁ‘…Ñ”Á…Ñ¡ÌµÕÍÐ1]eL•¹ÕÀÝ¥Ñ „‘½Õµ•¹Ð(€€€€€€¼¼Á…Ñ ¸™½É•É…™Ðµ…­•Ì„Í•½¹¹…ÉÉ½Ý•È…±°¥˜Ñ¡”™¥ÉÍÐ…ÑÑ•µÁÐ(€€€€€€¼¼É•ÑÕÉ¹Ì¹¼‘½Õµ•¹Ñ€™¥•±¸(€€€€€É•ÑÕÉ¸ÉÕ¹	…1½½À¡¥¹ÁÕÐ°±…ÍÍ¥™¥…Ñ¥½¸°ì™½É•É…™ÐèÑÉÕ”ô¤ì(€ô)ôì()•áÁ½ÉÐ½¹ÍÐÉÕ¹M¥¹±•¡…Ñ=É¡•ÍÑÉ…Ñ½È€ô…Íå¹Œ€ (€¥¹ÁÕÐèM¥¹±•¡…Ñ%¹ÁÕÐ(¤èAÉ½µ¥Í”ñM¥¹±•¡…ÑI•ÍÕ±Ðø€ôøì(€½¹ÍÐÉ•ÍÕ±Ð€ô…Ý…¥ÐÉÕ¹M¥¹±•¡…Ñ=É¡•ÍÑÉ…Ñ½É%¹¹•È¡¥¹ÁÕÐ¤ì(€€¼¼EÕ•ÍÑ¥½¸‘½µ…¥¸Õ…ÉèÍÑÉ¥À…¹äÅÕ•ÍÑ¥½¹ÌÑ¡…Ð‘É¥™Ñ•½ÕÑÍ¥‘”Ñ¡”(€€¼¼)•Ñ]½É¬…¹…±åÍ¥Ì‘½µ…¥¸€¡©½ˆ€¼Ñ…±•¹Ð€¼™É••±…¹”€¼É•µ½Ñ”•ÑŒ¸¤¸(€¥˜€¡É•ÍÕ±Ð¹ÅÕ•ÍÑ¥½¹Ì€˜˜½¹Ñ…¥¹Í	±½­•‘EÕ•ÍÑ¥½¹½µ…¥¸¡É•ÍÕ±Ð¹ÅÕ•ÍÑ¥½¹Ì…Ì…¹ä¤¤ì(€€€É•ÑÕÉ¸ì(€€€€€€¸¸¹É•ÍÕ±Ð°(€€€€€ÅÕ•ÍÑ¥½¹ÌèÕ¹‘•™¥¹•°(€€€€€Ñ•áÐèÉ•ÍÕ±Ð¹Ñ•áÐ€˜˜É•ÍÕ±Ð¹Ñ•áÐ¹ÑÉ¥´ ¤¹±•¹Ñ €ø€À(€€€€€€€€üÉ•ÍÕ±Ð¹Ñ•áÐ(€€€€€€€€è€5•É¡…‰„°¡…ëÅËÅ´¸¹…±¥è•Ñµ•¬¥ÍÑ•‘§}¥¸Ñ…±•‰¤å…é…‰¥±¥ÈÙ•å„µ•ÙÕÐ‰¥È‘½¯ñµ…»ÄÁ…å±‡}…‰¥±¥ÉÍ¥¸¸œ°(€€€ôì(€ô(€€¼¼±Í¼Õ…ÉÍµ…±±}Ñ…±¬è¹•Ù•È±•ÐÅÕ•ÍÑ¥½¹Ì±•…¬Ñ¡É½Õ ™½ÈÁÕÉ”É••Ñ¥¹Ì°(€€¼¼…¹É•ÝÉ¥Ñ”…¹ä€‰	¥É­‡œÍ½ÉÔ¡…ëÅÉ±…“Å´€¼‡}‡Å‘…­¤Í½ÉÕ±…ËÄˆ±…¥µÌÍ¼Ñ¡”(€€¼¼™¥¹…°µ•ÍÍ…”ÍÑ…åÌÍ¡½ÉÐ…¹)•Ñ]½É¬µ‘½µ…¥¸…ÁÁÉ½ÁÉ¥…Ñ”¸(€¥˜€¡É•ÍÕ±Ð¹±…ÍÍ¥™¥…Ñ¥½¸ü¹ÍÕ‰%¹Ñ•¹Ð€ôôô€Íµ…±±}Ñ…±¬œ¤ì(€€€½¹ÍÐ±…¥µÍEÕ•ÍÑ¥½¹ÍAÉ•Á…É•€ô€¼¡Í½ÉÔ¡…ëÅÉ±…“Åµñ‰¥É­‡œ¯ÅÍ„Í½ÉÕñ‡}‡Å‘…­¤Í½ÉÕ±…ËÅñ¹•Ñ±—}Ñ¥Éµ•¬§¥¸€¸¨Í½ÉÔ¤½¤¹Ñ•ÍÐ¡É•ÍÕ±Ð¹Ñ•áÐñð€œœ¤ì(€€€½¹ÍÐ±•…¹Q•áÐ€ô±…¥µÍEÕ•ÍÑ¥½¹ÍAÉ•Á…É•ñð€„¡É•ÍÕ±Ð¹Ñ•áÐñð€œœ¤¹ÑÉ¥´ ¤(€€€€€€ü€!…­³ÅÏÅ¸°Í…‘•”Í•±…µ±‡}ÓÅ¸¸ƒÁå¥å¥´°Ñ—}•­¯ñÈ•‘•É¥´¸¹…±¥è•Ñµ•¬¥ÍÑ•‘§}¥¸‰¥ÈÑ…±•À½±‘×}Õ¹‘„‰ÕÉ…‘…çÅ´¸œ(€€€€€€èÉ•ÍÕ±Ð¹Ñ•áÐì(€€€É•ÑÕÉ¸ì€¸¸¹É•ÍÕ±Ð°ÅÕ•ÍÑ¥½¹ÌèÕ¹‘•™¥¹•°Ñ•áÐè±•…¹Q•áÐôì(€ô(€É•ÑÕÉ¸É•ÍÕ±Ðì)ôì(
+      ? 'HaklÄ±sÄ±n, sadece selamlaÅŸtÄ±n. Ä°yiyim, teÅŸekkÃ¼r ederim. Analiz etmek istediÄŸin bir talep olduÄŸunda buradayÄ±m.'
+      : 'Merhaba, hazÄ±rÄ±m. Analiz etmek istediÄŸin talebi yazabilir veya mevcut bir dokÃ¼manÄ± paylaÅŸabilirsin.';
+    input.onPhase('ACT', 'Cevap hazÄ±rlanÄ±yor...');
+    input.onStream(msg, '', undefined, 'small_talk_greeting', 0);
+    return {
+      text: msg,
+      thinking: '',
+      questions: undefined,
+      actionSummary: 'small_talk_greeting',
+      intent: 'chat_only',
+      classification: greetingClassification,
+      tokenCount: 0,
+    };
+  }
+
+  let classification = await classifyIntent({
+    userMessage: input.userMessage,
+    document: input.documentContent,
+    selectedText: input.selectedNodeContent ?? null,
+    selectedSection: (input.selectedSection as DocumentSectionKey) ?? null,
+    model: input.model,
+  });
+
+  // Short-circuit 2: user explicitly asked to generate, or question budget
+  // is exhausted. Force a draft instead of another question round.
+  if (signals.mustGenerateNow) {
+    classification = {
+      ...classification,
+      primaryIntent: 'analysis_generation',
+      subIntent: classification.subIntent === 'generate_test_cases'
+        || classification.subIntent === 'generate_flow_diagram'
+        || classification.subIntent === 'generate_bpmn'
+        ? classification.subIntent
+        : 'generate_business_analysis',
+      documentImpact: 'updates_document',
+      operation: 'replace_or_create_section',
+      targetSection: classification.targetSection || 'businessAnalysis',
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      requiresPreview: false,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: classification.baAgentFocus || 'business_analysis',
+      confidence: Math.max(classification.confidence, 0.85),
+      reason: `discovery_guard:${signals.reason}`,
+    };
+    input.onPhase('ACT', 'Taslak dokÃ¼mana geÃ§iliyor...');
+    return runBaLoop(
+      {
+        ...input,
+        systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU DERIN BA DOKUMAN URETIMI]\nKullanici "${signals.reason}" sinyali verdi. YENI SORU SORMA. Cevabin chatResponse JSON semasinda olmali ve \`document\` alani ZORUNLU olarak gorunur urun yuzeyindeki bolumleri icermelidir:\n- businessAnalysis: BA Analiz / kavramsal tasarim icerigi. Amac, kapsam, paydaslar, As-Is/To-Be, surecler, BR/FR/NFR/INT/RPT/SEC gereksinimler, veri modeli, entegrasyon mimarisi, ekran/validasyon/bildirim, hata yonetimi, UAT ve kabul kriterleri ayni bolumde karar verilebilir seviyede yazilir.\n- review: kaynak/dogrulama ozeti, riskler, acik sorular, varsayimlar, kalite kapisi ve sonraki aksiyonlar.\n- code/test/bpmn alanlarini zorunlu uretme; teknik, test ve akis detaylarini businessAnalysis icinde alt baslik olarak yaz.\nEksik bilgileri dokuman icinde "[VARSAYIM]" olarak isaretle ve Review > Acik Sorular bolumune ekle. \`questions\` alanini BOS birak.\n\n${buildDeepBaActInstructions(buildRecentSubject(input))}`,
+      },
+      classification,
+      { forceDraft: true },
+    );
+  }
+
+  const action = decideAction(classification, {
+    hasSelectedText: !!input.selectedNodeContent,
+    zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH,
+  });
+
+  switch (action.type) {
+    case 'SYSTEM_MESSAGE':
+      return runSystemMessage(input, classification, action.code || 'UNSUPPORTED');
+    case 'ASK_CLARIFYING_QUESTIONS':
+      return runAskClarifyingQuestions(input, classification, action.code);
+    case 'PREVIEW_DOCUMENT_CHANGE':
+      return runPreviewRequired(input, classification);
+    case 'CHAT_ONLY':
+      return runChatOnly(input, classification);
+    case 'UPDATE_SELECTED_TEXT':
+      return runUpdateSelectedText(input, classification);
+    case 'RUN_RESEARCH': {
+      const rt = classification.researchType;
+      if (rt === 'internal' || rt === 'workspace_history' || classification.subIntent === 'research_internal_knowledge' || classification.subIntent === 'research_workspace_history') {
+        return runResearchInternal(input, classification);
+      }
+      return runResearchWeb(input, classification);
+    }
+    case 'SUGGEST_DOCUMENT_UPDATE':
+      // Suggest-only flow: produce an answer without touching the document,
+      // but include a CTA for the user to apply it. Same path as chat_only
+      // but seed the prompt with a "suggest, don't apply" hint.
+      return runChatOnly(
+        { ...input, systemInstruction: `${input.systemInstruction}\n\n[MOD] Ã–neri modu: dokÃ¼mana yazmadan ne ekleyebileceÄŸini Ã¶zetle ve sonunda "DokÃ¼mana iÅŸleyeyim mi?" diye sor.` },
+        classification,
+      );
+    case 'MEMORY_ACTION':
+      return runMemoryStub(input, classification);
+    case 'WORKFLOW_ACTION':
+      return runWorkflowStub(input, classification);
+    case 'RUN_BA_AGENT_LOOP':
+    case 'UPDATE_DOCUMENT_SECTION':
+    default:
+      // Analysis / document-update paths must ALWAYS end up with a document
+      // patch. forceDraft makes a second narrower call if the first attempt
+      // returns no `document` field.
+      return runBaLoop(input, classification, { forceDraft: true });
+  }
+};
+
+export const runSingleChatOrchestrator = async (
+  input: SingleChatInput
+): Promise<SingleChatResult> => {
+  const result = await runSingleChatOrchestratorInner(input);
+  // Question domain guard: strip any questions that drifted outside the
+  // JetWork analysis domain (job / talent / freelance / remote etc.).
+  if (result.questions && containsBlockedQuestionDomain(result.questions as any)) {
+    return {
+      ...result,
+      questions: undefined,
+      text: result.text && result.text.trim().length > 0
+        ? result.text
+        : 'Merhaba, hazÄ±rÄ±m. Analiz etmek istediÄŸin talebi yazabilir veya mevcut bir dokÃ¼manÄ± paylaÅŸabilirsin.',
+    };
+  }
+  // Also guard small_talk: never let questions leak through for pure greetings,
+  // and rewrite any "BirkaÃ§ soru hazÄ±rladÄ±m / aÅŸaÄŸÄ±daki sorularÄ±" claims so the
+  // final message stays short and JetWork-domain appropriate.
+  if (result.classification?.subIntent === 'small_talk') {
+    const claimsQuestionsPrepared = /(soru hazÄ±rladÄ±m|birkaÃ§ kÄ±sa soru|aÅŸaÄŸÄ±daki sorularÄ±|netleÅŸtirmek iÃ§in .* soru)/i.test(result.text || '');
+    const cleanText = claimsQuestionsPrepared || !(result.text || '').trim()
+      ? 'HaklÄ±sÄ±n, sadece selamlaÅŸtÄ±n. Ä°yiyim, teÅŸekkÃ¼r ederim. Analiz etmek istediÄŸin bir talep olduÄŸunda buradayÄ±m.'
+      : result.text;
+    return { ...result, questions: undefined, text: cleanText };
+  }
+  return result;
+};

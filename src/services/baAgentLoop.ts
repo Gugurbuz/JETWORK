@@ -243,7 +243,7 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   let totalTokens = 0;
   const actionIntent = detectAiActionIntent(userMessage, []);
   const actionIntentContext = buildActionIntentContext(actionIntent);
-  const recentConversationText = history.slice(-6).map(h => h.parts[0].text).join('\n');
+  const recentConversationText = history.slice(-6).map(h => h.parts[0]?.text || '').join('\n');
   const deepBaSubject = [recentConversationText, userMessage].filter(Boolean).join('\n');
   const deepBaPlan = buildDeepBaResearchPlan(deepBaSubject);
   const useDeepBaMode = shouldUseDeepBaAssistant(deepBaSubject);
