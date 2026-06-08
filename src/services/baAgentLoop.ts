@@ -5,6 +5,12 @@ import { chatResponseJsonSchema } from '../schemas';
 import { hybridSearch } from './contextManager';
 import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
 import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
+import {
+  buildDeepBaActInstructions,
+  buildDeepBaResearchPlan,
+  buildDeepBaThinkingSummary,
+  shouldUseDeepBaAssistant,
+} from '../modules/deep-ba-assistant';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
@@ -117,16 +123,10 @@ const sanitizeSection = (s: any): SectionData | undefined => {
 const sanitizeDocument = (d: any): DocumentData | undefined => {
   if (!d || typeof d !== 'object') return undefined;
   const ba = sanitizeSection(d.businessAnalysis);
-  const code = sanitizeSection(d.code);
-  const test = sanitizeSection(d.test);
-  const bpmn = sanitizeSection(d.bpmn);
   const review = sanitizeSection(d.review);
-  if (!ba && !code && !test && !bpmn && !review) return undefined;
+  if (!ba && !review) return undefined;
   return {
     businessAnalysis: ba || { content: '', status: 'DRAFT', flags: [] },
-    code: code || { content: '', status: 'DRAFT', flags: [] },
-    test: test || { content: '', status: 'DRAFT', flags: [] },
-    ...(bpmn ? { bpmn } : {}),
     ...(review ? { review } : {}),
   };
 };
@@ -164,11 +164,8 @@ const briefDocumentSummary = (doc: DocumentData | null): string => {
       sections.push(`### ${label} (${s.status || 'DRAFT'})\n${preview}${s.content.length > 700 ? '…' : ''}`);
     }
   };
-  addSection('businessAnalysis', 'BA');
-  addSection('code', 'IT');
-  addSection('test', 'QA');
+  addSection('businessAnalysis', 'BA Analiz');
   addSection('review', 'Review');
-  addSection('bpmn', 'FLOW');
   return sections.length > 0 ? sections.join('\n\n') : "(Doküman bölümleri boş.)";
 };
 
@@ -210,17 +207,17 @@ A) businessAnalysis.content şu yapıyı mümkün olduğunca doldurmalı:
 12. Açık Konular ve Varsayımlar
    - Emin olmadığın her noktayı review yerine de yansıt.
 
-B) code.content teknik analiz olmalı:
-- Modül mimarisi, veri modeli, entity ilişkileri, API/servis ihtiyaçları, entegrasyonlar, FileNet/SAP/Azure AD gibi sistemlerle veri alışverişi, hata/retry/audit stratejisi, güvenlik ve performans notları.
+B) Teknik analiz ayrı bir gizli sekmeye değil businessAnalysis.content içine yazılmalı:
+- Modül mimarisi, veri modeli, entity ilişkileri, API/servis ihtiyaçları, entegrasyonlar, FileNet/SAP/Azure AD gibi sistemlerle veri alışverişi, hata/retry/audit stratejisi, güvenlik ve performans notları BA Analiz içinde alt başlık olmalı.
 
-C) test.content test/kabul paketi olmalı:
-- UAT senaryoları, pozitif/negatif testler, yetki testleri, entegrasyon hata testleri, doküman yükleme ve validasyon testleri.
+C) Test/kabul paketi businessAnalysis.content içinde olmalı:
+- UAT senaryoları, pozitif/negatif testler, yetki testleri, entegrasyon hata testleri, doküman yükleme ve validasyon testleri BA Analiz içinde alt başlık olmalı.
 
 D) review.content kalite raporu olmalı:
 - Talep karşılanma kontrolü, eksik bilgiler, riskler, tekrar eden gereksinimler, açık sorular, sonraki aksiyonlar.
 
-E) bpmn.content FLOW bölümünü doldurmalı:
-- BPMN XML üretemiyorsan geçici olarak süreç akışını Mermaid veya metinsel BPMN taslağı olarak yaz; boş bırakma.
+E) Süreç akışları businessAnalysis.content içinde olmalı:
+- BPMN XML üretmeye zorlama. Gerekirse Mermaid veya metinsel süreç akışı BA Analiz içinde alt başlık olarak yaz; Review içinde risk/eksik kararları belirt.
 
 F) Derinlik kuralı:
 - Chat mesajı kısa özet olmalı; detaylar document alanına yazılmalı.
@@ -246,6 +243,10 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   let totalTokens = 0;
   const actionIntent = detectAiActionIntent(userMessage, []);
   const actionIntentContext = buildActionIntentContext(actionIntent);
+  const recentConversationText = history.slice(-6).map(h => h.parts[0].text).join('\n');
+  const deepBaSubject = [recentConversationText, userMessage].filter(Boolean).join('\n');
+  const deepBaPlan = buildDeepBaResearchPlan(deepBaSubject);
+  const useDeepBaMode = shouldUseDeepBaAssistant(deepBaSubject);
 
   // ============ PHASE 1: PLAN ============
   onPhase('PLAN', 'Strateji belirleniyor...');
@@ -293,6 +294,18 @@ Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON fo
     plan = extractJson(planResponse.text) || plan;
   } catch (e) {
     console.warn('Plan phase failed, using fallback plan:', e);
+  }
+
+  if (deepBaPlan.enabled || useDeepBaMode) {
+    plan = {
+      ...plan,
+      needsWebSearch: true,
+      searchQueries: Array.from(new Set([...(deepBaPlan.searchQueries || []), ...(plan.searchQueries || [])])).slice(0, 4),
+      assumptions: Array.from(new Set([...(plan.assumptions || []), ...deepBaPlan.assumptions])),
+      documentGapsToCheck: Array.from(new Set([...(plan.documentGapsToCheck || []), ...deepBaPlan.documentGapsToCheck])),
+      plan: `${plan.plan}\nDeep BA Assistant v2: ${deepBaPlan.reason}`,
+    };
+    onThinking(buildDeepBaThinkingSummary(deepBaPlan));
   }
 
   // ============ PHASE 2: RESEARCH ============
@@ -441,9 +454,12 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 - "thinking" alanında kısa çalışma özetini yaz. Özel zincir düşünce veya gizli akıl yürütme yazma.
 - "actionSummary" alanında yaptığın işi 1 cümle özetle.
 
+${buildDeepBaActInstructions(deepBaSubject)}
+
 [6] DOKÜMAN YAZMA KURALI
 - Analiz veya araştırma yeterli olgunluğa ulaştıysa, yanıtınla birlikte "document" alanını MUTLAKA doldur. Bu alan sağ paneldeki Çalışma Dokümanı'na yazılır.
-- "document" alanı şu bölümleri içerir: businessAnalysis (İş Analizi), code (Teknik/IT), test (Test/QA), opsiyonel review ve bpmn.
+- "document" alanı görünür ürün yüzeyinde yalnızca businessAnalysis (BA Analiz) ve opsiyonel review bölümlerini içerir.
+- Teknik analiz, test ve süreç akışını ayrı code/test/bpmn alanlarına zorlama; bunları businessAnalysis içinde alt başlık olarak yaz.
 - Her bölüm { content: Markdown metni, status: "DRAFT" | "NEEDS_REVISION" | "APPROVED", flags: string[] } yapısında olmalı.
 - Mevcut doküman varsa (${hasDocument ? 'EVET' : 'HAYIR'}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
 - Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları.
