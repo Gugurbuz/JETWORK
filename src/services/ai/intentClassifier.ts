@@ -21,6 +21,7 @@ import {
   requiresExternalKnowledge,
   shouldUseDeepBaAssistant,
 } from '../../modules/deep-ba-assistant';
+import { applyBehaviorDecisionToClassification, buildBehaviorDecision } from './behaviorDecision';
 
 const SECTION_ENUM = ['businessAnalysis', 'review'];
 
@@ -182,7 +183,7 @@ export function normalizeBaClassifierOutput(input: ClassifyInput, classification
   const userIsAnswering = isLikelyBaDiscoveryAnswer(input.userMessage);
   const externalKnowledgeNeeded = requiresExternalKnowledge(input.userMessage);
   const deepBaMode = shouldUseDeepBaAssistant(input.userMessage);
-  const normalized: IntentClassification = {
+  let normalized: IntentClassification = {
     ...classification,
     targetSection: normalizeVisibleSection(classification.targetSection),
     secondaryTargetSection: normalizeVisibleSection(classification.secondaryTargetSection),
@@ -192,6 +193,18 @@ export function normalizeBaClassifierOutput(input: ClassifyInput, classification
   };
 
   if (!shouldApplyBaDiscovery(normalized)) return normalized;
+
+  const behaviorDecision = buildBehaviorDecision({
+    userMessage: input.userMessage,
+    document: input.document,
+    classification: normalized,
+    discoveryReadiness: state.readinessScore,
+  });
+  normalized = applyBehaviorDecisionToClassification(normalized, behaviorDecision, input.document);
+
+  if (behaviorDecision.mode === 'ask_clarifying_questions' || behaviorDecision.shouldUpdateDocument || behaviorDecision.mode === 'chat_only') {
+    return normalized;
+  }
 
   if (userForcesDraft || userIsAnswering) {
     const nextSubIntent = preserveGenerationSubIntent(input, normalized, userIsAnswering);
