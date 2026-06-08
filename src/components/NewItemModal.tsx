@@ -8,7 +8,7 @@ interface NewItemModalProps {
   projects: Project[];
   currentProjectId?: string | null;
   onClose: () => void;
-  onSubmit: (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => void;
+  onSubmit: (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => void | Promise<void>;
 }
 
 interface DbUser {
@@ -28,6 +28,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
   const [roles, setRoles] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch users and roles from Firestore
@@ -96,17 +97,28 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
     setSelectedUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
   };
 
+  const canSubmit = Boolean(projectId && itemNumber.trim() && title.trim());
+
+  const submitWorkspace = async () => {
+    if (!canSubmit || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        projectId,
+        itemNumber,
+        title,
+        team: selectedUsers.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email }))
+      });
+    } catch (error) {
+      console.error('Failed to submit workspace:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (projectId && itemNumber.trim() && title.trim()) {
-      // Map selected users to the expected team format for now
-      onSubmit({ 
-        projectId,
-        itemNumber, 
-        title, 
-        team: selectedUsers.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email })) 
-      });
-    }
+    void submitWorkspace();
   };
 
   return (
@@ -290,11 +302,13 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
               İptal
             </button>
             <button
-              type="submit"
-              disabled={!projectId || !itemNumber.trim() || !title.trim()}
+              type="button"
+              onClick={() => { void submitWorkspace(); }}
+              disabled={!canSubmit || isSubmitting}
+              aria-busy={isSubmitting}
               className="px-6 py-2.5 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
-              Çalışma Alanı Başlat
+              {isSubmitting ? 'Başlatılıyor...' : 'Çalışma Alanı Başlat'}
             </button>
           </div>
         </form>
