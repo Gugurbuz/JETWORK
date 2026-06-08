@@ -87,7 +87,7 @@ export function buildSystemPrompt(context: PromptContext): string {
   const settings = context.settings || DEFAULT_PROMPT_SETTINGS;
 
   if (context.role === 'SYSTEM') {
-    return `${settings.systemInstruction}\n\n${settings.negativeConstraints}\n\n${settings.cotInstruction}`;
+    return `${settings.systemInstruction}\n\n${settings.negativeConstraints}\n\n${settings.cotInstruction}\n\n${CONCEPTUAL_TEMPLATE_PROMPT}`;
   }
 
   const persona = settings.rolePersonas[context.role] || settings.rolePersonas['BA'] || '';
