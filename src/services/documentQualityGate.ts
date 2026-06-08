@@ -1,4 +1,5 @@
 import type { DocumentData, SectionData } from '../types';
+import { conceptualTemplateCoverage, isConceptualTemplateCompliant } from './conceptualTemplate';
 
 export interface DocumentQualityGateResult {
   canPublishToPanel: boolean;
@@ -47,6 +48,7 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
   const ba = sectionText(document.businessAnalysis);
   const review = sectionText(document.review);
   const all = `${ba}\n${review}`;
+  const templateCoverage = conceptualTemplateCoverage(baRaw);
 
   const missingSections: string[] = [];
   const warnings: string[] = [];
@@ -60,53 +62,59 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
       warning: 'BA Analiz bölümü karar verilebilir seviyede detaylı değil.',
     },
     {
+      ok: isConceptualTemplateCompliant(baRaw),
+      label: `Kurumsal kavramsal tasarım şablonu (${templateCoverage.passed}/${templateCoverage.total})`,
+      penalty: 24,
+      warning: `Doküman paylaşılan Word kavramsal tasarım yapısına tam uymuyor. Eksik şablon başlıkları: ${templateCoverage.missing.slice(0, 6).join(', ') || 'Yok'}.`,
+    },
+    {
       ok: hasHeadingLikeContent(baRaw),
       label: 'Başlık yapısı',
       penalty: 8,
       warning: 'Dokümanda numaralı/formatlı başlık yapısı bulunmuyor.',
     },
     {
-      ok: hasAny(ba, [/proje kimlik kart/i, /proje adı/i, /katılımc/i, /paydaş/i]),
+      ok: hasAny(ba, [/proje kimlik kart/i, /proje ad[ıi]/i, /kat[ıi]l[ıi]mc/i, /payda[şs]/i]),
       label: 'Proje kimlik kartı / katılımcılar',
       penalty: 8,
     },
     {
-      ok: hasAny(ba, [/amaç/i, /iş değeri/i, /beklenen fayda/i]),
+      ok: hasAny(ba, [/ama[çc]/i, /i[şs] de[ğg]eri/i, /beklenen fayda/i]),
       label: 'Amaç ve iş değeri',
       penalty: 7,
     },
     {
-      ok: hasAny(ba, [/kapsam/i, /kapsam dışı/i, /varsayım/i]),
+      ok: hasAny(ba, [/kapsam/i, /kapsam d[ıi][şs][ıi]/i, /varsay[ıi]m/i]),
       label: 'Kapsam ve varsayımlar',
       penalty: 7,
     },
     {
-      ok: hasAny(ba, [/süreç modeli/i, /süreçler/i, /iş akışı/i, /tetikleyici/i, /giriş koşulu/i, /çıkış koşulu/i]),
+      ok: hasAny(ba, [/s[uü]re[çc] modeli/i, /s[uü]re[çc]ler/i, /i[şs] ak[ıi][şs][ıi]/i, /tetikleyici/i, /giri[şs] ko[şs]ulu/i, /[çc][ıi]k[ıi][şs] ko[şs]ulu/i]),
       label: 'Süreç modelleri',
       penalty: 12,
     },
     {
-      ok: hasAny(all, [/\bBR[-–]?\d+/i, /\bFR[-–]?\d+/i, /gereksinim/i, /iş gereği/i, /kabul kriter/i]),
+      ok: hasAny(all, [/\bBR[-–]?\d+/i, /\bFR[-–]?\d+/i, /gereksinim/i, /i[şs] gere[ğg]i/i, /kabul kriter/i]),
       label: 'İş gerekleri ve kabul kriterleri',
       penalty: 12,
     },
     {
-      ok: hasAny(all, [/\bKPI\b/i, /ölçüm/i, /tamamlanma oranı/i, /hedef değer/i, /veri kaynağı/i]),
+      ok: hasAny(all, [/\bKPI\b/i, /[öo]l[çc][uü]m/i, /tamamlanma oran[ıi]/i, /hedef de[ğg]er/i, /veri kayna[ğg][ıi]/i]),
       label: 'KPI ve ölçümleme',
       penalty: 10,
     },
     {
-      ok: hasAny(all, [/toast/i, /validasyon/i, /modal/i, /uyarı mesaj/i, /kullanıcı mesaj/i]),
+      ok: hasAny(all, [/toast/i, /validasyon/i, /modal/i, /uyar[ıi] mesaj/i, /kullan[ıi]c[ıi] mesaj/i]),
       label: 'Kullanıcı mesajları / toast / validasyon',
       penalty: 10,
     },
     {
-      ok: hasAny(all, [/doküman yönetimi/i, /dokuman yönetimi/i, /filenet/i, /zorunlu doküman/i, /dosya tür/i]),
+      ok: hasAny(all, [/dok[uü]man y[oö]netimi/i, /filenet/i, /zorunlu dok[uü]man/i, /dosya t[uü]r/i]),
       label: 'Doküman yönetimi',
       penalty: 8,
     },
     {
-      ok: hasAny(all, [/açık soru/i, /eksik bilgi/i, /risk/i, /review/i, /kalite/i]),
+      ok: hasAny(all, [/a[çc][ıi]k soru/i, /eksik bilgi/i, /risk/i, /review/i, /kalite/i]),
       label: 'Review / açık konular',
       penalty: 6,
     },
