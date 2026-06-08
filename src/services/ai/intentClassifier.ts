@@ -9,6 +9,7 @@ import {
   ALL_SUB_INTENTS,
   SLASH_COMMAND_MAP,
   DocumentSectionKey,
+  BaAgentFocus,
 } from './intentTypes';
 import {
   buildBaClarifyingQuestions,
@@ -30,7 +31,7 @@ const classifierSchema = {
     confidence: { type: Type.NUMBER },
     riskLevel: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
     requiresResearch: { type: Type.BOOLEAN },
-    researchType: { type: Type.STRING, enum: ['internal', 'web', 'uploaded_files', 'workspace_history'] },
+    researchType: { type: STRING, enum: ['internal', 'web', 'uploaded_files', 'workspace_history'] },
     requiresClarification: { type: Type.BOOLEAN },
     clarificationQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
     requiresPreview: { type: Type.BOOLEAN },
@@ -47,6 +48,10 @@ Sadece geçerli JSON döndür. Markdown, açıklama veya serbest metin yazma.
 
 KURALLAR:
 - Görünür doküman yüzeyi şimdilik sadece businessAnalysis ve review sekmeleridir. Teknik analiz, test veya flow istenirse targetSection olarak businessAnalysis ya da review seç; baAgentFocus ile odağı belirt.
+- Teknik analiz / mimari / API / entegrasyon isteklerinde baAgentFocus = 'technical_analysis'.
+- Test / UAT / kabul senaryosu isteklerinde baAgentFocus = 'test'.
+- BPMN / Mermaid / süreç akışı isteklerinde baAgentFocus = 'flow'.
+- Risk / kalite / review isteklerinde baAgentFocus = 'review' veya 'quality'.
 - Sadece açıklama isteniyorsa documentImpact = 'none'.
 - Dokümana ekle/yaz/güncelle/çıkar/hazırla deniyorsa uygun targetSection belirle.
 - Seçili metin varsa "bunu/şunu" önce selectedText'e bağlanır.
@@ -121,6 +126,30 @@ function normalizeVisibleSection(section?: DocumentSectionKey): DocumentSectionK
   return section === 'review' ? 'review' : 'businessAnalysis';
 }
 
+function focusFromSubIntent(subIntent: SubIntent): BaAgentFocus | undefined {
+  if (['generate_test_cases', 'generate_error_scenarios', 'check_testability', 'check_traceability'].includes(subIntent)) return 'test';
+  if (['generate_flow_diagram', 'generate_bpmn', 'generate_mermaid'].includes(subIntent)) return 'flow';
+  if (['generate_technical_analysis', 'generate_integration_analysis', 'generate_api_contract', 'generate_developer_handoff'].includes(subIntent)) return 'technical_analysis';
+  if (['review_document_quality', 'score_document'].includes(subIntent)) return 'quality';
+  if (['generate_review_report', 'find_risks', 'find_missing_sections', 'find_open_questions', 'prepare_review_summary', 'prepare_management_summary'].includes(subIntent)) return 'review';
+  return undefined;
+}
+
+function visibleSectionForFocus(focus?: BaAgentFocus, fallback?: DocumentSectionKey): DocumentSectionKey {
+  if (focus === 'review' || focus === 'quality') return 'review';
+  return normalizeVisibleSection(fallback) || 'businessAnalysis';
+}
+
+function preserveGenerationSubIntent(input: ClassifyInput, normalized: IntentClassification, userIsAnswering: boolean): SubIntent {
+  if (userIsAnswering) return input.document ? 'add_requirement_detail' : 'generate_business_analysis';
+  if (normalized.primaryIntent === 'analysis_generation') return normalized.subIntent;
+  if (normalized.baAgentFocus === 'test') return 'generate_test_cases';
+  if (normalized.baAgentFocus === 'flow') return 'generate_flow_diagram';
+  if (normalized.baAgentFocus === 'technical_analysis') return 'generate_technical_analysis';
+  if (normalized.baAgentFocus === 'review' || normalized.baAgentFocus === 'quality') return 'generate_review_report';
+  return input.document ? 'add_requirement_detail' : 'generate_business_analysis';
+}
+
 function shouldApplyBaDiscovery(classification: IntentClassification): boolean {
   return classification.primaryIntent === 'analysis_generation'
     || classification.primaryIntent === 'document_editing'
@@ -128,7 +157,7 @@ function shouldApplyBaDiscovery(classification: IntentClassification): boolean {
     || classification.shouldRunBaAgentLoop;
 }
 
-function applyBaDiscovery(input: ClassifyInput, classification: IntentClassification): IntentClassification {
+export function normalizeBaClassifierOutput(input: ClassifyInput, classification: IntentClassification): IntentClassification {
   const state = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
   const userForcesDraft = GENERATE_WITH_ASSUMPTIONS_RE.test(input.userMessage);
   const userIsAnswering = isLikelyBaDiscoveryAnswer(input.userMessage);
@@ -136,24 +165,27 @@ function applyBaDiscovery(input: ClassifyInput, classification: IntentClassifica
     ...classification,
     targetSection: normalizeVisibleSection(classification.targetSection),
     secondaryTargetSection: normalizeVisibleSection(classification.secondaryTargetSection),
+    baAgentFocus: classification.baAgentFocus || focusFromSubIntent(classification.subIntent),
   };
 
   if (!shouldApplyBaDiscovery(normalized)) return normalized;
 
   if (userForcesDraft || userIsAnswering) {
+    const nextSubIntent = preserveGenerationSubIntent(input, normalized, userIsAnswering);
+    const nextFocus = normalized.baAgentFocus || focusFromSubIntent(nextSubIntent) || 'business_analysis';
     return {
       ...normalized,
       primaryIntent: 'analysis_generation',
-      subIntent: input.document ? 'add_requirement_detail' : 'generate_business_analysis',
-      targetSection: normalized.targetSection || 'businessAnalysis',
+      subIntent: nextSubIntent,
+      targetSection: visibleSectionForFocus(nextFocus, normalized.targetSection),
       documentImpact: 'updates_document',
-      operation: input.document ? 'append_to_section' : 'replace_or_create_section',
+      operation: input.document && userIsAnswering ? 'append_to_section' : (normalized.operation === 'none' ? 'replace_or_create_section' : normalized.operation),
       requiresClarification: false,
       clarificationQuestions: undefined,
       shouldRunBaAgentLoop: true,
-      baAgentFocus: normalized.baAgentFocus || 'business_analysis',
+      baAgentFocus: nextFocus,
       confidence: Math.max(normalized.confidence, 0.82),
-      reason: `${normalized.reason}; ba_engine:${userIsAnswering ? 'answer_mapper' : 'force_draft'}`,
+      reason: `${normalized.reason}; ba_engine:${userIsAnswering ? 'answer_mapper' : 'force_draft'}; focus:${nextFocus}`,
     };
   }
 
@@ -179,7 +211,7 @@ function applyBaDiscovery(input: ClassifyInput, classification: IntentClassifica
 
 export async function classifyIntent(input: ClassifyInput): Promise<IntentClassification> {
   const slash = parseSlashCommand(input.userMessage);
-  if (slash) return applyBaDiscovery(input, slash);
+  if (slash) return normalizeBaClassifierOutput(input, slash);
 
   const discoveryState = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
   const selection = input.selectedText
@@ -219,10 +251,10 @@ export async function classifyIntent(input: ClassifyInput): Promise<IntentClassi
       baAgentFocus: parsed.baAgentFocus,
       reason: parsed.reason || 'classifier',
     });
-    return applyBaDiscovery(input, classification);
+    return normalizeBaClassifierOutput(input, classification);
   } catch (e) {
     console.warn('Intent classifier failed, using heuristic fallback:', e);
-    return applyBaDiscovery(
+    return normalizeBaClassifierOutput(
       input,
       buildClassification(fallbackSubIntent(input), { confidence: 0.45, reason: 'classifier_fallback' })
     );
@@ -237,8 +269,11 @@ function fallbackSubIntent(input: ClassifyInput): SubIntent {
   if (msg.length < 30 && /(selam|merhaba|hi|nas[ıi]ls[ıi]n|naber)/i.test(msg)) return 'small_talk';
   if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg) && /(a[çc][ıi]kla|anlat)/i.test(msg)) return 'explain_selected_text';
   if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg)) return 'improve_selected_text';
-  if (/(test|kabul kriter|uat)/i.test(msg)) return 'generate_test_cases';
+  if (/(test|kabul kriter|uat|senaryo)/i.test(msg)) return 'generate_test_cases';
   if (/(ak[ıi]ş|bpmn|mermaid|flow|s[üu]re[çc])/i.test(msg)) return 'generate_flow_diagram';
+  if (/(api kontrat|api contract|endpoint|servis sözleşmesi|servis sozlesmesi)/i.test(msg)) return 'generate_api_contract';
+  if (/(entegrasyon|integration)/i.test(msg)) return 'generate_integration_analysis';
+  if (/(teknik|mimari|developer handoff|geliştirici devri|gelistirici devri)/i.test(msg)) return 'generate_technical_analysis';
   if (/(risk|eksik|review|kalite|inceleme)/i.test(msg)) return 'find_risks';
   if (/(ara[şs]t[ıi]r|best practice|g[üu]ncel|standart)/i.test(msg)) return 'research_web';
   if (/(indir|export|payla[şs]|versiyon)/i.test(msg)) return 'export_document';
