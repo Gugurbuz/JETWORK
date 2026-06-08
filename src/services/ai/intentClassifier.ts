@@ -31,7 +31,7 @@ const classifierSchema = {
     confidence: { type: Type.NUMBER },
     riskLevel: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
     requiresResearch: { type: Type.BOOLEAN },
-    researchType: { type: STRING, enum: ['internal', 'web', 'uploaded_files', 'workspace_history'] },
+    researchType: { type: Type.STRING, enum: ['internal', 'web', 'uploaded_files', 'workspace_history'] },
     requiresClarification: { type: Type.BOOLEAN },
     clarificationQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
     requiresPreview: { type: Type.BOOLEAN },
