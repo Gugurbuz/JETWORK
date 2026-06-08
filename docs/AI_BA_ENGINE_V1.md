@@ -13,6 +13,7 @@ Bu sprintin hedefi JetWork sohbet hattını daha kararlı bir AI BA Assistant da
 - `src/modules/ai-ba-engine` BA keşif checklist'i ekler.
 - Intent classifier artık sadece kategori seçmez; kritik BA bağlamı eksikse bunu sınıflandırmanın içine işler.
 - Kullanıcı soru kartlarına cevap veriyorsa bu cevap yeni analiz girdisi kabul edilir.
+- Dışa aktarma, paylaşma ve benzeri workflow komutları BA keşif sorusuna çevrilmez.
 
 ## Faz 3 - Soru-cevap sistemi
 
@@ -59,6 +60,8 @@ npm run build
 
 - Belirsiz talepte kritik BA keşif soruları üretilir.
 - "Devam / taslak oluştur" sinyali yeni soru sormayı durdurur.
+- Test, flow, API ve review odakları yanlışlıkla genel BA taslağına indirgenmez.
+- Workflow / dışa aktarma komutları BA keşif döngüsüne sokulmaz.
 - Soru kartı cevabı analiz girdisi olarak algılanır.
 - Kalite Kapısı v2 çok boyutlu puan üretir.
 - Review kalite bloğu tekrar çalıştırıldığında tek kopya kalır.
