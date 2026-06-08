@@ -122,12 +122,12 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-theme-bg/80">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 bg-theme-bg/80 sm:items-center">
       <motion.div 
         initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98, y: 10 }}
-        className="bg-theme-surface shadow-2xl w-full max-w-lg overflow-hidden border border-theme-border rounded-xl"
+        className="bg-theme-surface shadow-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto border border-theme-border rounded-xl"
       >
         <div className="flex items-center justify-between p-6 border-b border-theme-border bg-theme-surface">
           <h2 className="text-lg font-semibold text-theme-text flex items-center gap-2 tracking-tight">
@@ -293,7 +293,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
             </div>
           </div>
 
-          <div className="pt-4 border-t border-theme-border flex justify-end gap-3">
+          <div className="sticky bottom-0 -mx-8 -mb-8 mt-2 flex justify-end gap-3 border-t border-theme-border bg-theme-surface px-8 py-4">
             <button
               type="button"
               onClick={onClose}
