@@ -31,6 +31,7 @@ Bu sprintin hedefi JetWork sohbet hattını daha kararlı bir AI BA Assistant da
 - Her doküman üretiminden sonra `AI BA Engine v1 Kalite Raporu` Review sekmesine yazılır.
 - Rapor bölüm bazlı puan verir: keşif/bağlam, kapsam/süreç, gereksinim kalitesi, veri/entegrasyon, NFR/risk, kullanılabilirlik/mesajlar, doküman formatı.
 - Eksik keşif alanları ve öncelikli iyileştirmeler görünür hale gelir.
+- Review kalite blokları işaretli yazıldığı için sonraki güncellemelerde tekrar tekrar birikmez; mevcut blok yenilenir.
 
 ## Faz 6 - BA Assistant UX
 
@@ -44,9 +45,37 @@ Bu sprintin hedefi JetWork sohbet hattını daha kararlı bir AI BA Assistant da
 - `src/services/ai/intentClassifier.ts`: yeni BA keşif bağlamı ve görünür sekme normalizasyonu.
 - `src/services/ai/discoveryPolicy.ts`: soru bütçesi, cevap algılama ve varsayımla üretim sinyalleri.
 - `src/services/documentPostProcessor.ts`: Review içine bölüm bazlı kalite raporu ekleme.
+- `scripts/verify-ai-ba-engine.ts`: deterministik BA motor doğrulama senaryoları.
+
+## Doğrulama Komutları
+
+```bash
+npm run verify:ai-ba-engine
+npm run lint
+npm run build
+```
+
+`verify:ai-ba-engine` şu davranışları model çağırmadan kontrol eder:
+
+- Belirsiz talepte kritik BA keşif soruları üretilir.
+- "Devam / taslak oluştur" sinyali yeni soru sormayı durdurur.
+- Soru kartı cevabı analiz girdisi olarak algılanır.
+- Kalite Kapısı v2 çok boyutlu puan üretir.
+- Review kalite bloğu tekrar çalıştırıldığında tek kopya kalır.
+
+## Tarayıcı Kontrol Notu
+
+2026-06-08 sabahı production URL üzerinde Chrome ile kontrol edildi:
+
+- `https://jetwork.vercel.app/` açıldı.
+- `Misafir Olarak Devam Et` tıklandı.
+- Profil tamamlama ekranı geldi.
+- Profil tamamlanınca `Projelerim / Yeni Proje` ana ekranına geçildi.
+
+PR preview URL'si Vercel login korumasına düştüğü için yeni AI BA Engine davranışı production'a merge edilmeden canlı sohbet ekranında uçtan uca test edilemedi.
 
 ## Kalan Teknik Riskler
 
 - Eski zero-touch ve agent loop kodlarında `code/test/bpmn` alanları geriye dönük uyumluluk için hala bulunuyor.
-- Gerçek model davranışı üretim ortamında farklılaşabilir; Vercel build ve manuel sohbet senaryosu ile doğrulanmalı.
+- Gerçek model davranışı üretim ortamında farklılaşabilir; PR merge sonrası production sohbet senaryosu ile doğrulanmalı.
 - Soru seçenekleri classifier tarafında metin tabanlıdır; bir sonraki sprintte doğrudan kart seçenekleri olarak taşınabilir.
