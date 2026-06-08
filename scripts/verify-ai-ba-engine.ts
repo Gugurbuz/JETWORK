@@ -8,6 +8,7 @@ import {
   isLikelyBaDiscoveryAnswer,
   replaceBaEngineReviewBlock,
 } from '../src/modules/ai-ba-engine';
+import { buildClassification, normalizeBaClassifierOutput } from '../src/services/ai/intentClassifier';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -42,6 +43,35 @@ const forceDecision = decideBaDiscovery({
   forceGenerate: true,
 });
 assert(!forceDecision.shouldAsk, 'Force-generate signal should stop new questions');
+
+const testIntent = normalizeBaClassifierOutput(
+  { userMessage: 'Bu kapsam için UAT test senaryolarını oluştur.', document: null, model: 'test-model' },
+  buildClassification('generate_test_cases', { reason: 'test_case_request' }),
+);
+assert(testIntent.subIntent === 'generate_test_cases', 'Force-draft should preserve test generation subIntent');
+assert(testIntent.baAgentFocus === 'test', 'Force-draft should preserve test focus');
+assert(testIntent.targetSection === 'businessAnalysis', 'Focused test output should land in visible BA tab');
+
+const flowIntent = normalizeBaClassifierOutput(
+  { userMessage: 'Süreç akışını Mermaid olarak hazırla.', document: null, model: 'test-model' },
+  buildClassification('generate_flow_diagram', { reason: 'flow_request' }),
+);
+assert(flowIntent.subIntent === 'generate_flow_diagram', 'Force-draft should preserve flow generation subIntent');
+assert(flowIntent.baAgentFocus === 'flow', 'Force-draft should preserve flow focus');
+
+const apiIntent = normalizeBaClassifierOutput(
+  { userMessage: 'API kontratını ve entegrasyon analizini yaz.', document: null, model: 'test-model' },
+  buildClassification('generate_api_contract', { reason: 'api_request' }),
+);
+assert(apiIntent.subIntent === 'generate_api_contract', 'Force-draft should preserve API generation subIntent');
+assert(apiIntent.baAgentFocus === 'technical_analysis', 'Force-draft should preserve technical focus');
+
+const reviewIntent = normalizeBaClassifierOutput(
+  { userMessage: 'Riskleri ve review raporunu hazırla.', document: null, model: 'test-model' },
+  buildClassification('generate_review_report', { reason: 'review_request' }),
+);
+assert(reviewIntent.targetSection === 'review', 'Review focused output should land in visible Review tab');
+assert(reviewIntent.baAgentFocus === 'review', 'Review focus should be preserved');
 
 const answerText = '**Soru 1:** Kapsam nedir?\n**Cevap:** İlk sürümde talep oluşturma, onay ve raporlama olacak.';
 assert(isLikelyBaDiscoveryAnswer(answerText), 'Structured question answer should be detected');
