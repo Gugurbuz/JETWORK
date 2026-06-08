@@ -7,6 +7,11 @@ import {
 } from '../src/modules/deep-ba-assistant';
 import { buildClassification, normalizeBaClassifierOutput } from '../src/services/ai/intentClassifier';
 import {
+  applyBehaviorDecisionToClassification,
+  buildBehaviorDecision,
+  buildDomainQuestions,
+} from '../src/services/ai/behaviorDecision';
+import {
   CONCEPTUAL_TEMPLATE_PROMPT,
   conceptualTemplateCoverage,
   ensureConceptualTemplateStructure,
@@ -22,6 +27,7 @@ function assertIncludes(value: string, needle: string, message: string): void {
 }
 
 const sapIysRequest = 'sap crm iys entegrasyonu ba analiz kavramsal tasarim dokumani';
+const shortSapIysRequest = 'sap crm iys entegrasyonu';
 const assumptionFollowUp = 'sap crm iys entegrasyonu\nVarsayımlarla ilerle. Eksik bilgileri tahmini olarak doldur.';
 
 assert(shouldUseDeepBaAssistant(sapIysRequest), 'SAP CRM + IYS request should activate deep BA mode');
@@ -41,6 +47,47 @@ assertIncludes(actInstructions, 'MESAJ', 'Deep instructions should include IYS c
 assertIncludes(actInstructions, 'EPOSTA', 'Deep instructions should include e-mail consent channel');
 assertIncludes(actInstructions, 'ARAMA', 'Deep instructions should include call consent channel');
 assertIncludes(actInstructions, 'recipient', 'Deep instructions should include API recipient concept');
+
+const sapDomainQuestions = buildDomainQuestions('sap_crm_iys');
+assert(sapDomainQuestions.length >= 4, 'SAP IYS behavior profile should expose at least 4 domain questions');
+assert(sapDomainQuestions.some((item) => /marka/i.test(item)), 'SAP IYS domain questions should ask about brand code structure');
+assert(sapDomainQuestions.some((item) => /Initial load/i.test(item)), 'SAP IYS domain questions should ask about initial load and delta scope');
+
+const shortBehavior = buildBehaviorDecision({
+  userMessage: shortSapIysRequest,
+  document: null,
+  discoveryReadiness: 20,
+  classification: buildClassification('generate_integration_analysis', {
+    confidence: 0.65,
+    reason: 'short_sap_iys',
+  }),
+});
+assert(shortBehavior.mode === 'ask_clarifying_questions', 'Short SAP IYS request should enter discovery question mode');
+assert(shortBehavior.domain === 'sap_crm_iys', 'Short SAP IYS request should detect sap_crm_iys domain');
+assert(shortBehavior.requiredTemplate === 'corporate_conceptual_design', 'Short SAP IYS request should still bind to corporate template');
+assert(shortBehavior.clarificationQuestions.some((item) => /İYS izin kapsamı/i.test(item)), 'Behavior questions should be domain-specific');
+
+const forcedBehavior = buildBehaviorDecision({
+  userMessage: assumptionFollowUp,
+  document: null,
+  discoveryReadiness: 20,
+  classification: buildClassification('generate_integration_analysis', {
+    confidence: 0.65,
+    reason: 'sap_iys_assumption_followup',
+  }),
+});
+assert(forcedBehavior.mode === 'draft_with_assumptions', 'Assumption follow-up should enter draft-with-assumptions mode');
+assert(!forcedBehavior.shouldAskQuestions, 'Assumption follow-up should suppress more questions');
+assert(forcedBehavior.shouldUpdateDocument, 'Assumption follow-up should update the document');
+const forcedClassification = applyBehaviorDecisionToClassification(
+  buildClassification('generate_integration_analysis', { reason: 'sap_iys_assumption_followup' }),
+  forcedBehavior,
+  null,
+);
+assert(forcedClassification.shouldRunBaAgentLoop, 'Behavior-adjusted classification should run BA loop');
+assert(!forcedClassification.requiresClarification, 'Behavior-adjusted classification should not require clarification');
+assert(forcedClassification.documentImpact === 'updates_document', 'Behavior-adjusted classification should update the document');
+assert(forcedClassification.targetSection === 'businessAnalysis', 'Behavior-adjusted classification should target BA Analiz');
 
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'KAVRAMSAL TASARIM RAPORU', 'Corporate prompt should require the report title');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KİMLİK KARTI', 'Corporate prompt should require project identity card');
@@ -83,10 +130,10 @@ assert(generated.shouldRunBaAgentLoop, 'Assumption follow-up should run BA agent
 assert(!generated.requiresClarification, 'Assumption follow-up should not ask more questions');
 assert(generated.requiresResearch, 'Assumption follow-up should preserve research need');
 assert(generated.researchType === 'web', 'Assumption follow-up should route research to web grounding');
-assert(/deep_ba_assistant_v2/.test(generated.reason), 'Assumption follow-up should mark deep BA mode');
+assert(/behavior:force_draft_with_assumptions/.test(generated.reason), 'Assumption follow-up should mark behavior draft mode');
 
 const question = normalizeBaClassifierOutput(
-  { userMessage: 'sap crm iys entegrasyonu', document: null, model: 'test-model' },
+  { userMessage: shortSapIysRequest, document: null, model: 'test-model' },
   buildClassification('generate_integration_analysis', {
     confidence: 0.4,
     requiresClarification: true,
@@ -97,6 +144,7 @@ const question = normalizeBaClassifierOutput(
 assert(question.requiresClarification, 'Short SAP IYS request should ask contextual questions first');
 assert((question.clarificationQuestions || []).some((item) => /İYS izin kapsamı/.test(item)), 'Contextual questions should include IYS channel scope');
 assert((question.clarificationQuestions || []).some((item) => /Seçenekler:/.test(item)), 'Classifier questions should carry quick options');
+assert(/behavior:short_domain_discovery/.test(question.reason), 'Short SAP IYS request should mark behavior discovery mode');
 
 const parsed = parseClassifierQuestion('İYS izin kapsamı nedir?\nSeçenekler: Tüm kanallar | Sadece SMS | Varsayımla ilerle', 0);
 assert(parsed.options.length === 3, 'Classifier question parser should preserve options');
