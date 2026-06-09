@@ -8,12 +8,16 @@ Bu sprintin hedefi JetWork sohbetini basit soru-cevap taslagindan, kaynakli ve k
 - Kullanici "varsayimlarla ilerle", "devam et", "daha fazla soru sorma" dediginde yeni soru sormaz; eksikleri `[VARSAYIM]` ve `Açık Sorular` olarak dokumana tasir.
 - Teknik analiz, test ve akis detaylarini eski gizli `code/test/bpmn` bolumlerine zorlamaz; gorunur `BA Analiz` dokumani icinde alt baslik olarak yazar.
 - Review sekmesinde kaynak/dogrulama ozeti, riskler, acik kararlar ve kalite kapisi notu uretir.
+- Mevzuat/API konularinda Review icinde `DOGRULANDI / VARSAYIM / ACIK KONU` ayrimini ve kaynak-dogrulama matrisini zorunlu tutar.
+- Chat mesajinda "Ne yaptim?" ozeti verir; sag panel kalite puani puanin neden yuksek/dusuk oldugunu aciklar.
+- Dokuman uretildikten sonra hizli aksiyonlar sunar: `Eksikleri tamamla`, `Word formatina duzelt`, `Review'daki acik konulari kapat`.
 
 ## SAP CRM - IYS Referans Senaryosu
 
 `sap crm iys entegrasyonu ba analiz kavramsal tasarim dokumani` talebinde derin mod su konu basliklarini zorunlu kontrol listesine alir:
 
 - IYS onay/ret bildirimi ve 3 is gunu aktarim kuralinin kaynakla dogrulanmasi
+- Resmi/guvenilir kaynak ayrimi: IYS resmi kaynaklari, mevzuat.gov.tr, TOBB/Ticaret Bakanligi referanslari onceliklidir
 - Kanal bazli izin modeli: `MESAJ/SMS`, `EPOSTA`, `ARAMA`
 - API/kavramsal alanlar: `recipient`, `recipientType`, `source`, `consentDate`, `status`
 - Marka kodu, alici tipi, initial load, gunluk delta/mutabakat
@@ -41,6 +45,7 @@ npm run build
 
 - SAP CRM + IYS talebi derin BA modunu aciyor.
 - Arastirma sorgulari 3 is gunu ve IYS API alanlarini kapsiyor.
+- Resmi kaynak oncelikli arastirma sorgulari ve Review kaynak matrisi zorunlu talimat olarak uretiliyor.
 - Zorunlu taslak akisi yeni soru sormadan BA agent loop'a gidiyor.
 - Kisa SAP CRM + IYS talebinde genel sorular yerine konuya ozel IYS kanal/marka/middleware sorulari geliyor.
 - Soru secenekleri arayuz kartlarina kaybolmadan tasinabiliyor.
