@@ -32,6 +32,23 @@ const hasHeadingLikeContent = (raw = ''): boolean => (
   /(^|\n)\s*\d+(\.\d+)*\s+[^\n]+/.test(raw)
 );
 
+const hasSourceVerificationMatrix = (text = ''): boolean => (
+  hasAny(text, [/kaynak/i, /kan[ıi]t/i, /dogrula/i, /do[ğg]rula/i])
+  && hasAny(text, [/DOGRULANDI/i, /DO[ĞG]RULANDI/i, /dogruland/i, /do[ğg]ruland/i])
+  && hasAny(text, [/VARSAYIM/i, /varsay[ıi]m/i])
+  && hasAny(text, [/ACIK KONU/i, /A[ÇC]IK KONU/i, /a[çc][ıi]k konu/i])
+);
+
+const buildQualityReason = (score: number, canPublish: boolean, missingSections: string[], warnings: string[]): string => {
+  const band = score >= 90 ? 'Yuksek' : score >= 70 ? 'Orta' : 'Dusuk';
+  const missing = missingSections.slice(0, 5).join(', ') || 'kritik eksik yok';
+  const warningText = warnings.slice(0, 2).join(' ') || 'Uyari yok.';
+  const action = missingSections.length
+    ? `Once su alanlari tamamla: ${missing}.`
+    : 'Dokuman paylasilabilir; sonraki adim Review notlarini kapatmak.';
+  return `Kalite puani ${score}/100 (${band}): ${canPublish ? 'taslak olarak gosterilebilir' : 'revizyon gerekli'}. Puanin nedeni: ${missing}. ${warningText} ${action}`;
+};
+
 export function evaluateDocumentQualityGate(document: DocumentData | null | undefined): DocumentQualityGateResult {
   if (!document) {
     return {
@@ -49,6 +66,7 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
   const review = sectionText(document.review);
   const all = `${ba}\n${review}`;
   const templateCoverage = conceptualTemplateCoverage(baRaw);
+  const sourceSensitive = hasAny(all, [/iys/i, /i[\. ]?y[\. ]?s/i, /mevzuat/i, /kanun/i, /api/i, /oauth/i, /entegrasyon/i]);
 
   const missingSections: string[] = [];
   const warnings: string[] = [];
@@ -119,6 +137,12 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
       penalty: 6,
     },
     {
+      ok: !sourceSensitive || hasSourceVerificationMatrix(all),
+      label: 'Kaynak ve dogrulama ayrimi',
+      penalty: 10,
+      warning: 'Mevzuat/API iceren dokumanda dogrulandi, varsayim ve acik konu ayrimi net degil.',
+    },
+    {
       ok: hasTableLikeContent(baRaw) || hasTableLikeContent(reviewRaw),
       label: 'Tablo kullanımı',
       penalty: 8,
@@ -140,9 +164,7 @@ export function evaluateDocumentQualityGate(document: DocumentData | null | unde
   return {
     canPublishToPanel,
     score,
-    reason: canPublishToPanel
-      ? 'BA analiz dokümanı sağ panelde taslak olarak gösterilebilir seviyede.'
-      : `BA analiz dokümanı yüzeysel. Eksik/zayıf alanlar: ${missingSections.join(', ')}.`,
+    reason: buildQualityReason(score, canPublishToPanel, missingSections, warnings),
     missingSections,
     warnings,
   };
