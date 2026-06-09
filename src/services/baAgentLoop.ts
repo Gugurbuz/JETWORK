@@ -170,60 +170,61 @@ const briefDocumentSummary = (doc: DocumentData | null): string => {
 };
 
 const CONCEPTUAL_DESIGN_DEPTH_STANDARD = `
-[6] KAVRAMSAL TASARIM / İŞ ANALİZİ DERİNLİK STANDARDI
-Bu bölüm JetWork AI'ın ana çalışma standardıdır. Ayrı bir buton, ayrı yan pipeline veya ayrı doküman motoru çalıştırma; aynı sohbet orkestrasyonu içinde document alanını üret/güncelle.
+[6] KAVRAMSAL TASARIM / WORD SABLONU DERINLIK STANDARDI
+Bu bolum JetWork AI'in ana dokuman standardidir. Ayrı bir pipeline calistirma; ayni sohbet orkestrasyonu icinde document.businessAnalysis ve document.review alanlarini uret/guncelle.
 
-Kullanıcı kavramsal tasarım, iş analizi, gereksinim, süreç modeli, ekran analizi, toast/validasyon, BPMN, doküman yönetimi, entegrasyon veya Word dokümanı istiyorsa aşağıdaki derinlikte çalış:
+A) businessAnalysis.content zorunlu Word yapisi:
+1. KAVRAMSAL TASARIM RAPORU
+2. PROJE KIMLIK KARTI
+   - Proje Ismi, Musteri Ismi, Proje Yoneticisi, Kapsam Yoneticisi, Is Uygulamalari Sorumlusu, IT Sorumlusu, Cozum Mimari.
+3. Amac
+4. Dokuman Tarihcesi
+   - Katilimcilar tablosu en az 6 rol: Proje Yoneticisi, Kapsam Yoneticisi, Is Uygulamalari, Veri Yonetimi, IT, Danisman/Cozum Mimari.
+   - Revize tarih tablosu: Tarih, Versiyon, Dokuman Revizyon Aciklamasi, Yazan.
+   - Kontrol EDEN VE ONAYLAYAN tablosu en az 6 satir: isim bilinmiyorsa [ACIK KONU].
+5. ICINDEKILER
+   - SUREC TASARIMI
+   - Her surec icin: SUREC MODELI - N "<surec adi>"
+   - EK A
+6. SUREC TASARIMI
+   - Projenin is kapsami, hedef sistemler, kanallar, aktorler, ana varsayimlar, kapsam disi ve kritik kararlar.
+7. SUREC MODELI bloklari
+   - Entegrasyon, CRM, SAP, IYS, dokuman yonetimi veya dijital sozlesme projelerinde en az 3 surec modeli uret.
+   - Genel kavramsal tasarimlarda en az 2 surec modeli uret.
+   - SAP CRM - IYS icin zorunlu adaylar: CRM'den IYS'ye izin aktarimi; IYS'den CRM'e gunluk delta/mutabakat; hata/retry/operasyon izleme ve raporlama.
+8. EK A
+   - ILGILI / REFERANS DOKUMANLAR tablosu.
+   - EKLENTI tablosu.
 
-A) businessAnalysis.content şu yapıyı mümkün olduğunca doldurmalı:
-1. Proje Kimlik Kartı
-   - Proje adı, talep no, kapsam yöneticisi, proje yöneticisi, uygulama sorumlusu, paydaşlar.
-2. Katılımcılar ve Roller
-   - Rol, isim varsa isim, sorumluluk ve karar/yetki kapsamı.
-3. Amaç ve İş Değeri
-   - Projenin neden yapıldığı, hangi operasyonel problemi çözdüğü, beklenen faydalar.
-4. Kapsam ve Kapsam Dışı
-   - Kullanıcının verdiği bilgiye göre kapsamı yaz; belirsizleri [VARSAYIM] olarak işaretle.
-5. Süreç Modelleri
-   - Her süreç için: amaç, aktörler, tetikleyici, giriş/çıkış koşulları, iş kuralları, ekranlar, dokümanlar, entegrasyonlar, hata durumları.
-   - P0-P8 gibi ifadeleri kalıcı ürün kuralı gibi yazma. Bunlar yalnızca mevcut örnek/MVP kodu olabilir; ürün dinamik süreç sayısını desteklemelidir.
-6. İş Gerekleri ve Gereksinimler
-   - Tekrarlı yazma. Gereksinimleri kodla: BR, FR, NFR, UI, INT, DOC, RPT, SEC, PERF.
-   - Her gereksinimde: kod, açıklama, öncelik, kabul kriteri, ilgili ekran/süreç, veri kaynağı.
-7. KPI ve Ölçümleme
-   - Her süreç için en az: ilerleme oranı, açık görev sayısı, eksik doküman sayısı, gecikme göstergesi.
-   - KPI formülü, veri kaynağı, hedef değer ve raporlama yeri yaz.
-8. Kullanıcı Mesajları / Toast / Validasyon / Modal Standardı
-   - Success, error, warning, info toast örnekleri.
-   - Inline validasyon mesajları.
-   - Bloklayıcı modal örnekleri.
-   - Hangi durumda mesajın gösterileceğini yaz.
-9. Doküman Yönetimi
-   - Zorunlu/opsiyonel dokümanlar, dosya türleri, versiyonlama, FileNet/harici saklama, audit ve hata yönetimi.
-10. Bildirim Yönetimi
-   - Uygulama içi bildirim, e-posta, hatırlatma, okundu bilgisi, rol bazlı alıcı kuralları.
-11. Yetki ve Güvenlik
-   - Rol bazlı menü/işlem yetkisi, sadece görüntüleme, admin yetkileri, audit log, oturum kuralları.
-12. Açık Konular ve Varsayımlar
-   - Emin olmadığın her noktayı review yerine de yansıt.
+B) Her SUREC MODELI blogunda ayni sira korunur:
+- SUREC MODELI - N "<surec adi>"
+- Surec Modeli - N
+- Bu proje ile birlikte;
+- Ust Duzey Surec Aciklamasi
+- Surec degisiklikleri
+- Is Gerekleri ve KPIs
+- Detayli Surec Akisi / Akis Diyagrami
+- Detayli Surec Akisi
+- Akis Diyagrami
+- Ilgili Surecler
+- Ust Duzey Musteri Gelistirmesi
+- Onemli Uyarlamalar ve Amaclari
+- Degisim Yonetimi
 
-B) Teknik analiz ayrı bir gizli sekmeye değil businessAnalysis.content içine yazılmalı:
-- Modül mimarisi, veri modeli, entity ilişkileri, API/servis ihtiyaçları, entegrasyonlar, FileNet/SAP/Azure AD gibi sistemlerle veri alışverişi, hata/retry/audit stratejisi, güvenlik ve performans notları BA Analiz içinde alt başlık olmalı.
+C) Dolu uretim kurallari:
+- Is Gerekleri ve KPIs tablosu toplam en az 10 satir hedefler. Kod aileleri birlikte kullanilir: BR, FR, INT, NFR, UI, RPT, SEC, KPI, TEST, OPS.
+- Her gereksinimde kod, aciklama, oncelik, kabul kriteri, ilgili surec/ekran, veri kaynagi veya entegrasyon etkisi yaz.
+- KPI satirlari en az 5 olmalidir: basari orani, gecikme, hata orani, mutabakat farki, manuel is yuku, raporlama SLA gibi olcumler.
+- Ust Duzey Musteri Gelistirmesi tablosu en az 4 satir olmalidir: Arayuz, Program/Servis, Rapor, Is Akisi, Userexit/BAdI veya Entegrasyon.
+- Onemli Uyarlamalar bolumunde parametre tablolari, validasyonlar, yetki, loglama, retry, raporlama, bildirim ve operasyonel izleme amaclari yazilir.
+- Degisim Yonetimi bolumunde egitim, UAT, pilot/canli gecis, operasyon devri, rollback ve iletisim plani bulunur.
+- Belirsiz veri varsa bolum atlanmaz; deger [VARSAYIM] veya [ACIK KONU] olarak yazilir.
 
-C) Test/kabul paketi businessAnalysis.content içinde olmalı:
-- UAT senaryoları, pozitif/negatif testler, yetki testleri, entegrasyon hata testleri, doküman yükleme ve validasyon testleri BA Analiz içinde alt başlık olmalı.
-
-D) review.content kalite raporu olmalı:
-- Talep karşılanma kontrolü, eksik bilgiler, riskler, tekrar eden gereksinimler, açık sorular, sonraki aksiyonlar.
-
-E) Süreç akışları businessAnalysis.content içinde olmalı:
-- BPMN XML üretmeye zorlama. Gerekirse Mermaid veya metinsel süreç akışı BA Analiz içinde alt başlık olarak yaz; Review içinde risk/eksik kararları belirt.
-
-F) Derinlik kuralı:
-- Chat mesajı kısa özet olmalı; detaylar document alanına yazılmalı.
-- Eğer kullanıcı "oluştur", "hazırla", "dokümana işle", "devam et", "varsayımlarla ilerle" diyorsa yeni soru sormadan taslak üret.
-- Eksik bilgileri bahane edip boş doküman bırakma; varsayımları açıkça işaretle.
-- Her bölümde yalnızca 200 karakterlik yüzeysel içerik yeterli değildir. İş analizi üretiminde her ana bölüm karar verilebilir seviyede detaylandırılmalıdır.
+D) Gorunur dokuman ilkesi:
+- Teknik analiz, test, surec akisi ve entegrasyon detaylari ayri gizli sekmelere zorlanmaz; businessAnalysis.content icinde ilgili Word bloklarina yedirilir.
+- review.content kalite raporudur: riskler, acik konular, varsayimlar, kaynak/dogrulama notu, kalite kapisi ve sonraki aksiyonlari yazar.
+- Chat mesaji kisa ozet olur; asil detay document alanindadir.
+- Kullanici "olustur", "hazirla", "devam et", "varsayimlarla ilerle", "daha fazla soru sorma" diyorsa yeni soru sormadan taslak uret.
 `.trim();
 
 function buildFallbackPlan(userMessage: string): PlanOutput {
@@ -232,7 +233,7 @@ function buildFallbackPlan(userMessage: string): PlanOutput {
     assumptions: [],
     needsWebSearch: false,
     searchQueries: [],
-    documentGapsToCheck: ['Süreçler', 'Gereksinimler', 'KPI', 'Kullanıcı mesajları', 'Entegrasyonlar', 'Doküman yönetimi'],
+    documentGapsToCheck: ['Word şablonu', 'Süreç modeli blokları', 'İş Gerekleri ve KPIs', 'Uyarlamalar', 'Değişim yönetimi', 'Onay tabloları', 'EK A'],
     clarificationsNeeded: [],
   };
 }
