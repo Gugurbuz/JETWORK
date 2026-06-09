@@ -8,6 +8,13 @@ export interface DeepBaResearchPlan {
   documentGapsToCheck: string[];
 }
 
+export interface SourceVerificationPolicy {
+  requiresSourceSeparation: boolean;
+  preferredSources: string[];
+  statusLabels: ['DOGRULANDI', 'VARSAYIM', 'ACIK KONU'];
+  reviewMatrixColumns: string[];
+}
+
 const TOPIC_RESEARCH_TRIGGERS = [
   /sap/i,
   /\bcrm\b/i,
@@ -36,6 +43,32 @@ const FORCE_DRAFT_TRIGGERS = [
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+export function buildSourceVerificationPolicy(userMessage = ''): SourceVerificationPolicy {
+  const text = userMessage.trim();
+  const isIys = /iys|i[\. ]?y[\. ]?s|ileti y/i.test(text);
+  const isRegulatoryOrApi = isIys || /mevzuat|yonetmelik|kanun|uyum|api|entegrasyon|oauth/i.test(text);
+  const preferredSources = isIys
+    ? [
+        'IYS resmi web sitesi ve yardim/SSS sayfalari',
+        'IYS API dokumantasyonu veya lisans kosullari',
+        'mevzuat.gov.tr uzerindeki 6563 sayili Kanun ve ilgili yonetmelik',
+        'TOBB veya Ticaret Bakanligi gibi kamu/kurumsal duyurular',
+      ]
+    : [
+        'Resmi kurum veya urun dokumantasyonu',
+        'Mevzuat/kamu kaynaklari',
+        'Uretici API dokumantasyonu',
+        'Guvenilir sektor referanslari',
+      ];
+
+  return {
+    requiresSourceSeparation: isRegulatoryOrApi,
+    preferredSources,
+    statusLabels: ['DOGRULANDI', 'VARSAYIM', 'ACIK KONU'],
+    reviewMatrixColumns: ['Konu', 'Durum', 'Kaynak / Kanit', 'Dokumandaki Kullanim', 'Not'],
+  };
 }
 
 export function shouldUseDeepBaAssistant(userMessage = ''): boolean {
@@ -68,9 +101,10 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
   ];
 
   const iysQueries = [
-    'IYS onay ret bildirimi 3 is gunu resmi kaynak',
-    'IYS API dokumantasyonu MESAJ EPOSTA ARAMA recipient recipientType source',
-    'SAP CRM IYS entegrasyonu izin yonetimi best practice',
+    'site:iys.org.tr IYS onay ret bildirimi 3 is gunu',
+    'site:mevzuat.gov.tr 6563 ticari elektronik ileti onay ret IYS',
+    'site:iys.org.tr IYS API recipient recipientType source MESAJ EPOSTA ARAMA',
+    'TOBB IYS ileti yonetim sistemi resmi kaynak',
   ];
 
   return {
@@ -82,6 +116,7 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
     assumptions: [
       'Eksik is bilgileri [VARSAYIM] etiketiyle ayrilacak.',
       'Kaynakla dogrulanamayan mevzuat veya API detayi kesin hukum gibi yazilmayacak.',
+      'Review bolumunde mevzuat/API iddialari DOGRULANDI / VARSAYIM / ACIK KONU olarak ayrilacak.',
       'Teknik, test ve akis detaylari ayri gizli sekmelere degil BA Analiz ve Review icine gomulecek.',
     ],
     documentGapsToCheck: [
@@ -94,17 +129,20 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
       'Ekran, validasyon, bildirim ve raporlama ihtiyaclari',
       'UAT ve kabul kriterleri',
       'Riskler, varsayimlar ve acik sorular',
+      'Kaynak ve dogrulama matrisi',
     ],
   };
 }
 
 export function buildDeepBaActInstructions(userMessage = ''): string {
+  const sourcePolicy = buildSourceVerificationPolicy(userMessage);
   const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   const sapIysAddendum = isSapIys
     ? `
 - SAP CRM <-> IYS baglaminda su alanlari ozellikle isle: 6563 uyum amaci, onay/ret yonetimi, ret sonrasi ticari ileti durdurma, 3 is gunu aktarim kuralini kaynak varsa dogrulanmis olarak; kaynak yoksa [DOGRULAMA GEREKIR] notuyla.
 - Kanal bazli izin modelini kavramsal seviyede yaz: MESAJ/SMS, EPOSTA, ARAMA; recipient, recipientType, source, consentDate/status, marka kodu ve alici tipi.
 - Surecleri ayir: CRM'den IYS'ye izin aktarimi, IYS'den CRM'e delta/mutabakat, initial load, hata/retry/kuyruk, veri temizligi ve operasyonel raporlama.
+- Resmi kaynak bulunmadan 3 is gunu, API alanlari, kanal degerleri, rate limit veya yasal sure gibi maddeleri DOGRULANDI diye isaretleme.
 `.trim()
     : '';
 
@@ -135,7 +173,10 @@ businessAnalysis.content su omurgayi mumkun oldugunca doldurur:
 15. Varsayimlar ve acik konular
 
 review.content su omurgayi doldurur:
-- Kaynak/dogrulama ozeti
+- Kaynak ve Dogrulama Matrisi: | Konu | Durum | Kaynak / Kanit | Dokumandaki Kullanim | Not |
+- Dogrulandi: kaynakla desteklenen mevzuat/API/standart maddeleri
+- Varsayimlar: is veya teknik karara dayali ama henuz teyit edilmemis maddeler
+- Acik Konular: kullanici, kurum, tedarikci veya resmi dokumanla netlesmesi gereken maddeler
 - Risk listesi ve etki/olasilik notlari
 - Netlestirilmesi gereken kararlar
 - Kalite kapisi notu
@@ -147,6 +188,9 @@ Davranis kurallari:
 - Kaynak arastirmasi yapildiysa hangi alanlarin kaynakla desteklendigini chat mesajinda kisa belirt.
 - Kaynak bulunamazsa mevzuat/API maddelerini kesin hukum gibi yazma; [DOGRULAMA GEREKIR] etiketi kullan.
 - Ornek, varsayim ve acik sorulari birbirine karistirma.
+- Review'da durum etiketi sadece su uc degerden biri olsun: ${sourcePolicy.statusLabels.join(' / ')}.
+- Resmi kaynak veya guvenilir referans kullanildiysa "Kaynak / Kanit" alanina kaynak adini ya da URL basligini yaz; kaynak yoksa "Kaynak bulunamadi" yaz ve Durum'u ACIK KONU yap.
+- Tercih edilen kaynak turleri: ${sourcePolicy.preferredSources.join('; ')}.
 ${sapIysAddendum}
 `.trim();
 }
