@@ -17,6 +17,11 @@ import { chatResponseJsonSchema } from '../schemas';
 import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE, containsBlockedQuestionDomain } from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
 import { buildDeepBaActInstructions, parseClassifierQuestion } from '../modules/deep-ba-assistant';
+import {
+  applyBehaviorDecisionToClassification,
+  buildBehaviorDecision,
+  type BehaviorDecision,
+} from './ai/behaviorDecision';
 
 // Strip any partial/complete JSON the model may emit before the UI sees it.
 const extractParts = (
@@ -99,6 +104,49 @@ function buildRecentSubject(input: SingleChatInput): string {
     input.history.slice(-6).map((item) => item.parts[0]?.text || '').join('\n'),
     input.userMessage,
   ].filter(Boolean).join('\n');
+}
+
+function buildBehaviorOrchestratorInstruction(decision: BehaviorDecision): string {
+  if (decision.requiredTemplate === 'none') {
+    return `[DAVRANIS KARARI]\n- Mod: ${decision.mode}\n- Domain: ${decision.domain}\n- Dokuman guncelleme: hayir`;
+  }
+
+  const processCount = decision.domain === 'sap_crm_iys' || decision.domain === 'integration_project'
+    ? 3
+    : 2;
+  const domainProcesses = decision.domain === 'sap_crm_iys'
+    ? [
+      'SAP CRM tarafindan IYS ye izin/onay-ret aktarimi',
+      'IYS tarafindan SAP CRM e gunluk delta ve mutabakat',
+      'Hata, retry, operasyon izleme ve raporlama sureci',
+    ]
+    : [
+      'Ana is sureci',
+      'Entegrasyon / veri mutabakat sureci',
+      'Hata, operasyon izleme ve raporlama sureci',
+    ];
+
+  return `
+[DAVRANIS KARARI - ANA YONLENDIRICI]
+- Mod: ${decision.mode}
+- Domain: ${decision.domain}
+- Derinlik: ${decision.depth}
+- Sablon: ${decision.requiredTemplate}
+- Soru sorma: ${decision.shouldAskQuestions ? 'evet' : 'hayir'}
+- Varsayim kullan: ${decision.shouldUseAssumptions ? 'evet, eksikleri [VARSAYIM] ve [ACIK KONU] olarak isaretle' : 'hayir'}
+- Dokuman guncelle: ${decision.shouldUpdateDocument ? 'evet' : 'hayir'}
+
+[WORD SABLONU VE DOKUMAN DERINLIGI - ZORUNLU]
+- businessAnalysis.content ana basligi "KAVRAMSAL TASARIM RAPORU" olmalidir.
+- "BA Analiz Raporu" veya eski genel BRD kapagi ile baslama.
+- En az ${processCount} adet "SÜREÇ MODELİ - N" blogu uret.
+- Bu domain icin surec modeli adaylari: ${domainProcesses.map((item, index) => `${index + 1}) ${item}`).join('; ')}.
+- Her surec modelinde ayni blok sirasi korunur: Süreç Modeli - N, Bu proje ile birlikte;, Üst Düzey Süreç Açıklaması, Süreç değişiklikleri, İş Gerekleri ve KPIs, Detaylı Süreç Akışı / Akış Diyagramı, Detaylı Süreç Akışı, Akış Diyagramı, İlgili Süreçler, Üst Düzey Müşteri Geliştirmesi, Önemli Uyarlamalar ve Amaçları, Değişim Yönetimi.
+- İş Gerekleri ve KPIs tablosu dolu olmalidir: BR, FR, INT, NFR, RPT, SEC ve KPI satirlari birlikte yazilir; toplam en az 10 satir hedeflenir.
+- Üst Düzey Müşteri Geliştirmesi tablosunda en az 4 satir yaz: arayuz, program/servis, rapor, is akisi veya entegrasyon gelistirmeleri.
+- Doküman Tarihçesi altinda Katılımcılar, Revize tarih, Kontrol EDEN VE ONAYLAYAN tablolari bos birakilmaz; bilinmeyen degerler [ACIK KONU] olur.
+- EK A altinda İLGİLİ / REFERANS DOKÜMANLAR ve EKLENTİ tablolari yer alir.
+`.trim();
 }
 
 async function runChatOnly(input: SingleChatInput, classification: IntentClassification): Promise<SingleChatResult> {
@@ -332,7 +380,7 @@ async function runResearchWeb(
 async function runBaLoop(
   input: SingleChatInput,
   classification: IntentClassification,
-  opts: { forceDraft?: boolean } = {}
+  opts: { forceDraft?: boolean; behaviorInstruction?: string } = {}
 ): Promise<SingleChatResult> {
   const focus = classification.baAgentFocus;
   const target = classification.targetSection;
@@ -347,6 +395,7 @@ async function runBaLoop(
           : target
             ? `\n\n[ODAK] Ozellikle "${target}" bolumunu guncelle; diger bolumleri koru.`
             : '';
+  const behaviorHint = opts.behaviorInstruction ? `\n\n${opts.behaviorInstruction}` : '';
 
   const intentOut: SingleChatIntent =
     classification.subIntent === 'generate_test_cases' ? 'generate_tests'
@@ -360,7 +409,7 @@ async function runBaLoop(
     documentContent: input.documentContent,
     knowledgeBase: input.knowledgeBase,
     model: input.model,
-    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}`,
+    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}${behaviorHint}`,
     onPhase: (phase, label) => input.onPhase(phase, label),
     onThinking: input.onThinking,
     onActStream: input.onStream,
@@ -380,6 +429,7 @@ async function runBaLoop(
       const fallbackSystem = `${input.systemInstruction}
 
 ${DRAFT_FIRST_SYSTEM_RULE}
+${behaviorHint}
 
 [ZORUNLU DERIN BA DOKUMAN URETIMI - SON CAGRI]
 Onceki adimda \`document\` alani dolmadi. Simdi SADECE dokumani uretmen gerekiyor.
@@ -593,9 +643,23 @@ const runSingleChatOrchestratorInner = async (
     model: input.model,
   });
 
-  // Short-circuit 2: user explicitly asked to generate, or question budget
-  // is exhausted. Force a draft instead of another question round.
-  if (signals.mustGenerateNow) {
+  const behaviorDecision = buildBehaviorDecision({
+    userMessage: input.userMessage,
+    document: input.documentContent,
+    classification,
+    discoveryReadiness: signals.baDiscoveryReadiness,
+  });
+  classification = applyBehaviorDecisionToClassification(
+    classification,
+    behaviorDecision,
+    input.documentContent,
+  );
+  const behaviorInstruction = buildBehaviorOrchestratorInstruction(behaviorDecision);
+
+  // Short-circuit 2: behavior engine or discovery guard decided the turn must
+  // produce/update a visible document. This is now the main decision point for
+  // draft-first BA work.
+  if (behaviorDecision.shouldUpdateDocument || signals.mustGenerateNow) {
     classification = {
       ...classification,
       primaryIntent: 'analysis_generation',
@@ -613,16 +677,16 @@ const runSingleChatOrchestratorInner = async (
       shouldRunBaAgentLoop: true,
       baAgentFocus: classification.baAgentFocus || 'business_analysis',
       confidence: Math.max(classification.confidence, 0.85),
-      reason: `discovery_guard:${signals.reason}`,
+      reason: `${classification.reason}; orchestrator_behavior:${behaviorDecision.reason}; discovery_guard:${signals.reason}`,
     };
     input.onPhase('ACT', 'Taslak dokümana geçiliyor...');
     return runBaLoop(
       {
         ...input,
-        systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU DERIN BA DOKUMAN URETIMI]\nKullanici "${signals.reason}" sinyali verdi. YENI SORU SORMA. Cevabin chatResponse JSON semasinda olmali ve \`document\` alani ZORUNLU olarak gorunur urun yuzeyindeki bolumleri icermelidir:\n- businessAnalysis: BA Analiz / kavramsal tasarim icerigi. Amac, kapsam, paydaslar, As-Is/To-Be, surecler, BR/FR/NFR/INT/RPT/SEC gereksinimler, veri modeli, entegrasyon mimarisi, ekran/validasyon/bildirim, hata yonetimi, UAT ve kabul kriterleri ayni bolumde karar verilebilir seviyede yazilir.\n- review: kaynak/dogrulama ozeti, riskler, acik sorular, varsayimlar, kalite kapisi ve sonraki aksiyonlar.\n- code/test/bpmn alanlarini zorunlu uretme; teknik, test ve akis detaylarini businessAnalysis icinde alt baslik olarak yaz.\nEksik bilgileri dokuman icinde "[VARSAYIM]" olarak isaretle ve Review > Acik Sorular bolumune ekle. \`questions\` alanini BOS birak.\n\n${buildDeepBaActInstructions(buildRecentSubject(input))}`,
+        systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n${behaviorInstruction}\n\n[ZORUNLU DERIN BA DOKUMAN URETIMI]\nKullanici "${signals.reason || behaviorDecision.reason}" sinyali verdi. YENI SORU SORMA. Cevabin chatResponse JSON semasinda olmali ve \`document\` alani ZORUNLU olarak gorunur urun yuzeyindeki bolumleri icermelidir:\n- businessAnalysis: BA Analiz / kavramsal tasarim icerigi. Amac, kapsam, paydaslar, As-Is/To-Be, surecler, BR/FR/NFR/INT/RPT/SEC gereksinimler, veri modeli, entegrasyon mimarisi, ekran/validasyon/bildirim, hata yonetimi, UAT ve kabul kriterleri ayni bolumde karar verilebilir seviyede yazilir.\n- review: kaynak/dogrulama ozeti, riskler, acik sorular, varsayimlar, kalite kapisi ve sonraki aksiyonlar.\n- code/test/bpmn alanlarini zorunlu uretme; teknik, test ve akis detaylarini businessAnalysis icinde alt baslik olarak yaz.\nEksik bilgileri dokuman icinde "[VARSAYIM]" olarak isaretle ve Review > Acik Sorular bolumune ekle. \`questions\` alanini BOS birak.\n\n${buildDeepBaActInstructions(buildRecentSubject(input))}`,
       },
       classification,
-      { forceDraft: true },
+      { forceDraft: true, behaviorInstruction },
     );
   }
 
@@ -667,7 +731,7 @@ const runSingleChatOrchestratorInner = async (
       // Analysis / document-update paths must ALWAYS end up with a document
       // patch. forceDraft makes a second narrower call if the first attempt
       // returns no `document` field.
-      return runBaLoop(input, classification, { forceDraft: true });
+      return runBaLoop(input, classification, { forceDraft: true, behaviorInstruction });
   }
 };
 
