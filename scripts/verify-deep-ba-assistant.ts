@@ -93,6 +93,8 @@ assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'KAVRAMSAL TASARIM RAPORU', 'Corporat
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KİMLİK KARTI', 'Corporate prompt should require project identity card');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Doküman Tarihçesi', 'Corporate prompt should require document history');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'SÜREÇ MODELİ', 'Corporate prompt should require process model blocks');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'en az 3 adet', 'Corporate prompt should require automatic process multiplication for integrations');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Üst Düzey Müşteri Geliştirmesi', 'Corporate prompt should require development tables');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'EK A', 'Corporate prompt should require appendix A');
 
 const legacyBaDraft = {
@@ -115,8 +117,13 @@ assert(isConceptualTemplateCompliant(templatedContent), 'Post processor fallback
 assertIncludes(templatedContent, 'KAVRAMSAL TASARIM RAPORU', 'Fallback should start from conceptual report title');
 assertIncludes(templatedContent, 'PROJE KİMLİK KARTI', 'Fallback should include project identity card');
 assertIncludes(templatedContent, 'Doküman Tarihçesi', 'Fallback should include document history');
+assertIncludes(templatedContent, 'Kontrol EDEN VE ONAYLAYAN', 'Fallback should include approval table');
 assertIncludes(templatedContent, 'SÜREÇ TASARIMI', 'Fallback should include process design');
+assertIncludes(templatedContent, 'Üst Düzey Müşteri Geliştirmesi', 'Fallback should include development table blocks');
+assertIncludes(templatedContent, 'İLGİLİ / REFERANS DOKÜMANLAR', 'Fallback should include reference documents table');
 assertIncludes(templatedContent, 'EK A', 'Fallback should include appendix A');
+const processModelCount = (templatedContent.match(/SÜREÇ MODELİ - \d+/g) || []).length;
+assert(processModelCount >= 3, 'SAP IYS fallback should create at least 3 process model blocks');
 assert((templatedDocument.businessAnalysis.flags || []).includes('CONCEPTUAL_TEMPLATE_APPLIED'), 'Fallback should mark conceptual template application');
 const coverage = conceptualTemplateCoverage(templatedContent);
 assert(coverage.passed >= coverage.total - 2, 'Fallback template should cover almost all required headings');
