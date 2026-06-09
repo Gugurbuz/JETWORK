@@ -1,6 +1,7 @@
 import {
   buildDeepBaActInstructions,
   buildDeepBaResearchPlan,
+  buildSourceVerificationPolicy,
   parseClassifierQuestion,
   requiresExternalKnowledge,
   shouldUseDeepBaAssistant,
@@ -35,9 +36,18 @@ assert(requiresExternalKnowledge(sapIysRequest), 'SAP CRM + IYS request should r
 
 const researchPlan = buildDeepBaResearchPlan(sapIysRequest);
 assert(researchPlan.enabled, 'Deep BA research plan should be enabled');
+assert(researchPlan.searchQueries.some((query) => /site:iys\.org\.tr/i.test(query)), 'Research queries should prefer official IYS sources');
+assert(researchPlan.searchQueries.some((query) => /site:mevzuat\.gov\.tr/i.test(query)), 'Research queries should prefer official legislation sources');
 assert(researchPlan.searchQueries.some((query) => /3 is gunu/i.test(query)), 'Research queries should cover the 3 business day rule');
 assert(researchPlan.searchQueries.some((query) => /recipient/i.test(query)), 'Research queries should cover IYS API fields');
 assert(researchPlan.documentGapsToCheck.some((gap) => /BR\/FR\/NFR\/INT/i.test(gap)), 'Document gaps should include coded requirements');
+assert(researchPlan.documentGapsToCheck.some((gap) => /dogrulama matrisi/i.test(gap)), 'Document gaps should include source verification matrix');
+
+const sourcePolicy = buildSourceVerificationPolicy(sapIysRequest);
+assert(sourcePolicy.requiresSourceSeparation, 'SAP IYS source policy should require verified/assumption/open-topic separation');
+assert(sourcePolicy.statusLabels.includes('DOGRULANDI'), 'Source policy should include verified status');
+assert(sourcePolicy.statusLabels.includes('VARSAYIM'), 'Source policy should include assumption status');
+assert(sourcePolicy.statusLabels.includes('ACIK KONU'), 'Source policy should include open-topic status');
 
 const actInstructions = buildDeepBaActInstructions(sapIysRequest);
 assertIncludes(actInstructions, 'document.businessAnalysis', 'Deep instructions should target the visible BA document');
@@ -47,6 +57,10 @@ assertIncludes(actInstructions, 'MESAJ', 'Deep instructions should include IYS c
 assertIncludes(actInstructions, 'EPOSTA', 'Deep instructions should include e-mail consent channel');
 assertIncludes(actInstructions, 'ARAMA', 'Deep instructions should include call consent channel');
 assertIncludes(actInstructions, 'recipient', 'Deep instructions should include API recipient concept');
+assertIncludes(actInstructions, 'Kaynak ve Dogrulama Matrisi', 'Deep instructions should require source verification matrix');
+assertIncludes(actInstructions, 'DOGRULANDI', 'Deep instructions should separate verified claims');
+assertIncludes(actInstructions, 'VARSAYIM', 'Deep instructions should separate assumptions');
+assertIncludes(actInstructions, 'ACIK KONU', 'Deep instructions should separate open topics');
 
 const sapDomainQuestions = buildDomainQuestions('sap_crm_iys');
 assert(sapDomainQuestions.length >= 4, 'SAP IYS behavior profile should expose at least 4 domain questions');
