@@ -131,7 +131,10 @@ export function postProcessDocumentData(
   };
 
   document.score = Math.min(qualityGate.score, qualityReportV2.score);
-  document.scoreExplanation = qualityReportV2.summary;
+  document.scoreExplanation = [
+    qualityReportV2.summary,
+    qualityGate.reason,
+  ].filter(Boolean).join(' ');
 
   const changedSections = Object.entries(SECTION_LABELS)
     .filter(([key]) => sectionsDiffer((document as any)[key], (base as any)[key]))
