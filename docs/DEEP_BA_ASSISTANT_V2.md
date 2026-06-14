@@ -5,7 +5,7 @@ Bu sprintin hedefi JetWork sohbetini basit soru-cevap taslagindan, kaynakli ve k
 ## Davranis Hedefi
 
 - Kisa ama alan bilgisi tasiyan talepleri tanir: `sap crm iys entegrasyonu`, mevzuat, API, entegrasyon, KVKK/GDPR, e-belge, SSO gibi basliklar.
-- Kullanici "varsayimlarla ilerle", "devam et", "daha fazla soru sorma" dediginde yeni soru sormaz; eksikleri `[VARSAYIM]` ve `Açık Sorular` olarak dokumana tasir.
+- Kullanici "varsayimlarla ilerle", "devam et", "daha fazla soru sorma" dediginde yeni soru sormaz; eksikleri `[VARSAYIM]` ve `Acik Sorular` olarak dokumana tasir.
 - Teknik analiz, test ve akis detaylarini eski gizli `code/test/bpmn` bolumlerine zorlamaz; gorunur `BA Analiz` dokumani icinde alt baslik olarak yazar.
 - Review sekmesinde kaynak/dogrulama ozeti, riskler, acik kararlar ve kalite kapisi notu uretir.
 - Mevzuat/API konularinda Review icinde `DOGRULANDI / VARSAYIM / ACIK KONU` ayrimini ve kaynak-dogrulama matrisini zorunlu tutar.
@@ -17,7 +17,7 @@ Bu sprintin hedefi JetWork sohbetini basit soru-cevap taslagindan, kaynakli ve k
 `sap crm iys entegrasyonu ba analiz kavramsal tasarim dokumani` talebinde derin mod su konu basliklarini zorunlu kontrol listesine alir:
 
 - IYS onay/ret bildirimi ve 3 is gunu aktarim kuralinin kaynakla dogrulanmasi
-- Resmi/guvenilir kaynak ayrimi: IYS resmi kaynaklari, mevzuat.gov.tr, TOBB/Ticaret Bakanligi referanslari onceliklidir
+- Resmi/guvenilir kaynak ayrimi: IYS resmi sitesi ve SSS, `ahsdocs.iys.org.tr` AHS API dokumantasyonu, `mevzuat.gov.tr`, Ticaret Bakanligi ve TOBB referanslari onceliklidir
 - Kanal bazli izin modeli: `MESAJ/SMS`, `EPOSTA`, `ARAMA`
 - API/kavramsal alanlar: `recipient`, `recipientType`, `source`, `consentDate`, `status`
 - Marka kodu, alici tipi, initial load, gunluk delta/mutabakat
@@ -44,8 +44,8 @@ npm run build
 `verify:deep-ba-assistant` su davranislari kontrol eder:
 
 - SAP CRM + IYS talebi derin BA modunu aciyor.
-- Arastirma sorgulari 3 is gunu ve IYS API alanlarini kapsiyor.
-- Resmi kaynak oncelikli arastirma sorgulari ve Review kaynak matrisi zorunlu talimat olarak uretiliyor.
+- Arastirma sorgulari 3 is gunu, mevzuat, IYS AHS API alanlari ve Ticaret Bakanligi kaynaklarini kapsiyor.
 - Zorunlu taslak akisi yeni soru sormadan BA agent loop'a gidiyor.
 - Kisa SAP CRM + IYS talebinde genel sorular yerine konuya ozel IYS kanal/marka/middleware sorulari geliyor.
 - Soru secenekleri arayuz kartlarina kaybolmadan tasinabiliyor.
+- Resmi kaynak oncelikli arastirma sorgulari ve Review kaynak matrisi zorunlu talimat olarak uretiliyor.
