@@ -414,6 +414,16 @@ const MessageItem = memo(({
                   </ReactMarkdown>
                 </div>
               )}
+
+              {msg.role === 'model' && msg.actionSummary && !msg.isTyping && (
+                <div className="flex items-start gap-2 rounded-lg border border-theme-primary/20 bg-theme-primary/5 px-3 py-2 text-xs text-theme-text">
+                  <Check size={13} className="mt-0.5 shrink-0 text-theme-primary" />
+                  <div className="leading-relaxed">
+                    <span className="font-semibold text-theme-text">Ne yaptım? </span>
+                    <span className="text-theme-text-muted">{msg.actionSummary}</span>
+                  </div>
+                </div>
+              )}
               
               {msg.questions && msg.questions.length > 0 && !msg.isTyping && (
                 <InteractiveQuestions 
@@ -570,6 +580,9 @@ export function ChatPanel({
       ]
     : hasDocument
       ? [
+          "Eksikleri tamamla. Kalite raporundaki eksik/zayif alanlari dokumana isle; yeni soru sorma, varsayimlari ve acik konulari Review'da ayir.",
+          "Word formatina duzelt. BA Analiz'i KAVRAMSAL TASARIM RAPORU sablonuna gore yeniden duzenle; surec modeli bloklarini otomatik cogalt.",
+          "Review'daki acik konulari kapat. Yanitlanabilir maddeleri varsayimlarla kapat; dogrulanamayanlari ACIK KONU olarak birak ve kaynak matrisini guncelle.",
           "Bu mimariyi nasıl daha ölçeklenebilir (scalable) yaparız?",
           "Sistemin zayıf noktaları (single point of failure) neler?",
           "Bu entegrasyon için bir Sequence Diagram mantığı kur",
@@ -1225,9 +1238,10 @@ export function ChatPanel({
                         setInput(suggestion);
                         if (textareaRef.current) textareaRef.current.focus();
                       }}
+                      title={suggestion}
                       className="px-3 py-1.5 rounded-full border border-theme-border bg-theme-bg text-sm text-theme-text hover:bg-theme-surface-hover whitespace-nowrap shadow-sm shrink-0"
                     >
-                      {suggestion}
+                      {suggestion.split('.')[0]}
                     </button>
                   ))}
                 </div>

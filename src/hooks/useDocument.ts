@@ -30,17 +30,17 @@ export const useDocument = () => {
         role: 'BA',
         taskType: 'documentation',
         settings: promptSettings,
-        additionalContext: `GÖREVİN: Verilen sohbet geçmişini analiz ederek kapsamlı bir iş analizi ve yazılım mimarisi dokümanı oluşturmak.
+        additionalContext: `GÖREVİN: Verilen sohbet geçmişini analiz ederek kurumsal Kavramsal Tasarım Raporu oluşturmak.
 
 ÇIKTI FORMATI:
 JSON formatında, aşağıdaki alanları içeren bir obje döndür:
-- businessAnalysis: Aşağıda verilen ŞABLONA birebir uyan, kapak sayfası + içindekiler + numaralı bölümler içeren tam yapılandırılmış bir İş Analizi Dokümanı (Markdown + izin verilen HTML div blokları)
-- code: Teknik mimari, veritabanı şeması, API uç noktaları (Markdown; ## 1., ## 2. numaralı başlıklarla)
-- test: Test senaryoları, kabul kriterleri (Markdown; ## 1., ## 2. numaralı başlıklarla, test senaryoları için tablo)
-- review: Proje özeti, riskler, öneriler (Markdown)
-- bpmn: Süreç akışını anlatan BPMN 2.0 XML formatında veri (Sadece XML içeriği, markdown code block OLMADAN)
+- businessAnalysis: Aşağıda verilen kurumsal Word şablonuna birebir uyan KAVRAMSAL TASARIM RAPORU. Başlık sırası şudur: PROJE KİMLİK KARTI, Amaç, Doküman Tarihçesi, İÇİNDEKİLER, SÜREÇ TASARIMI, SÜREÇ MODELİ blokları, EK A.
+- code: IT / teknik analiz özeti. Mimari, entegrasyon, veri modeli, güvenlik ve loglama notları. Ana detay businessAnalysis içinde de bulunmalı.
+- test: test stratejisi ve kabul kriterleri özeti. Ana detay businessAnalysis içinde de bulunmalı.
+- review: kararlar, riskler, açık sorular, varsayımlar ve kalite notları.
+- bpmn: varsa süreç akışını anlatan BPMN 2.0 XML. Yoksa boş string döndür.
 
-ÖNEMLİ: bpmn alanı kesinlikle geçerli bir XML olmalıdır. İçinde markdown (\`\`\`xml gibi) bulunmamalıdır.
+ÖNEMLİ: businessAnalysis alanı "BA Analiz Raporu" ile değil, "KAVRAMSAL TASARIM RAPORU" ile başlamalıdır. Eksik bilgileri [VARSAYIM] veya [AÇIK KONU] olarak işaretle.
 
 ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`
       });

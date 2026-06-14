@@ -195,7 +195,7 @@ export function DocumentPanel({
 
         <div className="flex items-center gap-3">
           {effectiveScore !== undefined && effectiveScore > 0 && (
-            <div className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border', effectiveScore >= 90 ? 'bg-green-500/10 text-green-600 border-green-500/20' : effectiveScore >= 70 ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : 'bg-red-500/10 text-red-600 border-red-500/20')}>
+            <div title={effectiveScoreExplanation} className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border', effectiveScore >= 90 ? 'bg-green-500/10 text-green-600 border-green-500/20' : effectiveScore >= 70 ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : 'bg-red-500/10 text-red-600 border-red-500/20')}>
               <CheckCircle2 size={12} />
               <span>KALİTE PUANI: {effectiveScore}</span>
             </div>
@@ -239,7 +239,7 @@ export function DocumentPanel({
                         {getStatusLabel(currentStatus)}
                       </span>
                     </h2>
-                    {safeActiveTab === 'Review' && effectiveScoreExplanation && <p className="mt-3 text-sm text-theme-text-muted leading-relaxed">{effectiveScoreExplanation}</p>}
+                    {effectiveScoreExplanation && <p className="mt-3 text-sm text-theme-text-muted leading-relaxed">{effectiveScoreExplanation}</p>}
                   </div>
                   {(isGenerating || isDiscussing) && (
                     <div className="flex items-center gap-2 text-theme-primary text-xs font-medium animate-pulse">

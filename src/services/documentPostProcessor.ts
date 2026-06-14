@@ -7,6 +7,7 @@ import {
   replaceBaEngineReviewBlock,
   type BaQualityReportV2,
 } from '../modules/ai-ba-engine';
+import { ensureConceptualTemplateStructure } from './conceptualTemplate';
 
 export interface DocumentPostProcessResult {
   document: DocumentData;
@@ -75,15 +76,16 @@ export function postProcessDocumentData(
   incoming: DocumentData,
   existing?: DocumentData | null,
 ): DocumentPostProcessResult {
+  const templatedIncoming = ensureConceptualTemplateStructure(incoming);
   const base = existing || {
     businessAnalysis: { content: '', status: 'DRAFT' as const, flags: [] },
     review: { content: '', status: 'DRAFT' as const, flags: [] },
   };
 
   const document: DocumentData = {
-    businessAnalysis: normalizeSection(incoming.businessAnalysis, base.businessAnalysis, true),
-    ...(incoming.review || base.review ? { review: normalizeSection(incoming.review, base.review, true) } : {}),
-    suggestions: incoming.suggestions || base.suggestions,
+    businessAnalysis: normalizeSection(templatedIncoming.businessAnalysis, base.businessAnalysis, true),
+    ...(templatedIncoming.review || base.review ? { review: normalizeSection(templatedIncoming.review, base.review, true) } : {}),
+    suggestions: templatedIncoming.suggestions || base.suggestions,
   };
 
   const qualityGate = evaluateDocumentQualityGate(document);
@@ -129,7 +131,10 @@ export function postProcessDocumentData(
   };
 
   document.score = Math.min(qualityGate.score, qualityReportV2.score);
-  document.scoreExplanation = qualityReportV2.summary;
+  document.scoreExplanation = [
+    qualityReportV2.summary,
+    qualityGate.reason,
+  ].filter(Boolean).join(' ');
 
   const changedSections = Object.entries(SECTION_LABELS)
     .filter(([key]) => sectionsDiffer((document as any)[key], (base as any)[key]))
