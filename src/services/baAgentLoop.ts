@@ -9,6 +9,7 @@ import {
   buildDeepBaActInstructions,
   buildDeepBaResearchPlan,
   buildDeepBaThinkingSummary,
+  buildSourceVerificationPolicy,
   shouldUseDeepBaAssistant,
 } from '../modules/deep-ba-assistant';
 
@@ -247,6 +248,7 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   const recentConversationText = history.slice(-6).map(h => h.parts[0]?.text || '').join('\n');
   const deepBaSubject = [recentConversationText, userMessage].filter(Boolean).join('\n');
   const deepBaPlan = buildDeepBaResearchPlan(deepBaSubject);
+  const sourcePolicy = buildSourceVerificationPolicy(deepBaSubject);
   const useDeepBaMode = shouldUseDeepBaAssistant(deepBaSubject);
 
   // ============ PHASE 1: PLAN ============
@@ -303,7 +305,11 @@ Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON fo
       needsWebSearch: true,
       searchQueries: Array.from(new Set([...(deepBaPlan.searchQueries || []), ...(plan.searchQueries || [])])).slice(0, 4),
       assumptions: Array.from(new Set([...(plan.assumptions || []), ...deepBaPlan.assumptions])),
-      documentGapsToCheck: Array.from(new Set([...(plan.documentGapsToCheck || []), ...deepBaPlan.documentGapsToCheck])),
+      documentGapsToCheck: Array.from(new Set([
+        ...(plan.documentGapsToCheck || []),
+        ...deepBaPlan.documentGapsToCheck,
+        ...(sourcePolicy.requiresSourceSeparation ? ['Kaynak ve dogrulama matrisi', 'Dogrulandi / varsayim / acik konu ayrimi'] : []),
+      ])),
       plan: `${plan.plan}\nDeep BA Assistant v2: ${deepBaPlan.reason}`,
     };
     onThinking(buildDeepBaThinkingSummary(deepBaPlan));
@@ -326,16 +332,37 @@ Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON fo
   let groundingUrls: { uri: string; title: string }[] = [];
   if (plan.needsWebSearch && plan.searchQueries && plan.searchQueries.length > 0) {
     const researchPrompt = `
-Aşağıdaki konularda kısa, güncel ve güvenilir bilgi özeti çıkar. Her madde 1-2 cümle olsun.
+Asagidaki konularda kisa, guncel ve guvenilir kaynak ozeti cikar.
+Mevzuat/API/entegrasyon iddialarinda once resmi kaynaklari, sonra guvenilir referanslari kullan.
 
 ${plan.searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 
-Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
+Tercih edilen kaynak turleri:
+${sourcePolicy.preferredSources.map((source, i) => `${i + 1}. ${source}`).join('\n')}
+
+Cikti formati:
+[DOGRULANMIS BILGILER]
+- Konu: ...
+  Kaynak/Kanit: ...
+  Kullanim: BA dokumaninda nasil kullanilacak?
+
+[VARSAYIM ADAYLARI]
+- Konu: ...
+  Neden varsayim: ...
+
+[ACIK KONU / DOGRULAMA GEREKIR]
+- Konu: ...
+  Kim/neyden dogrulanmali: ...
+
+Kurallar:
+- Kaynak veya grounding yoksa DOGRULANMIS BILGILER'e yazma.
+- Resmi olmayan kaynak kullanildiysa bunu "guvenilir referans, resmi degil" diye belirt.
+- Uzun yorum ekleme; karar verilebilir, kisa maddeler yaz.
 `.trim();
     try {
       const researchResponse = await callGemini({
         model,
-        systemInstruction: 'Sen bir araştırma asistanısın. Internetten kısa, doğru, referanslı bilgi toplarsın.',
+        systemInstruction: 'Sen kaynak dogrulama odakli bir arastirma asistanisin. Resmi kaynak, guvenilir referans, varsayim ve acik konuyu net ayirirsin.',
         contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
         onChunk: (_text, thinking, tokenCount) => {
           if (thinking) onThinking(thinking);
@@ -346,7 +373,7 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
           if (onGrounding) onGrounding(urls);
         }
       });
-      webResearch = (researchResponse.text || '').slice(0, 3000);
+      webResearch = (researchResponse.text || '').slice(0, 4500);
     } catch (e) {
       console.warn('Research phase failed:', e);
     }
@@ -354,8 +381,8 @@ Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
 
   const researchContext = [
     kbContext && `[KURUMSAL HAFIZA BULGULARI]\n${kbContext}`,
-    webResearch && `[İNTERNET ARAŞTIRMA BULGULARI]\n${webResearch}`
-  ].filter(Boolean).join('\n\n') || '(İlgili ek kaynak bulunamadı.)';
+    webResearch && `[KAYNAKLI ARASTIRMA BULGULARI - DOGRULAMA AYRIMI]\n${webResearch}`
+  ].filter(Boolean).join('\n\n') || '(Ilgili ek kaynak bulunamadi.)';
 
   // ============ PHASE 3: REFLECT ============
   const hasDocument = !!documentContent && Object.values(documentContent).some(
@@ -438,6 +465,13 @@ ${plan.assumptions?.length ? `Varsayımlar: ${plan.assumptions.join('; ')}` : ''
 [3] ARAŞTIRMA BULGULARI
 ${researchContext}
 
+[3B] KAYNAK DOGRULAMA POLITIKASI
+- Kaynak ayrimi gerekli mi: ${sourcePolicy.requiresSourceSeparation ? 'EVET' : 'HAYIR'}
+- Review durum etiketleri: ${sourcePolicy.statusLabels.join(' / ')}
+- Review matrisi kolonlari: ${sourcePolicy.reviewMatrixColumns.join(' | ')}
+- Tercih edilen kaynaklar: ${sourcePolicy.preferredSources.join('; ')}
+- Resmi kaynakla veya guvenilir referansla desteklenmeyen mevzuat/API maddelerini DOGRULANDI yapma; VARSAYIM veya ACIK KONU olarak ayir.
+
 [4] DOKÜMAN GÖZDEN GEÇİRME
 Bulunan eksikler:
 ${(reflection.gapsFound || []).map(g => `- ${g}`).join('\n') || '- Belirgin eksik yok.'}
@@ -453,7 +487,7 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 - Mesaj metninde "birkaç sorum olacak" / "şunu netleştirelim" gibi ifade kullandıysan questions alanını doldurmadan yanıt verme.
 - Cevabın kullanıcıya gösterilecek chat mesajı kısa ve net olmalı; detayları document alanına yaz.
 - "thinking" alanında kısa çalışma özetini yaz. Özel zincir düşünce veya gizli akıl yürütme yazma.
-- "actionSummary" alanında yaptığın işi 1 cümle özetle.
+- "actionSummary" alaninda kullanicinin gorecegi sekilde "Ne yaptim?" ozetini 1-2 cumle yaz: hangi bolumleri guncelledin, kaynakli bilgi/varsayim/acik konu ayrimini nasil isledin, sonraki hizli aksiyon ne?
 
 ${buildDeepBaActInstructions(deepBaSubject)}
 
