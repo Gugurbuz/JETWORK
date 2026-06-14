@@ -10,6 +10,7 @@ export type BehaviorMode =
 
 export type BehaviorDomain =
   | 'sap_crm_iys'
+  | 'sap_crm_ai_sales_bot'
   | 'digital_contract'
   | 'integration_project'
   | 'crm_process'
@@ -41,60 +42,87 @@ interface BehaviorDecisionInput {
   discoveryReadiness?: number;
 }
 
-const FORCE_DRAFT_RE = /\b(devam|ilerle|olu[şs]tur|haz[ıi]rla|yaz|taslak|varsay[ıi]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|başla|basla|daha fazla soru sorma|soru sorma)\b/i;
-const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|varsay[ıi]mlarla|mevcut bilgilerle|bu bilgilerle|direkt oluştur|direkt olustur)\b/i;
-const DOCUMENT_REQUEST_RE = /\b(ba analiz|iş analiz|is analiz|kavramsal|tasar[ıi]m|dok[üu]man|fdd|brd|gereksinim|s[üu]re[çc]|entegrasyon|api|test|kabul kriter|review|risk)\b/i;
-const GREETING_ONLY_RE = /^\s*(selam|selamlar|merhaba|merhabalar|mrb|slm|hey|hi|hello|naber|nas[ıi]ls[ıi]n)\s*[!.?]*\s*$/i;
+const FORCE_DRAFT_RE = /\b(devam|ilerle|olu[\u015fs]tur|haz[\u0131i]rla|yaz|taslak|varsay[\u0131i]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba\u015fla|basla|daha fazla soru sorma|soru sorma)\b/i;
+const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|varsay[\u0131i]mlarla|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur)\b/i;
+const DOCUMENT_REQUEST_RE = /\b(ba analiz|i\u015f analiz|is analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|fdd|brd|gereksinim|s[\u00fcu]re[\u00e7c]|entegrasyon|api|test|kabul kriter|review|risk|proje|project|bot|asistan|assistant|chatbot)\b/i;
+const GREETING_ONLY_RE = /^\s*(selam|selamlar|merhaba|merhabalar|mrb|slm|hey|hi|hello|naber|nas[\u0131i]ls[\u0131i]n)\s*[!.?]*\s*$/i;
+
+function normalizeDomainText(value: string): string {
+  return (value || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/\u0131/g, 'i')
+    .replace(/\u015f/g, 's')
+    .replace(/\u011f/g, 'g')
+    .replace(/\u00fc/g, 'u')
+    .replace(/\u00f6/g, 'o')
+    .replace(/\u00e7/g, 'c');
+}
 
 function hasDocument(document: DocumentData | null): boolean {
   if (!document) return false;
   return Object.values(document as any).some((section: any) => section?.content && String(section.content).trim().length > 0);
 }
 
+function isSapCrmAiSalesBot(message: string): boolean {
+  const text = normalizeDomainText(message);
+  return /sap\s*crm/.test(text)
+    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|lead|opportunity|firsat|musteri)/.test(text);
+}
+
 function detectDomain(message: string): BehaviorDomain {
-  const text = message.toLocaleLowerCase('tr-TR');
-  if (/sap\s*crm/i.test(text) && /(iys|ileti y[oö]netim sistemi)/i.test(text)) return 'sap_crm_iys';
-  if (/(dijital s[oö]zle[şs]me|e-imza|e imza|s[oö]zle[şs]me)/i.test(text)) return 'digital_contract';
-  if (/(entegrasyon|integration|api|servis|middleware|sap|crm)/i.test(text)) return 'integration_project';
-  if (/(crm|m[üu][şs]teri|customer|sat[ıi][şs]|pazarlama)/i.test(text)) return 'crm_process';
-  if (/(dok[üu]man y[oö]netimi|filenet|dosya|ar[şs]iv|belge)/i.test(text)) return 'document_management';
+  const text = normalizeDomainText(message);
+  if (/sap\s*crm/.test(text) && /(iys|ileti yonetim sistemi)/.test(text)) return 'sap_crm_iys';
+  if (isSapCrmAiSalesBot(message)) return 'sap_crm_ai_sales_bot';
+  if (/(dijital sozlesme|e-imza|e imza|sozlesme)/.test(text)) return 'digital_contract';
+  if (/(entegrasyon|integration|api|servis|middleware|sap|crm)/.test(text)) return 'integration_project';
+  if (/(crm|musteri|customer|satis|pazarlama)/.test(text)) return 'crm_process';
+  if (/(dokuman yonetimi|filenet|dosya|arsiv|belge)/.test(text)) return 'document_management';
   return 'generic_ba';
 }
 
 function formatQuestion(text: string, options: string[]): string {
-  return `${text}\nSeçenekler: ${options.join(' | ')}`;
+  return `${text}\nSecenekler: ${options.join(' | ')}`;
 }
 
 export function buildDomainQuestions(domain: BehaviorDomain): string[] {
   if (domain === 'sap_crm_iys') {
     return [
-      formatQuestion('İYS izin kapsamı hangi iletişim kanallarını içermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayımla tüm kanallar']),
-      formatQuestion('Şirket İYS tarafında tek marka kodu mu, çoklu marka yapısı mı kullanıyor?', ['Tek marka kodu', 'Çoklu marka', 'Varsayımla çoklu marka desteklensin']),
-      formatQuestion('SAP CRM ile İYS arasında hangi ara katman varsayılsın?', ['SAP CPI', 'SAP PI/PO', 'Varsayımla karar açık kalsın']),
-      formatQuestion('İlk aktarım ve günlük mutabakat kapsamı nasıl ele alınsın?', ['Initial load + günlük delta', 'Sadece günlük delta', 'Varsayımla ikisi de kapsamda']),
+      formatQuestion('IYS izin kapsami hangi iletisim kanallarini icermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayimla tum kanallar']),
+      formatQuestion('Sirket IYS tarafinda tek marka kodu mu, coklu marka yapisi mi kullaniyor?', ['Tek marka kodu', 'Coklu marka', 'Varsayimla coklu marka desteklensin']),
+      formatQuestion('SAP CRM ile IYS arasinda hangi ara katman varsayilsin?', ['SAP CPI', 'SAP PI/PO', 'Varsayimla karar acik kalsin']),
+      formatQuestion('Ilk aktarim ve gunluk mutabakat kapsami nasil ele alinsin?', ['Initial load + gunluk delta', 'Sadece gunluk delta', 'Varsayimla ikisi de kapsamda']),
+    ];
+  }
+
+  if (domain === 'sap_crm_ai_sales_bot') {
+    return [
+      formatQuestion('AI satis botu hangi kanallarda calisacak?', ['Web chat + WhatsApp', 'SAP CRM icinde temsilci asistani', 'Varsayimla coklu kanal']),
+      formatQuestion('SAP CRM tarafinda hangi satis nesneleri yonetilecek?', ['Lead + Opportunity + Activity', 'Sadece lead olusturma', 'Varsayimla lead ve opportunity kapsamda']),
+      formatQuestion('Bot hangi seviyede aksiyon alabilecek?', ['Sadece oneri ve ozet', 'Lead nitelendirme + CRM kaydi', 'Varsayimla kritik islemler temsilci onayli']),
+      formatQuestion('Insana devir ve kalite kontrol nasil ilerlesin?', ['Dusuk guvende temsilciye devir', 'Tum satis aksiyonlari onayli', 'Varsayimla risk bazli devir modeli']),
     ];
   }
 
   if (domain === 'digital_contract') {
     return [
-      formatQuestion('Dijital sözleşme sürecinde imza yöntemi nasıl olmalı?', ['E-imza / mobil imza', 'OTP onay', 'Varsayımla iki seçenek de değerlendirilsin']),
-      formatQuestion('Sözleşme saklama ve arşivleme nerede yapılacak?', ['FileNet / DMS', 'Uygulama içi saklama', 'Açık konu olarak kalsın']),
-      formatQuestion('Onay akışı hangi rolleri içermeli?', ['Müşteri + operasyon', 'Müşteri + satış + hukuk', 'Varsayımla çok rollü akış']),
+      formatQuestion('Dijital sozlesme surecinde imza yontemi nasil olmali?', ['E-imza / mobil imza', 'OTP onay', 'Varsayimla iki secenek de degerlendirilsin']),
+      formatQuestion('Sozlesme saklama ve arsivleme nerede yapilacak?', ['FileNet / DMS', 'Uygulama ici saklama', 'Acik konu olarak kalsin']),
+      formatQuestion('Onay akisi hangi rolleri icermeli?', ['Musteri + operasyon', 'Musteri + satis + hukuk', 'Varsayimla cok rollu akis']),
     ];
   }
 
   if (domain === 'integration_project') {
     return [
-      formatQuestion('Entegrasyon tipi nasıl ilerlemeli?', ['REST API', 'Batch / dosya aktarımı', 'Varsayımla hibrit yapı']),
-      formatQuestion('Hata yönetimi nasıl tasarlansın?', ['Retry + kuyruk', 'Manuel operasyon iş listesi', 'İkisi de kapsamda']),
-      formatQuestion('Ana veri kaynağı hangi sistem olsun?', ['Kaynak sistem', 'Hedef sistem', 'Açık konu olarak işaretle']),
+      formatQuestion('Entegrasyon tipi nasil ilerlemeli?', ['REST API', 'Batch / dosya aktarimi', 'Varsayimla hibrit yapi']),
+      formatQuestion('Hata yonetimi nasil tasarlansin?', ['Retry + kuyruk', 'Manuel operasyon is listesi', 'Ikisi de kapsamda']),
+      formatQuestion('Ana veri kaynagi hangi sistem olsun?', ['Kaynak sistem', 'Hedef sistem', 'Acik konu olarak isaretle']),
     ];
   }
 
   return [
-    formatQuestion('İlk taslakta hangi kapsamı hedefleyelim?', ['MVP kapsam', 'Uçtan uca kapsam', 'Varsayımlarla geniş taslak']),
-    formatQuestion('Başarıyı hangi iş değeriyle ölçelim?', ['Süre azaltma', 'Hata azaltma', 'İzlenebilirlik / uyum']),
-    formatQuestion('Doküman hangi seviyede olsun?', ['Kavramsal tasarım', 'BRD/FDD', 'Varsayımla kurumsal kavramsal tasarım']),
+    formatQuestion('Ilk taslakta hangi kapsami hedefleyelim?', ['MVP kapsam', 'Uctan uca kapsam', 'Varsayimlarla genis taslak']),
+    formatQuestion('Basariyi hangi is degeriyle olcelim?', ['Sure azaltma', 'Hata azaltma', 'Izlenebilirlik / uyum']),
+    formatQuestion('Dokuman hangi seviyede olsun?', ['Kavramsal tasarim', 'BRD/FDD', 'Varsayimla kurumsal kavramsal tasarim']),
   ];
 }
 
