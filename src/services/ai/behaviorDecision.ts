@@ -44,7 +44,8 @@ interface BehaviorDecisionInput {
 
 const FORCE_DRAFT_RE = /\b(devam|ilerle|olu[\u015fs]tur|haz[\u0131i]rla|yaz|taslak|varsay[\u0131i]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba\u015fla|basla|daha fazla soru sorma|soru sorma)\b/i;
 const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|varsay[\u0131i]mlarla|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur)\b/i;
-const DOCUMENT_REQUEST_RE = /\b(ba analiz|i\u015f analiz|is analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|fdd|brd|gereksinim|s[\u00fcu]re[\u00e7c]|entegrasyon|api|test|kabul kriter|review|risk|proje|project|bot|asistan|assistant|chatbot)\b/i;
+const DOCUMENT_REQUEST_RE = /\b(ba analiz|i\u015f analiz|is analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|fdd|brd|gereksinim|s[\u00fcu]re[\u00e7c]|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*)\b/i;
+const NORMALIZED_DOCUMENT_REQUEST_RE = /\b(ba analiz|is analiz|kavramsal|tasarim|dokuman|fdd|brd|gereksinim|surec|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*|satis|sales)\b/i;
 const GREETING_ONLY_RE = /^\s*(selam|selamlar|merhaba|merhabalar|mrb|slm|hey|hi|hello|naber|nas[\u0131i]ls[\u0131i]n)\s*[!.?]*\s*$/i;
 
 function normalizeDomainText(value: string): string {
@@ -128,11 +129,17 @@ export function buildDomainQuestions(domain: BehaviorDomain): string[] {
 
 export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDecision {
   const message = input.userMessage || '';
+  const normalizedMessage = normalizeDomainText(message);
   const domain = detectDomain(message);
   const hasExistingDocument = hasDocument(input.document);
   const forceDraft = FORCE_DRAFT_RE.test(message);
   const stopQuestions = STOP_QUESTIONS_RE.test(message);
-  const documentRequest = DOCUMENT_REQUEST_RE.test(message) || input.classification.documentImpact === 'updates_document';
+  const strongDomainRequest = domain !== 'generic_ba' && domain !== 'crm_process';
+  const documentRequest =
+    DOCUMENT_REQUEST_RE.test(message)
+    || NORMALIZED_DOCUMENT_REQUEST_RE.test(normalizedMessage)
+    || strongDomainRequest
+    || input.classification.documentImpact === 'updates_document';
   const shortDomainRequest = message.trim().length < 80 && documentRequest && !forceDraft && !hasExistingDocument;
   const readiness = input.discoveryReadiness ?? 0;
 
