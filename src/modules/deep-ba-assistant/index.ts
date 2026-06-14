@@ -18,27 +18,27 @@ export interface SourceVerificationPolicy {
 const TOPIC_RESEARCH_TRIGGERS = [
   /sap/i,
   /\bcrm\b/i,
-  /\biys\b|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i,
-  /kvkk|gdpr|mevzuat|y[oö]netmelik|kanun|uyum/i,
+  /\biys\b|i[\. ]?y[\. ]?s|ileti y[oÃ¶]netim sistemi|ileti yonetim sistemi/i,
+  /kvkk|gdpr|mevzuat|y[oÃ¶]netmelik|kanun|uyum/i,
   /api|entegrasyon|integration|middleware|oauth|sso/i,
-  /e[- ]?(fatura|ar[şs]iv|arsiv|irsaliye|devlet)/i,
+  /e[- ]?(fatura|ar[ÅŸs]iv|arsiv|irsaliye|devlet)/i,
   /pci|iso\s?\d+/i,
 ];
 
 const DOCUMENT_DEPTH_TRIGGERS = [
-  /ba analiz|i[şs] analizi|is analizi|business analysis/i,
-  /kavramsal tasar[ıi]m|kavramsal tasarim|conceptual design/i,
+  /ba analiz|i[ÅŸs] analizi|is analizi|business analysis/i,
+  /kavramsal tasar[Ä±i]m|kavramsal tasarim|conceptual design/i,
   /brd|fdd|gereksinim|requirement/i,
-  /dok[üu]man|dokuman|rapor|taslak|word/i,
+  /dok[Ã¼u]man|dokuman|rapor|taslak|word/i,
   /entegrasyon/i,
 ];
 
 const FORCE_DRAFT_TRIGGERS = [
-  /varsay[ıi]mlarla ilerle|varsayimlarla ilerle/i,
+  /varsay[Ä±i]mlarla ilerle|varsayimlarla ilerle/i,
   /daha fazla soru sorma/i,
   /bu bilgilerle/i,
-  /dok[üu]man[ıi] olu[şs]tur|dokumani olustur/i,
-  /haz[ıi]rla|hazirla|devam et|olu[şs]tur|olustur/i,
+  /dok[Ã¼u]man[Ä±i] olu[ÅŸs]tur|dokumani olustur/i,
+  /haz[Ä±i]rla|hazirla|devam et|olu[ÅŸs]tur|olustur/i,
 ];
 
 function unique(values: string[]): string[] {
@@ -51,10 +51,12 @@ export function buildSourceVerificationPolicy(userMessage = ''): SourceVerificat
   const isRegulatoryOrApi = isIys || /mevzuat|yonetmelik|kanun|uyum|api|entegrasyon|oauth/i.test(text);
   const preferredSources = isIys
     ? [
-        'IYS resmi web sitesi ve yardim/SSS sayfalari',
-        'IYS API dokumantasyonu veya lisans kosullari',
+        'IYS resmi web sitesi ve SSS sayfalari',
+        'IYS AHS API dokumantasyonu (ahsdocs.iys.org.tr)',
+        'IYS API lisans kosullari',
         'mevzuat.gov.tr uzerindeki 6563 sayili Kanun ve ilgili yonetmelik',
-        'TOBB veya Ticaret Bakanligi gibi kamu/kurumsal duyurular',
+        'Ticaret Bakanligi IYS sayfalari',
+        'TOBB veya yetkilendirilmis kurumsal duyurular',
       ]
     : [
         'Resmi kurum veya urun dokumantasyonu',
@@ -89,11 +91,11 @@ export function requiresExternalKnowledge(userMessage = ''): boolean {
   if (!text) return false;
   return shouldUseDeepBaAssistant(text)
     || TOPIC_RESEARCH_TRIGGERS.some((pattern) => pattern.test(text))
-    || /g[üu]ncel|guncel|resmi kaynak|best practice|referans|kaynak/i.test(text);
+    || /g[Ã¼u]ncel|guncel|resmi kaynak|best practice|referans|kaynak/i.test(text);
 }
 
 export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
-  const isIysSap = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
+  const isIysSap = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oÃ¶]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   const enabled = requiresExternalKnowledge(userMessage);
   const genericQueries = [
     `${userMessage} resmi kaynak mevzuat API`,
@@ -101,10 +103,10 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
   ];
 
   const iysQueries = [
-    'site:iys.org.tr IYS onay ret bildirimi 3 is gunu',
+    'site:iys.org.tr/iys/sss IYS ret bildirimi 3 is gunu',
     'site:mevzuat.gov.tr 6563 ticari elektronik ileti onay ret IYS',
-    'site:iys.org.tr IYS API recipient recipientType source MESAJ EPOSTA ARAMA',
-    'TOBB IYS ileti yonetim sistemi resmi kaynak',
+    'site:ahsdocs.iys.org.tr recipientType type ARAMA MESAJ E164 IYS',
+    'site:ticaret.gov.tr Ileti Yonetim Sistemi IYS TOBB 6563',
   ];
 
   return {
@@ -136,7 +138,7 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
 
 export function buildDeepBaActInstructions(userMessage = ''): string {
   const sourcePolicy = buildSourceVerificationPolicy(userMessage);
-  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
+  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oÃ¶]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   const sapIysAddendum = isSapIys
     ? `
 - SAP CRM <-> IYS baglaminda su alanlari ozellikle isle: 6563 uyum amaci, onay/ret yonetimi, ret sonrasi ticari ileti durdurma, 3 is gunu aktarim kuralini kaynak varsa dogrulanmis olarak; kaynak yoksa [DOGRULAMA GEREKIR] notuyla.
@@ -205,7 +207,7 @@ export function buildDeepBaThinkingSummary(plan: DeepBaResearchPlan): string {
 }
 
 export function parseClassifierQuestion(text: string, index: number): Question {
-  const [questionText, optionText] = text.split(/\n\s*Se[çc]enekler\s*:\s*/i);
+  const [questionText, optionText] = text.split(/\n\s*Se[Ã§c]enekler\s*:\s*/i);
   const options = optionText
     ? optionText.split('|').map((option) => option.trim()).filter(Boolean).slice(0, 4)
     : [];
