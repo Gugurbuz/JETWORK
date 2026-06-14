@@ -29,7 +29,7 @@ function assertIncludes(value: string, needle: string, message: string): void {
 
 const sapIysRequest = 'sap crm iys entegrasyonu ba analiz kavramsal tasarim dokumani';
 const shortSapIysRequest = 'sap crm iys entegrasyonu';
-const assumptionFollowUp = 'sap crm iys entegrasyonu\nVarsayımlarla ilerle. Eksik bilgileri tahmini olarak doldur.';
+const assumptionFollowUp = 'sap crm iys entegrasyonu\nVarsayÄ±mlarla ilerle. Eksik bilgileri tahmini olarak doldur.';
 
 assert(shouldUseDeepBaAssistant(sapIysRequest), 'SAP CRM + IYS request should activate deep BA mode');
 assert(requiresExternalKnowledge(sapIysRequest), 'SAP CRM + IYS request should require external knowledge');
@@ -38,8 +38,10 @@ const researchPlan = buildDeepBaResearchPlan(sapIysRequest);
 assert(researchPlan.enabled, 'Deep BA research plan should be enabled');
 assert(researchPlan.searchQueries.some((query) => /site:iys\.org\.tr/i.test(query)), 'Research queries should prefer official IYS sources');
 assert(researchPlan.searchQueries.some((query) => /site:mevzuat\.gov\.tr/i.test(query)), 'Research queries should prefer official legislation sources');
+assert(researchPlan.searchQueries.some((query) => /site:ahsdocs\.iys\.org\.tr/i.test(query)), 'Research queries should prefer official IYS API documentation');
+assert(researchPlan.searchQueries.some((query) => /site:ticaret\.gov\.tr/i.test(query)), 'Research queries should prefer official Ministry IYS sources');
 assert(researchPlan.searchQueries.some((query) => /3 is gunu/i.test(query)), 'Research queries should cover the 3 business day rule');
-assert(researchPlan.searchQueries.some((query) => /recipient/i.test(query)), 'Research queries should cover IYS API fields');
+assert(researchPlan.searchQueries.some((query) => /recipientType/i.test(query)), 'Research queries should cover IYS API fields');
 assert(researchPlan.documentGapsToCheck.some((gap) => /BR\/FR\/NFR\/INT/i.test(gap)), 'Document gaps should include coded requirements');
 assert(researchPlan.documentGapsToCheck.some((gap) => /dogrulama matrisi/i.test(gap)), 'Document gaps should include source verification matrix');
 
@@ -48,6 +50,8 @@ assert(sourcePolicy.requiresSourceSeparation, 'SAP IYS source policy should requ
 assert(sourcePolicy.statusLabels.includes('DOGRULANDI'), 'Source policy should include verified status');
 assert(sourcePolicy.statusLabels.includes('VARSAYIM'), 'Source policy should include assumption status');
 assert(sourcePolicy.statusLabels.includes('ACIK KONU'), 'Source policy should include open-topic status');
+assert(sourcePolicy.preferredSources.some((source) => /ahsdocs\.iys\.org\.tr/i.test(source)), 'Source policy should prefer official IYS AHS API docs');
+assert(sourcePolicy.preferredSources.some((source) => /Ticaret Bakanligi/i.test(source)), 'Source policy should prefer Ministry sources');
 
 const actInstructions = buildDeepBaActInstructions(sapIysRequest);
 assertIncludes(actInstructions, 'document.businessAnalysis', 'Deep instructions should target the visible BA document');
@@ -79,7 +83,7 @@ const shortBehavior = buildBehaviorDecision({
 assert(shortBehavior.mode === 'ask_clarifying_questions', 'Short SAP IYS request should enter discovery question mode');
 assert(shortBehavior.domain === 'sap_crm_iys', 'Short SAP IYS request should detect sap_crm_iys domain');
 assert(shortBehavior.requiredTemplate === 'corporate_conceptual_design', 'Short SAP IYS request should still bind to corporate template');
-assert(shortBehavior.clarificationQuestions.some((item) => /İYS izin kapsamı/i.test(item)), 'Behavior questions should be domain-specific');
+assert(shortBehavior.clarificationQuestions.some((item) => /Ä°YS izin kapsamÄ±/i.test(item)), 'Behavior questions should be domain-specific');
 
 const forcedBehavior = buildBehaviorDecision({
   userMessage: assumptionFollowUp,
@@ -104,21 +108,21 @@ assert(forcedClassification.documentImpact === 'updates_document', 'Behavior-adj
 assert(forcedClassification.targetSection === 'businessAnalysis', 'Behavior-adjusted classification should target BA Analiz');
 
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'KAVRAMSAL TASARIM RAPORU', 'Corporate prompt should require the report title');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KİMLİK KARTI', 'Corporate prompt should require project identity card');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Doküman Tarihçesi', 'Corporate prompt should require document history');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'SÜREÇ MODELİ', 'Corporate prompt should require process model blocks');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KÄ°MLÄ°K KARTI', 'Corporate prompt should require project identity card');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'DokÃ¼man TarihÃ§esi', 'Corporate prompt should require document history');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'SÃœREÃ‡ MODELÄ°', 'Corporate prompt should require process model blocks');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'en az 3 adet', 'Corporate prompt should require automatic process multiplication for integrations');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Üst Düzey Müşteri Geliştirmesi', 'Corporate prompt should require development tables');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Ãœst DÃ¼zey MÃ¼ÅŸteri GeliÅŸtirmesi', 'Corporate prompt should require development tables');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'EK A', 'Corporate prompt should require appendix A');
 
 const legacyBaDraft = {
   businessAnalysis: {
-    content: '# BA Analiz Raporu\n\n## Amaç ve İş Değeri\nSAP CRM İYS entegrasyonu için kısa taslak.\n\n## Kapsam\nİzin aktarımı ve mutabakat.',
+    content: '# BA Analiz Raporu\n\n## AmaÃ§ ve Ä°ÅŸ DeÄŸeri\nSAP CRM Ä°YS entegrasyonu iÃ§in kÄ±sa taslak.\n\n## Kapsam\nÄ°zin aktarÄ±mÄ± ve mutabakat.',
     status: 'DRAFT' as const,
     flags: [],
   },
   review: {
-    content: 'Riskler ve açık sorular daha sonra netleştirilecek.',
+    content: 'Riskler ve aÃ§Ä±k sorular daha sonra netleÅŸtirilecek.',
     status: 'DRAFT' as const,
     flags: [],
   },
@@ -129,14 +133,14 @@ const templatedDocument = ensureConceptualTemplateStructure(legacyBaDraft);
 const templatedContent = templatedDocument.businessAnalysis.content;
 assert(isConceptualTemplateCompliant(templatedContent), 'Post processor fallback should produce a compliant conceptual template');
 assertIncludes(templatedContent, 'KAVRAMSAL TASARIM RAPORU', 'Fallback should start from conceptual report title');
-assertIncludes(templatedContent, 'PROJE KİMLİK KARTI', 'Fallback should include project identity card');
-assertIncludes(templatedContent, 'Doküman Tarihçesi', 'Fallback should include document history');
+assertIncludes(templatedContent, 'PROJE KÄ°MLÄ°K KARTI', 'Fallback should include project identity card');
+assertIncludes(templatedContent, 'DokÃ¼man TarihÃ§esi', 'Fallback should include document history');
 assertIncludes(templatedContent, 'Kontrol EDEN VE ONAYLAYAN', 'Fallback should include approval table');
-assertIncludes(templatedContent, 'SÜREÇ TASARIMI', 'Fallback should include process design');
-assertIncludes(templatedContent, 'Üst Düzey Müşteri Geliştirmesi', 'Fallback should include development table blocks');
-assertIncludes(templatedContent, 'İLGİLİ / REFERANS DOKÜMANLAR', 'Fallback should include reference documents table');
+assertIncludes(templatedContent, 'SÃœREÃ‡ TASARIMI', 'Fallback should include process design');
+assertIncludes(templatedContent, 'Ãœst DÃ¼zey MÃ¼ÅŸteri GeliÅŸtirmesi', 'Fallback should include development table blocks');
+assertIncludes(templatedContent, 'Ä°LGÄ°LÄ° / REFERANS DOKÃœMANLAR', 'Fallback should include reference documents table');
 assertIncludes(templatedContent, 'EK A', 'Fallback should include appendix A');
-const processModelCount = (templatedContent.match(/SÜREÇ MODELİ - \d+/g) || []).length;
+const processModelCount = (templatedContent.match(/SÃœREÃ‡ MODELÄ° - \d+/g) || []).length;
 assert(processModelCount >= 3, 'SAP IYS fallback should create at least 3 process model blocks');
 assert((templatedDocument.businessAnalysis.flags || []).includes('CONCEPTUAL_TEMPLATE_APPLIED'), 'Fallback should mark conceptual template application');
 const coverage = conceptualTemplateCoverage(templatedContent);
@@ -163,12 +167,12 @@ const question = normalizeBaClassifierOutput(
 );
 
 assert(question.requiresClarification, 'Short SAP IYS request should ask contextual questions first');
-assert((question.clarificationQuestions || []).some((item) => /İYS izin kapsamı/.test(item)), 'Contextual questions should include IYS channel scope');
-assert((question.clarificationQuestions || []).some((item) => /Seçenekler:/.test(item)), 'Classifier questions should carry quick options');
+assert((question.clarificationQuestions || []).some((item) => /Ä°YS izin kapsamÄ±/.test(item)), 'Contextual questions should include IYS channel scope');
+assert((question.clarificationQuestions || []).some((item) => /SeÃ§enekler:/.test(item)), 'Classifier questions should carry quick options');
 assert(/behavior:short_domain_discovery/.test(question.reason), 'Short SAP IYS request should mark behavior discovery mode');
 
-const parsed = parseClassifierQuestion('İYS izin kapsamı nedir?\nSeçenekler: Tüm kanallar | Sadece SMS | Varsayımla ilerle', 0);
+const parsed = parseClassifierQuestion('Ä°YS izin kapsamÄ± nedir?\nSeÃ§enekler: TÃ¼m kanallar | Sadece SMS | VarsayÄ±mla ilerle', 0);
 assert(parsed.options.length === 3, 'Classifier question parser should preserve options');
-assert(parsed.options[0] === 'Tüm kanallar', 'Classifier question parser should trim option labels');
+assert(parsed.options[0] === 'TÃ¼m kanallar', 'Classifier question parser should trim option labels');
 
 console.log('Deep BA Assistant verification passed.');
