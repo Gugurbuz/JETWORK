@@ -41,6 +41,23 @@ const FORCE_DRAFT_TRIGGERS = [
   /haz[Ä±i]rla|hazirla|devam et|olu[ÅŸs]tur|olustur/i,
 ];
 
+function normalizeDomainText(value: string): string {
+  return (value || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/\u0131/g, 'i')
+    .replace(/\u015f/g, 's')
+    .replace(/\u011f/g, 'g')
+    .replace(/\u00fc/g, 'u')
+    .replace(/\u00f6/g, 'o')
+    .replace(/\u00e7/g, 'c');
+}
+
+export function isSapCrmAiSalesBotRequest(userMessage = ''): boolean {
+  const text = normalizeDomainText(userMessage);
+  return /sap\s*crm/.test(text)
+    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|lead|opportunity|firsat|musteri)/.test(text);
+}
+
 function unique(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
@@ -48,7 +65,8 @@ function unique(values: string[]): string[] {
 export function buildSourceVerificationPolicy(userMessage = ''): SourceVerificationPolicy {
   const text = userMessage.trim();
   const isIys = /iys|i[\. ]?y[\. ]?s|ileti y/i.test(text);
-  const isRegulatoryOrApi = isIys || /mevzuat|yonetmelik|kanun|uyum|api|entegrasyon|oauth/i.test(text);
+  const isCrmAiSalesBot = isSapCrmAiSalesBotRequest(text);
+  const isRegulatoryOrApi = isIys || isCrmAiSalesBot || /mevzuat|yonetmelik|kanun|uyum|api|entegrasyon|oauth/i.test(text);
   const preferredSources = isIys
     ? [
         'IYS resmi web sitesi ve SSS sayfalari',
@@ -58,6 +76,14 @@ export function buildSourceVerificationPolicy(userMessage = ''): SourceVerificat
         'Ticaret Bakanligi IYS sayfalari',
         'TOBB veya yetkilendirilmis kurumsal duyurular',
       ]
+    : isCrmAiSalesBot
+      ? [
+          'SAP Help Portal CRM / Sales dokumantasyonu',
+          'SAP Business AI ve Joule resmi SAP dokumantasyonu',
+          'SAP Sales Cloud / CRM lead, opportunity, activity referanslari',
+          'KVKK ve kurumsal veri guvenligi politikalari',
+          'Guvenilir AI governance ve insan onayi referanslari',
+        ]
     : [
         'Resmi kurum veya urun dokumantasyonu',
         'Mevzuat/kamu kaynaklari',
@@ -80,6 +106,7 @@ export function shouldUseDeepBaAssistant(userMessage = ''): boolean {
   const hasDocumentSignal = DOCUMENT_DEPTH_TRIGGERS.some((pattern) => pattern.test(text));
   const hasForceDraftSignal = FORCE_DRAFT_TRIGGERS.some((pattern) => pattern.test(text));
 
+  if (isSapCrmAiSalesBotRequest(text)) return true;
   if (hasResearchTopic && (hasDocumentSignal || hasForceDraftSignal)) return true;
   if (/sap\s+crm/i.test(text) && /iys|i[\. ]?y[\. ]?s/i.test(text)) return true;
   if (/entegrasyon/i.test(text) && /(mevzuat|uyum|kanun|api|sap|crm|iys)/i.test(text)) return true;
@@ -96,6 +123,7 @@ export function requiresExternalKnowledge(userMessage = ''): boolean {
 
 export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
   const isIysSap = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oÃ¶]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
+  const isCrmAiSalesBot = isSapCrmAiSalesBotRequest(userMessage);
   const enabled = requiresExternalKnowledge(userMessage);
   const genericQueries = [
     `${userMessage} resmi kaynak mevzuat API`,
@@ -109,12 +137,19 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
     'site:ticaret.gov.tr Ileti Yonetim Sistemi IYS TOBB 6563',
   ];
 
+  const crmAiSalesBotQueries = [
+    'site:help.sap.com SAP CRM sales lead opportunity activity management',
+    'site:help.sap.com SAP CRM interaction center sales lead opportunity',
+    'site:sap.com SAP Business AI sales CRM assistant Joule',
+    `${userMessage} CRM AI sales assistant best practice lead qualification human handoff governance`,
+  ];
+
   return {
     enabled,
     reason: enabled
       ? 'Regulasyon, API veya kurumsal entegrasyon bilgisi icerdigi icin kaynakli derin BA modu gerekli.'
       : 'Genel BA taslagi icin kurumsal hafiza yeterli olabilir.',
-    searchQueries: unique(isIysSap ? iysQueries : genericQueries).slice(0, 4),
+    searchQueries: unique(isIysSap ? iysQueries : isCrmAiSalesBot ? crmAiSalesBotQueries : genericQueries).slice(0, 4),
     assumptions: [
       'Eksik is bilgileri [VARSAYIM] etiketiyle ayrilacak.',
       'Kaynakla dogrulanamayan mevzuat veya API detayi kesin hukum gibi yazilmayacak.',
@@ -138,6 +173,7 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
 
 export function buildDeepBaActInstructions(userMessage = ''): string {
   const sourcePolicy = buildSourceVerificationPolicy(userMessage);
+  const isCrmAiSalesBot = isSapCrmAiSalesBotRequest(userMessage);
   const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oÃ¶]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   const sapIysAddendum = isSapIys
     ? `
@@ -145,6 +181,15 @@ export function buildDeepBaActInstructions(userMessage = ''): string {
 - Kanal bazli izin modelini kavramsal seviyede yaz: MESAJ/SMS, EPOSTA, ARAMA; recipient, recipientType, source, consentDate/status, marka kodu ve alici tipi.
 - Surecleri ayir: CRM'den IYS'ye izin aktarimi, IYS'den CRM'e delta/mutabakat, initial load, hata/retry/kuyruk, veri temizligi ve operasyonel raporlama.
 - Resmi kaynak bulunmadan 3 is gunu, API alanlari, kanal degerleri, rate limit veya yasal sure gibi maddeleri DOGRULANDI diye isaretleme.
+`.trim()
+    : '';
+  const crmAiSalesBotAddendum = isCrmAiSalesBot
+    ? `
+- SAP CRM AI satis botu baglaminda su alanlari ozellikle isle: satis kanallari, lead yakalama, lead nitelendirme, opportunity olusturma, activity/task kaydi, temsilciye devir ve musteri etkilesim gecmisi.
+- Surecleri ayir: bot karsilama ve niyet anlama, lead/opportunity nitelendirme, teklif/urun oneri akisi, SAP CRM kaydi ve satis temsilcisi handoff, model izleme ve kalite kontrol.
+- Kavramsal veri modelinde Business Partner, Contact, Lead, Opportunity, Activity, Campaign, Conversation, Consent, Handoff ve Audit Log varliklarini degerlendir.
+- AI davranis kurallarini yaz: guven skoru, insan onayi, hallucination guard, KVKK/veri maskeleme, loglama, prompt/yanit denetimi ve model performans izleme.
+- KPI'lari somutlastir: lead donusum orani, ilk yanit suresi, nitelikli lead orani, temsilciye devir basari orani, CRM veri tamligi, CSAT ve satis kapanis etkisi.
 `.trim()
     : '';
 
@@ -194,6 +239,7 @@ Davranis kurallari:
 - Resmi kaynak veya guvenilir referans kullanildiysa "Kaynak / Kanit" alanina kaynak adini ya da URL basligini yaz; kaynak yoksa "Kaynak bulunamadi" yaz ve Durum'u ACIK KONU yap.
 - Tercih edilen kaynak turleri: ${sourcePolicy.preferredSources.join('; ')}.
 ${sapIysAddendum}
+${crmAiSalesBotAddendum}
 `.trim();
 }
 
