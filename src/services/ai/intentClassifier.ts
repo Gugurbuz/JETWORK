@@ -47,38 +47,60 @@ const classifierSchema = {
   required: ['subIntent', 'confidence', 'riskLevel', 'reason'],
 };
 
-const SYSTEM_PROMPT = `Sen JETWORK Intent Classifier katmanısın. Görevin kullanıcı mesajını ürün aksiyonuna çevirmektir.
-Görünür çok ajan tartışması başlatma. Zero-Touch MVP'de kapalıdır.
-Sadece geçerli JSON döndür. Markdown, açıklama veya serbest metin yazma.
+const SYSTEM_PROMPT = `Sen JETWORK Intent Classifier katmanÄ±sÄ±n. GÃ¶revin kullanÄ±cÄ± mesajÄ±nÄ± Ã¼rÃ¼n aksiyonuna Ã§evirmektir.
+GÃ¶rÃ¼nÃ¼r Ã§ok ajan tartÄ±ÅŸmasÄ± baÅŸlatma. Zero-Touch MVP'de kapalÄ±dÄ±r.
+Sadece geÃ§erli JSON dÃ¶ndÃ¼r. Markdown, aÃ§Ä±klama veya serbest metin yazma.
 
 KURALLAR:
-- Görünür doküman yüzeyi şimdilik sadece businessAnalysis ve review sekmeleridir. Teknik analiz, test veya flow istenirse targetSection olarak businessAnalysis ya da review seç; baAgentFocus ile odağı belirt.
+- GÃ¶rÃ¼nÃ¼r dokÃ¼man yÃ¼zeyi ÅŸimdilik sadece businessAnalysis ve review sekmeleridir. Teknik analiz, test veya flow istenirse targetSection olarak businessAnalysis ya da review seÃ§; baAgentFocus ile odaÄŸÄ± belirt.
 - Teknik analiz / mimari / API / entegrasyon isteklerinde baAgentFocus = 'technical_analysis'.
 - Test / UAT / kabul senaryosu isteklerinde baAgentFocus = 'test'.
-- BPMN / Mermaid / süreç akışı isteklerinde baAgentFocus = 'flow'.
+- BPMN / Mermaid / sÃ¼reÃ§ akÄ±ÅŸÄ± isteklerinde baAgentFocus = 'flow'.
 - Risk / kalite / review isteklerinde baAgentFocus = 'review' veya 'quality'.
-- Sadece açıklama isteniyorsa documentImpact = 'none'.
-- Dokümana ekle/yaz/güncelle/çıkar/hazırla deniyorsa uygun targetSection belirle.
-- Seçili metin varsa "bunu/şunu" önce selectedText'e bağlanır.
-- Silme, komple baştan yazma, restore gibi riskli işlemlerde requiresPreview = true.
-- Emin değilsen requiresClarification = true yap; doküman güncelleme önerme.
-- Ancak kullanıcı "devam", "oluştur", "hazırla", "varsayımlarla ilerle", "bu bilgilerle" diyorsa soru sorma; analysis_generation ve shouldRunBaAgentLoop kullan.
-- Kullanıcı önceki soru kartlarına cevap veriyorsa bunu yeni BA girdisi say; generate_business_analysis veya add_requirement_detail seç.
-- Bilinmeyen kurumsal bilgi varsa uydurma; assumption/open question üret.
-- Kullanıcı bir talep/fikir/entegrasyon anlatıyorsa ve boş dokümana yazılacaksa -> generate_business_analysis (analysis_generation).
-- "araştır / güncel bilgi / best practice" açıkça geçiyorsa research_* intentleri kullan.
+- Sadece aÃ§Ä±klama isteniyorsa documentImpact = 'none'.
+- DokÃ¼mana ekle/yaz/gÃ¼ncelle/Ã§Ä±kar/hazÄ±rla deniyorsa uygun targetSection belirle.
+- SeÃ§ili metin varsa "bunu/ÅŸunu" Ã¶nce selectedText'e baÄŸlanÄ±r.
+- Silme, komple baÅŸtan yazma, restore gibi riskli iÅŸlemlerde requiresPreview = true.
+- Emin deÄŸilsen requiresClarification = true yap; dokÃ¼man gÃ¼ncelleme Ã¶nerme.
+- Ancak kullanÄ±cÄ± "devam", "oluÅŸtur", "hazÄ±rla", "varsayÄ±mlarla ilerle", "bu bilgilerle" diyorsa soru sorma; analysis_generation ve shouldRunBaAgentLoop kullan.
+- KullanÄ±cÄ± Ã¶nceki soru kartlarÄ±na cevap veriyorsa bunu yeni BA girdisi say; generate_business_analysis veya add_requirement_detail seÃ§.
+- Bilinmeyen kurumsal bilgi varsa uydurma; assumption/open question Ã¼ret.
+- KullanÄ±cÄ± bir talep/fikir/entegrasyon anlatÄ±yorsa ve boÅŸ dokÃ¼mana yazÄ±lacaksa -> generate_business_analysis (analysis_generation).
+- "araÅŸtÄ±r / gÃ¼ncel bilgi / best practice" aÃ§Ä±kÃ§a geÃ§iyorsa research_* intentleri kullan.
 - /ekip -> zero_touch_requested.
 
-ÖNEMLİ: Yanıt yalnızca şu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
+Ã–NEMLÄ°: YanÄ±t yalnÄ±zca ÅŸu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
 
-const GENERATE_WITH_ASSUMPTIONS_RE = /\b(devam|ilerle|olu[şs]tur|haz[ıi]rla|yaz|taslak|varsay[ıi]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba[şs]la)\b/i;
+const GENERATE_WITH_ASSUMPTIONS_RE = /\b(devam|ilerle|olu[ÅŸs]tur|haz[Ä±i]rla|yaz|taslak|varsay[Ä±i]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba[ÅŸs]la)\b/i;
 
 function formatClassifierQuestion(text: string, options: string[] = []): string {
   return options.length > 0 ? `${text}\nSecenekler: ${options.join(' | ')}` : text;
 }
 
+function normalizeQuestionDomainText(value: string): string {
+  return (value || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/\u0131/g, 'i')
+    .replace(/\u015f/g, 's')
+    .replace(/\u011f/g, 'g')
+    .replace(/\u00fc/g, 'u')
+    .replace(/\u00f6/g, 'o')
+    .replace(/\u00e7/g, 'c');
+}
+
 function buildContextualClarificationQuestions(userMessage: string): string[] {
-  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
+  const normalizedText = normalizeQuestionDomainText(userMessage);
+  const isSapCrmAiSalesBot = /sap\s*crm/.test(normalizedText)
+    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|lead|opportunity|firsat|musteri)/.test(normalizedText);
+  if (isSapCrmAiSalesBot) {
+    return [
+      formatClassifierQuestion('AI satis botu hangi kanallarda calisacak?', ['Web chat + WhatsApp', 'SAP CRM icinde temsilci asistani', 'Varsayimla coklu kanal']),
+      formatClassifierQuestion('SAP CRM tarafinda hangi satis nesneleri yonetilecek?', ['Lead + Opportunity + Activity', 'Sadece lead olusturma', 'Varsayimla lead ve opportunity kapsamda']),
+      formatClassifierQuestion('Bot hangi seviyede aksiyon alabilecek?', ['Sadece oneri ve ozet', 'Lead nitelendirme + CRM kaydi', 'Varsayimla kritik islemler temsilci onayli']),
+      formatClassifierQuestion('Insana devir ve kalite kontrol nasil ilerlesin?', ['Dusuk guvende temsilciye devir', 'Tum satis aksiyonlari onayli', 'Varsayimla risk bazli devir modeli']),
+    ];
+  }
+  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oÃ¶]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
   if (!isSapIys) return [];
 
   return [
@@ -90,11 +112,11 @@ function buildContextualClarificationQuestions(userMessage: string): string[] {
 }
 
 function docSummary(doc: DocumentData | null): string {
-  if (!doc) return 'boş';
+  if (!doc) return 'boÅŸ';
   const parts = Object.entries(doc as any)
     .filter(([, v]: [string, any]) => v?.content)
     .map(([k, v]: [string, any]) => `${k}:${v.status || 'DRAFT'}(${String(v.content).length}c)`);
-  return parts.length > 0 ? parts.join('; ') : 'boş';
+  return parts.length > 0 ? parts.join('; ') : 'boÅŸ';
 }
 
 function parseSlashCommand(msg: string): IntentClassification | null {
@@ -256,10 +278,10 @@ export async function classifyIntent(input: ClassifyInput): Promise<IntentClassi
 
   const discoveryState = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
   const selection = input.selectedText
-    ? `\n[SEÇİLİ METİN (${input.selectedSection || '?'})]\n"""${String(input.selectedText).slice(0, 400)}"""`
+    ? `\n[SEÃ‡Ä°LÄ° METÄ°N (${input.selectedSection || '?'})]\n"""${String(input.selectedText).slice(0, 400)}"""`
     : '';
 
-  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}\n\n${buildBaEnginePromptContext(discoveryState)}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
+  const prompt = `[DOKÃœMAN DURUMU] ${docSummary(input.document)}${selection}\n\n${buildBaEnginePromptContext(discoveryState)}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
 
   try {
     const res = await callAiWithRetry(() =>
@@ -307,18 +329,18 @@ function fallbackSubIntent(input: ClassifyInput): SubIntent {
   const hasDoc = !!(input.document && Object.values(input.document).some((s: any) => s?.content));
 
   if (isLikelyBaDiscoveryAnswer(input.userMessage)) return hasDoc ? 'add_requirement_detail' : 'generate_business_analysis';
-  if (msg.length < 30 && /(selam|merhaba|hi|nas[ıi]ls[ıi]n|naber)/i.test(msg)) return 'small_talk';
-  if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg) && /(a[çc][ıi]kla|anlat)/i.test(msg)) return 'explain_selected_text';
-  if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg)) return 'improve_selected_text';
+  if (msg.length < 30 && /(selam|merhaba|hi|nas[Ä±i]ls[Ä±i]n|naber)/i.test(msg)) return 'small_talk';
+  if (input.selectedText && /(bunu|ÅŸunu|buray[Ä±i])/i.test(msg) && /(a[Ã§c][Ä±i]kla|anlat)/i.test(msg)) return 'explain_selected_text';
+  if (input.selectedText && /(bunu|ÅŸunu|buray[Ä±i])/i.test(msg)) return 'improve_selected_text';
   if (/(test|kabul kriter|uat|senaryo)/i.test(msg)) return 'generate_test_cases';
-  if (/(ak[ıi]ş|bpmn|mermaid|flow|s[üu]re[çc])/i.test(msg)) return 'generate_flow_diagram';
-  if (/(api kontrat|api contract|endpoint|servis sözleşmesi|servis sozlesmesi)/i.test(msg)) return 'generate_api_contract';
+  if (/(ak[Ä±i]ÅŸ|bpmn|mermaid|flow|s[Ã¼u]re[Ã§c])/i.test(msg)) return 'generate_flow_diagram';
+  if (/(api kontrat|api contract|endpoint|servis sÃ¶zleÅŸmesi|servis sozlesmesi)/i.test(msg)) return 'generate_api_contract';
   if (/(entegrasyon|integration)/i.test(msg)) return 'generate_integration_analysis';
-  if (/(teknik|mimari|developer handoff|geliştirici devri|gelistirici devri)/i.test(msg)) return 'generate_technical_analysis';
+  if (/(teknik|mimari|developer handoff|geliÅŸtirici devri|gelistirici devri)/i.test(msg)) return 'generate_technical_analysis';
   if (/(risk|eksik|review|kalite|inceleme)/i.test(msg)) return 'find_risks';
-  if (/(ara[şs]t[ıi]r|best practice|g[üu]ncel|standart)/i.test(msg)) return 'research_web';
-  if (/(indir|export|payla[şs]|versiyon)/i.test(msg)) return 'export_document';
-  if (/(nedir|a[çc][ıi]kla|anlat|nas[ıi]l kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
+  if (/(ara[ÅŸs]t[Ä±i]r|best practice|g[Ã¼u]ncel|standart)/i.test(msg)) return 'research_web';
+  if (/(indir|export|payla[ÅŸs]|versiyon)/i.test(msg)) return 'export_document';
+  if (/(nedir|a[Ã§c][Ä±i]kla|anlat|nas[Ä±i]l kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
   if (hasDoc) return 'add_requirement_detail';
   return 'generate_business_analysis';
 }
