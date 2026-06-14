@@ -29,10 +29,13 @@ function assertIncludes(value: string, needle: string, message: string): void {
 
 const sapIysRequest = 'sap crm iys entegrasyonu ba analiz kavramsal tasarim dokumani';
 const shortSapIysRequest = 'sap crm iys entegrasyonu';
+const sapCrmAiSalesBotRequest = 'sap crm ai satis botu projesi';
 const assumptionFollowUp = 'sap crm iys entegrasyonu\nVarsayÄ±mlarla ilerle. Eksik bilgileri tahmini olarak doldur.';
 
 assert(shouldUseDeepBaAssistant(sapIysRequest), 'SAP CRM + IYS request should activate deep BA mode');
 assert(requiresExternalKnowledge(sapIysRequest), 'SAP CRM + IYS request should require external knowledge');
+assert(shouldUseDeepBaAssistant(sapCrmAiSalesBotRequest), 'SAP CRM AI sales bot request should activate deep BA mode');
+assert(requiresExternalKnowledge(sapCrmAiSalesBotRequest), 'SAP CRM AI sales bot request should require external knowledge');
 
 const researchPlan = buildDeepBaResearchPlan(sapIysRequest);
 assert(researchPlan.enabled, 'Deep BA research plan should be enabled');
@@ -45,6 +48,11 @@ assert(researchPlan.searchQueries.some((query) => /recipientType/i.test(query)),
 assert(researchPlan.documentGapsToCheck.some((gap) => /BR\/FR\/NFR\/INT/i.test(gap)), 'Document gaps should include coded requirements');
 assert(researchPlan.documentGapsToCheck.some((gap) => /dogrulama matrisi/i.test(gap)), 'Document gaps should include source verification matrix');
 
+const crmAiSalesResearchPlan = buildDeepBaResearchPlan(sapCrmAiSalesBotRequest);
+assert(crmAiSalesResearchPlan.enabled, 'SAP CRM AI sales bot research plan should be enabled');
+assert(crmAiSalesResearchPlan.searchQueries.some((query) => /help\.sap\.com/i.test(query)), 'SAP CRM AI sales bot research should prefer SAP Help sources');
+assert(crmAiSalesResearchPlan.searchQueries.some((query) => /Business AI|Joule|lead qualification/i.test(query)), 'SAP CRM AI sales bot research should cover AI sales assistant context');
+
 const sourcePolicy = buildSourceVerificationPolicy(sapIysRequest);
 assert(sourcePolicy.requiresSourceSeparation, 'SAP IYS source policy should require verified/assumption/open-topic separation');
 assert(sourcePolicy.statusLabels.includes('DOGRULANDI'), 'Source policy should include verified status');
@@ -52,6 +60,9 @@ assert(sourcePolicy.statusLabels.includes('VARSAYIM'), 'Source policy should inc
 assert(sourcePolicy.statusLabels.includes('ACIK KONU'), 'Source policy should include open-topic status');
 assert(sourcePolicy.preferredSources.some((source) => /ahsdocs\.iys\.org\.tr/i.test(source)), 'Source policy should prefer official IYS AHS API docs');
 assert(sourcePolicy.preferredSources.some((source) => /Ticaret Bakanligi/i.test(source)), 'Source policy should prefer Ministry sources');
+const crmAiSalesSourcePolicy = buildSourceVerificationPolicy(sapCrmAiSalesBotRequest);
+assert(crmAiSalesSourcePolicy.requiresSourceSeparation, 'SAP CRM AI sales bot source policy should require source separation');
+assert(crmAiSalesSourcePolicy.preferredSources.some((source) => /SAP Help/i.test(source)), 'SAP CRM AI sales bot source policy should prefer SAP Help');
 
 const actInstructions = buildDeepBaActInstructions(sapIysRequest);
 assertIncludes(actInstructions, 'document.businessAnalysis', 'Deep instructions should target the visible BA document');
@@ -65,11 +76,20 @@ assertIncludes(actInstructions, 'Kaynak ve Dogrulama Matrisi', 'Deep instruction
 assertIncludes(actInstructions, 'DOGRULANDI', 'Deep instructions should separate verified claims');
 assertIncludes(actInstructions, 'VARSAYIM', 'Deep instructions should separate assumptions');
 assertIncludes(actInstructions, 'ACIK KONU', 'Deep instructions should separate open topics');
+const crmAiSalesActInstructions = buildDeepBaActInstructions(sapCrmAiSalesBotRequest);
+assertIncludes(crmAiSalesActInstructions, 'lead yakalama', 'CRM AI sales instructions should include lead capture');
+assertIncludes(crmAiSalesActInstructions, 'opportunity', 'CRM AI sales instructions should include opportunity handling');
+assertIncludes(crmAiSalesActInstructions, 'temsilciye devir', 'CRM AI sales instructions should include human handoff');
+assertIncludes(crmAiSalesActInstructions, 'AI davranis kurallarini', 'CRM AI sales instructions should include AI behavior rules');
 
 const sapDomainQuestions = buildDomainQuestions('sap_crm_iys');
 assert(sapDomainQuestions.length >= 4, 'SAP IYS behavior profile should expose at least 4 domain questions');
 assert(sapDomainQuestions.some((item) => /marka/i.test(item)), 'SAP IYS domain questions should ask about brand code structure');
 assert(sapDomainQuestions.some((item) => /Initial load/i.test(item)), 'SAP IYS domain questions should ask about initial load and delta scope');
+const crmAiSalesDomainQuestions = buildDomainQuestions('sap_crm_ai_sales_bot');
+assert(crmAiSalesDomainQuestions.length >= 4, 'SAP CRM AI sales bot behavior profile should expose at least 4 domain questions');
+assert(crmAiSalesDomainQuestions.some((item) => /kanal/i.test(item)), 'CRM AI sales bot questions should ask about channels');
+assert(crmAiSalesDomainQuestions.some((item) => /Lead \+ Opportunity/i.test(item)), 'CRM AI sales bot questions should ask about CRM sales objects');
 
 const shortBehavior = buildBehaviorDecision({
   userMessage: shortSapIysRequest,
@@ -83,7 +103,20 @@ const shortBehavior = buildBehaviorDecision({
 assert(shortBehavior.mode === 'ask_clarifying_questions', 'Short SAP IYS request should enter discovery question mode');
 assert(shortBehavior.domain === 'sap_crm_iys', 'Short SAP IYS request should detect sap_crm_iys domain');
 assert(shortBehavior.requiredTemplate === 'corporate_conceptual_design', 'Short SAP IYS request should still bind to corporate template');
-assert(shortBehavior.clarificationQuestions.some((item) => /Ä°YS izin kapsamÄ±/i.test(item)), 'Behavior questions should be domain-specific');
+assert(shortBehavior.clarificationQuestions.some((item) => /IYS izin kapsami|Ä°YS izin kapsamÄ±/i.test(item)), 'Behavior questions should be domain-specific');
+
+const crmAiSalesBehavior = buildBehaviorDecision({
+  userMessage: sapCrmAiSalesBotRequest,
+  document: null,
+  discoveryReadiness: 20,
+  classification: buildClassification('generate_business_analysis', {
+    confidence: 0.65,
+    reason: 'short_crm_ai_sales_bot',
+  }),
+});
+assert(crmAiSalesBehavior.mode === 'ask_clarifying_questions', 'Short SAP CRM AI sales bot request should enter discovery question mode');
+assert(crmAiSalesBehavior.domain === 'sap_crm_ai_sales_bot', 'Short SAP CRM AI sales bot request should detect sap_crm_ai_sales_bot domain');
+assert(crmAiSalesBehavior.clarificationQuestions.some((item) => /AI satis botu/i.test(item)), 'CRM AI sales bot behavior questions should be domain-specific');
 
 const forcedBehavior = buildBehaviorDecision({
   userMessage: assumptionFollowUp,
@@ -167,12 +200,26 @@ const question = normalizeBaClassifierOutput(
 );
 
 assert(question.requiresClarification, 'Short SAP IYS request should ask contextual questions first');
-assert((question.clarificationQuestions || []).some((item) => /Ä°YS izin kapsamÄ±/.test(item)), 'Contextual questions should include IYS channel scope');
-assert((question.clarificationQuestions || []).some((item) => /SeÃ§enekler:/.test(item)), 'Classifier questions should carry quick options');
+assert((question.clarificationQuestions || []).some((item) => /IYS izin kapsami|Ä°YS izin kapsamÄ±/.test(item)), 'Contextual questions should include IYS channel scope');
+assert((question.clarificationQuestions || []).some((item) => /Secenekler:|SeÃ§enekler:/.test(item)), 'Classifier questions should carry quick options');
 assert(/behavior:short_domain_discovery/.test(question.reason), 'Short SAP IYS request should mark behavior discovery mode');
 
-const parsed = parseClassifierQuestion('Ä°YS izin kapsamÄ± nedir?\nSeÃ§enekler: TÃ¼m kanallar | Sadece SMS | VarsayÄ±mla ilerle', 0);
+const parsed = parseClassifierQuestion('IYS izin kapsami nedir?\nSecenekler: Tum kanallar | Sadece SMS | Varsayimla ilerle', 0);
 assert(parsed.options.length === 3, 'Classifier question parser should preserve options');
-assert(parsed.options[0] === 'TÃ¼m kanallar', 'Classifier question parser should trim option labels');
+assert(parsed.options[0] === 'Tum kanallar', 'Classifier question parser should trim option labels');
+
+const crmAiSalesQuestion = normalizeBaClassifierOutput(
+  { userMessage: sapCrmAiSalesBotRequest, document: null, model: 'test-model' },
+  buildClassification('generate_business_analysis', {
+    confidence: 0.4,
+    requiresClarification: true,
+    reason: 'short_crm_ai_sales_request',
+  }),
+);
+
+assert(crmAiSalesQuestion.requiresClarification, 'Short SAP CRM AI sales bot request should ask contextual questions first');
+assert((crmAiSalesQuestion.clarificationQuestions || []).some((item) => /AI satis botu hangi kanallarda/i.test(item)), 'CRM AI sales bot questions should include channel scope');
+assert((crmAiSalesQuestion.clarificationQuestions || []).some((item) => /Lead \+ Opportunity/i.test(item)), 'CRM AI sales bot questions should include CRM sales objects');
+assert(/sap_crm_ai_sales_bot/.test(crmAiSalesQuestion.reason), 'CRM AI sales bot request should mark its behavior domain');
 
 console.log('Deep BA Assistant verification passed.');
