@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, Edit3, FileText, Save, Share2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 import { Collaborator, DocumentData, Message, SectionData } from '../types';
 import { useStore } from '../store/useStore';
@@ -112,10 +113,10 @@ export function DocumentPanel({
       if (error) throw error;
       const shareUrl = `${window.location.origin}?shareId=${shareId}`;
       await navigator.clipboard.writeText(shareUrl);
-      alert(`Paylaşım bağlantısı panoya kopyalandı!\n\n${shareUrl}`);
+      toast.success('Paylaşım bağlantısı panoya kopyalandı.');
     } catch (error) {
       console.error(error);
-      alert('Paylaşım bağlantısı oluşturulurken hata oluştu.');
+      toast.error('Paylaşım bağlantısı oluşturulurken hata oluştu.');
     } finally {
       setIsSharing(false);
     }
