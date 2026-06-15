@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase, onAuthStateChanged } from '../supabase';
 import { useStore } from '../store/useStore';
 
@@ -20,12 +20,35 @@ export function useAuth() {
   const setUser = useStore((state) => state.setUser);
   const isAuthReady = useStore((state) => state.isAuthReady);
   const setIsAuthReady = useStore((state) => state.setIsAuthReady);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const retryAuth = useCallback(() => {
+    setAuthError(null);
+    setIsAuthReady(false);
+    window.location.reload();
+  }, [setIsAuthReady]);
 
   useEffect(() => {
+    let isMounted = true;
+    const timeoutId = window.setTimeout(() => {
+      if (!isMounted || useStore.getState().isAuthReady) return;
+      setAuthError('Oturum bilgileri alınırken beklenenden uzun sürdü. Bağlantınızı kontrol edip tekrar deneyin.');
+    }, 10000);
+
+    const finishAuth = () => {
+      window.clearTimeout(timeoutId);
+      if (isMounted) {
+        setAuthError(null);
+        setIsAuthReady(true);
+      }
+    };
+
     const unsubscribe = onAuthStateChanged(async (authUser) => {
+      if (!isMounted) return;
+
       if (!authUser) {
         setUser(null);
-        setIsAuthReady(true);
+        finishAuth();
         return;
       }
 
@@ -66,6 +89,8 @@ export function useAuth() {
         console.error('Error loading user profile:', err);
       }
 
+      if (!isMounted) return;
+
       const fullName = `${firstName} ${lastName}`.trim() || username;
 
       setUser({
@@ -80,10 +105,15 @@ export function useAuth() {
         onboardingCompleted,
         color,
       });
-      setIsAuthReady(true);
+      finishAuth();
     });
-    return () => unsubscribe();
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, [setUser, setIsAuthReady]);
 
-  return { user, setUser, isAuthReady };
+  return { user, setUser, isAuthReady, authError, retryAuth };
 }

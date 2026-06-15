@@ -9,7 +9,7 @@ import { OnboardingPage } from './components/OnboardingPage';
 import { ProjectDashboard } from './components/ProjectDashboard';
 import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, TypingUser, Question } from './types';
 import { ChatResponseSchema, chatResponseJsonSchema, discussionJsonSchema } from './schemas';
-import { LayoutDashboard } from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { marked } from 'marked';
 import { parse as parsePartialJson } from 'partial-json';
 import { GoogleGenAI } from "@google/genai";
@@ -25,12 +25,40 @@ import { useProjects } from './hooks/useProjects';
 import { useWorkspaceSync } from './hooks/useWorkspaceSync';
 import { useWorkspaceHandlers } from './hooks/useWorkspaceHandlers';
 
+function AuthLoadingState({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-theme-bg text-theme-text p-6">
+      <div className="w-full max-w-md rounded-2xl border border-theme-border bg-theme-surface p-8 text-center shadow-lg">
+        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-theme-border bg-theme-bg text-theme-primary">
+          {error ? <AlertTriangle size={22} /> : <Loader2 size={22} className="animate-spin" />}
+        </div>
+        <h1 className="mb-2 text-lg font-semibold tracking-tight">
+          {error ? 'Oturum başlatılamadı' : 'JetWork hazırlanıyor'}
+        </h1>
+        <p className="text-sm leading-relaxed text-theme-text-muted">
+          {error || 'Çalışma alanınız ve oturum bilgileriniz yükleniyor.'}
+        </p>
+        {error && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-6 inline-flex items-center justify-center gap-2 rounded-md bg-theme-primary px-4 py-2 text-sm font-semibold text-theme-primary-fg transition-colors hover:bg-theme-primary-hover"
+          >
+            <RefreshCw size={16} />
+            Tekrar dene
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // NOTE: This application uses a hybrid architecture:
   // - Database: Real-time collaborative database (workspaces, messages, projects)
   // - Supabase: Authentication and AI Edge Functions (Gemini agent)
   // - SQLite: Local persistence for shared analyses and memory
-  const { user, setUser, isAuthReady } = useAuth();
+  const { user, setUser, isAuthReady, authError, retryAuth } = useAuth();
 
   const showNewItemModal = useStore(state => state.showNewItemModal);
   const setShowNewItemModal = useStore(state => state.setShowNewItemModal);
@@ -310,7 +338,7 @@ export default function App() {
   }, [isAuthReady, setPromptSettings]);
 
   if (!isAuthReady) {
-    return <div className="min-h-screen flex items-center justify-center bg-theme-bg text-theme-text">Yükleniyor...</div>;
+    return <AuthLoadingState error={authError} onRetry={retryAuth} />;
   }
 
   if (!user) {
