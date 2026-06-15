@@ -42,10 +42,12 @@ interface BehaviorDecisionInput {
   discoveryReadiness?: number;
 }
 
-const FORCE_DRAFT_RE = /\b(devam|ilerle|olu[\u015fs]tur|haz[\u0131i]rla|yaz|taslak|varsay[\u0131i]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba\u015fla|basla|daha fazla soru sorma|soru sorma)\b/i;
-const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|varsay[\u0131i]mlarla|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur)\b/i;
+const FORCE_DRAFT_RE = /\b(devam|ilerle|olu[\u015fs]tur|haz[\u0131i]rla|yaz|taslak|varsay[\u0131i]mlarla|bu bilgilerle|mevcut bilgilerle|uygula|ba\u015fla|basla|tamam|ok|next|sonraki ad[\u0131i]m|sonraki adima|sen yap|ben mi yap[\u0131i]cam|ben mi yapacagim|devam et|durma|daha fazla soru sorma|soru sorma)\b/i;
+const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|sorular[\u0131i] b[\u0131i]rak|sorulari birak|varsay[\u0131i]mlarla|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur|ben mi yap[\u0131i]cam|ben mi yapacagim|sen yap)\b/i;
 const DOCUMENT_REQUEST_RE = /\b(ba analiz|i\u015f analiz|is analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|fdd|brd|gereksinim|s[\u00fcu]re[\u00e7c]|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*)\b/i;
 const NORMALIZED_DOCUMENT_REQUEST_RE = /\b(ba analiz|is analiz|kavramsal|tasarim|dokuman|fdd|brd|gereksinim|surec|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*|satis|sales)\b/i;
+const EXPLICIT_DISCOVERY_RE = /\b(soru sor|once sor|once netlestir|netlestir|netlestirme|kesif|kesif sorusu|bilgi iste|detay sor)\b/i;
+const CONCRETE_PROJECT_RE = /\b(proje\w*|project\w*|dokuman|kavramsal|tasarim|ba analiz|is analiz|fdd|brd|entegrasyon|bot\w*|asistan\w*|chatbot\w*)\b/i;
 const GREETING_ONLY_RE = /^\s*(selam|selamlar|merhaba|merhabalar|mrb|slm|hey|hi|hello|naber|nas[\u0131i]ls[\u0131i]n)\s*[!.?]*\s*$/i;
 
 function normalizeDomainText(value: string): string {
@@ -139,9 +141,14 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
     DOCUMENT_REQUEST_RE.test(message)
     || NORMALIZED_DOCUMENT_REQUEST_RE.test(normalizedMessage)
     || strongDomainRequest
-    || input.classification.documentImpact === 'updates_document';
+    || input.classification.documentImpact === 'updates_document'
+    || (hasExistingDocument && (forceDraft || stopQuestions));
   const shortDomainRequest = message.trim().length < 80 && documentRequest && !forceDraft && !hasExistingDocument;
   const readiness = input.discoveryReadiness ?? 0;
+  const explicitDiscoveryRequest = EXPLICIT_DISCOVERY_RE.test(normalizedMessage);
+  const concreteProjectRequest = CONCRETE_PROJECT_RE.test(normalizedMessage) || strongDomainRequest;
+  const shouldAskDiscovery = documentRequest
+    && (explicitDiscoveryRequest || (shortDomainRequest && readiness < 35 && !concreteProjectRequest));
 
   if (GREETING_ONLY_RE.test(message)) {
     return {
@@ -177,7 +184,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
     };
   }
 
-  if (shortDomainRequest && readiness < 65) {
+  if (shouldAskDiscovery) {
     return {
       mode: 'ask_clarifying_questions',
       domain,
@@ -187,10 +194,10 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
       shouldUpdateDocument: false,
       shouldUseAssumptions: false,
       shouldUseResearch: domain !== 'generic_ba',
-      questionBudget: domain === 'generic_ba' ? 3 : 4,
+      questionBudget: explicitDiscoveryRequest ? (domain === 'generic_ba' ? 3 : 4) : 3,
       clarificationQuestions: buildDomainQuestions(domain),
       confidence: 0.82,
-      reason: `behavior:short_domain_discovery:${domain}`,
+      reason: `behavior:${explicitDiscoveryRequest ? 'explicit_discovery' : 'critical_short_discovery'}:${domain}`,
     };
   }
 
@@ -267,13 +274,23 @@ export function applyBehaviorDecisionToClassification(
 
   if (decision.shouldUpdateDocument) {
     const hasExisting = hasDocument(existingDocument);
+    const shouldPreserveSubIntent =
+      classification.shouldRunBaAgentLoop
+      || classification.documentImpact === 'updates_document'
+      || classification.primaryIntent === 'analysis_generation'
+      || classification.primaryIntent === 'document_editing'
+      || classification.primaryIntent === 'quality_review';
     return {
       ...classification,
-      primaryIntent: 'analysis_generation',
-      subIntent: classification.primaryIntent === 'analysis_generation' ? classification.subIntent : 'generate_business_analysis',
-      targetSection: 'businessAnalysis',
+      primaryIntent: ['analysis_generation', 'document_editing', 'quality_review'].includes(classification.primaryIntent)
+        ? classification.primaryIntent
+        : 'analysis_generation',
+      subIntent: shouldPreserveSubIntent ? classification.subIntent : 'generate_business_analysis',
+      targetSection: classification.targetSection || 'businessAnalysis',
       documentImpact: 'updates_document',
-      operation: hasExisting ? 'append_to_section' : 'replace_or_create_section',
+      operation: classification.operation !== 'none'
+        ? classification.operation
+        : (hasExisting ? 'append_to_section' : 'replace_or_create_section'),
       requiresClarification: false,
       clarificationQuestions: undefined,
       requiresPreview: false,
