@@ -75,10 +75,11 @@ interface DecisionContext {
 }
 
 const FORCE_DRAFT_TERMS = [
-  'devam', 'ilerle', 'olustur', 'hazirla', 'yaz', 'taslak', 'varsayimlarla',
-  'bu bilgilerle', 'mevcut bilgilerle', 'uygula', 'basla', 'tamam', 'ok', 'next',
-  'sonraki adim', 'sonraki adima', 'sen yap', 'ben mi yapicam', 'ben mi yapacagim',
-  'devam et', 'durma', 'daha fazla soru sorma', 'soru sorma',
+  'varsayimlarla', 'bu bilgilerle', 'mevcut bilgilerle',
+  'hizli taslak', 'ilk taslak', 'ilk taslagi', 'kabaca taslak', 'taslakla ilerle',
+  'uygula', 'basla', 'baslayalim', 'tamam', 'ok', 'next', 'sonraki adim', 'sonraki adima',
+  'sen yap', 'ben mi yapicam', 'ben mi yapacagim', 'devam et', 'durma',
+  'daha fazla soru sorma', 'soru sorma',
 ];
 const STOP_QUESTION_TERMS = [
   'daha fazla soru sorma', 'soru sorma', 'soru istemiyorum', 'sorulari birak',
@@ -117,6 +118,7 @@ function normalizeDomainText(value: string): string {
     .replace(/Ü/g, 'u')
     .replace(/Ö/g, 'o')
     .replace(/Ç/g, 'c')
+    .replace(/[.!?,;:]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -289,7 +291,8 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
   const shouldDiscoverDomainBeforeDraft = strongDomainRequest
     && documentRequest
     && !hasExistingDocument
-    && !explicitDocumentGeneration
+    && !forceDraft
+    && !stopQuestions
     && readiness < 55;
   const shouldAskOnlyIfCritical = shortDomainRequest && readiness < 35 && !strongDomainRequest;
   const context: DecisionContext = {
