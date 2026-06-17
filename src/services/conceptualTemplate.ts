@@ -198,24 +198,96 @@ function addFlag(flags: string[] | undefined, flag: string): string[] {
 }
 
 function countProcessModels(content = ''): number {
+  const titles = extractProcessModelTitles(content);
+  if (titles.length) return titles.length;
   const plain = stripHtml(content);
-  return (plain.match(/s[uü]re[çc] modeli\s*-\s*\d+/gi) || []).length;
+  const numbers = Array.from(plain.matchAll(/s[uü]re[çc] modeli\s*-\s*(\d+)/gi))
+    .map(match => match[1])
+    .filter(Boolean);
+  return new Set(numbers).size;
 }
 
 function extractProcessModelTitles(content = ''): string[] {
-  const plain = stripHtml(content);
   const titles: string[] = [];
-  const titlePattern = /s[uü]re[çc] modeli\s*-\s*\d+\s*(?::|\s)\s*["“]?([^"”\n]+?)["”]?(?=\s+s[uü]re[çc] modeli|\s+ek a|\s+\d+\.\s|$)/gi;
-  let match: RegExpExecArray | null;
+  const plainLines = content
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h1|h2|h3|li|tr)>/gi, '\n')
+    .split(/\r?\n/)
+    .map(line => stripHtml(line).replace(/^[-#*\s\d.]+/, '').trim())
+    .filter(Boolean);
 
-  while ((match = titlePattern.exec(plain)) !== null) {
-    const title = (match[1] || '').replace(/^[":“”\s]+|[":“”\s]+$/g, '').trim();
+  for (const line of plainLines) {
+    const match = line.match(/s[uü]re[çc]\s+modeli\s*-\s*\d+\s*(?:"([^"]+)"|“([^”]+)”|:\s*([^|]+)|-\s*([^|]+)|\s+([^|]+))?/i);
+    const title = (match?.[1] || match?.[2] || match?.[3] || match?.[4] || match?.[5] || '')
+      .replace(/^[":“”\s]+|[":“”\s]+$/g, '')
+      .trim();
     if (title && !titles.some(existing => normalizeForInference(existing) === normalizeForInference(title))) {
       titles.push(title);
     }
   }
 
   return titles;
+}
+
+function isPartiallyStructuredConceptualDraft(content = ''): boolean {
+  const normalized = normalizeForInference(content);
+  return normalized.includes('kavramsal tasarim raporu')
+    && normalized.includes('proje kimlik karti')
+    && normalized.includes('surec tasarimi')
+    && extractProcessModelTitles(content).length >= 1;
+}
+
+function missingProcessTitlesForPartialDraft(sourceContent: string): string[] {
+  const existingTitles = extractProcessModelTitles(sourceContent);
+  const inferredProcessModels = inferProcessModels(sourceContent);
+  const targetCount = Math.max(
+    expectedProcessCount(sourceContent),
+    existingTitles.length,
+    inferredProcessModels.length,
+  );
+  const missingCount = Math.max(0, targetCount - existingTitles.length);
+  if (!missingCount) return [];
+
+  const seen = new Set(existingTitles.map(title => normalizeForInference(title)));
+  const preferred = inferredProcessModels
+    .slice(existingTitles.length)
+    .filter(title => !seen.has(normalizeForInference(title)));
+  const remaining = inferredProcessModels
+    .filter(title => !seen.has(normalizeForInference(title)) && !preferred.some(item => normalizeForInference(item) === normalizeForInference(title)));
+
+  return [...preferred, ...remaining].slice(0, missingCount);
+}
+
+function buildAppendixIfMissing(sourceContent: string): string {
+  const normalized = normalizeForInference(sourceContent);
+  if (normalized.includes('ek a') && normalized.includes('referans dokuman')) return '';
+
+  return `
+## EK A
+
+### İLGİLİ / REFERANS DOKÜMANLAR
+| Doküman İsmi | Versiyon | Özet Açıklama |
+|---|---|---|
+| [AÇIK KONU] Kullanıcı tarafından paylaşılan Word kavramsal tasarım şablonu | [AÇIK KONU] | Doküman format ve onay yapısı referansı. |
+| [AÇIK KONU] Mevzuat / API / sistem dokümanları | [AÇIK KONU] | Konuya göre doğrulanacak resmi veya teknik referanslar. |
+| [AÇIK KONU] UAT ve geçiş planı | [AÇIK KONU] | Test, canlı geçiş ve operasyon devri referansları. |
+
+### EKLENTİ
+| Doküman İsmi | Versiyon | Özet Açıklama |
+|---|---|---|
+| [AÇIK KONU] Süreç akış diyagramları |  | Detaylı BPMN/Mermaid veya operasyon akışları. |
+| [AÇIK KONU] Veri eşleştirme matrisi |  | Alan bazlı veri mapping ve dönüşüm kuralları. |
+| [AÇIK KONU] Test kanıtları |  | UAT çıktıları ve kabul onayları. |
+`.trim();
+}
+
+function completePartialConceptualDraft(sourceContent: string): string {
+  const existingCount = extractProcessModelTitles(sourceContent).length;
+  const missingBlocks = missingProcessTitlesForPartialDraft(sourceContent)
+    .map((title, index) => buildProcessModelBlock(title, existingCount + index + 1))
+    .join('\n\n');
+  const appendix = buildAppendixIfMissing(sourceContent);
+  return [sourceContent.trim(), missingBlocks, appendix].filter(Boolean).join('\n\n');
 }
 
 function mergeProcessModelTitles(existingTitles: string[], inferredTitles: string[], targetCount: number): string[] {
@@ -609,6 +681,17 @@ export function ensureConceptualTemplateStructure(document: DocumentData): Docum
   const content = businessAnalysis?.content || '';
   if (!content.trim() || isConceptualTemplateCompliant(content) || isRichConceptualDraft(content)) {
     return document;
+  }
+
+  if (isPartiallyStructuredConceptualDraft(content)) {
+    return {
+      ...document,
+      businessAnalysis: {
+        content: completePartialConceptualDraft(content),
+        status: businessAnalysis?.status || 'DRAFT',
+        flags: addFlag(businessAnalysis?.flags, 'CONCEPTUAL_TEMPLATE_COMPLETED'),
+      },
+    };
   }
 
   return {
