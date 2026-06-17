@@ -199,9 +199,16 @@ function addFlag(flags: string[] | undefined, flag: string): string[] {
 
 function countProcessModels(content = ''): number {
   const titles = extractProcessModelTitles(content);
-  if (titles.length) return titles.length;
+  return Math.max(titles.length, countProcessModelMarkers(content));
+}
+
+function countProcessModelMarkers(content = ''): number {
   const plain = stripHtml(content);
-  const numbers = Array.from(plain.matchAll(/s[uü]re[çc] modeli\s*-\s*(\d+)/gi))
+  const normalized = normalizeForInference(content);
+  const numbers = [
+    ...Array.from(plain.matchAll(/s[uü]re[çc] modeli\s*-\s*(\d+)/gi)),
+    ...Array.from(normalized.matchAll(/surec modeli\s*-\s*(\d+)/gi)),
+  ]
     .map(match => match[1])
     .filter(Boolean);
   return new Set(numbers).size;
@@ -241,18 +248,19 @@ function isPartiallyStructuredConceptualDraft(content = ''): boolean {
 
 function missingProcessTitlesForPartialDraft(sourceContent: string): string[] {
   const existingTitles = extractProcessModelTitles(sourceContent);
+  const existingProcessCount = countProcessModels(sourceContent);
   const inferredProcessModels = inferProcessModels(sourceContent);
   const targetCount = Math.max(
     expectedProcessCount(sourceContent),
-    existingTitles.length,
+    existingProcessCount,
     inferredProcessModels.length,
   );
-  const missingCount = Math.max(0, targetCount - existingTitles.length);
+  const missingCount = Math.max(0, targetCount - existingProcessCount);
   if (!missingCount) return [];
 
   const seen = new Set(existingTitles.map(title => normalizeForInference(title)));
   const preferred = inferredProcessModels
-    .slice(existingTitles.length)
+    .slice(existingProcessCount)
     .filter(title => !seen.has(normalizeForInference(title)));
   const remaining = inferredProcessModels
     .filter(title => !seen.has(normalizeForInference(title)) && !preferred.some(item => normalizeForInference(item) === normalizeForInference(title)));
@@ -284,7 +292,7 @@ function buildAppendixIfMissing(sourceContent: string): string {
 }
 
 function completePartialConceptualDraft(sourceContent: string): string {
-  const existingCount = extractProcessModelTitles(sourceContent).length;
+  const existingCount = countProcessModels(sourceContent);
   const missingBlocks = missingProcessTitlesForPartialDraft(sourceContent)
     .map((title, index) => buildProcessModelBlock(title, existingCount + index + 1))
     .join('\n\n');
