@@ -1,5 +1,10 @@
 import type { DocumentData } from '../../types';
 import type { IntentClassification } from './intentTypes';
+import {
+  buildCriticalInfoForDomain,
+  buildDiscoveryRationalesForDomain,
+  buildDomainDiscoveryQuestions,
+} from './baDiscoveryProfiles';
 
 export type BehaviorMode =
   | 'chat_only'
@@ -35,6 +40,7 @@ export interface HumanBaProfile {
   userIntent: BehaviorUserIntent;
   projectDomain: BehaviorDomain;
   missingCriticalInfo: string[];
+  questionRationale: string[];
   recommendedNextAction: string;
   questionStrategy: BehaviorQuestionStrategy;
   documentAction: BehaviorDocumentAction;
@@ -153,50 +159,8 @@ function detectDomain(message: string): BehaviorDomain {
   return 'generic_ba';
 }
 
-function formatQuestion(text: string, options: string[]): string {
-  return `${text}\nSecenekler: ${options.join(' | ')}`;
-}
-
 export function buildDomainQuestions(domain: BehaviorDomain): string[] {
-  if (domain === 'sap_crm_iys') {
-    return [
-      formatQuestion('IYS izin kapsami hangi iletisim kanallarini icermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayimla tum kanallar']),
-      formatQuestion('Sirket IYS tarafinda tek marka kodu mu, coklu marka yapisi mi kullaniyor?', ['Tek marka kodu', 'Coklu marka', 'Varsayimla coklu marka desteklensin']),
-      formatQuestion('SAP CRM ile IYS arasinda hangi ara katman varsayilsin?', ['SAP CPI', 'SAP PI/PO', 'Varsayimla karar acik kalsin']),
-      formatQuestion('Ilk aktarim ve gunluk mutabakat kapsami nasil ele alinsin?', ['Initial load + gunluk delta', 'Sadece gunluk delta', 'Varsayimla ikisi de kapsamda']),
-    ];
-  }
-
-  if (domain === 'sap_crm_ai_sales_bot') {
-    return [
-      formatQuestion('AI satis botu hangi kanallarda calisacak?', ['Web chat + WhatsApp', 'SAP CRM icinde temsilci asistani', 'Varsayimla coklu kanal']),
-      formatQuestion('SAP CRM tarafinda hangi satis nesneleri yonetilecek?', ['Lead + Opportunity + Activity', 'Sadece lead olusturma', 'Varsayimla lead ve opportunity kapsamda']),
-      formatQuestion('Bot hangi seviyede aksiyon alabilecek?', ['Sadece oneri ve ozet', 'Lead nitelendirme + CRM kaydi', 'Varsayimla kritik islemler temsilci onayli']),
-      formatQuestion('Insana devir ve kalite kontrol nasil ilerlesin?', ['Dusuk guvende temsilciye devir', 'Tum satis aksiyonlari onayli', 'Varsayimla risk bazli devir modeli']),
-    ];
-  }
-
-  if (domain === 'digital_contract') {
-    return [
-      formatQuestion('Dijital sozlesme surecinde imza yontemi nasil olmali?', ['E-imza / mobil imza', 'OTP onay', 'Varsayimla iki secenek de degerlendirilsin']),
-      formatQuestion('Sozlesme saklama ve arsivleme nerede yapilacak?', ['FileNet / DMS', 'Uygulama ici saklama', 'Acik konu olarak kalsin']),
-      formatQuestion('Onay akisi hangi rolleri icermeli?', ['Musteri + operasyon', 'Musteri + satis + hukuk', 'Varsayimla cok rollu akis']),
-    ];
-  }
-
-  if (domain === 'integration_project') {
-    return [
-      formatQuestion('Entegrasyon tipi nasil ilerlemeli?', ['REST API', 'Batch / dosya aktarimi', 'Varsayimla hibrit yapi']),
-      formatQuestion('Hata yonetimi nasil tasarlansin?', ['Retry + kuyruk', 'Manuel operasyon is listesi', 'Ikisi de kapsamda']),
-      formatQuestion('Ana veri kaynagi hangi sistem olsun?', ['Kaynak sistem', 'Hedef sistem', 'Acik konu olarak isaretle']),
-    ];
-  }
-
-  return [
-    formatQuestion('Ana is problemi ve beklenen karar nedir?', ['Yeni surec/dokuman tasarimi', 'Mevcut sureci iyilestirme', 'Varsayimla kavramsal tasarim']),
-    formatQuestion('Basari hangi KPI veya is degeriyle olculecek?', ['Sure azalmasi', 'Hata/risk azalmasi', 'Izlenebilirlik ve karar kalitesi']),
-    formatQuestion('Ilk surumde hangi kapsam kesin olmali?', ['MVP kapsam', 'Uctan uca kapsam', 'Varsayimla kurumsal BA kapsami']),
-  ];
+  return buildDomainDiscoveryQuestions(domain);
 }
 
 function domainLabel(domain: BehaviorDomain): string {
@@ -212,12 +176,21 @@ function domainLabel(domain: BehaviorDomain): string {
   return labels[domain];
 }
 
-function criticalInfoForDomain(domain: BehaviorDomain): string[] {
-  if (domain === 'sap_crm_ai_sales_bot') return ['Calisma kanali', 'SAP CRM satis nesneleri', 'Bot aksiyon yetkisi', 'Insana devir ve kalite kontrol kurali'];
-  if (domain === 'sap_crm_iys') return ['Izin kanali kapsami', 'Marka kodu yapisi', 'Middleware tercihi', 'Initial load ve gunluk delta kapsami'];
-  if (domain === 'integration_project') return ['Kaynak ve hedef sistem', 'Entegrasyon tipi', 'Hata ve retry modeli', 'Veri sahipligi'];
-  if (domain === 'digital_contract') return ['Imza/onay yontemi', 'Arsivleme sistemi', 'Onay rolleri', 'Hukuki saklama gereksinimi'];
-  return ['Ana is problemi', 'Basari KPI', 'Ilk surum kapsami'];
+function isFocusedArtifactRequest(classification: IntentClassification): boolean {
+  return ['test', 'flow', 'review', 'quality'].includes(String(classification.baAgentFocus || ''))
+    || [
+      'generate_test_cases',
+      'generate_flow_diagram',
+      'generate_bpmn',
+      'generate_mermaid',
+      'generate_api_contract',
+      'generate_technical_analysis',
+      'generate_developer_handoff',
+      'generate_review_report',
+      'find_risks',
+      'review_document_quality',
+      'score_document',
+    ].includes(String(classification.subIntent || ''));
 }
 
 function inferUserIntent(decision: Omit<BehaviorDecision, 'humanProfile'>, context: DecisionContext): BehaviorUserIntent {
@@ -252,7 +225,8 @@ function buildHumanBaProfile(decision: Omit<BehaviorDecision, 'humanProfile'>, c
   return {
     userIntent: inferUserIntent(decision, context),
     projectDomain: decision.domain,
-    missingCriticalInfo: decision.mode === 'ask_clarifying_questions' ? criticalInfoForDomain(decision.domain).slice(0, decision.questionBudget || 3) : [],
+    missingCriticalInfo: decision.mode === 'ask_clarifying_questions' ? buildCriticalInfoForDomain(decision.domain).slice(0, decision.questionBudget || 3) : [],
+    questionRationale: decision.mode === 'ask_clarifying_questions' ? buildDiscoveryRationalesForDomain(decision.domain).slice(0, decision.questionBudget || 3) : [],
     recommendedNextAction,
     questionStrategy,
     documentAction,
@@ -287,14 +261,16 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
     || input.classification.documentImpact === 'updates_document'
     || (hasExistingDocument && (forceDraft || stopQuestions));
   const shortDomainRequest = message.trim().length < 80 && documentRequest && !forceDraft && !hasExistingDocument;
+  const focusedArtifactRequest = isFocusedArtifactRequest(input.classification);
   const readiness = input.discoveryReadiness ?? 0;
   const shouldDiscoverDomainBeforeDraft = strongDomainRequest
     && documentRequest
     && !hasExistingDocument
     && !forceDraft
     && !stopQuestions
+    && !focusedArtifactRequest
     && readiness < 55;
-  const shouldAskOnlyIfCritical = shortDomainRequest && readiness < 35 && !strongDomainRequest;
+  const shouldAskOnlyIfCritical = shortDomainRequest && readiness < 35 && !strongDomainRequest && !focusedArtifactRequest;
   const context: DecisionContext = {
     hasExistingDocument,
     forceDraft,
