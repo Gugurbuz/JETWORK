@@ -231,10 +231,12 @@ function extractProcessModelTitles(content = ''): string[] {
 
 function isPartiallyStructuredConceptualDraft(content = ''): boolean {
   const normalized = normalizeForInference(content);
+  const plain = stripHtml(content);
+  const hasProcessModelMarker =
+    /s[uü]re[çc]\s+modeli\s*-\s*\d+/i.test(plain)
+    || /surec modeli\s*-\s*\d+/i.test(normalized);
   return normalized.includes('kavramsal tasarim raporu')
-    && normalized.includes('proje kimlik karti')
-    && normalized.includes('surec tasarimi')
-    && extractProcessModelTitles(content).length >= 1;
+    && hasProcessModelMarker;
 }
 
 function missingProcessTitlesForPartialDraft(sourceContent: string): string[] {
@@ -577,6 +579,10 @@ flowchart TD
 }
 
 function buildFallbackTemplate(sourceContent: string): string {
+  if (isPartiallyStructuredConceptualDraft(sourceContent)) {
+    return completePartialConceptualDraft(sourceContent);
+  }
+
   const projectName = inferProjectName(sourceContent);
   const today = new Date().toLocaleDateString('tr-TR');
   const existingProcessTitles = extractProcessModelTitles(sourceContent);
