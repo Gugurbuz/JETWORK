@@ -32,9 +32,20 @@ export type BehaviorUserIntent =
   | 'quality_or_review'
   | 'continuation'
   | 'unknown';
-export type BehaviorQuestionStrategy = 'none' | 'domain_discovery' | 'critical_gap_only' | 'assumption_first';
-export type BehaviorDocumentAction = 'none' | 'create_conceptual_draft' | 'update_existing_document' | 'suggest_next_step';
-export type BehaviorAssumptionPolicy = 'do_not_assume' | 'mark_noncritical_assumptions' | 'draft_with_marked_assumptions';
+export type BehaviorQuestionStrategy =
+  | 'none'
+  | 'domain_discovery'
+  | 'critical_gap_only'
+  | 'assumption_first';
+export type BehaviorDocumentAction =
+  | 'none'
+  | 'create_conceptual_draft'
+  | 'update_existing_document'
+  | 'suggest_next_step';
+export type BehaviorAssumptionPolicy =
+  | 'do_not_assume'
+  | 'mark_noncritical_assumptions'
+  | 'draft_with_marked_assumptions';
 
 export interface HumanBaProfile {
   userIntent: BehaviorUserIntent;
@@ -71,66 +82,24 @@ interface BehaviorDecisionInput {
   discoveryReadiness?: number;
 }
 
-interface DecisionContext {
-  hasExistingDocument: boolean;
-  forceDraft: boolean;
-  stopQuestions: boolean;
-  explicitDocumentGeneration: boolean;
-  strongDomainRequest: boolean;
-  contextFollowUp: boolean;
-}
-
-const FORCE_DRAFT_TERMS = [
-  'varsayimlarla', 'bu bilgilerle', 'mevcut bilgilerle',
-  'hizli taslak', 'ilk taslak', 'ilk taslagi', 'kabaca taslak', 'taslakla ilerle',
-  'uygula', 'basla', 'baslayalim', 'tamam', 'ok', 'next', 'sonraki adim', 'sonraki adima',
-  'sen yap', 'ben mi yapicam', 'ben mi yapacagim', 'devam et', 'durma',
-  'daha fazla soru sorma', 'soru sorma',
-];
-const STOP_QUESTION_TERMS = [
-  'daha fazla soru sorma', 'soru sorma', 'soru istemiyorum', 'sorulari birak',
-  'varsayimlarla', 'mevcut bilgilerle', 'bu bilgilerle', 'direkt olustur',
-  'ben mi yapicam', 'ben mi yapacagim', 'sen yap',
-];
-const DOCUMENT_TERMS = [
-  'ba analiz', 'is analiz', 'kavramsal', 'tasarim', 'dokuman', 'fdd', 'brd',
-  'gereksinim', 'surec', 'entegrasyon', 'api', 'test', 'kabul kriter', 'review',
-  'risk', 'proje', 'project', 'bot', 'asistan', 'assistant', 'chatbot', 'satis', 'sales',
-];
-const EXPLICIT_GENERATION_TERMS = [
-  'ba analiz', 'is analiz', 'kavramsal', 'tasarim', 'dokuman', 'rapor', 'fdd', 'brd',
-  'gereksinim dokumani', 'hazirla', 'olustur', 'uret', 'yaz', 'taslak', 'cikar', 'word format',
-];
-const CONTEXT_FOLLOW_UP_TERMS = [
-  'simdi', 'sirada', 'sonra ne', 'ne yapalim', 'ne yapacagiz', 'ne durumdayiz',
-  'next step', 'hangi adim', 'devami ne',
-];
-const GREETING_TERMS = ['selam', 'selamlar', 'merhaba', 'merhabalar', 'mrb', 'slm', 'hey', 'hi', 'hello', 'naber', 'nasilsin'];
+const FORCE_DRAFT_RE = /\b(varsay[\u0131i]mlarla|bu bilgilerle|mevcut bilgilerle|h[\u0131i]zl[\u0131i] taslak|ilk tasla[\u011f]?[i\u0131]?\s*(c[\u0131i]kar|olu[\u015fs]tur|haz[\u0131i]rla|uret|\u00fcret|yaz)|kabaca taslak|taslakla ilerle|uygula|sen yap|ben mi yap[\u0131i]cam|ben mi yapacagim|devam et|durma|daha fazla soru sorma|soru sorma)\b/i;
+const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|sorular[\u0131i] b[\u0131i]rak|sorulari birak|varsay[\u0131i]mlarla|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur|ben mi yap[\u0131i]cam|ben mi yapacagim|sen yap)\b/i;
+const DOCUMENT_REQUEST_RE = /\b(ba analiz|i\u015f analiz|is analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|fdd|brd|gereksinim|s[\u00fcu]re[\u00e7c]|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*)\b/i;
+const NORMALIZED_DOCUMENT_REQUEST_RE = /\b(ba analiz|is analiz|kavramsal|tasarim|dokuman|fdd|brd|gereksinim|surec|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*|satis|sales)\b/i;
+const EXPLICIT_DOCUMENT_GENERATION_RE = /\b(ba analiz|is analiz|i\u015f analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|rapor|fdd|brd|gereksinim dok[\u00fcu]man[\u0131i]|haz[\u0131i]rla|olu[\u015fs]tur|uret|\u00fcret|yaz|taslak|c[\u0131i]kar|word format)\b/i;
+const NORMALIZED_EXPLICIT_DOCUMENT_GENERATION_RE = /\b(ba analiz|is analiz|kavramsal|tasarim|dokuman|rapor|fdd|brd|gereksinim dokumani|hazirla|olustur|uret|yaz|taslak|cikar|word format)\b/i;
+const CONTEXT_FOLLOW_UP_RE = /\b(simdi|sirada|sonra ne|ne yapalim|ne yapacagiz|ne durumdayiz|next step|hangi adim|devami ne)\b/i;
+const GREETING_ONLY_RE = /^\s*(selam|selamlar|merhaba|merhabalar|mrb|slm|hey|hi|hello|naber|nas[\u0131i]ls[\u0131i]n)\s*[!.?]*\s*$/i;
 
 function normalizeDomainText(value: string): string {
   return (value || '')
     .toLocaleLowerCase('tr-TR')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ı/g, 'i')
-    .replace(/ş/g, 's')
-    .replace(/ğ/g, 'g')
-    .replace(/ü/g, 'u')
-    .replace(/ö/g, 'o')
-    .replace(/ç/g, 'c')
-    .replace(/İ/g, 'i')
-    .replace(/Ş/g, 's')
-    .replace(/Ğ/g, 'g')
-    .replace(/Ü/g, 'u')
-    .replace(/Ö/g, 'o')
-    .replace(/Ç/g, 'c')
-    .replace(/[.!?,;:]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function hasAny(text: string, terms: string[]): boolean {
-  return terms.some((term) => text.includes(term));
+    .replace(/\u0131/g, 'i')
+    .replace(/\u015f/g, 's')
+    .replace(/\u011f/g, 'g')
+    .replace(/\u00fc/g, 'u')
+    .replace(/\u00f6/g, 'o')
+    .replace(/\u00e7/g, 'c');
 }
 
 function hasDocument(document: DocumentData | null): boolean {
@@ -138,29 +107,49 @@ function hasDocument(document: DocumentData | null): boolean {
   return Object.values(document as any).some((section: any) => section?.content && String(section.content).trim().length > 0);
 }
 
-function isGreetingOnly(text: string): boolean {
-  if (!text) return false;
-  return GREETING_TERMS.includes(text.replace(/[!.?]/g, '').trim());
+function isSapCrmAiSalesBot(message: string): boolean {
+  const text = normalizeDomainText(message);
+  return /sap\s*crm/.test(text)
+    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|lead|opportunity|firsat|musteri)/.test(text);
 }
 
-function isSapCrmAiSalesBot(text: string): boolean {
-  return text.includes('sap crm')
-    && hasAny(text, ['ai', 'yapay zeka', 'bot', 'chatbot', 'asistan', 'assistant', 'satis', 'lead', 'opportunity', 'firsat', 'musteri']);
+function countDomainAnswerHints(domain: BehaviorDomain, normalizedMessage: string): number {
+  const hintGroups: Partial<Record<BehaviorDomain, RegExp[]>> = {
+    sap_crm_ai_sales_bot: [
+      /\b(web|whatsapp|mobil|mobile|teams|slack|kanal|omnichannel|chat)\b/i,
+      /\b(lead|opportunity|activity|business partner|bp|contact|mql|firsat)\b/i,
+      /\b(onay|yetki|kayit|kayıt|temsilci|handoff|devir|audit|log)\b/i,
+      /\b(kvkk|guven|güven|risk|insan|human|escalation|eskalasyon)\b/i,
+    ],
+    sap_crm_iys: [
+      /\b(sms|mesaj|eposta|e-posta|arama|kanal)\b/i,
+      /\b(marka|brand|kod|coklu marka|tek marka)\b/i,
+      /\b(cpi|pi\/po|middleware|ara katman|rest|api)\b/i,
+      /\b(initial|delta|mutabakat|batch|gunluk|günlük)\b/i,
+    ],
+    digital_contract: [
+      /\b(e-imza|mobil imza|otp|kimlik|onay)\b/i,
+      /\b(arsiv|arşiv|filenet|dms|saklama)\b/i,
+      /\b(hukuk|operasyon|musteri|müşteri|rol|raci)\b/i,
+    ],
+    integration_project: [
+      /\b(rest|soap|batch|dosya|api|webhook)\b/i,
+      /\b(retry|kuyruk|queue|hata|log|monitoring)\b/i,
+      /\b(kaynak|hedef|master|ana veri|veri sahibi)\b/i,
+    ],
+  };
+  return (hintGroups[domain] || []).filter((pattern) => pattern.test(normalizedMessage)).length;
 }
 
 function detectDomain(message: string): BehaviorDomain {
   const text = normalizeDomainText(message);
-  if (text.includes('sap crm') && hasAny(text, ['iys', 'ileti yonetim sistemi'])) return 'sap_crm_iys';
-  if (isSapCrmAiSalesBot(text)) return 'sap_crm_ai_sales_bot';
-  if (hasAny(text, ['dijital sozlesme', 'e-imza', 'e imza', 'sozlesme'])) return 'digital_contract';
-  if (hasAny(text, ['entegrasyon', 'integration', 'api', 'servis', 'middleware', 'sap', 'crm'])) return 'integration_project';
-  if (hasAny(text, ['crm', 'musteri', 'customer', 'satis', 'pazarlama'])) return 'crm_process';
-  if (hasAny(text, ['dokuman yonetimi', 'filenet', 'dosya', 'arsiv', 'belge'])) return 'document_management';
+  if (/sap\s*crm/.test(text) && /(iys|ileti yonetim sistemi)/.test(text)) return 'sap_crm_iys';
+  if (isSapCrmAiSalesBot(message)) return 'sap_crm_ai_sales_bot';
+  if (/(dijital sozlesme|e-imza|e imza|sozlesme)/.test(text)) return 'digital_contract';
+  if (/(entegrasyon|integration|api|servis|middleware|sap|crm)/.test(text)) return 'integration_project';
+  if (/(crm|musteri|customer|satis|pazarlama)/.test(text)) return 'crm_process';
+  if (/(dokuman yonetimi|filenet|dosya|arsiv|belge)/.test(text)) return 'document_management';
   return 'generic_ba';
-}
-
-export function buildDomainQuestions(domain: BehaviorDomain): string[] {
-  return buildDomainDiscoveryQuestions(domain);
 }
 
 function domainLabel(domain: BehaviorDomain): string {
@@ -176,8 +165,145 @@ function domainLabel(domain: BehaviorDomain): string {
   return labels[domain];
 }
 
-function isFocusedArtifactRequest(classification: IntentClassification): boolean {
-  return ['test', 'flow', 'review', 'quality'].includes(String(classification.baAgentFocus || ''))
+function criticalInfoForDomain(domain: BehaviorDomain): string[] {
+  return buildCriticalInfoForDomain(domain);
+}
+
+interface HumanProfileContext {
+  hasExistingDocument: boolean;
+  forceDraft: boolean;
+  stopQuestions: boolean;
+  explicitDocumentGeneration: boolean;
+  strongDomainRequest: boolean;
+  contextFollowUp: boolean;
+}
+
+function inferUserIntent(
+  decision: Omit<BehaviorDecision, 'humanProfile'>,
+  context: HumanProfileContext,
+): BehaviorUserIntent {
+  if (decision.mode === 'chat_only') return 'small_talk';
+  if (context.contextFollowUp) return 'continuation';
+  if (context.forceDraft || context.stopQuestions) return 'continuation';
+  if (context.hasExistingDocument && decision.shouldUpdateDocument) return 'document_revision';
+  if (decision.mode === 'ask_clarifying_questions' && context.strongDomainRequest) return 'new_project_idea';
+  if (context.explicitDocumentGeneration || decision.mode === 'draft_with_assumptions') return 'explicit_document_generation';
+  if (decision.domain !== 'generic_ba') return 'new_project_idea';
+  return 'unknown';
+}
+
+function questionStrategyForDecision(decision: Omit<BehaviorDecision, 'humanProfile'>): BehaviorQuestionStrategy {
+  if (decision.mode === 'ask_clarifying_questions' && decision.domain !== 'generic_ba') return 'domain_discovery';
+  if (decision.mode === 'ask_clarifying_questions') return 'critical_gap_only';
+  if (decision.shouldUseAssumptions) return 'assumption_first';
+  return 'none';
+}
+
+function documentActionForDecision(
+  decision: Omit<BehaviorDecision, 'humanProfile'>,
+  hasExistingDocument: boolean,
+): BehaviorDocumentAction {
+  if (!decision.shouldUpdateDocument) {
+    return decision.mode === 'suggest_next_step' ? 'suggest_next_step' : 'none';
+  }
+  return hasExistingDocument ? 'update_existing_document' : 'create_conceptual_draft';
+}
+
+function assumptionPolicyForDecision(decision: Omit<BehaviorDecision, 'humanProfile'>): BehaviorAssumptionPolicy {
+  if (decision.shouldUseAssumptions && decision.shouldUpdateDocument) return 'draft_with_marked_assumptions';
+  if (decision.shouldUseAssumptions) return 'mark_noncritical_assumptions';
+  return 'do_not_assume';
+}
+
+function responseStanceForDecision(decision: Omit<BehaviorDecision, 'humanProfile'>): string {
+  if (decision.mode === 'ask_clarifying_questions') {
+    return 'Kisa, dogal ve domain farkindaligi olan bir giris yap; genel BA sorulari yerine kritik karar sorularini sor.';
+  }
+  if (decision.shouldUpdateDocument) {
+    return 'Ne yapildigini, hangi varsayimlarla ilerledigini ve kalan acik konulari net soyle; detaylari sag panele yaz.';
+  }
+  if (decision.mode === 'chat_only') {
+    return 'Kisa ve dogal cevap ver; gereksiz soru karti uretme.';
+  }
+  return 'Baglama gore sonraki en iyi adimi oner.';
+}
+
+function recommendedNextActionForDecision(
+  decision: Omit<BehaviorDecision, 'humanProfile'>,
+  context: HumanProfileContext,
+): string {
+  const label = domainLabel(decision.domain);
+  if (decision.mode === 'ask_clarifying_questions') {
+    return `${label} icin kritik kararlari netlestir; kullanici isterse "Varsayimlarla ilerle" sinyaliyle ilk taslagi uret.`;
+  }
+  if (decision.shouldUpdateDocument) {
+    return context.hasExistingDocument
+      ? `${label} dokumanini mevcut icerigi koruyarak derinlestir ve belirsizlikleri Review'a isle.`
+      : `${label} icin kurumsal kavramsal taslak uret; bilinmeyenleri [VARSAYIM] ve [ACIK KONU] olarak ayir.`;
+  }
+  if (decision.mode === 'chat_only') return 'Kisa sohbet cevabi ver ve kullaniciyi talep yazmaya davet et.';
+  if (context.contextFollowUp) return 'Son baglama gore sonraki en iyi aksiyonu oner; yeni soru seti acma.';
+  return 'Baglamdan sonraki en iyi BA aksiyonunu oner.';
+}
+
+function buildHumanBaProfile(
+  decision: Omit<BehaviorDecision, 'humanProfile'>,
+  context: HumanProfileContext,
+): HumanBaProfile {
+  return {
+    userIntent: inferUserIntent(decision, context),
+    projectDomain: decision.domain,
+    missingCriticalInfo: decision.mode === 'ask_clarifying_questions'
+      ? criticalInfoForDomain(decision.domain).slice(0, decision.questionBudget || 3)
+      : [],
+    questionRationale: decision.mode === 'ask_clarifying_questions'
+      ? buildDiscoveryRationalesForDomain(decision.domain).slice(0, decision.questionBudget || 3)
+      : [],
+    recommendedNextAction: recommendedNextActionForDecision(decision, context),
+    questionStrategy: questionStrategyForDecision(decision),
+    documentAction: documentActionForDecision(decision, context.hasExistingDocument),
+    assumptionPolicy: assumptionPolicyForDecision(decision),
+    responseStance: responseStanceForDecision(decision),
+  };
+}
+
+function finalizeDecision(
+  decision: Omit<BehaviorDecision, 'humanProfile'>,
+  context: HumanProfileContext,
+): BehaviorDecision {
+  return {
+    ...decision,
+    humanProfile: buildHumanBaProfile(decision, context),
+  };
+}
+
+export function buildDomainQuestions(domain: BehaviorDomain): string[] {
+  return buildDomainDiscoveryQuestions(domain);
+}
+
+export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDecision {
+  const message = input.userMessage || '';
+  const normalizedMessage = normalizeDomainText(message);
+  const domain = detectDomain(message);
+  const hasExistingDocument = hasDocument(input.document);
+  const forceDraft = FORCE_DRAFT_RE.test(message);
+  const stopQuestions = STOP_QUESTIONS_RE.test(message);
+  const contextFollowUp = CONTEXT_FOLLOW_UP_RE.test(normalizedMessage);
+  const strongDomainRequest = domain !== 'generic_ba' && domain !== 'crm_process';
+  const explicitDocumentGeneration =
+    EXPLICIT_DOCUMENT_GENERATION_RE.test(message)
+    || NORMALIZED_EXPLICIT_DOCUMENT_GENERATION_RE.test(normalizedMessage)
+    || forceDraft
+    || stopQuestions;
+  const documentRequest =
+    DOCUMENT_REQUEST_RE.test(message)
+    || NORMALIZED_DOCUMENT_REQUEST_RE.test(normalizedMessage)
+    || strongDomainRequest
+    || input.classification.documentImpact === 'updates_document'
+    || (hasExistingDocument && (forceDraft || stopQuestions));
+  const shortDomainRequest = message.trim().length < 80 && documentRequest && !forceDraft && !hasExistingDocument;
+  const focusedArtifactRequest =
+    ['test', 'flow', 'review', 'quality'].includes(String(input.classification.baAgentFocus || ''))
     || [
       'generate_test_cases',
       'generate_flow_diagram',
@@ -190,88 +316,25 @@ function isFocusedArtifactRequest(classification: IntentClassification): boolean
       'find_risks',
       'review_document_quality',
       'score_document',
-    ].includes(String(classification.subIntent || ''));
-}
-
-function inferUserIntent(decision: Omit<BehaviorDecision, 'humanProfile'>, context: DecisionContext): BehaviorUserIntent {
-  if (decision.mode === 'chat_only') return 'small_talk';
-  if (context.contextFollowUp || context.forceDraft || context.stopQuestions) return 'continuation';
-  if (context.hasExistingDocument && decision.shouldUpdateDocument) return 'document_revision';
-  if (decision.mode === 'ask_clarifying_questions' && context.strongDomainRequest) return 'new_project_idea';
-  if (context.explicitDocumentGeneration || decision.mode === 'draft_with_assumptions') return 'explicit_document_generation';
-  if (decision.domain !== 'generic_ba') return 'new_project_idea';
-  return 'unknown';
-}
-
-function buildHumanBaProfile(decision: Omit<BehaviorDecision, 'humanProfile'>, context: DecisionContext): HumanBaProfile {
-  const questionStrategy: BehaviorQuestionStrategy = decision.mode === 'ask_clarifying_questions'
-    ? (decision.domain === 'generic_ba' ? 'critical_gap_only' : 'domain_discovery')
-    : (decision.shouldUseAssumptions ? 'assumption_first' : 'none');
-  const documentAction: BehaviorDocumentAction = decision.shouldUpdateDocument
-    ? (context.hasExistingDocument ? 'update_existing_document' : 'create_conceptual_draft')
-    : (decision.mode === 'suggest_next_step' ? 'suggest_next_step' : 'none');
-  const assumptionPolicy: BehaviorAssumptionPolicy = decision.shouldUseAssumptions && decision.shouldUpdateDocument
-    ? 'draft_with_marked_assumptions'
-    : (decision.shouldUseAssumptions ? 'mark_noncritical_assumptions' : 'do_not_assume');
-  const label = domainLabel(decision.domain);
-  const recommendedNextAction = decision.mode === 'ask_clarifying_questions'
-    ? `${label} icin kritik kararlari netlestir; kullanici isterse "Varsayimlarla ilerle" sinyaliyle ilk taslagi uret.`
-    : decision.shouldUpdateDocument
-      ? `${label} icin dokumani guncelle; bilinmeyenleri [VARSAYIM] ve [ACIK KONU] olarak ayir.`
-      : context.contextFollowUp
-        ? 'Son baglama gore sonraki en iyi aksiyonu oner; yeni soru seti acma.'
-        : 'Baglamdan sonraki en iyi BA aksiyonunu oner.';
-
-  return {
-    userIntent: inferUserIntent(decision, context),
-    projectDomain: decision.domain,
-    missingCriticalInfo: decision.mode === 'ask_clarifying_questions' ? buildCriticalInfoForDomain(decision.domain).slice(0, decision.questionBudget || 3) : [],
-    questionRationale: decision.mode === 'ask_clarifying_questions' ? buildDiscoveryRationalesForDomain(decision.domain).slice(0, decision.questionBudget || 3) : [],
-    recommendedNextAction,
-    questionStrategy,
-    documentAction,
-    assumptionPolicy,
-    responseStance: decision.mode === 'ask_clarifying_questions'
-      ? 'Kisa, dogal ve domain farkindaligi olan bir giris yap; genel BA sorulari yerine kritik karar sorularini sor.'
-      : decision.shouldUpdateDocument
-        ? 'Ne yapildigini, hangi varsayimlarla ilerledigini ve kalan acik konulari net soyle; detaylari sag panele yaz.'
-        : 'Baglama gore sonraki en iyi adimi oner.',
-  };
-}
-
-function finalizeDecision(decision: Omit<BehaviorDecision, 'humanProfile'>, context: DecisionContext): BehaviorDecision {
-  return {
-    ...decision,
-    humanProfile: buildHumanBaProfile(decision, context),
-  };
-}
-
-export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDecision {
-  const message = input.userMessage || '';
-  const normalizedMessage = normalizeDomainText(message);
-  const domain = detectDomain(message);
-  const hasExistingDocument = hasDocument(input.document);
-  const forceDraft = hasAny(normalizedMessage, FORCE_DRAFT_TERMS);
-  const stopQuestions = hasAny(normalizedMessage, STOP_QUESTION_TERMS);
-  const contextFollowUp = hasAny(normalizedMessage, CONTEXT_FOLLOW_UP_TERMS);
-  const strongDomainRequest = domain !== 'generic_ba' && domain !== 'crm_process';
-  const explicitDocumentGeneration = hasAny(normalizedMessage, EXPLICIT_GENERATION_TERMS) || forceDraft || stopQuestions;
-  const documentRequest = hasAny(normalizedMessage, DOCUMENT_TERMS)
-    || strongDomainRequest
-    || input.classification.documentImpact === 'updates_document'
-    || (hasExistingDocument && (forceDraft || stopQuestions));
-  const shortDomainRequest = message.trim().length < 80 && documentRequest && !forceDraft && !hasExistingDocument;
-  const focusedArtifactRequest = isFocusedArtifactRequest(input.classification);
+    ].includes(String(input.classification.subIntent || ''));
   const readiness = input.discoveryReadiness ?? 0;
-  const shouldDiscoverDomainBeforeDraft = strongDomainRequest
+  const tokenCount = normalizedMessage.split(/\s+/).filter(Boolean).length;
+  const domainAnswerHintCount = countDomainAnswerHints(domain, normalizedMessage);
+  const sparseNewDomainRequest =
+    strongDomainRequest
+    && !hasExistingDocument
+    && tokenCount <= 14
+    && domainAnswerHintCount < 2;
+  const shouldAskOnlyIfCritical = shortDomainRequest && readiness < 35 && !strongDomainRequest && !focusedArtifactRequest;
+  const shouldDiscoverDomainBeforeDraft =
+    strongDomainRequest
     && documentRequest
     && !hasExistingDocument
     && !forceDraft
     && !stopQuestions
     && !focusedArtifactRequest
-    && readiness < 55;
-  const shouldAskOnlyIfCritical = shortDomainRequest && readiness < 35 && !strongDomainRequest && !focusedArtifactRequest;
-  const context: DecisionContext = {
+    && (readiness < 55 || sparseNewDomainRequest);
+  const humanContext: HumanProfileContext = {
     hasExistingDocument,
     forceDraft,
     stopQuestions,
@@ -280,7 +343,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
     contextFollowUp,
   };
 
-  if (isGreetingOnly(normalizedMessage)) {
+  if (GREETING_ONLY_RE.test(message)) {
     return finalizeDecision({
       mode: 'chat_only',
       domain: 'generic_ba',
@@ -294,7 +357,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
       clarificationQuestions: [],
       confidence: 0.95,
       reason: 'behavior:greeting_only',
-    }, context);
+    }, humanContext);
   }
 
   if ((forceDraft || stopQuestions) && documentRequest) {
@@ -311,24 +374,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
       clarificationQuestions: [],
       confidence: 0.9,
       reason: `behavior:force_draft_with_assumptions:${domain}`,
-    }, context);
-  }
-
-  if (contextFollowUp && !documentRequest) {
-    return finalizeDecision({
-      mode: 'suggest_next_step',
-      domain,
-      requiredTemplate: 'none',
-      depth: 'light',
-      shouldAskQuestions: false,
-      shouldUpdateDocument: false,
-      shouldUseAssumptions: false,
-      shouldUseResearch: false,
-      questionBudget: 0,
-      clarificationQuestions: [],
-      confidence: 0.74,
-      reason: `behavior:context_follow_up:${domain}`,
-    }, context);
+    }, humanContext);
   }
 
   if (shouldDiscoverDomainBeforeDraft) {
@@ -345,7 +391,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
       clarificationQuestions: buildDomainQuestions(domain),
       confidence: 0.86,
       reason: `behavior:domain_discovery_before_draft:${domain}`,
-    }, context);
+    }, humanContext);
   }
 
   if (shouldAskOnlyIfCritical) {
@@ -362,7 +408,24 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
       clarificationQuestions: buildDomainQuestions(domain),
       confidence: 0.82,
       reason: `behavior:short_domain_discovery:${domain}`,
-    }, context);
+    }, humanContext);
+  }
+
+  if (contextFollowUp && !documentRequest) {
+    return finalizeDecision({
+      mode: 'suggest_next_step',
+      domain,
+      requiredTemplate: 'none',
+      depth: 'light',
+      shouldAskQuestions: false,
+      shouldUpdateDocument: false,
+      shouldUseAssumptions: false,
+      shouldUseResearch: false,
+      questionBudget: 0,
+      clarificationQuestions: [],
+      confidence: 0.74,
+      reason: `behavior:context_follow_up:${domain}`,
+    }, humanContext);
   }
 
   if (documentRequest) {
@@ -379,7 +442,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
       clarificationQuestions: [],
       confidence: 0.78,
       reason: `behavior:document_request:${domain}`,
-    }, context);
+    }, humanContext);
   }
 
   return finalizeDecision({
@@ -395,7 +458,7 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
     clarificationQuestions: [],
     confidence: 0.6,
     reason: `behavior:default:${domain}`,
-  }, context);
+  }, humanContext);
 }
 
 function focusForDomain(domain: BehaviorDomain): IntentClassification['baAgentFocus'] {
