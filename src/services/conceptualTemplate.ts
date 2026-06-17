@@ -97,6 +97,29 @@ const TEMPLATE_LABELS = [
   'EKLENTİ',
 ];
 
+const NORMALIZED_TEMPLATE_TOKENS = [
+  'kavramsal tasarim raporu',
+  'proje kimlik karti',
+  'dokuman tarihcesi',
+  'katilimcilar',
+  'revize tarih',
+  'kontrol eden ve onaylayan',
+  'icindekiler',
+  'surec tasarimi',
+  'surec modeli',
+  'ust duzey surec aciklamasi',
+  'surec degisiklikleri',
+  'is gerekleri ve kpi',
+  'detayli surec akisi',
+  'ilgili surecler',
+  'gelistirme no',
+  'onemli uyarlamalar ve amaclari',
+  'degisim yonetimi',
+  'ek a',
+  'ilgili / referans dokumanlar',
+  'eklenti',
+];
+
 function stripHtml(value = ''): string {
   return value
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -105,6 +128,69 @@ function stripHtml(value = ''): string {
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeForInference(value = ''): string {
+  return stripHtml(value)
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[ıİ]/g, 'i')
+    .replace(/[şŞ]/g, 's')
+    .replace(/[ğĞ]/g, 'g')
+    .replace(/[üÜ]/g, 'u')
+    .replace(/[öÖ]/g, 'o')
+    .replace(/[çÇ]/g, 'c')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function countTemplateHits(content = ''): number {
+  const normalized = normalizeForInference(content);
+  return NORMALIZED_TEMPLATE_TOKENS.filter(token => normalized.includes(token)).length;
+}
+
+function missingTemplateLabels(content = ''): string[] {
+  const normalized = normalizeForInference(content);
+  return TEMPLATE_LABELS.filter((_, index) => !normalized.includes(NORMALIZED_TEMPLATE_TOKENS[index]));
+}
+
+function isDigitalContractRequest(source = ''): boolean {
+  const plain = normalizeForInference(source);
+  return /(dijital sozlesme|elektronik sozlesme|e-imza|e imza|elektronik imza|mobil imza|otp|uzaktan onay|dijital onay)/i.test(plain);
+}
+
+function isProjectTrackingRequest(source = ''): boolean {
+  const plain = normalizeForInference(source);
+  return /(pemp-?\d+|musteri cozumleri proje yonetim sistemi|proje yonetim sistemi|proje takip sistemi|yenilenebilir enerji|proje bazli dashboard|genel dashboard|tedas|teminat|bakim islemleri|(^|[^a-z0-9])ges([^a-z0-9]|$)|(^|[^a-z0-9])res([^a-z0-9]|$))/i.test(plain);
+}
+
+const PEMP_PROCESS_TITLES = [
+  'Proje Kaydının Oluşturulması',
+  'Teminat',
+  'Satınalma',
+  'Alt Yüklenici İşlemleri',
+  'Müşteri İşlemleri',
+  'Kurulum',
+  'GES Kabul İşlemleri',
+  'Faturalama İşlemleri',
+  'Bakım İşlemleri',
+];
+
+function extractExplicitProcessModels(source = ''): string[] {
+  const plain = normalizeForInference(source);
+  const processNumbers = Array.from(plain.matchAll(/surec\s*([0-9]+)/gi))
+    .map(match => Number(match[1]))
+    .filter(number => Number.isInteger(number) && number >= 0 && number <= 30);
+  const uniqueNumbers = Array.from(new Set(processNumbers)).sort((a, b) => a - b);
+
+  if (uniqueNumbers.length >= 4 && isProjectTrackingRequest(source)) {
+    return uniqueNumbers
+      .filter(number => number >= 0 && number < PEMP_PROCESS_TITLES.length)
+      .map(number => PEMP_PROCESS_TITLES[number]);
+  }
+
+  return [];
 }
 
 function addFlag(flags: string[] | undefined, flag: string): string[] {
@@ -116,8 +202,56 @@ function countProcessModels(content = ''): number {
   return (plain.match(/s[uü]re[çc] modeli\s*-\s*\d+/gi) || []).length;
 }
 
+function extractProcessModelTitles(content = ''): string[] {
+  const plain = stripHtml(content);
+  const titles: string[] = [];
+  const titlePattern = /s[uü]re[çc] modeli\s*-\s*\d+\s*["“]([^"”\n]+)["”]/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = titlePattern.exec(plain)) !== null) {
+    const title = (match[1] || '').trim();
+    if (title && !titles.some(existing => normalizeForInference(existing) === normalizeForInference(title))) {
+      titles.push(title);
+    }
+  }
+
+  return titles;
+}
+
+function mergeProcessModelTitles(existingTitles: string[], inferredTitles: string[], targetCount: number): string[] {
+  const merged: string[] = [];
+
+  [...existingTitles, ...inferredTitles].forEach((title) => {
+    if (!title) return;
+    const normalized = normalizeForInference(title);
+    if (!merged.some(existing => normalizeForInference(existing) === normalized)) {
+      merged.push(title);
+    }
+  });
+
+  return merged.slice(0, Math.max(targetCount, existingTitles.length || 0));
+}
+
+function isRichConceptualDraft(content = ''): boolean {
+  const plain = stripHtml(content);
+  if (!plain) return false;
+  const normalized = normalizeForInference(plain);
+  const requiredHits = countTemplateHits(plain);
+  const hasConceptualTitle = normalized.includes('kavramsal tasarim raporu');
+  const hasEnoughProcessModels = countProcessModels(plain) >= expectedProcessCount(plain);
+  const hasRequirements = /(is gerekleri ve kpi|br-\d|fr-\d|int-\d|nfr-\d)/i.test(normalized);
+
+  return hasConceptualTitle
+    && hasEnoughProcessModels
+    && hasRequirements
+    && requiredHits >= Math.ceil(REQUIRED_TEMPLATE_PATTERNS.length * 0.55);
+}
+
 function expectedProcessCount(source = ''): number {
   const plain = stripHtml(source);
+  const explicitProcesses = extractExplicitProcessModels(source);
+  if (explicitProcesses.length >= 2) return explicitProcesses.length;
+  if (isProjectTrackingRequest(source)) return PEMP_PROCESS_TITLES.length;
   if (/(sap|crm|iys|ileti y[oö]netim sistemi|entegrasyon|integration|api|middleware|dijital s[oö]zle[şs]me|dok[uü]man y[oö]netimi|filenet)/i.test(plain)) {
     return 3;
   }
@@ -127,14 +261,14 @@ function expectedProcessCount(source = ''): number {
 export function isConceptualTemplateCompliant(content = ''): boolean {
   const plain = stripHtml(content);
   if (!plain) return false;
-  const requiredHits = REQUIRED_TEMPLATE_PATTERNS.filter((pattern) => pattern.test(plain)).length;
+  const requiredHits = countTemplateHits(plain);
   return requiredHits >= REQUIRED_TEMPLATE_PATTERNS.length - 2
     && countProcessModels(plain) >= expectedProcessCount(plain);
 }
 
 export function conceptualTemplateCoverage(content = ''): { missing: string[]; passed: number; total: number } {
   const plain = stripHtml(content);
-  const missing = TEMPLATE_LABELS.filter((_, index) => !REQUIRED_TEMPLATE_PATTERNS[index].test(plain));
+  const missing = missingTemplateLabels(plain);
   const expected = expectedProcessCount(plain);
   if (countProcessModels(plain) < expected) {
     missing.push(`En az ${expected} SÜREÇ MODELİ bloğu`);
@@ -143,11 +277,17 @@ export function conceptualTemplateCoverage(content = ''): { missing: string[]; p
 }
 
 function inferProjectName(source = ''): string {
+  if (isProjectTrackingRequest(source)) return 'Müşteri Çözümleri Proje Yönetim Sistemi (PEMP-1157)';
   const plain = stripHtml(source);
+  const normalized = normalizeForInference(source);
+  const sapCrmAiSalesBot = /sap/i.test(plain)
+    && /crm/i.test(plain)
+    && /(ai|yapay zeka|satis botu|satış botu|sales bot|lead|opportunity|firsat|fırsat)/i.test(normalized);
+  if (sapCrmAiSalesBot) return 'SAP CRM AI Satış Botu Projesi';
   const sapIys = /sap/i.test(plain) && /(iys|ileti y[oö]netim sistemi)/i.test(plain);
   if (sapIys) return 'SAP CRM - İYS Entegrasyonu';
   const digitalContract = /(dijital s[oö]zle[şs]me|e-imza|e imza|s[oö]zle[şs]me)/i.test(plain);
-  if (digitalContract) return 'Dijital Sözleşme Projesi';
+  if (digitalContract && isDigitalContractRequest(source)) return 'Dijital Sözleşme Projesi';
   const firstHeading = plain
     .split(/\n|\. /)
     .map((part) => part.trim())
@@ -156,7 +296,20 @@ function inferProjectName(source = ''): string {
 }
 
 function inferProcessModels(source = ''): string[] {
+  const explicitProcesses = extractExplicitProcessModels(source);
+  if (explicitProcesses.length) return explicitProcesses;
+  if (isProjectTrackingRequest(source)) return PEMP_PROCESS_TITLES;
   const plain = stripHtml(source);
+  const normalized = normalizeForInference(source);
+  if (/sap/i.test(plain)
+    && /crm/i.test(plain)
+    && /(ai|yapay zeka|satis botu|sales bot|lead|opportunity|firsat|mql|handoff)/i.test(normalized)) {
+    return [
+      'AI Bot ile Lead Kazanımı ve Nitelendirme',
+      'Satış Temsilcisine Devir, Handoff ve Opportunity Yönetimi',
+      'AI İzleme, Güvenlik, KVKK ve Performans Yönetimi',
+    ];
+  }
   if (/sap/i.test(plain) && /(iys|ileti y[oö]netim sistemi)/i.test(plain)) {
     return [
       "SAP CRM'den İYS'ye İzin Aktarımı",
@@ -202,6 +355,74 @@ function buildRequirementsTable(index: number): string {
   ].join('\n');
 }
 
+function buildProcessSpecificNotes(title: string): string {
+  const normalized = normalizeForInference(title);
+  const notes: Record<string, string[]> = {
+    project: [
+      '[VARSAYIM] Sözleşme imzalandıktan sonra proje kaydı açılır; proje adı, müşteri, santral tipi, güç/kapasite, bölge, deadline ve sorumlu ekipler zorunlu alan olarak takip edilir.',
+      '[VARSAYIM] Proje kaydı açıldığında satış, vergi, muhasebe, satış operasyon, proje yönetimi ve kapsam ekiplerine görev/bildirim üretilir.',
+      '[VARSAYIM] SAP tarafında proje kodu, kâr merkezi, bütçe ve maliyet kırılımı oluşmadan proje ilerleme statüsü tamamlandıya çekilemez.',
+      '[VARSAYIM] Genel Dashboard ve proje bazlı Dashboard; statü, deadline, gecikme, kapasite ve açık görevleri görünür yapar.',
+    ],
+    guarantee: [
+      '[VARSAYIM] Teminat süreci; kesin teminat mektubu, tutar, geçerlilik tarihi, müşteri onayı, revizyon ve iade adımlarını takip eder.',
+      '[VARSAYIM] Eksik/hatalı teminat dokümanı varsa proje bir sonraki kritik aşamaya geçemez ve sorumlu role görev düşer.',
+      '[VARSAYIM] EBA veya onay sistemi entegrasyonu varsa teminat onay sonucu proje kartına geri yazılır.',
+    ],
+    purchase: [
+      '[VARSAYIM] Satınalma süreci; talep, teklif, sipariş, teslimat ve fatura ön koşullarını proje bazında izler.',
+      '[VARSAYIM] Satınalma talebi EBA/SAP süreciyle açılır; sipariş numarası ve tedarikçi bilgisi proje kartına bağlanır.',
+      '[VARSAYIM] Geciken satınalma işleri Dashboard üzerinde deadline ve sorumlu kişi bazında uyarı üretir.',
+    ],
+    subcontractor: [
+      '[VARSAYIM] Alt yüklenici seçimi, sözleşme, yetki belgesi, teslim tutanağı, SGK/vergi evrakı ve teminat kontrolleriyle yönetilir.',
+      '[VARSAYIM] Zorunlu evrak tamamlanmadan kurulum veya saha teslim adımı başlatılamaz.',
+      '[VARSAYIM] Alt yüklenici performansı, açık iş, gecikme ve eksik doküman bilgileri raporlanır.',
+    ],
+    customer: [
+      '[VARSAYIM] Müşteri işlemleri; çağrı mektubu, izinler, resmi başvurular, müşteri evrakları ve onay bekleyen aksiyonları kapsar.',
+      '[VARSAYIM] Proje tipine göre zorunlu doküman listesi değişir ve eksik evrak proje bazlı takip edilir.',
+      '[VARSAYIM] Müşteriye giden bildirimler, tarihçe ve belge versiyonları audit amaçlı saklanır.',
+    ],
+    installation: [
+      '[VARSAYIM] Kurulum; saha hazırlık, ekip planlama, malzeme teslimi, gerçekleşen tarih, gecikme nedeni ve kapanış tutanağıyla izlenir.',
+      '[VARSAYIM] Satınalma ve müşteri evrakı tamamlanmadan kurulum görevi başlatılmaz.',
+      '[VARSAYIM] Kurulum ilerlemesi proje bazlı Dashboard üzerinde yüzde, tarih ve sorumlu ekip kırılımıyla gösterilir.',
+    ],
+    acceptance: [
+      '[VARSAYIM] GES kabul süreci; TEDAŞ/geçici kabul, sistem kullanım anlaşması, sigorta, garanti bedeli ve resmi onay dokümanlarını takip eder.',
+      '[VARSAYIM] Kabul evrakı eksikse faturalama veya kapanış süreci bloklanır.',
+      '[VARSAYIM] Kabul statüleri tarihçe, sorumlu kurum ve bekleyen aksiyon bazında raporlanır.',
+    ],
+    billing: [
+      '[VARSAYIM] Faturalama süreci SAP belge akışına bağlıdır; capex/opex kırılımı, fatura tipi, tutar, kalan açık tutar ve ödeme durumu izlenir.',
+      '[VARSAYIM] Ek fatura veya eksik belge durumunda ilgili ekip ve müşteriye bildirim/e-posta aksiyonu üretilir.',
+      '[VARSAYIM] SAP fatura numarası ve muhasebe durumu proje kartına yazılmadan finansal kapanış tamamlanamaz.',
+    ],
+    maintenance: [
+      '[VARSAYIM] Bakım süreci; planlı bakım periyodu, gerçekleşen bakım tarihi, ekip, bakım formu, arıza/bulgu ve müşteri onayıyla takip edilir.',
+      '[VARSAYIM] Yaklaşan bakım tarihleri için otomatik görev ve hatırlatma oluşturulur.',
+      '[VARSAYIM] Bakım geçmişi proje kartında ve raporlarda cihaz/saha/müşteri bazında görüntülenir.',
+    ],
+  };
+
+  const selected = normalized.includes('proje kayd') ? notes.project
+    : normalized.includes('teminat') ? notes.guarantee
+      : normalized.includes('satinalma') ? notes.purchase
+        : normalized.includes('alt yuklenici') ? notes.subcontractor
+          : normalized.includes('musteri') ? notes.customer
+            : normalized.includes('kurulum') ? notes.installation
+              : normalized.includes('kabul') ? notes.acceptance
+                : normalized.includes('faturalama') ? notes.billing
+                  : normalized.includes('bakim') ? notes.maintenance
+                    : [];
+
+  if (!selected.length) {
+    return '- [VARSAYIM] Sürece özgü ekran, görev, belge, entegrasyon ve raporlama kuralları detay tasarımda netleştirilecektir.';
+  }
+  return selected.map(item => `- ${item}`).join('\n');
+}
+
 function buildProcessModelBlock(title: string, index: number): string {
   return `
 ## ${index}. SÜREÇ MODELİ - ${index} "${title}"
@@ -221,6 +442,9 @@ function buildProcessModelBlock(title: string, index: number): string {
 - [VARSAYIM] Mevcut durumda manuel takip edilen adımlar sistem kontrollü akışa taşınacaktır.
 - [VARSAYIM] Kritik karar, hata ve bekleme durumları loglanarak operasyon ekiplerine görünür hale getirilecektir.
 - [VARSAYIM] Sürecin çıktıları raporlama ve denetim ihtiyaçlarına uygun şekilde saklanacaktır.
+
+### Sürece Özgü İş Kuralları, Ekranlar ve Dokümanlar
+${buildProcessSpecificNotes(title)}
 
 ### İş Gerekleri ve KPIs
 ${buildRequirementsTable(index)}
@@ -279,12 +503,25 @@ flowchart TD
 function buildFallbackTemplate(sourceContent: string): string {
   const projectName = inferProjectName(sourceContent);
   const today = new Date().toLocaleDateString('tr-TR');
-  const processModels = inferProcessModels(sourceContent);
+  const existingProcessTitles = extractProcessModelTitles(sourceContent);
+  const existingProcessCount = countProcessModels(sourceContent);
+  const inferredProcessModels = inferProcessModels(sourceContent);
+  const targetProcessCount = Math.max(
+    expectedProcessCount(sourceContent),
+    existingProcessTitles.length,
+    inferredProcessModels.length,
+  );
+  const processModels = mergeProcessModelTitles(existingProcessTitles, inferredProcessModels, targetProcessCount);
   const processToc = processModels
     .map((title, index) => `- ${index + 1}. SÜREÇ MODELİ - ${index + 1} "${title}"`)
     .join('\n');
-  const processBlocks = processModels
-    .map((title, index) => buildProcessModelBlock(title, index + 1))
+  const missingProcessModels = existingProcessCount >= targetProcessCount
+    ? []
+    : processModels
+      .filter(title => !existingProcessTitles.some(existing => normalizeForInference(existing) === normalizeForInference(title)))
+      .slice(0, targetProcessCount - existingProcessCount);
+  const processBlocks = missingProcessModels
+    .map((title, index) => buildProcessModelBlock(title, existingProcessCount + index + 1))
     .join('\n\n');
 
   return `
@@ -343,7 +580,7 @@ ${processToc}
 ## SÜREÇ TASARIMI
 ${sourceContent.trim() || '[VARSAYIM] Süreç tasarımı kullanıcı talebi ve varsayımlarla detaylandırılacaktır.'}
 
-${processBlocks}
+${processBlocks ? `\n${processBlocks}` : ''}
 
 ## EK A
 
@@ -366,7 +603,7 @@ ${processBlocks}
 export function ensureConceptualTemplateStructure(document: DocumentData): DocumentData {
   const businessAnalysis = document.businessAnalysis;
   const content = businessAnalysis?.content || '';
-  if (!content.trim() || isConceptualTemplateCompliant(content)) {
+  if (!content.trim() || isConceptualTemplateCompliant(content) || isRichConceptualDraft(content)) {
     return document;
   }
 
