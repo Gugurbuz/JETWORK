@@ -205,11 +205,11 @@ function countProcessModels(content = ''): number {
 function extractProcessModelTitles(content = ''): string[] {
   const plain = stripHtml(content);
   const titles: string[] = [];
-  const titlePattern = /s[uü]re[çc] modeli\s*-\s*\d+\s*["“]([^"”\n]+)["”]/gi;
+  const titlePattern = /s[uü]re[çc] modeli\s*-\s*\d+\s*(?::|\s)\s*["“]?([^"”\n]+?)["”]?(?=\s+s[uü]re[çc] modeli|\s+ek a|\s+\d+\.\s|$)/gi;
   let match: RegExpExecArray | null;
 
   while ((match = titlePattern.exec(plain)) !== null) {
-    const title = (match[1] || '').trim();
+    const title = (match[1] || '').replace(/^[":“”\s]+|[":“”\s]+$/g, '').trim();
     if (title && !titles.some(existing => normalizeForInference(existing) === normalizeForInference(title))) {
       titles.push(title);
     }
@@ -238,13 +238,17 @@ function isRichConceptualDraft(content = ''): boolean {
   const normalized = normalizeForInference(plain);
   const requiredHits = countTemplateHits(plain);
   const hasConceptualTitle = normalized.includes('kavramsal tasarim raporu');
+  const hasIdentity = normalized.includes('proje kimlik karti');
+  const hasProcessDesign = normalized.includes('surec tasarimi');
   const hasEnoughProcessModels = countProcessModels(plain) >= expectedProcessCount(plain);
   const hasRequirements = /(is gerekleri ve kpi|br-\d|fr-\d|int-\d|nfr-\d)/i.test(normalized);
 
   return hasConceptualTitle
+    && hasIdentity
+    && hasProcessDesign
     && hasEnoughProcessModels
     && hasRequirements
-    && requiredHits >= Math.ceil(REQUIRED_TEMPLATE_PATTERNS.length * 0.55);
+    && requiredHits >= 8;
 }
 
 function expectedProcessCount(source = ''): number {
