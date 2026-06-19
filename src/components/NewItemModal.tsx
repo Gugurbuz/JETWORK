@@ -8,7 +8,7 @@ interface NewItemModalProps {
   projects: Project[];
   currentProjectId?: string | null;
   onClose: () => void;
-  onSubmit: (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => void | Promise<void>;
+  onSubmit: (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => void;
 }
 
 interface DbUser {
@@ -28,7 +28,6 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
   const [roles, setRoles] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch users and roles from Firestore
@@ -97,37 +96,26 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
     setSelectedUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
   };
 
-  const canSubmit = Boolean(projectId && itemNumber.trim() && title.trim());
-
-  const submitWorkspace = async () => {
-    if (!canSubmit || isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      await onSubmit({
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (projectId && itemNumber.trim() && title.trim()) {
+      // Map selected users to the expected team format for now
+      onSubmit({ 
         projectId,
-        itemNumber,
-        title,
-        team: selectedUsers.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email }))
+        itemNumber, 
+        title, 
+        team: selectedUsers.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email })) 
       });
-    } catch (error) {
-      console.error('Failed to submit workspace:', error);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void submitWorkspace();
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 bg-theme-bg/80 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-theme-bg/80">
       <motion.div 
         initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98, y: 10 }}
-        className="bg-theme-surface shadow-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto border border-theme-border rounded-xl"
+        className="bg-theme-surface shadow-2xl w-full max-w-lg overflow-hidden border border-theme-border rounded-xl"
       >
         <div className="flex items-center justify-between p-6 border-b border-theme-border bg-theme-surface">
           <h2 className="text-lg font-semibold text-theme-text flex items-center gap-2 tracking-tight">
@@ -293,7 +281,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
             </div>
           </div>
 
-          <div className="sticky bottom-0 -mx-8 -mb-8 mt-2 flex justify-end gap-3 border-t border-theme-border bg-theme-surface px-8 py-4">
+          <div className="pt-4 border-t border-theme-border flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
@@ -302,13 +290,11 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
               İptal
             </button>
             <button
-              type="button"
-              onClick={() => { void submitWorkspace(); }}
-              disabled={!canSubmit || isSubmitting}
-              aria-busy={isSubmitting}
+              type="submit"
+              disabled={!projectId || !itemNumber.trim() || !title.trim()}
               className="px-6 py-2.5 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
-              {isSubmitting ? 'Başlatılıyor...' : 'Çalışma Alanı Başlat'}
+              Çalışma Alanı Başlat
             </button>
           </div>
         </form>

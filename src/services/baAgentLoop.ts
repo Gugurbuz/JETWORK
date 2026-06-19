@@ -5,13 +5,6 @@ import { chatResponseJsonSchema } from '../schemas';
 import { hybridSearch } from './contextManager';
 import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
 import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
-import {
-  buildDeepBaActInstructions,
-  buildDeepBaResearchPlan,
-  buildDeepBaThinkingSummary,
-  buildSourceVerificationPolicy,
-  shouldUseDeepBaAssistant,
-} from '../modules/deep-ba-assistant';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
@@ -124,10 +117,16 @@ const sanitizeSection = (s: any): SectionData | undefined => {
 const sanitizeDocument = (d: any): DocumentData | undefined => {
   if (!d || typeof d !== 'object') return undefined;
   const ba = sanitizeSection(d.businessAnalysis);
+  const code = sanitizeSection(d.code);
+  const test = sanitizeSection(d.test);
+  const bpmn = sanitizeSection(d.bpmn);
   const review = sanitizeSection(d.review);
-  if (!ba && !review) return undefined;
+  if (!ba && !code && !test && !bpmn && !review) return undefined;
   return {
     businessAnalysis: ba || { content: '', status: 'DRAFT', flags: [] },
+    code: code || { content: '', status: 'DRAFT', flags: [] },
+    test: test || { content: '', status: 'DRAFT', flags: [] },
+    ...(bpmn ? { bpmn } : {}),
     ...(review ? { review } : {}),
   };
 };
@@ -165,67 +164,69 @@ const briefDocumentSummary = (doc: DocumentData | null): string => {
       sections.push(`### ${label} (${s.status || 'DRAFT'})\n${preview}${s.content.length > 700 ? '…' : ''}`);
     }
   };
-  addSection('businessAnalysis', 'BA Analiz');
+  addSection('businessAnalysis', 'BA');
+  addSection('code', 'IT');
+  addSection('test', 'QA');
   addSection('review', 'Review');
+  addSection('bpmn', 'FLOW');
   return sections.length > 0 ? sections.join('\n\n') : "(Doküman bölümleri boş.)";
 };
 
 const CONCEPTUAL_DESIGN_DEPTH_STANDARD = `
-[6] KAVRAMSAL TASARIM / WORD SABLONU DERINLIK STANDARDI
-Bu bolum JetWork AI'in ana dokuman standardidir. Ayrı bir pipeline calistirma; ayni sohbet orkestrasyonu icinde document.businessAnalysis ve document.review alanlarini uret/guncelle.
+[6] KAVRAMSAL TASARIM / İŞ ANALİZİ DERİNLİK STANDARDI
+Bu bölüm JetWork AI'ın ana çalışma standardıdır. Ayrı bir buton, ayrı yan pipeline veya ayrı doküman motoru çalıştırma; aynı sohbet orkestrasyonu içinde document alanını üret/güncelle.
 
-A) businessAnalysis.content zorunlu Word yapisi:
-1. KAVRAMSAL TASARIM RAPORU
-2. PROJE KIMLIK KARTI
-   - Proje Ismi, Musteri Ismi, Proje Yoneticisi, Kapsam Yoneticisi, Is Uygulamalari Sorumlusu, IT Sorumlusu, Cozum Mimari.
-3. Amac
-4. Dokuman Tarihcesi
-   - Katilimcilar tablosu en az 6 rol: Proje Yoneticisi, Kapsam Yoneticisi, Is Uygulamalari, Veri Yonetimi, IT, Danisman/Cozum Mimari.
-   - Revize tarih tablosu: Tarih, Versiyon, Dokuman Revizyon Aciklamasi, Yazan.
-   - Kontrol EDEN VE ONAYLAYAN tablosu en az 6 satir: isim bilinmiyorsa [ACIK KONU].
-5. ICINDEKILER
-   - SUREC TASARIMI
-   - Her surec icin: SUREC MODELI - N "<surec adi>"
-   - EK A
-6. SUREC TASARIMI
-   - Projenin is kapsami, hedef sistemler, kanallar, aktorler, ana varsayimlar, kapsam disi ve kritik kararlar.
-7. SUREC MODELI bloklari
-   - Entegrasyon, CRM, SAP, IYS, dokuman yonetimi veya dijital sozlesme projelerinde en az 3 surec modeli uret.
-   - Genel kavramsal tasarimlarda en az 2 surec modeli uret.
-   - SAP CRM - IYS icin zorunlu adaylar: CRM'den IYS'ye izin aktarimi; IYS'den CRM'e gunluk delta/mutabakat; hata/retry/operasyon izleme ve raporlama.
-8. EK A
-   - ILGILI / REFERANS DOKUMANLAR tablosu.
-   - EKLENTI tablosu.
+Kullanıcı kavramsal tasarım, iş analizi, gereksinim, süreç modeli, ekran analizi, toast/validasyon, BPMN, doküman yönetimi, entegrasyon veya Word dokümanı istiyorsa aşağıdaki derinlikte çalış:
 
-B) Her SUREC MODELI blogunda ayni sira korunur:
-- SUREC MODELI - N "<surec adi>"
-- Surec Modeli - N
-- Bu proje ile birlikte;
-- Ust Duzey Surec Aciklamasi
-- Surec degisiklikleri
-- Is Gerekleri ve KPIs
-- Detayli Surec Akisi / Akis Diyagrami
-- Detayli Surec Akisi
-- Akis Diyagrami
-- Ilgili Surecler
-- Ust Duzey Musteri Gelistirmesi
-- Onemli Uyarlamalar ve Amaclari
-- Degisim Yonetimi
+A) businessAnalysis.content şu yapıyı mümkün olduğunca doldurmalı:
+1. Proje Kimlik Kartı
+   - Proje adı, talep no, kapsam yöneticisi, proje yöneticisi, uygulama sorumlusu, paydaşlar.
+2. Katılımcılar ve Roller
+   - Rol, isim varsa isim, sorumluluk ve karar/yetki kapsamı.
+3. Amaç ve İş Değeri
+   - Projenin neden yapıldığı, hangi operasyonel problemi çözdüğü, beklenen faydalar.
+4. Kapsam ve Kapsam Dışı
+   - Kullanıcının verdiği bilgiye göre kapsamı yaz; belirsizleri [VARSAYIM] olarak işaretle.
+5. Süreç Modelleri
+   - Her süreç için: amaç, aktörler, tetikleyici, giriş/çıkış koşulları, iş kuralları, ekranlar, dokümanlar, entegrasyonlar, hata durumları.
+   - P0-P8 gibi ifadeleri kalıcı ürün kuralı gibi yazma. Bunlar yalnızca mevcut örnek/MVP kodu olabilir; ürün dinamik süreç sayısını desteklemelidir.
+6. İş Gerekleri ve Gereksinimler
+   - Tekrarlı yazma. Gereksinimleri kodla: BR, FR, NFR, UI, INT, DOC, RPT, SEC, PERF.
+   - Her gereksinimde: kod, açıklama, öncelik, kabul kriteri, ilgili ekran/süreç, veri kaynağı.
+7. KPI ve Ölçümleme
+   - Her süreç için en az: ilerleme oranı, açık görev sayısı, eksik doküman sayısı, gecikme göstergesi.
+   - KPI formülü, veri kaynağı, hedef değer ve raporlama yeri yaz.
+8. Kullanıcı Mesajları / Toast / Validasyon / Modal Standardı
+   - Success, error, warning, info toast örnekleri.
+   - Inline validasyon mesajları.
+   - Bloklayıcı modal örnekleri.
+   - Hangi durumda mesajın gösterileceğini yaz.
+9. Doküman Yönetimi
+   - Zorunlu/opsiyonel dokümanlar, dosya türleri, versiyonlama, FileNet/harici saklama, audit ve hata yönetimi.
+10. Bildirim Yönetimi
+   - Uygulama içi bildirim, e-posta, hatırlatma, okundu bilgisi, rol bazlı alıcı kuralları.
+11. Yetki ve Güvenlik
+   - Rol bazlı menü/işlem yetkisi, sadece görüntüleme, admin yetkileri, audit log, oturum kuralları.
+12. Açık Konular ve Varsayımlar
+   - Emin olmadığın her noktayı review yerine de yansıt.
 
-C) Dolu uretim kurallari:
-- Is Gerekleri ve KPIs tablosu toplam en az 10 satir hedefler. Kod aileleri birlikte kullanilir: BR, FR, INT, NFR, UI, RPT, SEC, KPI, TEST, OPS.
-- Her gereksinimde kod, aciklama, oncelik, kabul kriteri, ilgili surec/ekran, veri kaynagi veya entegrasyon etkisi yaz.
-- KPI satirlari en az 5 olmalidir: basari orani, gecikme, hata orani, mutabakat farki, manuel is yuku, raporlama SLA gibi olcumler.
-- Ust Duzey Musteri Gelistirmesi tablosu en az 4 satir olmalidir: Arayuz, Program/Servis, Rapor, Is Akisi, Userexit/BAdI veya Entegrasyon.
-- Onemli Uyarlamalar bolumunde parametre tablolari, validasyonlar, yetki, loglama, retry, raporlama, bildirim ve operasyonel izleme amaclari yazilir.
-- Degisim Yonetimi bolumunde egitim, UAT, pilot/canli gecis, operasyon devri, rollback ve iletisim plani bulunur.
-- Belirsiz veri varsa bolum atlanmaz; deger [VARSAYIM] veya [ACIK KONU] olarak yazilir.
+B) code.content teknik analiz olmalı:
+- Modül mimarisi, veri modeli, entity ilişkileri, API/servis ihtiyaçları, entegrasyonlar, FileNet/SAP/Azure AD gibi sistemlerle veri alışverişi, hata/retry/audit stratejisi, güvenlik ve performans notları.
 
-D) Gorunur dokuman ilkesi:
-- Teknik analiz, test, surec akisi ve entegrasyon detaylari ayri gizli sekmelere zorlanmaz; businessAnalysis.content icinde ilgili Word bloklarina yedirilir.
-- review.content kalite raporudur: riskler, acik konular, varsayimlar, kaynak/dogrulama notu, kalite kapisi ve sonraki aksiyonlari yazar.
-- Chat mesaji kisa ozet olur; asil detay document alanindadir.
-- Kullanici "olustur", "hazirla", "devam et", "varsayimlarla ilerle", "daha fazla soru sorma" diyorsa yeni soru sormadan taslak uret.
+C) test.content test/kabul paketi olmalı:
+- UAT senaryoları, pozitif/negatif testler, yetki testleri, entegrasyon hata testleri, doküman yükleme ve validasyon testleri.
+
+D) review.content kalite raporu olmalı:
+- Talep karşılanma kontrolü, eksik bilgiler, riskler, tekrar eden gereksinimler, açık sorular, sonraki aksiyonlar.
+
+E) bpmn.content FLOW bölümünü doldurmalı:
+- BPMN XML üretemiyorsan geçici olarak süreç akışını Mermaid veya metinsel BPMN taslağı olarak yaz; boş bırakma.
+
+F) Derinlik kuralı:
+- Chat mesajı kısa özet olmalı; detaylar document alanına yazılmalı.
+- Eğer kullanıcı "oluştur", "hazırla", "dokümana işle", "devam et", "varsayımlarla ilerle" diyorsa yeni soru sormadan taslak üret.
+- Eksik bilgileri bahane edip boş doküman bırakma; varsayımları açıkça işaretle.
+- Her bölümde yalnızca 200 karakterlik yüzeysel içerik yeterli değildir. İş analizi üretiminde her ana bölüm karar verilebilir seviyede detaylandırılmalıdır.
 `.trim();
 
 function buildFallbackPlan(userMessage: string): PlanOutput {
@@ -234,7 +235,7 @@ function buildFallbackPlan(userMessage: string): PlanOutput {
     assumptions: [],
     needsWebSearch: false,
     searchQueries: [],
-    documentGapsToCheck: ['Word şablonu', 'Süreç modeli blokları', 'İş Gerekleri ve KPIs', 'Uyarlamalar', 'Değişim yönetimi', 'Onay tabloları', 'EK A'],
+    documentGapsToCheck: ['Süreçler', 'Gereksinimler', 'KPI', 'Kullanıcı mesajları', 'Entegrasyonlar', 'Doküman yönetimi'],
     clarificationsNeeded: [],
   };
 }
@@ -245,11 +246,6 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   let totalTokens = 0;
   const actionIntent = detectAiActionIntent(userMessage, []);
   const actionIntentContext = buildActionIntentContext(actionIntent);
-  const recentConversationText = history.slice(-6).map(h => h.parts[0]?.text || '').join('\n');
-  const deepBaSubject = [recentConversationText, userMessage].filter(Boolean).join('\n');
-  const deepBaPlan = buildDeepBaResearchPlan(deepBaSubject);
-  const sourcePolicy = buildSourceVerificationPolicy(deepBaSubject);
-  const useDeepBaMode = shouldUseDeepBaAssistant(deepBaSubject);
 
   // ============ PHASE 1: PLAN ============
   onPhase('PLAN', 'Strateji belirleniyor...');
@@ -299,22 +295,6 @@ Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON fo
     console.warn('Plan phase failed, using fallback plan:', e);
   }
 
-  if (deepBaPlan.enabled || useDeepBaMode) {
-    plan = {
-      ...plan,
-      needsWebSearch: true,
-      searchQueries: Array.from(new Set([...(deepBaPlan.searchQueries || []), ...(plan.searchQueries || [])])).slice(0, 4),
-      assumptions: Array.from(new Set([...(plan.assumptions || []), ...deepBaPlan.assumptions])),
-      documentGapsToCheck: Array.from(new Set([
-        ...(plan.documentGapsToCheck || []),
-        ...deepBaPlan.documentGapsToCheck,
-        ...(sourcePolicy.requiresSourceSeparation ? ['Kaynak ve dogrulama matrisi', 'Dogrulandi / varsayim / acik konu ayrimi'] : []),
-      ])),
-      plan: `${plan.plan}\nDeep BA Assistant v2: ${deepBaPlan.reason}`,
-    };
-    onThinking(buildDeepBaThinkingSummary(deepBaPlan));
-  }
-
   // ============ PHASE 2: RESEARCH ============
   onPhase('RESEARCH', plan.needsWebSearch ? 'Kaynaklar taranıyor...' : 'Kurumsal hafıza taranıyor...');
 
@@ -332,37 +312,16 @@ Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON fo
   let groundingUrls: { uri: string; title: string }[] = [];
   if (plan.needsWebSearch && plan.searchQueries && plan.searchQueries.length > 0) {
     const researchPrompt = `
-Asagidaki konularda kisa, guncel ve guvenilir kaynak ozeti cikar.
-Mevzuat/API/entegrasyon iddialarinda once resmi kaynaklari, sonra guvenilir referanslari kullan.
+Aşağıdaki konularda kısa, güncel ve güvenilir bilgi özeti çıkar. Her madde 1-2 cümle olsun.
 
 ${plan.searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 
-Tercih edilen kaynak turleri:
-${sourcePolicy.preferredSources.map((source, i) => `${i + 1}. ${source}`).join('\n')}
-
-Cikti formati:
-[DOGRULANMIS BILGILER]
-- Konu: ...
-  Kaynak/Kanit: ...
-  Kullanim: BA dokumaninda nasil kullanilacak?
-
-[VARSAYIM ADAYLARI]
-- Konu: ...
-  Neden varsayim: ...
-
-[ACIK KONU / DOGRULAMA GEREKIR]
-- Konu: ...
-  Kim/neyden dogrulanmali: ...
-
-Kurallar:
-- Kaynak veya grounding yoksa DOGRULANMIS BILGILER'e yazma.
-- Resmi olmayan kaynak kullanildiysa bunu "guvenilir referans, resmi degil" diye belirt.
-- Uzun yorum ekleme; karar verilebilir, kisa maddeler yaz.
+Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
 `.trim();
     try {
       const researchResponse = await callGemini({
         model,
-        systemInstruction: 'Sen kaynak dogrulama odakli bir arastirma asistanisin. Resmi kaynak, guvenilir referans, varsayim ve acik konuyu net ayirirsin.',
+        systemInstruction: 'Sen bir araştırma asistanısın. Internetten kısa, doğru, referanslı bilgi toplarsın.',
         contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
         onChunk: (_text, thinking, tokenCount) => {
           if (thinking) onThinking(thinking);
@@ -373,7 +332,7 @@ Kurallar:
           if (onGrounding) onGrounding(urls);
         }
       });
-      webResearch = (researchResponse.text || '').slice(0, 4500);
+      webResearch = (researchResponse.text || '').slice(0, 3000);
     } catch (e) {
       console.warn('Research phase failed:', e);
     }
@@ -381,8 +340,8 @@ Kurallar:
 
   const researchContext = [
     kbContext && `[KURUMSAL HAFIZA BULGULARI]\n${kbContext}`,
-    webResearch && `[KAYNAKLI ARASTIRMA BULGULARI - DOGRULAMA AYRIMI]\n${webResearch}`
-  ].filter(Boolean).join('\n\n') || '(Ilgili ek kaynak bulunamadi.)';
+    webResearch && `[İNTERNET ARAŞTIRMA BULGULARI]\n${webResearch}`
+  ].filter(Boolean).join('\n\n') || '(İlgili ek kaynak bulunamadı.)';
 
   // ============ PHASE 3: REFLECT ============
   const hasDocument = !!documentContent && Object.values(documentContent).some(
@@ -465,13 +424,6 @@ ${plan.assumptions?.length ? `Varsayımlar: ${plan.assumptions.join('; ')}` : ''
 [3] ARAŞTIRMA BULGULARI
 ${researchContext}
 
-[3B] KAYNAK DOGRULAMA POLITIKASI
-- Kaynak ayrimi gerekli mi: ${sourcePolicy.requiresSourceSeparation ? 'EVET' : 'HAYIR'}
-- Review durum etiketleri: ${sourcePolicy.statusLabels.join(' / ')}
-- Review matrisi kolonlari: ${sourcePolicy.reviewMatrixColumns.join(' | ')}
-- Tercih edilen kaynaklar: ${sourcePolicy.preferredSources.join('; ')}
-- Resmi kaynakla veya guvenilir referansla desteklenmeyen mevzuat/API maddelerini DOGRULANDI yapma; VARSAYIM veya ACIK KONU olarak ayir.
-
 [4] DOKÜMAN GÖZDEN GEÇİRME
 Bulunan eksikler:
 ${(reflection.gapsFound || []).map(g => `- ${g}`).join('\n') || '- Belirgin eksik yok.'}
@@ -487,14 +439,11 @@ ${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '
 - Mesaj metninde "birkaç sorum olacak" / "şunu netleştirelim" gibi ifade kullandıysan questions alanını doldurmadan yanıt verme.
 - Cevabın kullanıcıya gösterilecek chat mesajı kısa ve net olmalı; detayları document alanına yaz.
 - "thinking" alanında kısa çalışma özetini yaz. Özel zincir düşünce veya gizli akıl yürütme yazma.
-- "actionSummary" alaninda kullanicinin gorecegi sekilde "Ne yaptim?" ozetini 1-2 cumle yaz: hangi bolumleri guncelledin, kaynakli bilgi/varsayim/acik konu ayrimini nasil isledin, sonraki hizli aksiyon ne?
-
-${buildDeepBaActInstructions(deepBaSubject)}
+- "actionSummary" alanında yaptığın işi 1 cümle özetle.
 
 [6] DOKÜMAN YAZMA KURALI
 - Analiz veya araştırma yeterli olgunluğa ulaştıysa, yanıtınla birlikte "document" alanını MUTLAKA doldur. Bu alan sağ paneldeki Çalışma Dokümanı'na yazılır.
-- "document" alanı görünür ürün yüzeyinde yalnızca businessAnalysis (BA Analiz) ve opsiyonel review bölümlerini içerir.
-- Teknik analiz, test ve süreç akışını ayrı code/test/bpmn alanlarına zorlama; bunları businessAnalysis içinde alt başlık olarak yaz.
+- "document" alanı şu bölümleri içerir: businessAnalysis (İş Analizi), code (Teknik/IT), test (Test/QA), opsiyonel review ve bpmn.
 - Her bölüm { content: Markdown metni, status: "DRAFT" | "NEEDS_REVISION" | "APPROVED", flags: string[] } yapısında olmalı.
 - Mevcut doküman varsa (${hasDocument ? 'EVET' : 'HAYIR'}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
 - Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları.

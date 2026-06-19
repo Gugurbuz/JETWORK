@@ -8,9 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit",
-    "verify:ai-ba-engine": "tsx scripts/verify-ai-ba-engine.ts",
-    "verify:deep-ba-assistant": "tsx scripts/verify-deep-ba-assistant.ts"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

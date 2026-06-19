@@ -39,8 +39,6 @@ export function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
           </h2>
           <button 
             onClick={onClose}
-            aria-label="Close new project dialog"
-            data-testid="new-project-close"
             className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md transition-colors"
           >
             <X size={18} />
@@ -59,8 +57,6 @@ export function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
                 Proje Adı
               </label>
               <input
-                id="new-project-name"
-                data-testid="new-project-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -75,8 +71,6 @@ export function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
                 Açıklama (İsteğe Bağlı)
               </label>
               <textarea
-                id="new-project-description"
-                data-testid="new-project-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Projenin amacı ve kapsamı..."
@@ -97,8 +91,6 @@ export function NewProjectModal({ onClose, onSubmit }: NewProjectModalProps) {
             <button
               type="submit"
               disabled={!name.trim()}
-              aria-label="Create project"
-              data-testid="new-project-submit"
               className="px-6 py-2.5 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               Proje Oluştur

@@ -2,110 +2,118 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { Type } from "@google/genai";
 
+// Form Input Şemaları (client-side validation)
 export const NewProjectInputSchema = z.object({
-  name: z.string().trim().min(2, "Proje adÄ± en az 2 karakter olmalÄ±dÄ±r.").max(100, "Proje adÄ± en fazla 100 karakter olabilir."),
-  description: z.string().trim().max(500, "AÃ§Ä±klama en fazla 500 karakter olabilir.").optional().default(""),
+  name: z.string().trim().min(2, "Proje adı en az 2 karakter olmalıdır.").max(100, "Proje adı en fazla 100 karakter olabilir."),
+  description: z.string().trim().max(500, "Açıklama en fazla 500 karakter olabilir.").optional().default(""),
 });
 
 export const EditWorkspaceInputSchema = z.object({
-  title: z.string().trim().min(2, "Ã‡alÄ±ÅŸma alanÄ± adÄ± en az 2 karakter olmalÄ±dÄ±r.").max(120, "Ã‡alÄ±ÅŸma alanÄ± en fazla 120 karakter olabilir."),
+  title: z.string().trim().min(2, "Çalışma alanı adı en az 2 karakter olmalıdır.").max(120, "Çalışma alanı adı en fazla 120 karakter olabilir."),
 });
 
 export const OnboardingInputSchema = z.object({
-  username: z.string().trim().min(3, "KullanÄ±cÄ± adÄ± en az 3 karakter olmalÄ±dÄ±r.").max(32, "KullanÄ±cÄ± adÄ± en fazla 32 karakter olabilir.").regex(/^[a-zA-Z0-9._-]+$/, "KullanÄ±cÄ± adÄ± yalnÄ±zca harf, rakam, nokta, alt Ã§izgi ve tire iÃ§erebilir."),
-  firstName: z.string().trim().min(1, "Ad alanÄ± zorunludur.").max(50, "Ad en fazla 50 karakter olabilir."),
-  lastName: z.string().trim().min(1, "Soyad alanÄ± zorunludur.").max(50, "Soyad en fazla 50 karakter olabilir."),
-  role: z.string().trim().min(1, "Rol seÃ§imi zorunludur."),
+  username: z.string().trim().min(3, "Kullanıcı adı en az 3 karakter olmalıdır.").max(32, "Kullanıcı adı en fazla 32 karakter olabilir.").regex(/^[a-zA-Z0-9._-]+$/, "Kullanıcı adı yalnızca harf, rakam, nokta, alt çizgi ve tire içerebilir."),
+  firstName: z.string().trim().min(1, "Ad alanı zorunludur.").max(50, "Ad en fazla 50 karakter olabilir."),
+  lastName: z.string().trim().min(1, "Soyad alanı zorunludur.").max(50, "Soyad en fazla 50 karakter olabilir."),
+  role: z.string().trim().min(1, "Rol seçimi zorunludur."),
 });
 
+// YENİ EKLENEN: Bölüm (Section) Şeması
 export const SectionDataSchema = z.object({
-  content: z.string().describe("Markdown formatÄ±nda iÃ§erik metni."),
-  status: z.enum(['DRAFT', 'NEEDS_REVISION', 'APPROVED']).describe("Bu bÃ¶lÃ¼mÃ¼n gÃ¼ncel durumu."),
-  flags: z.array(z.string()).describe("Bu bÃ¶lÃ¼me ait kalite, eksik bilgi veya revizyon notlarÄ±."),
+  content: z.string().describe("Markdown formatında içerik metni."),
+  status: z.enum(['DRAFT', 'NEEDS_REVISION', 'APPROVED']).describe("Bu bölümün güncel durumu."),
+  flags: z.array(z.string()).describe("Diğer ajanların bu bölüme yaptığı itirazlar ve hata bildirimleri.")
 });
 
+// GÜNCELLENEN: DocumentData artık SectionData kullanıyor
 export const DocumentDataSchema = z.object({
-  businessAnalysis: SectionDataSchema.describe("Ana kavramsal tasarÄ±m / BA analiz raporu."),
-  review: SectionDataSchema.optional().describe("Kalite deÄŸerlendirmesi, aÃ§Ä±k sorular ve revizyon notlarÄ±."),
-  code: SectionDataSchema.optional().describe("Geriye dÃ¶nÃ¼k uyumluluk alanÄ±. Yeni Ã¼retimde kullanÄ±lmaz."),
-  test: SectionDataSchema.optional().describe("Geriye dÃ¶nÃ¼k uyumluluk alanÄ±. Yeni Ã¼retimde kullanÄ±lmaz."),
-  bpmn: SectionDataSchema.optional().describe("Geriye dÃ¶nÃ¼k uyumluluk alanÄ±. Yeni Ã¼retimde kullanÄ±lmaz."),
+  businessAnalysis: SectionDataSchema.describe("İş analizi, gereksinimler ve projenin genel tanımı."),
+  code: SectionDataSchema.describe("Teknik notlar, mimari kararlar, veritabanı şemaları veya örnek kod blokları."),
+  test: SectionDataSchema.describe("Test senaryoları, kabul kriterleri ve QA adımları."),
+  bpmn: SectionDataSchema.optional().describe("Geçerli bir BPMN 2.0 XML kodu."),
+  review: SectionDataSchema.optional().describe("Toplantı notları, kararlar ve özetler."),
 });
 
+// 2. Görev/Hata Çıkarım Şeması (Task Extraction)
 export const TaskExtractionSchema = z.object({
-  title: z.string().describe("GÃ¶rev veya hatanÄ±n kÄ±sa ve aÃ§Ä±klayÄ±cÄ± baÅŸlÄ±ÄŸÄ±."),
-  description: z.string().describe("GÃ¶rev veya hatanÄ±n detaylÄ± aÃ§Ä±klamasÄ±."),
-  type: z.enum(["Bug", "Feature", "Improvement", "Task"]).describe("KaydÄ±n tÃ¼rÃ¼."),
-  priority: z.enum(["Low", "Medium", "High", "Critical"]).describe("Ã–ncelik durumu."),
-  assignee: z.string().optional().describe("EÄŸer konuÅŸmada belirtilmiÅŸse, gÃ¶revin atanacaÄŸÄ± kiÅŸinin adÄ±."),
-  estimatedHours: z.number().optional().describe("EÄŸer belirtilmiÅŸse tahmini efor (saat cinsinden)."),
+  title: z.string().describe("Görev veya hatanın kısa ve açıklayıcı başlığı."),
+  description: z.string().describe("Görev veya hatanın detaylı açıklaması."),
+  type: z.enum(["Bug", "Feature", "Improvement", "Task"]).describe("Kaydın türü."),
+  priority: z.enum(["Low", "Medium", "High", "Critical"]).describe("Öncelik durumu."),
+  assignee: z.string().optional().describe("Eğer konuşmada belirtilmişse, görevin atanacağı kişinin adı."),
+  estimatedHours: z.number().optional().describe("Eğer belirtilmişse tahmini efor (saat cinsinden).")
 });
 
+// 3. Geri Bildirim/Duygu Analizi Şeması (Feedback/Sentiment)
 export const FeedbackSchema = z.object({
   sentiment: z.enum(["positive", "neutral", "negative"]).describe("Metnin genel duygu durumu."),
-  summary: z.string().describe("KullanÄ±cÄ±nÄ±n geri bildiriminin veya mesajÄ±nÄ±n kÄ±sa Ã¶zeti."),
-  actionItems: z.array(z.string()).describe("EÄŸer varsa, metinden Ã§Ä±karÄ±lan aksiyon adÄ±mlarÄ±."),
+  summary: z.string().describe("Kullanıcının geri bildiriminin veya mesajının kısa özeti."),
+  actionItems: z.array(z.string()).describe("Eğer varsa, metinden çıkarılan aksiyon adımları.")
 });
 
+// JSON Schema Dönüşümleri
 export const documentDataJsonSchema = zodToJsonSchema(DocumentDataSchema, "DocumentData");
 export const taskExtractionJsonSchema = zodToJsonSchema(TaskExtractionSchema, "TaskExtraction");
 export const feedbackJsonSchema = zodToJsonSchema(FeedbackSchema, "Feedback");
 
+// 4. Chat Response Schema (Ajanların Normal İletişim Şeması)
 export const ChatResponseSchema = z.object({
-  thinking: z.string().optional().describe("KÄ±sa Ã§alÄ±ÅŸma Ã¶zeti. Gizli zincir dÃ¼ÅŸÃ¼nce yazÄ±lmaz."),
-  message: z.string().describe("KullanÄ±cÄ±ya sohbette gÃ¶sterilecek kÄ±sa yanÄ±t metni. Dokuman uretildi veya guncellendiyse mesajin sonunda Markdown ile **Ne yaptim?** basligi altinda 1-2 cumlelik gorunur ozet yaz."),
-  actionSummary: z.string().optional().describe("Bu mesajÄ±n veya ajanÄ±n yaptÄ±ÄŸÄ± eylemin kullanicinin gorecegi kadar net, cok kisa ozeti."),
-  score: z.number().optional().describe("Kalite puanÄ± veya zero-touch skor alanÄ±."),
-  scoreExplanation: z.string().optional().describe("Puan aÃ§Ä±klamasÄ±."),
-  needsRevision: z.array(z.string()).optional().describe("Revizyon gerektiren alanlar."),
-  updatedMemory: z.record(z.string(), z.string()).optional().describe("Proje kararlarÄ± veya yeni kÄ±sÄ±tlamalar."),
+  thinking: z.string().optional().describe("Ajanın adım adım düşünce süreci. Kullanıcıya gösterilecek olan iç sesin. Karar vermeden önce burada düşün."),
+  message: z.string().describe("Kullanıcıya veya ekibe sohbette gösterilecek yanıt metni. Markdown formatında olabilir."),
+  actionSummary: z.string().optional().describe("Bu mesajın veya ajanın yaptığı eylemin çok kısa (1 cümlelik) bir özeti."),
+  score: z.number().optional().describe("Zero-Touch Mode için ajanın verdiği puan (0-100)."),
+  scoreExplanation: z.string().optional().describe("Verilen puanın detayı, eksikler, riskler ve yapılan iyileştirmelerin kısa özeti."),
+  needsRevision: z.array(z.string()).optional().describe("Eğer revize edilmesi gerekiyorsa, ajanların rollerini (BA, IT, QA) buraya ekle."),
+  updatedMemory: z.record(z.string(), z.string()).optional().describe("Proje kararları veya yeni kısıtlamalar (Örn: {'Platform': 'Web'})."),
   questions: z.array(z.object({
     id: z.string(),
     text: z.string(),
-    options: z.array(z.string()),
-  })).optional().describe("KullanÄ±cÄ±ya sorulacak netleÅŸtirici sorular."),
-  document: DocumentDataSchema.optional().describe("SaÄŸ panel dokÃ¼manÄ±. Åimdilik sadece businessAnalysis ve opsiyonel review Ã¼retilmelidir."),
+    options: z.array(z.string())
+  })).optional().describe("Kullanıcıya sorulacak sorular ve olası cevap seçenekleri."),
+  document: DocumentDataSchema.optional().describe("SADECE EĞER ARAÇ (TOOL) KULLANAMIYORSAN BU ALANI DOLDUR. Eğer 'apply_micro_edit' aracına sahipsen bu alanı KESİNLİKLE BOŞ BIRAK.")
 });
 
 export const applyMicroEditTool = {
   functionDeclarations: [
     {
       name: "apply_micro_edit",
-      description: "DokÃ¼manÄ±n BA Analiz veya Review bÃ¶lÃ¼mÃ¼ndeki mevcut bir metni yenisiyle deÄŸiÅŸtirir.",
+      description: "Dokümanın belirli bir sekmesindeki mevcut bir metni yenisiyle değiştirir. Dokümanı güncellemek için SADECE bu aracı kullanmalısın.",
       parameters: {
         type: Type.OBJECT,
         properties: {
           section: {
             type: Type.STRING,
-            description: "GÃ¼ncellenecek dokÃ¼man sekmesi",
-            enum: ["businessAnalysis", "review"],
+            description: "Güncellenecek doküman sekmesi",
+            enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
           },
           targetText: {
             type: Type.STRING,
-            description: "DeÄŸiÅŸtirilecek cÃ¼mlenin veya paragrafÄ±n dokÃ¼mandaki birebir mevcut hali.",
+            description: "Değiştirilecek cümlenin veya paragrafın dokümandaki birebir, harfi harfine mevcut hali. Eğer yeni bir metin ekliyorsan, eklenecek yerin hemen öncesindeki metni yaz."
           },
           replacementText: {
             type: Type.STRING,
-            description: "Hedef metnin yerine geÃ§ecek yeni metin.",
+            description: "Hedef metnin yerine geçecek yeni metin. Eğer sadece ekleme yapıyorsan, targetText + yeni metin şeklinde yaz."
           },
           explanation: {
             type: Type.STRING,
-            description: "Chat ekranÄ±nda kullanÄ±cÄ±ya gÃ¶sterilecek kÄ±sa Ã¶zet.",
-          },
+            description: "Chat ekranında kullanıcıya gösterilecek kısa özet (Örn: 'Kredi kartı modülünü IT mimarisine ekledim')."
+          }
         },
-        required: ["section", "targetText", "replacementText", "explanation"],
-      },
-    },
-  ],
+        required: ["section", "targetText", "replacementText", "explanation"]
+      }
+    }
+  ]
 };
 
+// Sabit şema tanımlaması
 const sectionDataJsonType = {
   type: Type.OBJECT,
   properties: {
     content: { type: Type.STRING },
     status: { type: Type.STRING },
-    flags: { type: Type.ARRAY, items: { type: Type.STRING } },
-  },
+    flags: { type: Type.ARRAY, items: { type: Type.STRING } }
+  }
 };
 
 export const chatResponseJsonSchema = {
@@ -113,94 +121,191 @@ export const chatResponseJsonSchema = {
   properties: {
     thinking: {
       type: Type.STRING,
-      description: "KÄ±sa Ã§alÄ±ÅŸma Ã¶zeti. Gizli zincir dÃ¼ÅŸÃ¼nce yazma.",
+      description: "Adım adım düşünme sürecin. Karar vermeden önce burada sesli düşün."
     },
     message: {
       type: Type.STRING,
-      description: "KullanÄ±cÄ±ya veya ekibe sohbette gÃ¶sterilecek kÄ±sa yanÄ±t metni. Dokuman uretildi veya guncellendiyse mesajin sonunda Markdown ile **Ne yaptim?** basligi altinda 1-2 cumlelik gorunur ozet yaz.",
+      description: "Kullanıcıya veya ekibe sohbette gösterilecek yanıt metni. Markdown formatında olabilir."
     },
     actionSummary: {
       type: Type.STRING,
-      description: "Bu mesajÄ±n veya ajanÄ±n yaptÄ±ÄŸÄ± eylemin kullanicinin gorecegi kadar net, cok kisa ozeti.",
+      description: "Bu mesajın veya ajanın yaptığı eylemin çok kısa (1 cümlelik) bir özeti."
     },
     score: {
       type: Type.NUMBER,
-      description: "Kalite puanÄ± veya zero-touch skor alanÄ±.",
+      description: "Zero-Touch Mode için ajanın verdiği puan (0-100). Sadece bu modda doldurulmalıdır."
     },
     scoreExplanation: {
       type: Type.STRING,
-      description: "Puan aÃ§Ä±klamasÄ±.",
+      description: "Verilen puanın detayı. Sadece Moderatör tarafından doldurulur."
     },
     needsRevision: {
       type: Type.ARRAY,
       items: { type: Type.STRING },
-      description: "Revizyon gerektiren alanlar.",
+      description: "Eğer revize edilmesi gerekiyorsa, revizyon yapması gereken ajanların rollerini (BA, IT, QA) bu diziye ekle."
     },
     updatedMemory: {
       type: Type.OBJECT,
-      description: "KullanÄ±cÄ±nÄ±n mesajÄ±ndan Ã§Ä±karÄ±lan yeni proje kararlarÄ±, kÄ±sÄ±tlamalarÄ± veya hedefleri.",
-      additionalProperties: { type: Type.STRING },
+      description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri (Örn: {'Platform': 'Web', 'Hedef Kitle': 'Şirket İçi'}). Sadece yeni veya değişen bilgileri ekle.",
+      additionalProperties: { type: Type.STRING }
     },
     questions: {
       type: Type.ARRAY,
-      description: "KullanÄ±cÄ±ya sorulacak netleÅŸtirici sorular ve seÃ§enekleri.",
+      description: "Kullanıcıya sorulacak sorular ve olası cevap seçenekleri. Eğer kullanıcıdan netleştirme isteniyorsa bu alanı kullan.",
       items: {
         type: Type.OBJECT,
         properties: {
-          id: { type: Type.STRING },
-          text: { type: Type.STRING },
+          id: { type: Type.STRING, description: "Soru için benzersiz bir ID (örn: q1, q2)" },
+          text: { type: Type.STRING, description: "Sorunun metni" },
           options: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-          },
+            description: "Kullanıcının seçebileceği olası cevap seçenekleri"
+          }
         },
-        required: ["id", "text", "options"],
-      },
+        required: ["id", "text", "options"]
+      }
     },
     document: {
       type: Type.OBJECT,
-      description: "SaÄŸ paneldeki Ã‡alÄ±ÅŸma DokÃ¼manÄ±. Åimdilik sadece BA Analiz ve opsiyonel Review Ã¼ret.",
+      description: "Sağ paneldeki Çalışma Dokümanı. Araştırma ve analiz yeterliyse bu alanı TAM olarak doldur (mevcut doküman varsa koruyup genişleterek).",
       properties: {
         businessAnalysis: sectionDataJsonType,
-        review: sectionDataJsonType,
-      },
-    },
+        code: sectionDataJsonType,
+        test: sectionDataJsonType,
+        bpmn: sectionDataJsonType,
+        review: sectionDataJsonType
+      }
+    }
   },
-  required: ["message"],
+  required: ["message"]
 };
 
 export type ZodChatResponse = z.infer<typeof ChatResponseSchema>;
 
+// ============================================================================
+// 5. YENİ MİMARİ: OTONOM AJAN ARAÇLARI (AGENT TOOLS - FUNCTION CALLING)
+// Ajanların dünyayla ve dokümanla etkileşime geçeceği fonksiyon tanımlamaları.
+// ============================================================================
 export const agentTools: any[] = [
   {
     functionDeclarations: [
       {
         name: "apply_micro_edit",
-        description: "DokÃ¼manÄ±n BA Analiz veya Review bÃ¶lÃ¼mÃ¼ndeki mevcut bir metni yenisiyle deÄŸiÅŸtirir.",
+        description: "Dokümanın belirli bir sekmesindeki mevcut bir metni yenisiyle değiştirir. Dokümanı güncellemek için SADECE bu aracı kullanmalısın.",
         parameters: {
           type: Type.OBJECT,
           properties: {
             section: {
               type: Type.STRING,
-              description: "GÃ¼ncellenecek dokÃ¼man sekmesi",
-              enum: ["businessAnalysis", "review"],
+              description: "Güncellenecek doküman sekmesi",
+              enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
             },
             targetText: {
               type: Type.STRING,
-              description: "DeÄŸiÅŸtirilecek cÃ¼mlenin veya paragrafÄ±n dokÃ¼mandaki birebir mevcut hali.",
+              description: "Değiştirilecek cümlenin veya paragrafın dokümandaki birebir, harfi harfine mevcut hali. Eğer yeni bir metin ekliyorsan, eklenecek yerin hemen öncesindeki metni yaz."
             },
             replacementText: {
               type: Type.STRING,
-              description: "Hedef metnin yerine geÃ§ecek yeni metin.",
+              description: "Hedef metnin yerine geçecek yeni metin. Eğer sadece ekleme yapıyorsan, targetText + yeni metin şeklinde yaz."
             },
             explanation: {
               type: Type.STRING,
-              description: "Chat ekranÄ±nda kullanÄ±cÄ±ya gÃ¶sterilecek kÄ±sa Ã¶zet.",
-            },
+              description: "Chat ekranında kullanıcıya gösterilecek kısa özet (Örn: 'Kredi kartı modülünü IT mimarisine ekledim')."
+            }
           },
-          required: ["section", "targetText", "replacementText", "explanation"],
-        },
+          required: ["section", "targetText", "replacementText", "explanation"]
+        }
       },
-    ],
-  },
+      {
+        name: "flag_issue",
+        description: "KRİTİK: Başka bir ajanın (veya kendi) yazdığı bölümde mantıksal bir hata, güvenlik açığı, eksik bir test veya hatalı bir mimari kararı bulduğunda kullanılır. Bu araç o bölümün statüsünü 'NEEDS_REVISION' yapar ve hatayı listeye ekler.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            section: {
+              type: Type.STRING,
+              description: "Hata bulunan doküman sekmesi (Örn: QA ajanı koddaki hatayı bulduysa 'code' seçer)",
+              enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
+            },
+            reason: {
+              type: Type.STRING,
+              description: "Hatayı veya eksikliği detaylıca açıklayan, karşı tarafın neyi düzeltmesi gerektiğini söyleyen itiraz metni."
+            }
+          },
+          required: ["section", "reason"]
+        }
+      },
+      {
+        name: "update_document_status",
+        description: "Bir bölümün statüsünü güncellemek için kullanılır. Kendi bölümünü yazmayı bitirdiğinde 'APPROVED' yapabilir veya revizyon sonrası onay verebilirsin.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            section: {
+              type: Type.STRING,
+              description: "Statüsü değişecek bölüm",
+              enum: ["businessAnalysis", "code", "test", "review", "bpmn"]
+            },
+            status: {
+              type: Type.STRING,
+              description: "Yeni statü",
+              enum: ["DRAFT", "NEEDS_REVISION", "APPROVED"]
+            }
+          },
+          required: ["section", "status"]
+        }
+      },
+      {
+        name: "ask_to_human",
+        description: "Sistemde eksik olan, belirsiz olan veya şirkete özel olan (Legacy sistemler, kısıtlar, iş hedefleri) konularda varsayım yapmak (halüsinasyon) yerine doğrudan insana (kullanıcıya) soru sormak ve süreci bekletmek için kullanılır.",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            question: {
+              type: Type.STRING,
+              description: "Kullanıcıya sorulacak detaylı soru metni."
+            },
+            options: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Kullanıcının seçebileceği veya ilham alabileceği muhtemel kısa cevap seçenekleri. (Örn: ['Evet, entegre', 'Hayır, izole', 'Bilinmiyor'])"
+            }
+          },
+          required: ["question", "options"]
+        }
+      }
+    ]
+  }
 ];
+
+// Moderatör (Orchestrator) için karar şeması
+export const discussionJsonSchema = {
+  type: Type.OBJECT,
+  properties: {
+    thinking: { type: Type.STRING, description: "Adım adım düşünme sürecin. Karar vermeden önce burada sesli düşün." },
+    agentRole: { type: Type.STRING },
+    message: { type: Type.STRING },
+    actionSummary: { type: Type.STRING },
+    isDocumentationPhase: { type: Type.BOOLEAN },
+    requiresUserInput: { type: Type.BOOLEAN },
+    questions: {
+      type: Type.ARRAY,
+      description: "Kullanıcıya sorulacak sorular ve olası cevap seçenekleri. Eğer requiresUserInput true ise bu alanı kullan.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING, description: "Soru için benzersiz bir ID (örn: q1, q2)" },
+          text: { type: Type.STRING, description: "Sorunun metni" },
+          options: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: "Kullanıcının seçebileceği olası cevap seçenekleri"
+          }
+        },
+        required: ["id", "text", "options"]
+      }
+    }
+  },
+  required: ["agentRole", "message", "actionSummary", "isDocumentationPhase", "requiresUserInput"]
+};
