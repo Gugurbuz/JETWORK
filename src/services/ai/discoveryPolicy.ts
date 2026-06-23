@@ -19,7 +19,7 @@ const FORCE_GENERATE_PATTERNS: RegExp[] = [
   /\bhadi\b/i,
   /\bfdd('?yi|.?yi)?\s*(hazırla|başlat|oluştur|üret|yaz)/i,
   /\bfdd\s*başlasın\b/i,
-  /\b(dokümanı|dokümanı)\s*(oluştur|üret|hazırla|yaz|başlat)/i,
+  /\b(dokümanı|dökümanı)\s*(oluştur|üret|hazırla|yaz|başlat)/i,
   /\b(analiz(?:i|e)?)\s*(geç|başla|oluştur|hazırla|üret)/i,
   /\bba\s*(analiz(?:i|e)?)\s*(oluştur|hazırla|yaz|üret)/i,
   /\bbu\s+bilgilerle\s+(ilerle|devam|oluştur|yaz|hazırla)/i,
@@ -86,6 +86,35 @@ function isGreetingLike(message: string): boolean {
   if (tokens.length <= 6) return true;
 
   return false;
+}
+
+function normalizeDiscoveryText(input: string): string {
+  return normalizeTr(input)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c');
+}
+
+function isSparseInitialDomainDocumentRequest(
+  userMessage: string,
+  messages: Message[],
+  document: DocumentData | null
+): boolean {
+  if (document || messages.length > 0) return false;
+
+  const text = normalizeDiscoveryText(userMessage);
+  const tokenCount = text.split(/\s+/).filter(Boolean).length;
+  const looksLikeSapDomain = /sap\s*crm/.test(text)
+    && /(ai|yapay zeka|bot|chatbot|asistan|satis|sales|iys|ileti yonetim sistemi)/.test(text);
+  const asksForDocumentOutput = /(ba analiz|kavramsal|tasarim|dokuman|rapor|brd|fdd|hazirla|olustur|uret|yaz)/.test(text);
+  const explicitlyAllowsDraft = /(varsayimlarla|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap)/.test(text);
+
+  return looksLikeSapDomain && asksForDocumentOutput && !explicitlyAllowsDraft && tokenCount <= 14;
 }
 
 const BLOCKED_QUESTION_TERMS: string[] = [
@@ -199,11 +228,12 @@ export function computeDiscoverySignals(
   const questionRoundCount = countQuestionRounds(messages);
   const answeredQuestionCount = countAnsweredQuestions(messages);
   const documentReadinessScore = scoreDocumentReadiness(document, messages);
+  const shouldProtectInitialDiscovery = isSparseInitialDomainDocumentRequest(userMessage, messages, document);
 
   let reason = '';
   let mustGenerateNow = false;
 
-  if (forceGenerate) {
+  if (forceGenerate && !shouldProtectInitialDiscovery) {
     mustGenerateNow = true;
     reason = 'user_force_generate';
   } else if (stopQuestions) {
@@ -215,7 +245,7 @@ export function computeDiscoverySignals(
   } else if (questionRoundCount >= 2) {
     mustGenerateNow = true;
     reason = 'question_round_cap_reached';
-  } else if (documentReadinessScore >= 60) {
+  } else if (documentReadinessScore >= 60 && !shouldProtectInitialDiscovery) {
     mustGenerateNow = true;
     reason = 'document_readiness_threshold';
   }
