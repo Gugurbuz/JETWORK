@@ -105,20 +105,95 @@ export interface ClassifyInput {
   model: string;
 }
 
+function normalizeForDiscovery(value: string): string {
+  return (value || '')
+    .trim()
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/ş/g, 's')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .replace(/[.!?,;:]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function hasDocumentContent(doc: DocumentData | null): boolean {
+  if (!doc) return false;
+  return Object.values(doc as any).some((section: any) => section?.content && String(section.content).trim().length > 0);
+}
+
+function sparseDiscoveryQuestions(normalized: string): string[] {
+  if (/sap\s*crm/.test(normalized) && /(iys|ileti yonetim sistemi)/.test(normalized)) {
+    return [
+      'İYS entegrasyonunda hedef kapsam hangi izin kanallarını kapsıyor: SMS, e-posta, arama ve/veya çoklu marka?',
+      'SAP CRM tarafında izin verisi hangi nesne ve alanlarda tutuluyor; mevcut veri kalitesi ve telefon/e-posta formatı ne durumda?',
+      'Senkronizasyon modeli nasıl olmalı: anlık API, batch/delta mutabakat, initial load ve retry/kuyruk ihtiyacı var mı?',
+      'Yasal uyum ve operasyon için başarı hangi KPI ve kontrollerle ölçülecek: 3 iş günü kuralı, ret sonrası durdurma, log/audit, hata raporu?',
+    ];
+  }
+
+  if (/sap\s*crm/.test(normalized) && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|sales)/.test(normalized)) {
+    return [
+      'AI satış botu hangi kanallarda çalışacak ve birincil kullanıcı kim olacak: müşteri, satış temsilcisi, bayi, çağrı merkezi veya iç ekip?',
+      'SAP CRM tarafında bot hangi nesneleri okuyup/yazacak: Lead, Opportunity, Activity, Business Partner, teklif, sipariş veya kampanya?',
+      'Botun karar yetkisi nerede bitecek; hangi durumlarda insan satış temsilcisine devredecek ve onay akışı gerekecek?',
+      'Başarı KPI’ları ve risk sınırları neler olacak: lead dönüşüm oranı, yanıt süresi, veri doğruluğu, KVKK/onay, hatalı öneri toleransı?',
+    ];
+  }
+
+  return [
+    'Çözmek istediğimiz ana iş problemi ve hedef kullanıcı grubu nedir?',
+    'Mevcut süreç veya sistemde bugün hangi ağrı noktaları var?',
+    'İlk sürümde kesinlikle olması gereken fonksiyonlar ve kapsam dışı kalacak alanlar neler?',
+    'Başarıyı hangi KPI, kabul kriteri veya iş değeriyle ölçeceğiz?',
+  ];
+}
+
+function classifySparseInitialDomainDiscovery(input: ClassifyInput): IntentClassification | null {
+  if (hasDocumentContent(input.document)) return null;
+
+  const normalized = normalizeForDiscovery(input.userMessage);
+  const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
+  const isSapCrmDomain = /sap\s*crm/.test(normalized)
+    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|sales|iys|ileti yonetim sistemi)/.test(normalized);
+  const asksForDocumentOutput = /(ba analiz|is analiz|kavramsal|tasarim|dokuman|rapor|brd|fdd|hazirla|olustur|uret|yaz)/.test(normalized);
+  const explicitlyAllowsDraft = /(varsayimlarla|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap|direkt olustur|direkt hazirla)/.test(normalized);
+
+  if (!isSapCrmDomain || !asksForDocumentOutput || explicitlyAllowsDraft || tokenCount > 14) {
+    return null;
+  }
+
+  return buildClassification('generate_business_analysis', {
+    targetSection: 'businessAnalysis',
+    operation: 'none',
+    documentImpact: 'none',
+    confidence: 0.9,
+    riskLevel: 'medium',
+    requiresClarification: true,
+    clarificationQuestions: sparseDiscoveryQuestions(normalized),
+    requiresPreview: false,
+    shouldRunBaAgentLoop: false,
+    baAgentFocus: 'business_analysis',
+    reason: 'deterministic:sparse_initial_domain_discovery_before_document',
+  });
+}
+
 export async function classifyIntent(input: ClassifyInput): Promise<IntentClassification> {
   const slash = parseSlashCommand(input.userMessage);
   if (slash) return slash;
+
+  const sparseDiscovery = classifySparseInitialDomainDiscovery(input);
+  if (sparseDiscovery) return sparseDiscovery;
 
   const selection = input.selectedText
     ? `\n[SEÇİLİ METİN (${input.selectedSection || '?'})]\n"""${String(input.selectedText).slice(0, 400)}"""`
     : '';
 
-  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}
-
-[KULLANICI MESAJI]
-${input.userMessage}
-
-JSON ile cevapla.`;
+  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
 
   try {
     const res = await callAiWithRetry(() =>
