@@ -154,8 +154,6 @@ function sparseDiscoveryQuestions(normalized: string): string[] {
 }
 
 function classifySparseInitialDomainDiscovery(input: ClassifyInput): IntentClassification | null {
-  if (hasDocumentContent(input.document)) return null;
-
   const normalized = normalizeForDiscovery(input.userMessage);
   const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
   const isSapCrmDomain = /sap\s*crm/.test(normalized)
