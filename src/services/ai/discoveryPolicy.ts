@@ -130,10 +130,17 @@ function isSparseInitialDomainDocumentRequest(userMessage: string, messages: Mes
   if (document || messages.length > 0) return false;
   const text = normalizeDiscoveryText(userMessage);
   const tokenCount = text.split(/\s+/).filter(Boolean).length;
-  const looksLikeSapDomain = /sap\s*crm/.test(text) && /(ai|yapay zeka|bot|chatbot|asistan|satis|sales|iys|ileti yonetim sistemi)/.test(text);
+  const hasProjectSignal = /(proje|uygulama|platform|portal|sistem|surec|donusum|refactoring|refaktoring|entegrasyon|bot|asistan|assistant|crm|sap|iys|mobil|mobile|d2d|dokuman yonetimi|sozlesme)/.test(text);
   const asksForDocumentOutput = /(ba analiz|kavramsal|tasarim|dokuman|rapor|brd|fdd|hazirla|olustur|uret|yaz)/.test(text);
+  const hasRealDiscoveryDetail = [
+    /(problem|ihtiyac|hedef|kpi|basari|deger)/,
+    /(rol|kullanici|paydas|musteri|operasyon|yonetici)/,
+    /(as-is|to-be|mevcut|hedeflenen|surec adim)/,
+    /(ekran|validasyon|bildirim|toast|onay|gorev)/,
+    /(veri|entegrasyon|api|servis|middleware|rapor|dashboard)/,
+  ].filter((pattern) => pattern.test(text)).length;
   const explicitlyAllowsDraft = /(varsayimlarla|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap)/.test(text);
-  return looksLikeSapDomain && asksForDocumentOutput && !explicitlyAllowsDraft && tokenCount <= 14;
+  return hasProjectSignal && asksForDocumentOutput && !explicitlyAllowsDraft && tokenCount <= 18 && hasRealDiscoveryDetail < 2;
 }
 
 function scoreDocumentReadiness(document: DocumentData | null, history: Message[]): number {
