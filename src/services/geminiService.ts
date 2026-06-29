@@ -7,93 +7,103 @@ export const callGemini = async (params: {
   responseSchema?: any;
   tools?: any[];
   toolConfig?: any;
+  timeoutMs?: number;
   onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }) => {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const abortController = new AbortController();
+  const timeout = params.timeoutMs
+    ? setTimeout(() => abortController.abort(), params.timeoutMs)
+    : undefined;
   
-  const response = await fetch(`${supabaseUrl}/functions/v1/gemini-chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-    },
-    body: JSON.stringify({
-      model: params.model,
-      systemInstruction: params.systemInstruction,
-      contents: params.contents,
-      responseSchema: params.responseSchema,
-      tools: params.tools,
-      toolConfig: params.toolConfig
-    })
-  });
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/gemini-chat`, {
+      method: 'POST',
+      signal: abortController.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+      },
+      body: JSON.stringify({
+        model: params.model,
+        systemInstruction: params.systemInstruction,
+        contents: params.contents,
+        responseSchema: params.responseSchema,
+        tools: params.tools,
+        toolConfig: params.toolConfig
+      })
+    });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `API error: ${response.status}`);
-  }
-  if (!response.body) throw new Error("No response body");
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `API error: ${response.status}`);
+    }
+    if (!response.body) throw new Error("No response body");
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText = '';
-  let fullThinking = '';
-  let tokenCount = 0;
-  let buffer = '';
-  let allFunctionCalls: any[] = [];
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let fullThinking = '';
+    let tokenCount = 0;
+    let buffer = '';
+    let allFunctionCalls: any[] = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n\n');
-    buffer = lines.pop() || '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const dataStr = line.slice(6);
-        if (dataStr === '[DONE]') continue;
-        
-        try {
-          const chunk = JSON.parse(dataStr);
-          if (chunk.usageMetadata) {
-            tokenCount = chunk.usageMetadata.totalTokenCount;
-          }
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6);
+          if (dataStr === '[DONE]') continue;
           
-          const parts = chunk.candidates?.[0]?.content?.parts || [];
-          let chunkFunctionCalls: any[] = [];
-          
-          for (const part of parts) {
-            if (part.thought) {
-              fullThinking += part.text;
-            } else if (part.text) {
-              fullText += part.text;
-            } else if (part.functionCall) {
-              chunkFunctionCalls.push(part.functionCall);
-              allFunctionCalls.push(part.functionCall);
+          try {
+            const chunk = JSON.parse(dataStr);
+            if (chunk.usageMetadata) {
+              tokenCount = chunk.usageMetadata.totalTokenCount;
             }
+            
+            const parts = chunk.candidates?.[0]?.content?.parts || [];
+            let chunkFunctionCalls: any[] = [];
+            
+            for (const part of parts) {
+              if (part.thought) {
+                fullThinking += part.text;
+              } else if (part.text) {
+                fullText += part.text;
+              } else if (part.functionCall) {
+                chunkFunctionCalls.push(part.functionCall);
+                allFunctionCalls.push(part.functionCall);
+              }
+            }
+            
+            const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
+            if (groundingChunks && params.onGrounding) {
+              const urls = groundingChunks
+                .filter((c: any) => c.web?.uri && c.web?.title)
+                .map((c: any) => ({ uri: c.web.uri, title: c.web.title }));
+              if (urls.length > 0) params.onGrounding(urls);
+            }
+            
+            params.onChunk(fullText, fullThinking, tokenCount, chunkFunctionCalls.length > 0 ? chunkFunctionCalls : undefined);
+          } catch (e) {
+            console.error("Error parsing chunk:", e, dataStr);
           }
-          
-          const groundingChunks = chunk.candidates?.[0]?.groundingMetadata?.groundingChunks;
-          if (groundingChunks && params.onGrounding) {
-            const urls = groundingChunks
-              .filter((c: any) => c.web?.uri && c.web?.title)
-              .map((c: any) => ({ uri: c.web.uri, title: c.web.title }));
-            if (urls.length > 0) params.onGrounding(urls);
-          }
-          
-          params.onChunk(fullText, fullThinking, tokenCount, chunkFunctionCalls.length > 0 ? chunkFunctionCalls : undefined);
-        } catch (e) {
-          console.error("Error parsing chunk:", e, dataStr);
         }
       }
     }
+    return { text: fullText, thinking: fullThinking, tokenCount, functionCalls: allFunctionCalls };
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  return { text: fullText, thinking: fullThinking, tokenCount, functionCalls: allFunctionCalls };
 };
 
 export const callAiWithRetry = async (
