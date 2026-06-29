@@ -128,8 +128,8 @@ function hasDocumentContent(doc: DocumentData | null): boolean {
 
 function inferSparseSubject(message: string): string {
   const cleaned = message
-    .replace(/\b(kavramsal|tasarım|tasarim|dokümanı|dokumani|doküman|dokuman|rapor|ba analiz|iş analiz|is analiz|hazırla|hazirla|oluştur|olustur|üret|uret|yazalım|yazalim|yaz)\b/gi, ' ')
-    .replace(/\b[ıi]\b/gi, ' ')
+    .replace(/(kavramsal|tasarım|tasarim|dokümanı|dokumani|doküman|dokuman|rapor|ba analiz|iş analiz|is analiz|hazırla|hazirla|oluştur|olustur|üret|uret|yazalım|yazalim|yaz)/gi, ' ')
+    .replace(/(^|\s)[ıi](?=\s|$)/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (cleaned.length >= 8 && cleaned.length <= 90) return cleaned;
@@ -141,8 +141,7 @@ function withOptions(question: string, options: string[]): string {
     question,
     `Seçenekler: ${options.join(' | ')}`,
   ].join('\n');
-}
-
+}\n
 function sparseDiscoveryQuestions(normalized: string, userMessage = ''): string[] {
   if (/sap\s*crm/.test(normalized) && /(iys|ileti yonetim sistemi)/.test(normalized)) {
     return [
