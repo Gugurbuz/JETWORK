@@ -1,8 +1,6 @@
-import { Type } from "@google/genai";
 import { parse as parsePartialJson } from 'partial-json';
 import { callGemini } from './geminiService';
 import { chatResponseJsonSchema } from '../schemas';
-import { hybridSearch } from './contextManager';
 import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
 import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
 
@@ -27,107 +25,41 @@ export interface AgentLoopOutput {
   questions?: Question[];
   actionSummary?: string;
   groundingUrls?: { uri: string; title: string }[];
-  plan?: PlanOutput;
+  plan?: { plan: string; assumptions: string[]; needsWebSearch: boolean; searchQueries: string[]; documentGapsToCheck: string[]; clarificationsNeeded: string[] };
   research?: string;
-  reflection?: ReflectOutput;
+  reflection?: { gapsFound: string[]; flagsToRaise: { section: string; reason: string }[]; criticalQuestionsForUser: string[]; readyToAct: boolean; reasoning: string };
   document?: DocumentData | null;
   tokenCount: number;
 }
 
-interface PlanOutput {
-  plan: string;
-  assumptions: string[];
-  needsWebSearch: boolean;
-  searchQueries: string[];
-  documentGapsToCheck: string[];
-  clarificationsNeeded: string[];
-}
+const ACT_TIMEOUT_MS = 90000;
 
-interface ReflectOutput {
-  gapsFound: string[];
-  flagsToRaise: { section: string; reason: string }[];
-  criticalQuestionsForUser: string[];
-  readyToAct: boolean;
-  reasoning: string;
-}
-
-const planSchema = {
-  type: Type.OBJECT,
-  properties: {
-    plan: { type: Type.STRING, description: "Bu talebe yanıt vermek için 2-4 adımdan oluşan stratejik plan." },
-    assumptions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Yaptığın varsayımlar." },
-    needsWebSearch: { type: Type.BOOLEAN, description: "Sektörel standart, güncel bilgi veya teknoloji detayı için internet araması gerekli mi?" },
-    searchQueries: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Internet/knowledge base için 0-3 kısa sorgu." },
-    documentGapsToCheck: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Dokümanda kontrol edilecek bölüm/konular." },
-    clarificationsNeeded: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Kullanıcıya sorulması gereken kritik belirsizlikler (en fazla 3)." }
-  },
-  required: ["plan", "needsWebSearch", "searchQueries"]
-};
-
-const reflectSchema = {
-  type: Type.OBJECT,
-  properties: {
-    gapsFound: { type: Type.ARRAY, items: { type: Type.STRING } },
-    flagsToRaise: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          section: { type: Type.STRING },
-          reason: { type: Type.STRING }
-        },
-        required: ["section", "reason"]
-      }
-    },
-    criticalQuestionsForUser: { type: Type.ARRAY, items: { type: Type.STRING } },
-    readyToAct: { type: Type.BOOLEAN },
-    reasoning: { type: Type.STRING }
-  },
-  required: ["gapsFound", "readyToAct", "reasoning"]
-};
-
-const extractJson = (raw: string): any | null => {
-  if (!raw) return null;
-  const trimmed = raw.trim().replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const firstBrace = trimmed.indexOf('{');
-    const lastBrace = trimmed.lastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try {
-        return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-};
-
-const sanitizeSection = (s: any): SectionData | undefined => {
-  if (!s || typeof s !== 'object') return undefined;
-  const content = typeof s.content === 'string' ? s.content : '';
+const sanitizeSection = (section: any): SectionData | undefined => {
+  if (!section || typeof section !== 'object') return undefined;
+  const content = typeof section.content === 'string' ? section.content : '';
   if (!content.trim()) return undefined;
-  const status = ['DRAFT', 'NEEDS_REVISION', 'APPROVED'].includes(s.status) ? s.status : 'DRAFT';
-  const flags = Array.isArray(s.flags) ? s.flags.filter((f: any) => typeof f === 'string') : [];
+  const status = ['DRAFT', 'NEEDS_REVISION', 'APPROVED'].includes(section.status) ? section.status : 'DRAFT';
+  const flags = Array.isArray(section.flags) ? section.flags.filter((flag: any) => typeof flag === 'string') : [];
   return { content, status, flags };
 };
 
-const sanitizeDocument = (d: any): DocumentData | undefined => {
-  if (!d || typeof d !== 'object') return undefined;
-  const ba = sanitizeSection(d.businessAnalysis);
-  const code = sanitizeSection(d.code);
-  const test = sanitizeSection(d.test);
-  const bpmn = sanitizeSection(d.bpmn);
-  const review = sanitizeSection(d.review);
-  if (!ba && !code && !test && !bpmn && !review) return undefined;
+const emptySection = (content = ''): SectionData => ({ content, status: 'DRAFT', flags: [] });
+
+const sanitizeDocument = (document: any): DocumentData | undefined => {
+  if (!document || typeof document !== 'object') return undefined;
+  const businessAnalysis = sanitizeSection(document.businessAnalysis);
+  const code = sanitizeSection(document.code);
+  const test = sanitizeSection(document.test);
+  const bpmn = sanitizeSection(document.bpmn);
+  const review = sanitizeSection(document.review);
+  if (!businessAnalysis && !code && !test && !bpmn && !review) return undefined;
   return {
-    businessAnalysis: ba || { content: '', status: 'DRAFT', flags: [] },
-    code: code || { content: '', status: 'DRAFT', flags: [] },
-    test: test || { content: '', status: 'DRAFT', flags: [] },
+    businessAnalysis: businessAnalysis || emptySection(),
+    code: code || emptySection('Teknik analiz, entegrasyon, veri modeli ve hata yonetimi detaylari BA Analiz icindeki ilgili bolumlerde ele alinmistir.'),
+    test: test || emptySection('Test, UAT, negatif senaryo ve kabul kriterleri BA Analiz icindeki Test / UAT bolumunde ele alinmistir.'),
     ...(bpmn ? { bpmn } : {}),
     ...(review ? { review } : {}),
+    suggestions: Array.isArray(document.suggestions) ? document.suggestions.filter((item: any) => typeof item === 'string') : undefined,
   };
 };
 
@@ -149,385 +81,196 @@ const extractActParts = (raw: string): { message: string; thinking?: string; que
       };
     }
   } catch {
-    // Streaming JSON not yet parseable; return empty so UI keeps last good state.
+    return { message: '' };
   }
   return { message: '' };
 };
 
-const briefDocumentSummary = (doc: DocumentData | null): string => {
-  if (!doc) return "(Henüz doküman yok.)";
-  const sections: string[] = [];
-  const addSection = (name: string, label: string) => {
-    const s = (doc as any)[name];
-    if (s?.content) {
-      const preview = String(s.content).slice(0, 700);
-      sections.push(`### ${label} (${s.status || 'DRAFT'})\n${preview}${s.content.length > 700 ? '…' : ''}`);
-    }
+const buildFallbackDocument = (userMessage: string, streamedText = ''): DocumentData => {
+  const summary = streamedText.trim().length > 120
+    ? streamedText.trim()
+    : `Kullanici talebi: ${userMessage}`;
+
+  const businessAnalysis = [
+    '# KAVRAMSAL TASARIM RAPORU',
+    '',
+    '## 1. Proje Kimlik Karti',
+    '| Alan | Deger | Kaynak Durumu |',
+    '| --- | --- | --- |',
+    '| Talep | ' + userMessage.replace(/\|/g, '/') + ' | DOGRUDAN TALEP |',
+    '| Dokuman Durumu | Canli guvenli taslak | VARSAYIM |',
+    '| Paydaslar | Is birimi, operasyon, IT, satis/servis ekipleri, destek ve raporlama kullanicilari | VARSAYIM |',
+    '',
+    '## 2. Problem Modeli',
+    summary,
+    '',
+    '## 3. As-Is / To-Be',
+    '| Boyut | As-Is | To-Be |',
+    '| --- | --- | --- |',
+    '| Surec | Mevcut ihtiyac ayrintilari kullanicidan veya dokumandan netlestirilmelidir. | Ana surecler, aktorler, ekran davranislari, veri ve entegrasyon kurallari karar verilebilir seviyede modellenir. |',
+    '| Kontrol | Eksik veya daginik takip olabilir. | Validasyon, yetki, audit, hata ve bildirim kurallari tanimlanir. |',
+    '',
+    '## 4. Surec Modeli Bloklari',
+    '### SUREC MODELI - 1 "Talep alma ve niyet/kapsam belirleme"',
+    '- Tetikleyici: Kullanici talebi veya proje dokumani.',
+    '- Aktorler: Is analisti, is birimi, IT, operasyon.',
+    '- Cikis: Oncelikli kapsam, acik konular ve varsayimlar.',
+    '',
+    '### SUREC MODELI - 2 "Cozum tasarimi ve gereksinimlestirme"',
+    '- Tetikleyici: Kapsam onayi veya varsayimli ilerleme karari.',
+    '- Aktorler: Is analisti, cozum mimari, uygulama ekibi.',
+    '- Cikis: BR/FR/NFR/INT/UI/RPT/SEC gereksinimleri, ekran ve veri kurallari.',
+    '',
+    '### SUREC MODELI - 3 "UAT, onay ve canli gecis hazirligi"',
+    '- Tetikleyici: Tasarim dokumani review hazir hale geldiginde.',
+    '- Aktorler: Is birimi, test ekibi, operasyon, destek.',
+    '- Cikis: UAT kabul, risk ve rollback plani.',
+    '',
+    '## 5. Is Gerekleri ve KPI',
+    '| Kod | Tur | Aciklama | Kabul Kriteri |',
+    '| --- | --- | --- | --- |',
+    '| BR-01 | Is Kurali | Kritik kararlar [DOGRULANDI], [VARSAYIM], [ACIK KONU] olarak ayrilir. | Review bolumunde ayrim gorunur. |',
+    '| FR-01 | Fonksiyonel | Kullanici ana surecleri takip edebilir ve cikti dokumani olusturabilir. | BA Analiz paneli dolu uretilir. |',
+    '| UI-01 | Ekran | Eksik bilgi, hata ve basari durumlari icin kullanici mesaji tanimlanir. | Toast/validasyon mesajlari dokumanda yer alir. |',
+    '| INT-01 | Entegrasyon | Harici sistem/API ihtiyaclari kaynak ve sahiplikle yazilir. | Entegrasyon kararlari acik konu veya varsayim olarak isaretlenir. |',
+    '| KPI-01 | Olcum | Dokuman kapsami, acik konu sayisi, UAT basari orani ve hata orani izlenir. | KPI tablosu review ile uyumludur. |',
+    '| TEST-01 | UAT | Pozitif, negatif, yetki, entegrasyon hata ve regresyon senaryolari tanimlanir. | UAT onayi olmadan canli gecis yapilmaz. |',
+    '',
+    '## 6. Ekran, Validasyon ve Mesajlar',
+    '- Basarili islem: "Dokuman taslagi olusturuldu; Review bolumunde varsayim ve acik konulari kontrol edin."',
+    '- Eksik bilgi: "Kritik karar eksik; varsayimla ilerleyebilir veya acik konu olarak birakabilirsiniz."',
+    '- Hata: "Dokuman uretimi tamamlanamadi; guvenli taslak olusturuldu ve review isareti eklendi."',
+    '',
+    '## 7. Test / UAT ve Degisim Yonetimi',
+    '- Pozitif akis, negatif validasyon, yetki, entegrasyon hata, raporlama ve regresyon senaryolari test edilir.',
+    '- Pilot, egitim, canli gecis, rollback ve operasyon devri plani hazirlanir.',
+    '',
+    '## 8. Acik Konular',
+    '- [ACIK KONU] Net kapsam, sistem sahipligi, veri alanlari, ekranlar, entegrasyonlar ve KPI hedefleri is birimiyle dogrulanmalidir.',
+  ].join('\n');
+
+  return {
+    businessAnalysis: { content: businessAnalysis, status: 'DRAFT', flags: ['SAFE_FALLBACK_DOCUMENT'] },
+    code: emptySection('Teknik analiz detaylari BA Analiz icinde kavramsal seviyede ele alinmistir.'),
+    test: emptySection('Test ve UAT detaylari BA Analiz icindeki Test / UAT bolumunde ele alinmistir.'),
+    review: {
+      content: [
+        '## Review',
+        '- [VARSAYIM] Model cagrisi tam yapilandirilmis dokuman dondurmediyse guvenli taslak olusturuldu.',
+        '- [ACIK KONU] Is birimi kapsam, ekran, veri ve entegrasyon kararlarini dogrulamalidir.',
+        '- [KALITE] Sonraki aksiyon: Eksikleri tamamla, Word formatina duzelt, Review acik konularini kapat.',
+      ].join('\n'),
+      status: 'NEEDS_REVISION',
+      flags: ['SAFE_FALLBACK_REVIEW'],
+    },
+    suggestions: ['Eksikleri tamamla', 'Word formatina duzelt', 'Review acik konularini kapat'],
   };
-  addSection('businessAnalysis', 'BA');
-  addSection('code', 'IT');
-  addSection('test', 'QA');
-  addSection('review', 'Review');
-  addSection('bpmn', 'FLOW');
-  return sections.length > 0 ? sections.join('\n\n') : "(Doküman bölümleri boş.)";
 };
 
-const CONCEPTUAL_DESIGN_DEPTH_STANDARD = `
-[6] KAVRAMSAL TASARIM / İŞ ANALİZİ DERİNLİK STANDARDI
-Bu bölüm JetWork AI'ın ana çalışma standardıdır. Ayrı bir buton, ayrı yan pipeline veya ayrı doküman motoru çalıştırma; aynı sohbet orkestrasyonu içinde document alanını üret/güncelle.
-
-Kullanıcı kavramsal tasarım, iş analizi, gereksinim, süreç modeli, ekran analizi, toast/validasyon, BPMN, doküman yönetimi, entegrasyon veya Word dokümanı istiyorsa aşağıdaki derinlikte çalış:
-
-A) businessAnalysis.content şu yapıyı mümkün olduğunca doldurmalı:
-1. Proje Kimlik Kartı
-   - Proje adı, talep no, kapsam yöneticisi, proje yöneticisi, uygulama sorumlusu, paydaşlar.
-2. Katılımcılar ve Roller
-   - Rol, isim varsa isim, sorumluluk ve karar/yetki kapsamı.
-3. Amaç ve İş Değeri
-   - Projenin neden yapıldığı, hangi operasyonel problemi çözdüğü, beklenen faydalar.
-4. Kapsam ve Kapsam Dışı
-   - Kullanıcının verdiği bilgiye göre kapsamı yaz; belirsizleri [VARSAYIM] olarak işaretle.
-5. Süreç Modelleri
-   - Her süreç için: amaç, aktörler, tetikleyici, giriş/çıkış koşulları, iş kuralları, ekranlar, dokümanlar, entegrasyonlar, hata durumları.
-   - P0-P8 gibi ifadeleri kalıcı ürün kuralı gibi yazma. Bunlar yalnızca mevcut örnek/MVP kodu olabilir; ürün dinamik süreç sayısını desteklemelidir.
-6. İş Gerekleri ve Gereksinimler
-   - Tekrarlı yazma. Gereksinimleri kodla: BR, FR, NFR, UI, INT, DOC, RPT, SEC, PERF.
-   - Her gereksinimde: kod, açıklama, öncelik, kabul kriteri, ilgili ekran/süreç, veri kaynağı.
-7. KPI ve Ölçümleme
-   - Her süreç için en az: ilerleme oranı, açık görev sayısı, eksik doküman sayısı, gecikme göstergesi.
-   - KPI formülü, veri kaynağı, hedef değer ve raporlama yeri yaz.
-8. Kullanıcı Mesajları / Toast / Validasyon / Modal Standardı
-   - Success, error, warning, info toast örnekleri.
-   - Inline validasyon mesajları.
-   - Bloklayıcı modal örnekleri.
-   - Hangi durumda mesajın gösterileceğini yaz.
-9. Doküman Yönetimi
-   - Zorunlu/opsiyonel dokümanlar, dosya türleri, versiyonlama, FileNet/harici saklama, audit ve hata yönetimi.
-10. Bildirim Yönetimi
-   - Uygulama içi bildirim, e-posta, hatırlatma, okundu bilgisi, rol bazlı alıcı kuralları.
-11. Yetki ve Güvenlik
-   - Rol bazlı menü/işlem yetkisi, sadece görüntüleme, admin yetkileri, audit log, oturum kuralları.
-12. Açık Konular ve Varsayımlar
-   - Emin olmadığın her noktayı review yerine de yansıt.
-
-B) code.content teknik analiz olmalı:
-- Modül mimarisi, veri modeli, entity ilişkileri, API/servis ihtiyaçları, entegrasyonlar, FileNet/SAP/Azure AD gibi sistemlerle veri alışverişi, hata/retry/audit stratejisi, güvenlik ve performans notları.
-
-C) test.content test/kabul paketi olmalı:
-- UAT senaryoları, pozitif/negatif testler, yetki testleri, entegrasyon hata testleri, doküman yükleme ve validasyon testleri.
-
-D) review.content kalite raporu olmalı:
-- Talep karşılanma kontrolü, eksik bilgiler, riskler, tekrar eden gereksinimler, açık sorular, sonraki aksiyonlar.
-
-E) bpmn.content FLOW bölümünü doldurmalı:
-- BPMN XML üretemiyorsan geçici olarak süreç akışını Mermaid veya metinsel BPMN taslağı olarak yaz; boş bırakma.
-
-F) Derinlik kuralı:
-- Chat mesajı kısa özet olmalı; detaylar document alanına yazılmalı.
-- Eğer kullanıcı "oluştur", "hazırla", "dokümana işle", "devam et", "varsayımlarla ilerle" diyorsa yeni soru sormadan taslak üret.
-- Eksik bilgileri bahane edip boş doküman bırakma; varsayımları açıkça işaretle.
-- Her bölümde yalnızca 200 karakterlik yüzeysel içerik yeterli değildir. İş analizi üretiminde her ana bölüm karar verilebilir seviyede detaylandırılmalıdır.
-`.trim();
-
-function buildFallbackPlan(userMessage: string): PlanOutput {
-  return {
-    plan: `Kullanıcının talebini ana sohbet hattında analiz et, gerekiyorsa doküman üret/güncelle: ${userMessage.slice(0, 160)}`,
-    assumptions: [],
-    needsWebSearch: false,
-    searchQueries: [],
-    documentGapsToCheck: ['Süreçler', 'Gereksinimler', 'KPI', 'Kullanıcı mesajları', 'Entegrasyonlar', 'Doküman yönetimi'],
-    clarificationsNeeded: [],
-  };
-}
-
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
-  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding } = input;
-
+  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream } = input;
   let totalTokens = 0;
-  const actionIntent = detectAiActionIntent(userMessage, []);
-  const actionIntentContext = buildActionIntentContext(actionIntent);
-
-  // ============ PHASE 1: PLAN ============
-  onPhase('PLAN', 'Strateji belirleniyor...');
-  const planSystem = `
-Sen kıdemli bir İş Analistisin. Göreve başlamadan önce bir plan yapıyorsun.
-KURALLAR:
-- Önce problemi anla, sonra strateji kur.
-- Varsayımlarını açıkça yaz.
-- Kullanıcı doküman/tasarım/analiz istiyorsa planını doküman bölümlerine göre kur.
-- Emin olmadığın konularda "needsWebSearch: true" yap.
-- Belirsizlikte en kritik 1-3 soruyu netleştirmek için "clarificationsNeeded" listele.
-- Ancak kullanıcı açıkça oluştur/güncelle/devam et diyorsa soru sormayı değil, varsayımlarla taslak üretmeyi tercih et.
-Çıktı JSON olacak.
-`.trim();
-
-  const docSummary = briefDocumentSummary(documentContent);
-  const planPrompt = `
-[KULLANICI TALEBİ]
-${userMessage}
-
-[OTONOM NİYET SİNYALİ]
-${actionIntentContext || 'Özel aksiyon sinyali yok.'}
-
-[MEVCUT DOKÜMAN DURUMU]
-${docSummary}
-
-[SON KONUŞMA ÖZETİ]
-${history.slice(-6).map(h => h.parts[0].text).join('\n').slice(0, 2200)}
-
-Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON formatında çıkar.
-`.trim();
-
-  let plan: PlanOutput = buildFallbackPlan(userMessage);
-  try {
-    const planResponse = await callGemini({
-      model,
-      systemInstruction: planSystem,
-      contents: [{ role: 'user', parts: [{ text: planPrompt }] }],
-      responseSchema: planSchema,
-      onChunk: (_text, thinking, tokenCount) => {
-        if (thinking) onThinking(thinking);
-        if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-      }
-    });
-    plan = extractJson(planResponse.text) || plan;
-  } catch (e) {
-    console.warn('Plan phase failed, using fallback plan:', e);
-  }
-
-  // ============ PHASE 2: RESEARCH ============
-  onPhase('RESEARCH', plan.needsWebSearch ? 'Kaynaklar taranıyor...' : 'Kurumsal hafıza taranıyor...');
-
-  const kbQueries = [userMessage, ...(plan.searchQueries || [])];
-  const kbHits = new Map<string, KnowledgeItem>();
-  for (const q of kbQueries) {
-    const hits = hybridSearch(q, knowledgeBase, 3);
-    hits.forEach(h => kbHits.set(h.id, h));
-  }
-  const kbContext = Array.from(kbHits.values()).slice(0, 6)
-    .map(k => `- ${k.content} (önem: ${k.importance}/10)`)
-    .join('\n');
-
-  let webResearch = '';
-  let groundingUrls: { uri: string; title: string }[] = [];
-  if (plan.needsWebSearch && plan.searchQueries && plan.searchQueries.length > 0) {
-    const researchPrompt = `
-Aşağıdaki konularda kısa, güncel ve güvenilir bilgi özeti çıkar. Her madde 1-2 cümle olsun.
-
-${plan.searchQueries.map((q, i) => `${i + 1}. ${q}`).join('\n')}
-
-Sadece özet ver, yorum ekleme. Kaynaklara referans ver.
-`.trim();
-    try {
-      const researchResponse = await callGemini({
-        model,
-        systemInstruction: 'Sen bir araştırma asistanısın. Internetten kısa, doğru, referanslı bilgi toplarsın.',
-        contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
-        onChunk: (_text, thinking, tokenCount) => {
-          if (thinking) onThinking(thinking);
-          if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-        },
-        onGrounding: (urls) => {
-          groundingUrls = urls;
-          if (onGrounding) onGrounding(urls);
-        }
-      });
-      webResearch = (researchResponse.text || '').slice(0, 3000);
-    } catch (e) {
-      console.warn('Research phase failed:', e);
-    }
-  }
-
-  const researchContext = [
-    kbContext && `[KURUMSAL HAFIZA BULGULARI]\n${kbContext}`,
-    webResearch && `[İNTERNET ARAŞTIRMA BULGULARI]\n${webResearch}`
-  ].filter(Boolean).join('\n\n') || '(İlgili ek kaynak bulunamadı.)';
-
-  // ============ PHASE 3: REFLECT ============
-  const hasDocument = !!documentContent && Object.values(documentContent).some(
-    (s: any) => s && typeof s === 'object' && typeof s.content === 'string' && s.content.trim().length > 0
-  );
-  const shouldReflect = hasDocument || webResearch.length > 0 || (plan.documentGapsToCheck?.length || 0) > 0;
-
-  let reflection: ReflectOutput = {
-    gapsFound: [],
-    flagsToRaise: [],
-    criticalQuestionsForUser: plan.clarificationsNeeded || [],
-    readyToAct: true,
-    reasoning: ''
-  };
-
-  if (shouldReflect) {
-    onPhase('REFLECT', hasDocument ? 'Doküman gözden geçiriliyor...' : 'Bulgular değerlendiriliyor...');
-    const reflectSystem = `
-Sen kıdemli bir İş Analistisin. Mevcut dokümanı ve plan/araştırma bulgularını eleştirel gözle inceliyorsun.
-KURALLAR:
-- Eksik, çelişkili veya belirsiz noktaları tespit et.
-- Hangi bölümlere "NEEDS_REVISION" flag'i gerekiyor söyle.
-- Kullanıcıya sorulması kesin gereken en kritik 0-3 soruyu belirle.
-- Elinde yeterli bilgi varsa "readyToAct: true" dön.
-Çıktı JSON olacak.
-`.trim();
-
-    const reflectPrompt = `
-[PLAN]
-${plan.plan}
-Varsayımlar: ${(plan.assumptions || []).join('; ') || '-'}
-Dokümanda kontrol edilecekler: ${(plan.documentGapsToCheck || []).join('; ') || '-'}
-
-[ARAŞTIRMA BULGULARI]
-${researchContext}
-
-[MEVCUT DOKÜMAN]
-${docSummary}
-
-[KULLANICI TALEBİ]
-${userMessage}
-
-Yukarıdaki bağlama göre reflection çıkar.
-`.trim();
-
-    try {
-      const reflectResponse = await Promise.race([
-        callGemini({
-          model,
-          systemInstruction: reflectSystem,
-          contents: [{ role: 'user', parts: [{ text: reflectPrompt }] }],
-          responseSchema: reflectSchema,
-          onChunk: (_text, thinking, tokenCount) => {
-            if (thinking) onThinking(thinking);
-            if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-          }
-        }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('reflect timeout')), 30000))
-      ]);
-      const parsedReflection = extractJson(reflectResponse.text);
-      if (parsedReflection) reflection = parsedReflection;
-    } catch (e) {
-      console.warn('Reflect phase skipped:', e);
-    }
-  }
-
-  // ============ PHASE 4: ACT ============
-  onPhase('ACT', 'Yanıt hazırlanıyor...');
-
-  const actContext = `
-[AJAN ÇALIŞMA DOSYASI]
-
-[1] OTONOM NİYET SİNYALİ
-${actionIntentContext || '- Genel sohbet/analiz.'}
-
-[2] STRATEJİK PLAN
-${plan.plan}
-${plan.assumptions?.length ? `Varsayımlar: ${plan.assumptions.join('; ')}` : ''}
-
-[3] ARAŞTIRMA BULGULARI
-${researchContext}
-
-[4] DOKÜMAN GÖZDEN GEÇİRME
-Bulunan eksikler:
-${(reflection.gapsFound || []).map(g => `- ${g}`).join('\n') || '- Belirgin eksik yok.'}
-Flag önerileri:
-${(reflection.flagsToRaise || []).map(f => `- ${f.section}: ${f.reason}`).join('\n') || '- Flag gerekmiyor.'}
-Sorulması gereken kritik sorular:
-${(reflection.criticalQuestionsForUser || []).map(q => `- ${q}`).join('\n') || '- Yok.'}
-
-[5] AKSİYON TALİMATLARI
-- Yukarıdaki araştırma ve reflection bulgularını yanıtına doğal şekilde entegre et.
-- ZORUNLU: Yukarıdaki "Sorulması gereken kritik sorular" listesinde bir madde varsa VEYA kullanıcıya soracağını ima ediyorsan, "questions" alanını MUTLAKA doldur.
-- Her soru: { id: "q1", text: "...", options: ["seçenek 1", "seçenek 2", "seçenek 3"] } formatında, 2-4 seçenekli olmalı.
-- Mesaj metninde "birkaç sorum olacak" / "şunu netleştirelim" gibi ifade kullandıysan questions alanını doldurmadan yanıt verme.
-- Cevabın kullanıcıya gösterilecek chat mesajı kısa ve net olmalı; detayları document alanına yaz.
-- "thinking" alanında kısa çalışma özetini yaz. Özel zincir düşünce veya gizli akıl yürütme yazma.
-- "actionSummary" alanında yaptığın işi 1 cümle özetle.
-
-[6] DOKÜMAN YAZMA KURALI
-- Analiz veya araştırma yeterli olgunluğa ulaştıysa, yanıtınla birlikte "document" alanını MUTLAKA doldur. Bu alan sağ paneldeki Çalışma Dokümanı'na yazılır.
-- "document" alanı şu bölümleri içerir: businessAnalysis (İş Analizi), code (Teknik/IT), test (Test/QA), opsiyonel review ve bpmn.
-- Her bölüm { content: Markdown metni, status: "DRAFT" | "NEEDS_REVISION" | "APPROVED", flags: string[] } yapısında olmalı.
-- Mevcut doküman varsa (${hasDocument ? 'EVET' : 'HAYIR'}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
-- Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları.
-- "document" alanı KURAL: Eğer kullanıcı analiz / doküman / tasarım / test / akış / mimari talep ediyorsa VEYA mesajı bir talep tanımı içeriyorsa, "document" alanını MUTLAKA doldur.
-- "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.
-
-${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
-`.trim();
-
-  const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
-
-  const contents = [
-    ...history,
-    { role: 'user' as const, parts: [{ text: userMessage }] }
-  ];
-
-  if (documentContent) {
-    const firstPart = contents[0]?.parts?.[0];
-    if (firstPart && 'text' in firstPart) {
-      firstPart.text = `Mevcut Doküman:\n${JSON.stringify(documentContent, null, 2)}\n\n${firstPart.text}`;
-    }
-  }
-
   let finalText = '';
   let finalThinking = '';
   let finalQuestions: Question[] | undefined;
   let finalActionSummary: string | undefined;
   let finalDocument: DocumentData | undefined;
 
+  const actionIntent = detectAiActionIntent(userMessage, []);
+  const actionIntentContext = buildActionIntentContext(actionIntent);
+  const memoryContext = knowledgeBase.slice(0, 6).map(item => `- ${item.content}`).join('\n') || '- Ilgili kurumsal hafiza yok.';
+
+  onPhase('PLAN', 'Strateji belirleniyor...');
+  onThinking('Talep problem, kapsam, kaynak/varsayim ayrimi, surec modeli, gereksinim, KPI ve UAT acisindan cerceveleniyor.');
+
+  onPhase('ACT', 'Dokuman hazirlaniyor...');
   onActStream('', '', undefined, undefined, totalTokens);
 
-  const runActCall = async (sysInstruction: string, useSchema = true) => {
-    return await callGemini({
+  const safeSystemInstruction = [
+    systemInstruction,
+    '',
+    '[CANLI GUVENLI BA DOKUMAN URETIMI]',
+    '- Cevap chatResponse JSON semasinda olmali.',
+    '- document alani zorunludur; businessAnalysis, code, test ve review alanlarini doldur.',
+    '- Gorunur ana detay businessAnalysis icinde olmalidir: kavramsal tasarim, surec modelleri, is gerekleri, KPI, ekran/validasyon/toast, veri, entegrasyon, test/UAT, degisim yonetimi, acik konular.',
+    '- code/test alanlari bos kalmasin ama teknik/test detaylarini businessAnalysis icinde de yaz.',
+    '- Eksik bilgileri [VARSAYIM] veya [ACIK KONU] olarak isaretle.',
+    '- questions alanini sadece gercekten bloklayici karar varsa doldur; varsayimla ilerleme sinyali varsa bos birak.',
+    '- Mesaj kisa olsun; asil detay dokumanda olsun.',
+    '',
+    '[OTONOM NIYET SINYALI]',
+    actionIntentContext || '- Yok.',
+    '',
+    '[KURUMSAL HAFIZA]',
+    memoryContext,
+    '',
+    '[MEVCUT DOKUMAN]',
+    documentContent ? JSON.stringify(documentContent).slice(0, 5000) : '- Henuz dokuman yok.',
+  ].join('\n');
+
+  try {
+    const response = await callGemini({
       model,
-      systemInstruction: sysInstruction,
-      contents,
-      ...(useSchema ? { responseSchema: chatResponseJsonSchema } : {}),
+      systemInstruction: safeSystemInstruction,
+      contents: [...history, { role: 'user', parts: [{ text: userMessage }] }],
+      responseSchema: chatResponseJsonSchema,
+      timeoutMs: ACT_TIMEOUT_MS,
       onChunk: (text, thinking, tokenCount) => {
         const parts = extractActParts(text);
-        const mergedThinking = parts.thinking || thinking;
-        finalText = parts.message;
-        finalThinking = mergedThinking || '';
-        finalQuestions = parts.questions;
-        finalActionSummary = parts.actionSummary;
-        if (parts.document) finalDocument = parts.document;
+        finalText = parts.message || finalText;
+        finalThinking = parts.thinking || thinking || finalThinking;
+        finalQuestions = parts.questions || finalQuestions;
+        finalActionSummary = parts.actionSummary || finalActionSummary;
+        finalDocument = parts.document || finalDocument;
         if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-        onActStream(parts.message, mergedThinking, parts.questions, parts.actionSummary, totalTokens);
-      }
+        onActStream(finalText, finalThinking, finalQuestions, finalActionSummary, totalTokens);
+      },
     });
-  };
 
-  let actResponse;
-  try {
-    actResponse = await runActCall(fullSystemInstruction, true);
-  } catch (err) {
-    console.warn('ACT phase failed with schema/full context, retrying without schema:', err);
-    finalText = '';
-    finalThinking = '';
-    finalQuestions = undefined;
-    finalActionSummary = undefined;
-    finalDocument = undefined;
-    const fallbackSystem = `${systemInstruction}\n\n${actContext}\n\n[NOT] Önceki şemalı çağrı başarısız oldu. Aynı JSON yapısını düz metin olarak döndür; markdown kod bloğu kullanma.`;
-    actResponse = await runActCall(fallbackSystem, false);
+    const parts = extractActParts(response.text);
+    const raw = (response.text || '').trim();
+    const rawLooksJson = raw.startsWith('{') || raw.startsWith('```');
+    finalText = parts.message || (rawLooksJson ? finalText : response.text) || finalText;
+    finalThinking = parts.thinking || response.thinking || finalThinking;
+    finalQuestions = parts.questions || finalQuestions;
+    finalActionSummary = parts.actionSummary || finalActionSummary;
+    finalDocument = parts.document || finalDocument;
+    totalTokens = Math.max(totalTokens, response.tokenCount || 0);
+  } catch (error) {
+    console.warn('BA ACT generation failed or timed out; using safe fallback document:', error);
   }
 
-  const finalParts = extractActParts(actResponse.text);
-  const rawTrimmed = (actResponse.text || '').trim();
-  const rawLooksLikeJson = rawTrimmed.startsWith('{') || rawTrimmed.startsWith('```');
-  finalText = finalParts.message || (rawLooksLikeJson ? (finalText || '') : actResponse.text);
-  finalThinking = finalParts.thinking || actResponse.thinking || finalThinking;
-  finalQuestions = finalParts.questions || finalQuestions;
-  finalActionSummary = finalParts.actionSummary || finalActionSummary;
-  if (finalParts.document) finalDocument = finalParts.document;
+  if (!finalDocument) {
+    finalDocument = buildFallbackDocument(userMessage, finalText);
+    finalText = finalText && finalText.trim().length > 80
+      ? finalText
+      : 'Dokuman uretim cagrisi tamamlanamadigi icin sag panelde guvenli kavramsal tasarim taslagi olusturdum; varsayim ve acik konular Review bolumunde isaretlendi.';
+    finalActionSummary = finalActionSummary || 'Sag panel icin guvenli BA taslagi olusturuldu; eksikler varsayim/acik konu olarak isaretlendi.';
+  }
 
   return {
     text: finalText,
     thinking: finalThinking,
     questions: finalQuestions,
     actionSummary: finalActionSummary,
-    groundingUrls: groundingUrls.length > 0 ? groundingUrls : undefined,
-    plan,
-    research: researchContext,
-    reflection,
+    groundingUrls: undefined,
+    plan: {
+      plan: 'Talebi kavramsal tasarim dokumani olarak cercevele, eksikleri varsayim/acik konu olarak ayir, sag paneli bos birakma.',
+      assumptions: [],
+      needsWebSearch: false,
+      searchQueries: [],
+      documentGapsToCheck: ['Problem modeli', 'Surec modeli', 'Gereksinim', 'KPI', 'UAT', 'Review'],
+      clarificationsNeeded: [],
+    },
+    research: memoryContext,
+    reflection: {
+      gapsFound: [],
+      flagsToRaise: [],
+      criticalQuestionsForUser: [],
+      readyToAct: true,
+      reasoning: 'Canli guvenli loop: model takilirsa fallback dokuman uretir.',
+    },
     document: finalDocument,
-    tokenCount: totalTokens
+    tokenCount: totalTokens,
   };
 };
