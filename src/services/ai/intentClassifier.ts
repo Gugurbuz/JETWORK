@@ -141,7 +141,8 @@ function withOptions(question: string, options: string[]): string {
     question,
     `Seçenekler: ${options.join(' | ')}`,
   ].join('\n');
-}\n
+}
+
 function sparseDiscoveryQuestions(normalized: string, userMessage = ''): string[] {
   if (/sap\s*crm/.test(normalized) && /(iys|ileti yonetim sistemi)/.test(normalized)) {
     return [
