@@ -126,30 +126,69 @@ function hasDocumentContent(doc: DocumentData | null): boolean {
   return Object.values(doc as any).some((section: any) => section?.content && String(section.content).trim().length > 0);
 }
 
-function sparseDiscoveryQuestions(normalized: string): string[] {
+function inferSparseSubject(message: string): string {
+  const cleaned = message
+    .replace(/(kavramsal|tasarım|tasarim|dokümanı|dokumani|doküman|dokuman|rapor|ba analiz|iş analiz|is analiz|hazırla|hazirla|oluştur|olustur|üret|uret|yazalım|yazalim|yaz)/gi, ' ')
+    .replace(/(^|\s)[ıi](?=\s|$)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned.length >= 8 && cleaned.length <= 90) return cleaned;
+  return 'bu proje';
+}
+
+function withOptions(question: string, options: string[]): string {
+  return [
+    question,
+    `Seçenekler: ${options.join(' | ')}`,
+  ].join('\n');
+}
+
+function sparseDiscoveryQuestions(normalized: string, userMessage = ''): string[] {
   if (/sap\s*crm/.test(normalized) && /(iys|ileti yonetim sistemi)/.test(normalized)) {
     return [
-      'İYS entegrasyonunda hedef kapsam hangi izin kanallarını kapsıyor: SMS, e-posta, arama ve/veya çoklu marka?',
-      'SAP CRM tarafında izin verisi hangi nesne ve alanlarda tutuluyor; mevcut veri kalitesi ve telefon/e-posta formatı ne durumda?',
-      'Senkronizasyon modeli nasıl olmalı: anlık API, batch/delta mutabakat, initial load ve retry/kuyruk ihtiyacı var mı?',
-      'Yasal uyum ve operasyon için başarı hangi KPI ve kontrollerle ölçülecek: 3 iş günü kuralı, ret sonrası durdurma, log/audit, hata raporu?',
+      withOptions('İYS entegrasyonunda hedef kapsam hangi izin kanallarını kapsıyor?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayımla tüm kanallar']),
+      withOptions('SAP CRM / C4C tarafında izin verisi hangi nesne ve alanlarda tutuluyor?', ['Business Partner izin alanları', 'C4C marketing permission objeleri', 'Açık konu: mevcut alanlar teyit edilecek']),
+      withOptions('Senkronizasyon modeli nasıl olmalı?', ['Initial load + günlük delta', 'Anlık API + batch mutabakat', 'Varsayımla hibrit model']),
+      withOptions('Yasal uyum ve operasyon için başarı hangi KPI ve kontrollerle ölçülecek?', ['3 iş günü uyum + ret durdurma', 'Log/audit + hata raporu', 'Varsayımla tam kontrol seti']),
     ];
   }
 
   if (/sap\s*crm/.test(normalized) && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|sales)/.test(normalized)) {
     return [
-      'AI satış botu hangi kanallarda çalışacak ve birincil kullanıcı kim olacak: müşteri, satış temsilcisi, bayi, çağrı merkezi veya iç ekip?',
-      'SAP CRM tarafında bot hangi nesneleri okuyup/yazacak: Lead, Opportunity, Activity, Business Partner, teklif, sipariş veya kampanya?',
-      'Botun karar yetkisi nerede bitecek; hangi durumlarda insan satış temsilcisine devredecek ve onay akışı gerekecek?',
-      'Başarı KPI’ları ve risk sınırları neler olacak: lead dönüşüm oranı, yanıt süresi, veri doğruluğu, KVKK/onay, hatalı öneri toleransı?',
+      withOptions('AI satış botu hangi kanallarda çalışacak?', ['Web chat + WhatsApp', 'SAP CRM içinde temsilci asistanı', 'Varsayımla çoklu kanal']),
+      withOptions('SAP CRM tarafında bot hangi nesneleri okuyup/yazacak?', ['Lead + Opportunity + Activity', 'Sadece lead oluşturma', 'Varsayımla lead ve opportunity kapsamda']),
+      withOptions('Botun karar yetkisi nerede bitecek?', ['Sadece öneri ve özet', 'Lead nitelendirme + CRM kaydı', 'Varsayımla kritik işlemler temsilci onaylı']),
+      withOptions('Hangi durumda insan satış temsilcisine devir ve kalite kontrol gerekecek?', ['Düşük güvende temsilciye devir', 'Tüm satış aksiyonları onaylı', 'Varsayımla risk bazlı devir modeli']),
     ];
   }
 
+  if (/(d2d|door to door|saha satis|saha uygulamasi|mobil donusum|mobile donusum|refactoring|refaktoring)/.test(normalized)) {
+    return [
+      withOptions('Mobil dönüşümde ilk sürüm hangi saha satış kapsamını içermeli?', ['Rota + ziyaret + müşteri adayı', 'Teklif/sipariş + evrak + imza', 'Varsayımla uçtan uca saha akışı']),
+      withOptions('Saha uygulamasında offline çalışma ihtiyacı nasıl ele alınmalı?', ['Offline-first zorunlu', 'Sadece sınırlı offline kayıt', 'Varsayımla offline-first + delta sync']),
+      withOptions('Merkez sistemlerle entegrasyon hangi öncelikte tasarlansın?', ['SAP/C4C müşteri ve lead', 'Sipariş + doküman + onay servisleri', 'Varsayımla tüm kritik servisler']),
+      withOptions('Saha temsilcisi ekranlarında hangi davranış kuralları kritik?', ['Hızlı veri girişi + toast validasyon', 'GPS/fotoğraf/imza zorunlulukları', 'Varsayımla saha odaklı UX kuralları']),
+    ];
+  }
+
+  const subject = inferSparseSubject(userMessage);
+  const isTransformation = /(donusum|refactoring|refaktoring|modernizasyon|yenileme|migration|gecis)/.test(normalized);
+  const isProductOrApp = /(uygulama|platform|portal|ekran|mobile|mobil|web|app|sistem)/.test(normalized);
+  const isWorkflowHeavy = /(surec|onay|akis|operasyon|is akisi)/.test(normalized);
+  const scopeOptions = isTransformation
+    ? ['As-Is sorunlar + To-Be hedef yapı', 'Kademeli refactoring yol haritası', 'Varsayımla dönüşüm + sürdürülebilirlik']
+    : isProductOrApp
+      ? ['Ekranlar + kullanıcı yolculuğu', 'MVP kapsam + sonraki fazlar', 'Varsayımla uçtan uca ürün deneyimi']
+      : ['Mevcut süreci iyileştirme', 'Yeni uçtan uca çözüm tasarımı', 'Varsayımla iş değeri + uygulanabilir kapsam'];
+  const behaviorOptions = isWorkflowHeavy
+    ? ['Süreç adımları + karar noktaları', 'Onay/görev/bildirim kuralları', 'Varsayımla süreç + kontrol matrisi']
+    : ['Ekranlar + validasyon + bildirimler', 'Veri + entegrasyon + iş kuralları', 'Varsayımla tüm kritik davranışlar'];
+
   return [
-    'Çözmek istediğimiz ana iş problemi ve hedef kullanıcı grubu nedir?',
-    'Mevcut süreç veya sistemde bugün hangi ağrı noktaları var?',
-    'İlk sürümde kesinlikle olması gereken fonksiyonlar ve kapsam dışı kalacak alanlar neler?',
-    'Başarıyı hangi KPI, kabul kriteri veya iş değeriyle ölçeceğiz?',
+    withOptions(`"${subject}" için ana iş problemi ve hedef iş değeri nedir?`, scopeOptions),
+    withOptions('Kavramsal tasarımda hangi kullanıcı rolleri ve süreç adımları görünmeli?', ['Operasyonel kullanıcı + yönetici', 'Müşteri/kullanıcı + iç ekipler', 'Varsayımla rol bazlı uçtan uca akış']),
+    withOptions('Uygulamanın/sistemin davranış kuralları hangi başlıklarda detaylanmalı?', behaviorOptions),
+    withOptions('Başarı, risk ve kabul kriterleri hangi çerçevede yazılsın?', ['KPI + UAT + operasyon kontrolü', 'Risk + açık konu + onay matrisi', 'Varsayımla tam BA kalite çerçevesi']),
   ];
 }
 
@@ -158,12 +197,18 @@ function classifySparseInitialDomainDiscovery(input: ClassifyInput): IntentClass
 
   const normalized = normalizeForDiscovery(input.userMessage);
   const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
-  const isSapCrmDomain = /sap\s*crm/.test(normalized)
-    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|sales|iys|ileti yonetim sistemi)/.test(normalized);
+  const hasProjectSignal = /(proje|uygulama|platform|portal|sistem|surec|donusum|refactoring|refaktoring|entegrasyon|bot|asistan|assistant|crm|sap|iys|mobil|mobile|d2d|dokuman yonetimi|sozlesme)/.test(normalized);
   const asksForDocumentOutput = /(ba analiz|is analiz|kavramsal|tasarim|dokuman|rapor|brd|fdd|hazirla|olustur|uret|yaz)/.test(normalized);
+  const hasRealDiscoveryDetail = [
+    /(problem|ihtiyac|hedef|kpi|basari|deger)/,
+    /(rol|kullanici|paydas|musteri|operasyon|yonetici)/,
+    /(as-is|to-be|mevcut|hedeflenen|surec adim)/,
+    /(ekran|validasyon|bildirim|toast|onay|gorev)/,
+    /(veri|entegrasyon|api|servis|middleware|rapor|dashboard)/,
+  ].filter((pattern) => pattern.test(normalized)).length;
   const explicitlyAllowsDraft = /(varsayimlarla|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap|direkt olustur|direkt hazirla)/.test(normalized);
 
-  if (!isSapCrmDomain || !asksForDocumentOutput || explicitlyAllowsDraft || tokenCount > 14) {
+  if (!hasProjectSignal || !asksForDocumentOutput || explicitlyAllowsDraft || tokenCount > 18 || hasRealDiscoveryDetail >= 2) {
     return null;
   }
 
@@ -174,11 +219,11 @@ function classifySparseInitialDomainDiscovery(input: ClassifyInput): IntentClass
     confidence: 0.9,
     riskLevel: 'medium',
     requiresClarification: true,
-    clarificationQuestions: sparseDiscoveryQuestions(normalized),
+    clarificationQuestions: sparseDiscoveryQuestions(normalized, input.userMessage),
     requiresPreview: false,
     shouldRunBaAgentLoop: false,
     baAgentFocus: 'business_analysis',
-    reason: 'deterministic:sparse_initial_domain_discovery_before_document',
+    reason: 'deterministic:sparse_initial_project_discovery_before_document',
   });
 }
 
