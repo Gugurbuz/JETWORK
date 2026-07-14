@@ -139,9 +139,10 @@ export function buildActionIntentContext(intent: AiActionIntent): string {
 Bu bilgi sadece yönlendirme sinyalidir. Ayrı bir buton/yan akış çalıştırma. Aynı sohbet orkestrasyonunda davran:
 - Kullanıcı doküman istiyorsa sağ paneldeki document alanını üret veya güncelle.
 - Kullanıcı revizyon istiyorsa mevcut dokümanı koruyarak ilgili bölümü değiştir.
-- Kullanıcı BPMN/akış istiyorsa FLOW/bpmn bölümünü üret veya güncelle.
+- Kullanıcı BPMN/akış istiyorsa ayrı FLOW/bpmn bölümü üretme; akış diyagramı, sequence veya Mermaid taslağını BA Analiz içindeki ilgili süreç modelinin altına yaz.
 - Kullanıcı UI/UX/toast/validasyon istiyorsa BA Analiz ve Review içinde ekran davranışlarını ve mesaj standardını güncelle.
 - Emin değilsen kısa netleştirici soru sor, ama kullanıcı açıkça oluştur/güncelle diyorsa yeni soru sormadan taslak üret.
+- GUNCEL KURAL: BPMN/akis/FLOW istekleri ayri bpmn veya FLOW sekmesine yazilmaz; akis diyagrami ve Mermaid taslagi BA Analiz icinde ilgili surec modelinin altina yazilir.
 `.trim();
 }
 

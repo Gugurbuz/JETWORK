@@ -215,6 +215,7 @@ export const routeIntent = async (ctx: IntentContext): Promise<IntentResult> => 
   if (toolCall?.name === 'search_web') {
     let webText = '';
     let webGrounding: { uri: string; title: string }[] = [];
+    const query = toolCall.args.query;
     await callAiWithRetry(() =>
       callGemini({
         model: ctx.model,
@@ -222,7 +223,7 @@ export const routeIntent = async (ctx: IntentContext): Promise<IntentResult> => 
         contents: [
           {
             role: 'user',
-            parts: [{ text: toolCall!.args.query }],
+            parts: [{ text: query }],
           },
         ],
         onChunk: (t) => {

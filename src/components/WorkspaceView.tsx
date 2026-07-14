@@ -66,7 +66,6 @@ export function WorkspaceView({
   return (
     <>
       <ChatPanel 
-        key={currentWorkspaceId}
         messages={messages} 
         onSendMessage={onSendMessage} 
         isGenerating={isGenerating || isDiscussing}
@@ -109,6 +108,7 @@ export function WorkspaceView({
         hasMessages={messages.length > 0}
         collaborators={currentWorkspace?.collaborators}
         onUpdateDocument={onUpdateDocument}
+        onQuickAction={(prompt) => { void onSendMessage(prompt); }}
         score={latestScore}
         scoreExplanation={latestScoreExplanation}
         messages={messages}

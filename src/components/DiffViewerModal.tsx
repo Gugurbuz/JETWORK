@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, FileText, Code, CheckSquare } from 'lucide-react';
+import { X, FileText, ClipboardCheck } from 'lucide-react';
 import { diffLines } from 'diff';
 import { DocumentData } from '../types';
 import { cn } from '../lib/utils';
@@ -12,7 +12,7 @@ interface DiffViewerModalProps {
 }
 
 export function DiffViewerModal({ oldDoc, newDoc, onClose, onRestore }: DiffViewerModalProps) {
-  const [activeTab, setActiveTab] = useState<'businessAnalysis' | 'code' | 'test' | 'bpmn'>('businessAnalysis');
+  const [activeTab, setActiveTab] = useState<'businessAnalysis' | 'review'>('businessAnalysis');
 
   const renderDiff = (oldText: string = '', newText: string = '') => {
     if (oldText === newText) {
@@ -76,46 +76,22 @@ export function DiffViewerModal({ oldDoc, newDoc, onClose, onRestore }: DiffView
             <FileText size={16} /> BA Analiz
           </button>
           <button
-            onClick={() => setActiveTab('code')}
+            onClick={() => setActiveTab('review')}
             className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-              activeTab === 'code' 
+              activeTab === 'review'
                 ? "bg-theme-primary text-theme-primary-fg shadow-sm" 
                 : "text-theme-text-muted hover:text-theme-text hover:bg-theme-surface"
             )}
           >
-            <Code size={16} /> IT Analiz
-          </button>
-          <button
-            onClick={() => setActiveTab('test')}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-              activeTab === 'test' 
-                ? "bg-theme-primary text-theme-primary-fg shadow-sm" 
-                : "text-theme-text-muted hover:text-theme-text hover:bg-theme-surface"
-            )}
-          >
-            <CheckSquare size={16} /> Test
-          </button>
-          <button
-            onClick={() => setActiveTab('bpmn')}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-              activeTab === 'bpmn' 
-                ? "bg-theme-primary text-theme-primary-fg shadow-sm" 
-                : "text-theme-text-muted hover:text-theme-text hover:bg-theme-surface"
-            )}
-          >
-            <FileText size={16} /> FLOW
+            <ClipboardCheck size={16} /> Review
           </button>
         </div>
 
         {/* Diff Content */}
         <div className="flex-1 overflow-y-auto bg-theme-surface/30">
           {activeTab === 'businessAnalysis' && renderDiff(oldDoc?.businessAnalysis?.content, newDoc?.businessAnalysis?.content)}
-          {activeTab === 'code' && renderDiff(oldDoc?.code?.content, newDoc?.code?.content)}
-          {activeTab === 'test' && renderDiff(oldDoc?.test?.content, newDoc?.test?.content)}
-          {activeTab === 'bpmn' && renderDiff(oldDoc?.bpmn?.content, newDoc?.bpmn?.content)}
+          {activeTab === 'review' && renderDiff(oldDoc?.review?.content, newDoc?.review?.content)}
         </div>
 
         {/* Footer */}

@@ -14,6 +14,11 @@ import { useMessageStore } from '../store/useMessageStore';
 import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
 import type { AnalysisInputAttachment } from '../modules/conceptual-design/conceptualDesignTypes';
 import { postProcessDocumentData } from '../services/documentPostProcessor';
+import {
+  buildProjectMemoryContext,
+  extractProjectMemoryUpdates,
+  mergeProjectMemory,
+} from '../services/ai/projectMemoryEngine';
 
 const stripCodeFences = (raw: string): string => {
   let t = raw.trim();
@@ -61,6 +66,70 @@ const toAnalysisAttachments = (
 }));
 
 const hasDocumentIntent = (text: string): boolean => /dok[üu]man|kavramsal tasar[ıi]m|iş analizi|is analizi|gereksinim|bpmn|ak[ıi]ş|toast|validasyon|modal|rapor/i.test(text);
+
+const ensureDocumentActionSummary = (
+  text: string,
+  options: {
+    changedSections: string[];
+    score?: number;
+    scoreExplanation?: string;
+    document?: DocumentData | null;
+  },
+): string => {
+  const current = text?.trim() || '';
+  if (/ne yapt[Ä±i]m|ne yaptim/i.test(current)) return current;
+  const changed = options.changedSections.length
+    ? options.changedSections.join(', ')
+    : 'Dokuman icerigi';
+  const flags = Array.from(new Set([
+    ...(options.document?.businessAnalysis?.flags || []),
+    ...(options.document?.review?.flags || []),
+  ]));
+  const controls = [
+    flags.includes('SOURCE_FIDELITY_REPAIRED') ? 'Kaynak uyum onarimi eklendi' : '',
+    flags.includes('SOURCE_FIDELITY_REPAIR_REQUIRED') ? 'Kaynak yansitma kontrolu Review tarafinda isaretlendi' : '',
+    flags.includes('OFFICIAL_SOURCE_VERIFICATION_REQUIRED') ? 'Resmi kaynak dogrulama guard devrede' : '',
+    flags.includes('TRACEABILITY_REPAIRED') ? 'REQ-BR-AC-TC izlenebilirlik matrisi eklendi' : '',
+    flags.includes('TRACEABILITY_REPAIR_REQUIRED') ? 'Kabul kriteri ve test baglantisi Review tarafinda isaretlendi' : '',
+    flags.includes('ANALYSIS_COVERAGE_REPAIRED') ? 'Analysis coverage matrisi eklendi' : '',
+    flags.includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED') ? 'Aktor/akis/istisna/veri/NFR kapsami Review tarafinda isaretlendi' : '',
+    flags.includes('CONCEPTUAL_TEMPLATE_APPLIED') ? 'Word kavramsal tasarim sablonu uygulandi' : '',
+    flags.includes('CONCEPTUAL_TEMPLATE_COMPLETED') ? 'Süreç ve ek bölümler şablona göre tamamlandı' : '',
+    flags.includes('SOURCE_ANCHORED_TEMPLATE_REBUILT') ? 'Dokuman kaynak talebe gore yeniden kuruldu' : '',
+    flags.includes('COPILOT_RUNTIME_STATE') ? 'Runtime state machine, tool honesty ve completion evidence Review tarafinda izlendi' : '',
+    flags.includes('WORD_TEMPLATE_CONFORMANCE_GUARD') ? 'Word şablon uyum kontrolü Review tarafında izlendi' : '',
+  ].filter(Boolean);
+  const guardQuickActions = [
+    flags.includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED') ? 'Coverage matrisini tamamla' : '',
+    flags.includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED') ? 'Istisna ve negatif akislari detaylandir' : '',
+    flags.includes('TRACEABILITY_REPAIR_REQUIRED') ? 'Traceability matrisini tamamla' : '',
+    flags.includes('TRACEABILITY_REPAIR_REQUIRED') ? 'Kabul kriterlerini testlere bagla' : '',
+    flags.includes('SOURCE_FIDELITY_REPAIR_REQUIRED') ? 'Kaynak talep izlerini dokumana isle' : '',
+    flags.includes('OFFICIAL_SOURCE_VERIFICATION_REQUIRED') ? 'Resmi kaynaklarla dogrula' : '',
+    flags.includes('COPILOT_RUNTIME_STATE') ? 'Runtime karar izini incele' : '',
+    flags.includes('WORD_TEMPLATE_REVIEW_REQUIRED') ? 'Şablon uyumunu tamamla' : '',
+  ].filter(Boolean);
+  const quickActions = Array.from(new Set([
+    ...guardQuickActions,
+    ...(options.document?.suggestions || []),
+  ])).slice(0, 4);
+  const quality = typeof options.score === 'number'
+    ? `Kalite puani: ${options.score}/100.`
+    : '';
+  const reason = options.scoreExplanation
+    ? `Puan nedeni: ${options.scoreExplanation}`
+    : '';
+  return [
+    current,
+    '',
+    '**Ne yaptim?**',
+    `- Sag panelde guncellenen alanlar: ${changed}.`,
+    controls.length ? `- Calisan kontroller: ${controls.join('; ')}.` : '',
+    quality ? `- ${quality}` : '',
+    reason ? `- ${reason}` : '',
+    quickActions.length ? `- Hizli aksiyonlar: ${quickActions.join('; ')}.` : '',
+  ].filter(Boolean).join('\n');
+};
 
 export const useMessages = (channelRef: any) => {
   const {
@@ -217,6 +286,7 @@ export const useMessages = (channelRef: any) => {
     const state = useStore.getState();
     const promptSettings = state.promptSettings;
     const knowledgeBase = state.knowledgeBase;
+    const projectMemory = state.projectMemory || {};
     const addKnowledge = state.addKnowledge;
     const memoryEnabled = promptSettings?.memoryEnabled ?? true;
     const contextWindowSize = promptSettings?.contextWindowSize ?? 10;
@@ -257,18 +327,24 @@ export const useMessages = (channelRef: any) => {
         parts: [{ text: `[${m.senderName} - ${m.senderRole}]: ${m.text}` }]
       }));
 
-      const additionalContext = [retrievedContext, actionIntentContext].filter(Boolean).join('\n\n');
+      const projectMemoryContext = memoryEnabled ? buildProjectMemoryContext(projectMemory) : '';
+      const additionalContext = [projectMemoryContext, retrievedContext, actionIntentContext].filter(Boolean).join('\n\n');
       let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext });
       if (targetAgentRole) {
         systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext });
       }
 
       const selectedNodeContent = useStore.getState().selectedDocumentText || null;
+      const currentWorkspaceTitle = useStore.getState().projects
+        .flatMap(project => project.workspaces)
+        .find(workspace => workspace.id === currentWorkspaceId)?.title;
       const loopOutput = await runSingleChatOrchestrator({
         userMessage: messageText,
         history,
         messageHistory: currentMessages,
         documentContent,
+        workspaceTitle: currentWorkspaceTitle,
+        projectMemory,
         knowledgeBase,
         model: selectedModel,
         systemInstruction,
@@ -338,18 +414,25 @@ export const useMessages = (channelRef: any) => {
       let qualityExplanation = documentContent?.scoreExplanation;
 
       if (loopOutput.document) {
-        const postProcessResult = postProcessDocumentData(loopOutput.document, documentContent);
+        const postProcessResult = postProcessDocumentData(loopOutput.document, documentContent, {
+          sourceText: [
+            messageText,
+            ...currentMessages.slice(-8).map(message => message.text || ''),
+          ].filter(Boolean).join('\n\n'),
+          workspaceTitle: currentWorkspaceTitle,
+          turnDecision: loopOutput.turnDecision,
+        });
         finalDocument = postProcessResult.document;
         changedSections = postProcessResult.changedSections;
-        qualityScore = postProcessResult.qualityGate.score;
-        qualityExplanation = postProcessResult.qualityGate.reason;
+        qualityScore = postProcessResult.document.score ?? postProcessResult.qualityGate.score;
+        qualityExplanation = postProcessResult.document.scoreExplanation || postProcessResult.qualityGate.reason;
 
         if (!postProcessResult.qualityGate.canPublishToPanel && hasDocumentIntent(messageText)) {
           fullText = [
-            'Taslak oluşturdum ancak kalite kapısı dokümanın hâlâ yüzeysel olduğunu gösteriyor. Sağ panelde eksik alanları da işaretledim.',
+            'Taslak oluşturdum ve kalite kapısı sağ panelde tamamlanacak alanları işaretledi.',
             '',
             `Kalite puanı: ${postProcessResult.qualityGate.score}/100`,
-            `Eksik/zayıf alanlar: ${postProcessResult.qualityGate.missingSections.join(', ') || 'Yok'}`,
+            `Tamamlanacak/zayıf alanlar: ${postProcessResult.qualityGate.missingSections.join(', ') || 'Yok'}`,
             '',
             'Daha iyi sonuç için ekran görüntüleri, talep dokümanı veya süreç notlarını ekleyebilirsin; mevcut bilgilerle çalışmaya devam edebilirim.'
           ].join('\n');
@@ -367,6 +450,28 @@ export const useMessages = (channelRef: any) => {
         useStore.getState().setDocumentContent(finalDocument!);
       } else if (fullText && /sağ panel|dokümana işlen|dokümanlara işlen|belgeye eklen/i.test(fullText)) {
         fullText += '\n\n_Not: Dokümanda otomatik güncelleme yapılmadı. Devam etmek için yönergelerinizi netleştirebilir misiniz?_';
+      }
+
+      if (docActuallyChanged) {
+        fullText = ensureDocumentActionSummary(fullText, {
+          changedSections,
+          score: qualityScore,
+          scoreExplanation: qualityExplanation,
+          document: finalDocument,
+        });
+      }
+
+      if (memoryEnabled) {
+        const memoryUpdates = extractProjectMemoryUpdates({
+          userMessage: messageText,
+          aiMessage: fullText,
+          document: finalDocument,
+        });
+        if (Object.keys(memoryUpdates).length > 0) {
+          const nextMemory = mergeProjectMemory(useStore.getState().projectMemory || {}, memoryUpdates);
+          useStore.getState().setProjectMemory(nextMemory);
+          localStorage.setItem(`jetwork_project_memory_${currentWorkspaceId}`, JSON.stringify(nextMemory));
+        }
       }
 
       const completedAiMessage: Message = {
@@ -489,7 +594,9 @@ export const useMessages = (channelRef: any) => {
   };
 
   const handleGenerateDocument = async () => {
-    await handleSendMessage('Bu konuşmaya göre kapsamlı kavramsal tasarım dokümanı oluştur. Süreç modelleri, iş gerekleri, KPI, toast/validasyon mesajları, doküman yönetimi, entegrasyonlar, test senaryoları ve FLOW bölümünü detaylandır.');
+    await handleSendMessage('Bu konusmaya gore kapsamli kavramsal tasarim dokumani olustur. Surec modelleri, is gerekleri, KPI, ekran/toast/validasyon davranislari, dokuman yonetimi, entegrasyonlar, test/UAT senaryolari ve akis detaylarini BA Analiz icinde detaylandir; Review bolumunde risk, acik konu ve kalite notlarini ayir.');
+    return;
+    await handleSendMessage('Bu konuşmaya göre kapsamlı kavramsal tasarım dokümanı oluştur. Süreç modelleri, iş gerekleri, KPI, toast/validasyon mesajları, doküman yönetimi, entegrasyonlar, test senaryoları ve akış/sequence detaylarını BA Analiz içinde detaylandır.');
   };
 
   return { handleSendMessage, handleToggleReaction, handleAcceptAiHandRaise, handleGenerateDocument };

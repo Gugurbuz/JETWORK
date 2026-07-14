@@ -1,21 +1,4 @@
-import { Heading } from '@tiptap/extension-heading';
-
-export const HeadingWithId = Heading.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      id: {
-        default: null,
-        parseHTML: element => element.getAttribute('id'),
-        renderHTML: attributes => {
-          if (!attributes.id) {
-            return {};
-          }
-          return {
-            id: attributes.id,
-          };
-        },
-      },
-    };
-  },
-});
+// The standalone @tiptap/extension-heading package is not installed in this
+// bundle. Keep a typed placeholder so unused legacy imports do not break the
+// product build; add the package before wiring this into an editor instance.
+export const HeadingWithId = null;

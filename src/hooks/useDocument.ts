@@ -30,17 +30,14 @@ export const useDocument = () => {
         role: 'BA',
         taskType: 'documentation',
         settings: promptSettings,
-        additionalContext: `GÖREVİN: Verilen sohbet geçmişini analiz ederek kapsamlı bir iş analizi ve yazılım mimarisi dokümanı oluşturmak.
+        additionalContext: `GÖREVİN: Verilen sohbet geçmişini analiz ederek kapsamlı, kaynakla uyumlu ve karar verilebilir bir kavramsal iş analizi dokümanı oluşturmak.
 
 ÇIKTI FORMATI:
 JSON formatında, aşağıdaki alanları içeren bir obje döndür:
 - businessAnalysis: Aşağıda verilen ŞABLONA birebir uyan, kapak sayfası + içindekiler + numaralı bölümler içeren tam yapılandırılmış bir İş Analizi Dokümanı (Markdown + izin verilen HTML div blokları)
-- code: Teknik mimari, veritabanı şeması, API uç noktaları (Markdown; ## 1., ## 2. numaralı başlıklarla)
-- test: Test senaryoları, kabul kriterleri (Markdown; ## 1., ## 2. numaralı başlıklarla, test senaryoları için tablo)
-- review: Proje özeti, riskler, öneriler (Markdown)
-- bpmn: Süreç akışını anlatan BPMN 2.0 XML formatında veri (Sadece XML içeriği, markdown code block OLMADAN)
+- review: Kaynak/doğrulama özeti, riskler, açık konular, varsayımlar, kalite notları ve hızlı aksiyonlar (Markdown)
 
-ÖNEMLİ: bpmn alanı kesinlikle geçerli bir XML olmalıdır. İçinde markdown (\`\`\`xml gibi) bulunmamalıdır.
+ÖNEMLİ: Görünür doküman yüzeyi yalnızca businessAnalysis ve review alanlarıdır. Teknik analiz, test/UAT, veri modeli, entegrasyon, API kontratı ve süreç akışı detayları ayrı code/test/bpmn alanlarına değil businessAnalysis içindeki ilgili bölümlere yazılmalıdır.
 
 ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`
       });
@@ -60,12 +57,9 @@ ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`
           type: Type.OBJECT,
           properties: {
             businessAnalysis: { type: Type.STRING },
-            code: { type: Type.STRING },
-            test: { type: Type.STRING },
-            review: { type: Type.STRING },
-            bpmn: { type: Type.STRING }
+            review: { type: Type.STRING }
           },
-          required: ["businessAnalysis", "code", "test", "review", "bpmn"]
+          required: ["businessAnalysis", "review"]
         },
         onChunk: () => {} // We don't stream document generation to UI yet
       });
@@ -80,10 +74,7 @@ ${BA_DOCUMENT_TEMPLATE_INSTRUCTION}`
 
       const newDoc = {
         businessAnalysis: toSection(rawDoc.businessAnalysis),
-        code: toSection(rawDoc.code),
-        test: toSection(rawDoc.test),
         review: toSection(rawDoc.review),
-        bpmn: toSection(rawDoc.bpmn, false),
       };
       setDocumentContent(newDoc);
 

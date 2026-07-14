@@ -1,24 +1,27 @@
-import React from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { TriangleAlert as AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps {
-  children: React.ReactNode;
-  fallback?: (error: Error, retry: () => void) => React.ReactNode;
-  onError?: (error: Error, info: React.ErrorInfo) => void;
+  children: ReactNode;
+  fallback?: (error: Error, retry: () => void) => ReactNode;
+  onError?: (error: Error, info: ErrorInfo) => void;
 }
 
 interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  declare props: ErrorBoundaryProps;
+  declare setState: (state: Partial<ErrorBoundaryState>) => void;
+
   state: ErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  componentDidCatch(error: Error, info: ErrorInfo) {
     if (this.props.onError) this.props.onError(error, info);
     else console.error('[ErrorBoundary]', error, info.componentStack);
   }

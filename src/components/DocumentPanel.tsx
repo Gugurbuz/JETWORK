@@ -31,7 +31,7 @@ const getSectionByTab = (data: DocumentData | null, tab: string): SectionData | 
 const getContentByTab = (data: DocumentData | null, tab: string): string => getSectionByTab(data, tab)?.content || '';
 
 const getStatusLabel = (status?: SectionData['status']) => {
-  if (status === 'APPROVED') return 'Onaylandi';
+  if (status === 'APPROVED') return 'Onaylandı';
   if (status === 'NEEDS_REVISION') return 'Revizyon Bekliyor';
   return 'Taslak';
 };
@@ -44,31 +44,37 @@ const getStatusClass = (status?: SectionData['status']) => {
 
 const buildQuickActionPrompt = (action: string): string => {
   const normalized = action.toLocaleLowerCase('tr-TR');
-  if (normalized.includes('eksikleri tamamla')) {
-    return 'Mevcut kavramsal tasarim dokumanindaki eksikleri tamamla. Surec modeli bloklarini cogalt, is gerekleri/KPI, ekran davranislari, entegrasyonlar, zorunlu evrak/dokuman, UAT ve kabul kriterlerini detaylandir. Yeni soru sorma; bilinmeyenleri [VARSAYIM] veya [ACIK KONU] olarak isaretle.';
+  if (normalized.includes('sablon') || normalized.includes('şablon')) {
+    return 'BA Analiz dokumanini Word kavramsal tasarim sablonuna gore tamamla. Proje kimlik karti, dokuman tarihcesi, katilimcilar, kontrol/onay tablosu, surec modeli bloklari, is gerekleri/KPI, degisim yonetimi ve EK A yapisini Review kanitiyla birlikte guncelle.';
+  }
+  if (normalized.includes('runtime') || normalized.includes('karar izi')) {
+    return 'Review tarafindaki Copilot Runtime State Machine alanini incele. State machine, source descriptors, working memory, tool execution truth, human approval points ve completion evidence satirlarini guncelle; calismayan araclari calismis gibi yazma.';
+  }
+  if (normalized.includes('tamamlanacak') || normalized.includes('kalite raporu')) {
+    return 'Mevcut kavramsal tasarim dokumanindaki tamamlanacak alanlari kapat. Surec modeli bloklarini cogalt, is gerekleri/KPI, ekran davranislari, entegrasyonlar, zorunlu evrak/dokuman, UAT ve kabul kriterlerini detaylandir. Yeni soru sorma; bilinmeyenleri [VARSAYIM] veya [ACIK KONU] olarak isaretle.';
   }
   if (normalized.includes('kaynak dogrulama') || normalized.includes('dogrulama matrisi')) {
     return 'Review bolumundeki Kaynak ve Dogrulama Matrisi alanini guncelle. Her kritik mevzuat, API, entegrasyon ve is kuralini DOGRULANDI / VARSAYIM / ACIK KONU olarak ayir; kaynak yoksa kesin hukum yazma ve aksiyon listesine ekle.';
   }
-  if (normalized.includes('surec') || normalized.includes('süreç')) {
-    return 'Kaynak talep dokumanina gore eksik surec model bloklarini tamamla. Her surec icin is kurallari, ekranlar, zorunlu evraklar, entegrasyonlar, KPI ve kabul kriterlerini BA Analiz icine ekle. Yeni soru sorma; eksikleri [VARSAYIM] veya [ACIK KONU] olarak isaretle.';
+  if (normalized.includes('süreç') || normalized.includes('surec')) {
+    return 'Kaynak talep dokümanına göre süreç model bloklarını tamamla. Her süreç için iş kuralları, ekranlar, zorunlu evraklar, entegrasyonlar, KPI ve kabul kriterlerini BA Analiz içine ekle. Yeni soru sorma; tamamlanacak kararları [VARSAYIM] veya [AÇIK KONU] olarak işaretle.';
   }
-  if (normalized.includes('evrak') || normalized.includes('belge') || normalized.includes('dokuman') || normalized.includes('doküman')) {
-    return 'Zorunlu evrak ve dokuman yonetimi matrisini detaylandir. Her surec icin belge adi, zorunluluk, sahip rol, yukleme/kontrol kurali, eksik belge davranisi, saklama sistemi ve kabul kriterlerini BA Analiz icine ekle.';
+  if (normalized.includes('evrak') || normalized.includes('belge') || normalized.includes('doküman') || normalized.includes('dokuman')) {
+    return 'Zorunlu evrak ve doküman yönetimi matrisini detaylandır. Her süreç için belge adı, zorunluluk, sahip rol, yükleme/kontrol kuralı, tamamlanmamış belge davranışı, saklama sistemi ve kabul kriterlerini BA Analiz içine ekle.';
   }
   if (normalized.includes('dashboard')) {
-    return 'Genel Dashboard ve proje bazli Dashboard gereksinimlerini detaylandir. Kartlar, filtreler, KPI alanlari, drill-down davranisi, rol bazli gorunum, gecikme/deadline/kapasite/acik gorev takibini BA Analiz icine ekle.';
+    return 'Genel Dashboard ve proje bazlı Dashboard gereksinimlerini detaylandır. Kartlar, filtreler, KPI alanları, drill-down davranışı, rol bazlı görünüm, gecikme/deadline/kapasite/açık görev takibini BA Analiz içine ekle.';
   }
   if (normalized.includes('entegrasyon')) {
-    return 'Entegrasyon varsayimlarini ve acik konularini netlestir. SAP, EBA, FileNet/dokuman yonetimi, bildirim/e-posta ve diger sistemler icin veri akisi, tetikleyici, hata/retry, log ve mutabakat kurallarini BA Analiz ve Review icine ekle.';
+    return 'Entegrasyon varsayımlarını ve açık konularını netleştir. SAP, EBA, FileNet/doküman yönetimi, bildirim/e-posta ve diğer sistemler için veri akışı, tetikleyici, hata/retry, log ve mutabakat kurallarını BA Analiz ve Review içine ekle.';
   }
-  if (normalized.includes('review') || normalized.includes('acik') || normalized.includes('açık')) {
-    return 'Review bolumundeki acik konulari kapatmak icin belgeyi gozden gecir. Dogrulandi / Varsayim / Acik Konu ayrimini yap, riskleri onceliklendir ve kapatilmasi gereken maddeleri aksiyon sahipleriyle listele.';
+  if (normalized.includes('review') || normalized.includes('açık') || normalized.includes('acik')) {
+    return 'Review bölümündeki açık konuları kapatmak için belgeyi gözden geçir. Doğrulandı / Varsayım / Açık Konu ayrımını yap, riskleri önceliklendir ve kapatılması gereken maddeleri aksiyon sahipleriyle listele.';
   }
   if (normalized.includes('word') || normalized.includes('format')) {
-    return 'Mevcut BA Analiz dokumanini sirket Word kavramsal tasarim formatina duzelt. Proje kimlik karti, dokuman tarihcesi, katilimcilar, onay tablosu, icindekiler, surec modeli bloklari ve EK A yapisini koru.';
+    return 'Mevcut BA Analiz dokümanını şirket Word kavramsal tasarım formatına düzelt. Proje kimlik kartı, doküman tarihçesi, katılımcılar, onay tablosu, içindekiler, süreç modeli blokları ve EK A yapısını koru.';
   }
-  return `${action}. Bu aksiyonu mevcut dokumana uygula; yeni soru sorma, eksik bilgileri [VARSAYIM] veya [ACIK KONU] olarak isaretle.`;
+  return `${action}. Bu aksiyonu mevcut dokümana uygula; yeni soru sorma, tamamlanacak bilgileri [VARSAYIM] veya [AÇIK KONU] olarak işaretle.`;
 };
 
 export function DocumentPanel({
@@ -100,10 +106,7 @@ export function DocumentPanel({
   const effectiveScoreExplanation = documentContent?.scoreExplanation ?? scoreExplanation;
   const quickActions = (documentContent?.suggestions || []).slice(0, 8);
 
-  const tabStatusMap = useMemo(
-    () => Object.fromEntries(TABS.map(tab => [tab, getSectionByTab(documentContent, tab)?.status || 'DRAFT'])),
-    [documentContent]
-  );
+  const tabStatusMap = useMemo(() => Object.fromEntries(TABS.map(tab => [tab, getSectionByTab(documentContent, tab)?.status || 'DRAFT'])), [documentContent]);
 
   useEffect(() => {
     if (!TABS.includes(activeTab)) setActiveTab('BA Analiz');
@@ -147,10 +150,10 @@ export function DocumentPanel({
       if (error) throw error;
       const shareUrl = `${window.location.origin}?shareId=${shareId}`;
       await navigator.clipboard.writeText(shareUrl);
-      alert(`Paylasim baglantisi panoya kopyalandi!\n\n${shareUrl}`);
+      alert(`Paylaşım bağlantısı panoya kopyalandı!\n\n${shareUrl}`);
     } catch (error) {
       console.error(error);
-      alert('Paylasim baglantisi olusturulurken hata olustu.');
+      alert('Paylaşım bağlantısı oluşturulurken hata oluştu.');
     } finally {
       setIsSharing(false);
     }
@@ -187,7 +190,7 @@ export function DocumentPanel({
           />
           <div className="flex justify-end gap-2">
             <button onClick={() => { setDraftContent(activeContent); setIsEditing(false); }} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-theme-border text-theme-text hover:bg-theme-surface-hover">
-              <X size={14} /> Iptal
+              <X size={14} /> İptal
             </button>
             <button onClick={() => updateActiveSection(draftContent)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-theme-primary text-theme-primary-fg hover:bg-theme-primary-hover">
               <Save size={14} /> Kaydet
@@ -232,22 +235,22 @@ export function DocumentPanel({
           {effectiveScore !== undefined && effectiveScore > 0 && (
             <div title={effectiveScoreExplanation} className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold border', effectiveScore >= 90 ? 'bg-green-500/10 text-green-600 border-green-500/20' : effectiveScore >= 70 ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : 'bg-red-500/10 text-red-600 border-red-500/20')}>
               <CheckCircle2 size={12} />
-              <span>KALITE PUANI: {effectiveScore}</span>
+              <span>KALİTE PUANI: {effectiveScore}</span>
             </div>
           )}
 
           {documentContent && !isEditing && (
-            <button onClick={() => setIsEditing(true)} className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md" title="Duzenle">
+            <button onClick={() => setIsEditing(true)} className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md" title="Düzenle">
               <Edit3 size={14} />
             </button>
           )}
           {documentContent && (
             <>
-              <button onClick={handleShare} disabled={isSharing} className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md" title="Paylas">
+              <button onClick={handleShare} disabled={isSharing} className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md" title="Paylaş">
                 <Share2 size={14} className={isSharing ? 'animate-pulse' : ''} />
               </button>
               <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary text-theme-primary-fg text-[10px] font-bold uppercase tracking-widest hover:bg-theme-primary-hover rounded-md shadow-sm">
-                <Download size={12} /> Indir
+                <Download size={12} /> İndir
               </button>
             </>
           )}
@@ -269,7 +272,7 @@ export function DocumentPanel({
                 <div className="mb-8 pb-4 border-b border-theme-border/50 flex justify-between items-start gap-4">
                   <div>
                     <h2 className="text-2xl font-semibold text-theme-text tracking-tight flex items-center gap-3">
-                      {safeActiveTab === 'Review' ? 'Degerlendirme' : 'BA Analiz'} Raporu
+                      {safeActiveTab === 'Review' ? 'Değerlendirme' : 'BA Analiz'} Raporu
                       <span className={cn('text-[10px] px-3 py-1 font-bold uppercase tracking-widest rounded-full border', getStatusClass(currentStatus))}>
                         {getStatusLabel(currentStatus)}
                       </span>
@@ -279,16 +282,16 @@ export function DocumentPanel({
                   {(isGenerating || isDiscussing) && (
                     <div className="flex items-center gap-2 text-theme-primary text-xs font-medium animate-pulse">
                       <div className="w-4 h-4 rounded-full border-2 border-theme-primary border-t-transparent animate-spin" />
-                      {isDiscussing ? 'Analiz ediliyor...' : 'Guncelleniyor...'}
+                      {isDiscussing ? 'Tartışılıyor...' : 'Güncelleniyor...'}
                     </div>
                   )}
                 </div>
 
                 {currentFlags.length > 0 && (
                   <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
-                    <h4 className="flex items-center gap-2 text-red-600 font-bold text-sm mb-3"><AlertTriangle size={16} /> Kalite Kapisi / Revizyon Notlari</h4>
+                    <h4 className="flex items-center gap-2 text-red-600 font-bold text-sm mb-3"><AlertTriangle size={16} /> Kalite Kapısı / Revizyon Notları</h4>
                     <ul className="space-y-2">
-                      {currentFlags.map((flag, idx) => <li key={idx} className="text-sm text-theme-text opacity-90">- {flag}</li>)}
+                      {currentFlags.map((flag, idx) => <li key={idx} className="text-sm text-theme-text opacity-90">• {flag}</li>)}
                     </ul>
                   </div>
                 )}
@@ -297,7 +300,7 @@ export function DocumentPanel({
                   <div className="mb-8 border-b border-theme-border/50 pb-5">
                     <div className="flex items-center gap-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted">
                       <Wand2 size={14} className="text-theme-primary" />
-                      Hizli Aksiyonlar
+                      Hızlı Aksiyonlar
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {quickActions.map((action, idx) => (
@@ -327,16 +330,16 @@ export function DocumentPanel({
 }
 
 function EmptyContent() {
-  return <div className="rounded-xl border border-dashed border-theme-border p-8 text-center text-sm text-theme-text-muted">Bu bolum henuz doldurulmadi. Chat uzerinden JetWork AI'dan BA analiz veya review bolumunu detaylandirmasini isteyebilirsiniz.</div>;
+  return <div className="rounded-xl border border-dashed border-theme-border p-8 text-center text-sm text-theme-text-muted">Bu bölüm henüz doldurulmadı. Chat üzerinden Jetwork AI'dan BA analiz veya review bölümünü detaylandırmasını isteyebilirsiniz.</div>;
 }
 
 function ChatFirstEmptyState({ hasMessages }: { hasMessages: boolean }) {
   return (
     <motion.div key="empty" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="h-[60vh] flex flex-col items-center justify-center text-center border border-dashed border-theme-border/50 bg-theme-surface rounded-2xl shadow-sm">
       <div className="w-16 h-16 bg-theme-bg flex items-center justify-center mb-6 border border-theme-border/50 rounded-xl shadow-sm"><FileText size={24} className="text-theme-text-muted" /></div>
-      <h3 className="text-lg font-semibold text-theme-text mb-2 tracking-tight">Chat ile BA Analiz Olusturun</h3>
-      <p className="text-sm text-theme-text-muted max-w-md leading-relaxed">Simdilik sadece BA Analiz ve Review bolumleri aktiftir. IT Analiz, Test ve FLOW bolumleri kaldirildi.</p>
-      {!hasMessages && <p className="mt-4 text-xs text-theme-text-muted">Baslamak icin sol taraftaki chat alanina talebinizi yazin.</p>}
+      <h3 className="text-lg font-semibold text-theme-text mb-2 tracking-tight">Chat ile BA Analiz Oluşturun</h3>
+      <p className="text-sm text-theme-text-muted max-w-md leading-relaxed">Şimdilik sadece BA Analiz ve Review bölümleri aktiftir. IT Analiz, Test ve FLOW bölümleri kaldırıldı.</p>
+      {!hasMessages && <p className="mt-4 text-xs text-theme-text-muted">Başlamak için sol taraftaki chat alanına talebinizi yazın.</p>}
     </motion.div>
   );
 }
@@ -349,8 +352,8 @@ function GeneratingState({ isDiscussing }: { isDiscussing: boolean }) {
   return (
     <motion.div key="generating" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-[60vh] flex flex-col items-center justify-center text-center">
       <div className="relative w-12 h-12 mb-6"><div className="absolute inset-0 border-2 border-theme-border/50 rounded-full" /><div className="absolute inset-0 border-2 border-theme-primary border-t-transparent animate-spin rounded-full" /></div>
-      <h3 className="text-lg font-semibold text-theme-text tracking-tight">{isDiscussing ? 'Analiz Ediliyor' : 'BA Analiz Hazirlaniyor'}</h3>
-      <p className="text-sm text-theme-text-muted mt-2">JetWork AI konusma baglamini analiz ediyor ve BA analiz bolumunu yapilandiriyor...</p>
+      <h3 className="text-lg font-semibold text-theme-text tracking-tight">{isDiscussing ? 'Analiz Ediliyor' : 'BA Analiz Hazırlanıyor'}</h3>
+      <p className="text-sm text-theme-text-muted mt-2">Jetwork AI konuşma bağlamını analiz ediyor ve BA analiz bölümünü yapılandırıyor...</p>
     </motion.div>
   );
 }

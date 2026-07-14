@@ -1,4 +1,4 @@
-import { parse as parsePartialJson } from 'partial-json';
+﻿import { parse as parsePartialJson } from 'partial-json';
 import { DocumentData, KnowledgeItem, Message, Question } from '../types';
 import { callGemini, callAiWithRetry } from './geminiService';
 import { runBaAgentLoop, AgentPhase } from './baAgentLoop';
@@ -7,51 +7,54 @@ import { hybridSearch } from './contextManager';
 import { supabase } from '../supabase';
 import { classifyIntent } from './ai/intentClassifier';
 import { decideAction } from './ai/decisionPolicy';
-import { IntentClassification, DocumentSectionKey, SubIntent } from './ai/intentTypes';
+import {
+  IntentClassification,
+  DocumentSectionKey,
+  SubIntent,
+} from './ai/intentTypes';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { chatResponseJsonSchema } from '../schemas';
 import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE, containsBlockedQuestionDomain } from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
+import { buildDeepBaActInstructions, parseClassifierQuestion } from '../modules/deep-ba-assistant';
+import {
+  applyBehaviorDecisionToClassification,
+  buildBehaviorDecision,
+  shouldPauseForBehaviorDiscovery,
+  type BehaviorDecision,
+} from './ai/behaviorDecision';
+import { buildBaMindsetInstruction } from './ai/baMindset';
+import { buildDiscoveryAnswerMappingInstruction } from './ai/baDiscoveryProfiles';
+import {
+  analyzeSourceIntelligence,
+  buildSourceCorpus,
+  buildSourceIntelligencePrompt,
+  type SourceIntelligenceReport,
+} from './sourceIntelligence';
+import { deriveProcessCandidates } from './sourceDrivenInference';
+import { buildBaCognitiveFrame, buildBaCognitiveInstruction, buildBaCognitiveQuestionItems, buildBaCognitiveQuestions } from './ai/baCognitiveFrame';
+import {
+  attachCopilotTraceToDocument,
+  buildCopilotCognitiveInstruction,
+  buildCopilotCognitiveTrace,
+  buildCopilotThinkingSummary,
+} from './ai/copilotCognitiveArchitecture';
+import {
+  attachCopilotRuntimeToDocument,
+  buildCopilotRuntimeInstruction,
+  buildCopilotRuntimeSnapshot,
+} from './ai/copilotRuntimeState';
+import type { ProjectMemory } from './ai/projectMemoryEngine';
+import {
+  buildAiTurnDecision,
+  buildAiTurnDecisionInstruction,
+  type AiTurnDecision,
+} from './ai/aiTurnDecision';
 
-const FALLBACK_QUESTION_OPTIONS = [
-  'Varsayımla ilerle',
-  'Açık konu olarak bırak',
-  'Bu kararı ben netleştireceğim',
-];
-
-function extractOptionsFromQuestionText(text = ''): string[] {
-  const optionMatch = text.match(/(?:^|\n)\s*Se(?:ç|c)enekler\s*:\s*([^\n]+)/i);
-  if (!optionMatch?.[1]) return [];
-  return optionMatch[1].split('|').map((option) => option.trim()).filter(Boolean).slice(0, 4);
-}
-
-function cleanQuestionText(text = ''): string {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !/^(Neden|Dokumana etkisi|Dokümana etkisi|Secenekler|Seçenekler)\s*:/i.test(line));
-  return (lines[0] || text || '').trim();
-}
-
-function normalizeQuestion(question: any, index: number): Question {
-  const rawText = typeof question === 'string' ? question : String(question?.text || '');
-  const directOptions = Array.isArray(question?.options) ? question.options.map(String).filter(Boolean) : [];
-  const extractedOptions = extractOptionsFromQuestionText(rawText);
-  const options = directOptions.length ? directOptions : extractedOptions.length ? extractedOptions : FALLBACK_QUESTION_OPTIONS;
-  return {
-    id: String(question?.id || `q${index + 1}`),
-    text: cleanQuestionText(rawText),
-    options: options.slice(0, 4),
-  };
-}
-
-function normalizeQuestions(questions: any[] | undefined): Question[] | undefined {
-  if (!Array.isArray(questions) || questions.length === 0) return undefined;
-  return questions.slice(0, 4).map((question, index) => normalizeQuestion(question, index));
-}
-
-const extractParts = (raw: string): { message: string; questions?: Question[]; actionSummary?: string; thinking?: string } => {
+// Strip any partial/complete JSON the model may emit before the UI sees it.
+const extractParts = (
+  raw: string
+): { message: string; questions?: Question[]; actionSummary?: string; thinking?: string } => {
   if (!raw) return { message: '' };
   const trimmed = raw.trim();
   if (!trimmed.startsWith('{')) return { message: raw };
@@ -60,7 +63,7 @@ const extractParts = (raw: string): { message: string; questions?: Question[]; a
     if (parsed && typeof parsed === 'object') {
       return {
         message: typeof parsed.message === 'string' ? parsed.message : '',
-        questions: normalizeQuestions(parsed.questions),
+        questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
         actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
         thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
       };
@@ -71,6 +74,7 @@ const extractParts = (raw: string): { message: string; questions?: Question[]; a
   return { message: raw };
 };
 
+// Kept for backwards compatibility with useMessages / other consumers.
 export type SingleChatIntent =
   | 'chat_only'
   | 'analyze_request'
@@ -95,9 +99,17 @@ export interface SingleChatInput {
   selectedNodeContent?: string | null;
   selectedSection?: DocumentSectionKey | null;
   messageHistory?: Message[];
+  workspaceTitle?: string;
+  projectMemory?: ProjectMemory;
   onPhase: (phase: AgentPhase | 'INTENT', label: string) => void;
   onThinking: (text: string) => void;
-  onStream: (text: string, thinking: string | undefined, questions: Question[] | undefined, actionSummary: string | undefined, tokenCount: number) => void;
+  onStream: (
+    text: string,
+    thinking: string | undefined,
+    questions: Question[] | undefined,
+    actionSummary: string | undefined,
+    tokenCount: number
+  ) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }
 
@@ -110,18 +122,101 @@ export interface SingleChatResult {
   document?: DocumentData | null;
   intent: SingleChatIntent;
   classification?: IntentClassification;
+  turnDecision?: AiTurnDecision;
   tokenCount: number;
 }
 
-function visibleFocusHint(classification: IntentClassification): string {
-  const focus = classification.baAgentFocus;
-  const target = classification.targetSection;
-  if (focus === 'test') return '\n\n[ODAK] Test stratejisi, UAT ve kabul senaryolarını BA Analiz içinde detaylı alt başlık olarak yaz; ayrı test sekmesi üretme.';
-  if (focus === 'flow') return '\n\n[ODAK] Süreç akışını BA Analiz içinde metinsel/Mermaid taslak olarak yaz; ayrı FLOW/BPMN sekmesi üretme.';
-  if (focus === 'technical_analysis') return '\n\n[ODAK] Teknik analiz, API, veri modeli ve entegrasyon mimarisini BA Analiz içinde kavramsal tasarım alt başlıkları olarak yaz.';
-  if (focus === 'review') return '\n\n[ODAK] Review bölümünde riskler, açık sorular ve kalite gözden geçirmesi üret.';
-  if (target) return `\n\n[ODAK] Özellikle "${target}" bölümünü güncelle; teknik/test/akış detaylarını BA Analiz içinde tut.`;
-  return '';
+// ---------------------------------------------------------------------------
+// Handlers per orchestrator action
+// ---------------------------------------------------------------------------
+
+function buildRecentSubject(input: SingleChatInput): string {
+  return [
+    input.history.slice(-6).map((item) => item.parts[0]?.text || '').join('\n'),
+    input.userMessage,
+  ].filter(Boolean).join('\n');
+}
+
+function buildBehaviorOrchestratorInstruction(
+  decision: BehaviorDecision,
+  sourceReport?: SourceIntelligenceReport,
+): string {
+  const mindsetHint = buildBaMindsetInstruction({
+    mode: decision.mode,
+    domain: decision.domain,
+    depth: decision.depth,
+  });
+  const humanProfileHint = `
+[INSANSI BA KARAR PROFILI]
+- Kullanici niyeti: ${decision.humanProfile.userIntent}
+- Proje/domain: ${decision.humanProfile.projectDomain}
+- Soru stratejisi: ${decision.humanProfile.questionStrategy}
+- Dokuman aksiyonu: ${decision.humanProfile.documentAction}
+- Varsayim politikasi: ${decision.humanProfile.assumptionPolicy}
+- Kritik eksikler: ${decision.humanProfile.missingCriticalInfo.length ? decision.humanProfile.missingCriticalInfo.join(', ') : 'yok'}
+- Soru gerekceleri: ${decision.humanProfile.questionRationale.length ? decision.humanProfile.questionRationale.join(' | ') : 'yok'}
+- Cevaplari dokumana isleme kurali: ${buildDiscoveryAnswerMappingInstruction(decision.domain)}
+- Onerilen sonraki aksiyon: ${decision.humanProfile.recommendedNextAction}
+- Cevap tutumu: ${decision.humanProfile.responseStance}
+`.trim();
+
+  if (decision.requiredTemplate === 'none') {
+    return `[DAVRANIS KARARI]\n- Mod: ${decision.mode}\n- Domain: ${decision.domain}\n- Dokuman guncelleme: hayir\n\n${humanProfileHint}\n\n${mindsetHint}`;
+  }
+
+  const sourceProcessTitles = sourceReport?.processes?.map(process => process.title).filter(Boolean) || [];
+  const domainProcesses = sourceProcessTitles.length >= 2
+    ? sourceProcessTitles
+    : deriveProcessCandidates({
+      processes: sourceProcessTitles,
+      roles: sourceReport?.roles,
+      systems: sourceReport?.systems,
+      integrations: sourceReport?.integrations,
+      documentRules: sourceReport?.documentRules,
+      dashboardNeeds: sourceReport?.dashboardNeeds,
+      uiNeeds: sourceReport?.uiNeeds,
+      kpis: sourceReport?.kpis,
+      openTopics: sourceReport?.openTopics,
+      minCount: (sourceReport?.systems?.length || sourceReport?.integrations?.length) ? 3 : 2,
+      maxCount: 6,
+    });
+  const processCount = Math.max(2, domainProcesses.length);
+  const sourceTruthInstruction = sourceProcessTitles.length
+    ? `- KAYNAK ONCELIGI: Kullanici/talep dokumaninda acik surecler bulundu. Surec modeli adlarini ve sirasini bunlardan al: ${sourceProcessTitles.map((item, index) => `${index + 1}) ${item}`).join('; ')}. Bunlar yerine "Ana is sureci", "Kaynak Sistemden Hedef Sisteme Veri Aktarimi" gibi genel kalip basliklar kullanma.`
+    : '- KAYNAK ONCELIGI: Kaynakta acik surec listesi yoksa surecleri talepteki roller, ekranlar, gorevler, belgeler, karar noktalar ve raporlardan cikar; genel kalip basliklari son care olarak bile kullanma.';
+  const projectNameInstruction = sourceReport?.inferredProjectName
+    ? `- Proje adi kaynak izinden geldi: "${sourceReport.inferredProjectName}". Baska konu basligiyle degistirme.`
+    : '- Proje adi net degilse uydurma; talepteki en guclu isim izini kullan veya [ACIK KONU] olarak isaretle.';
+
+  return `
+[DAVRANIS KARARI - ANA YONLENDIRICI]
+- Mod: ${decision.mode}
+- Domain: ${decision.domain}
+- Derinlik: ${decision.depth}
+- Sablon: ${decision.requiredTemplate}
+- Soru sorma: ${decision.shouldAskQuestions ? 'evet' : 'hayir'}
+- Varsayim kullan: ${decision.shouldUseAssumptions ? 'evet, eksikleri [VARSAYIM] ve [ACIK KONU] olarak isaretle' : 'hayir'}
+- Dokuman guncelle: ${decision.shouldUpdateDocument ? 'evet' : 'hayir'}
+
+${humanProfileHint}
+
+[WORD SABLONU VE DOKUMAN DERINLIGI - ZORUNLU]
+- businessAnalysis.content ana basligi "KAVRAMSAL TASARIM RAPORU" olmalidir.
+- "BA Analiz Raporu" veya eski genel BRD kapagi ile baslama.
+- En az ${processCount} adet "SÜREÇ MODELİ - N" blogu uret.
+- Bu domain icin surec modeli adaylari: ${domainProcesses.map((item, index) => `${index + 1}) ${item}`).join('; ')}.
+- Talep dokumani uzun ve detayliysa once onu analiz et: surec numaralari, zorunlu alanlar, gorevler, belgeler, roller, bildirimler, entegrasyonlar, dashboardlar, KPI ve blokaj kosullari ayiklanmadan dokuman yazma.
+${sourceTruthInstruction}
+${projectNameInstruction}
+- Kaynakta olmayan mikroservis, teknoloji, ekran veya sistem adlarini kesin karar gibi yazma. Gerekirse [VARSAYIM] veya [ACIK KONU] olarak ayir.
+- Her surec modelinde ayni blok sirasi korunur: Süreç Modeli - N, Bu proje ile birlikte;, Üst Düzey Süreç Açıklaması, Süreç değişiklikleri, İş Gerekleri ve KPIs, Detaylı Süreç Akışı / Akış Diyagramı, Detaylı Süreç Akışı, Akış Diyagramı, İlgili Süreçler, Üst Düzey Müşteri Geliştirmesi, Önemli Uyarlamalar ve Amaçları, Değişim Yönetimi.
+- İş Gerekleri ve KPIs tablosu dolu olmalidir: BR, FR, INT, NFR, RPT, SEC ve KPI satirlari birlikte yazilir; toplam en az 10 satir hedeflenir.
+- Üst Düzey Müşteri Geliştirmesi tablosunda en az 4 satir yaz: arayuz, program/servis, rapor, is akisi veya entegrasyon gelistirmeleri.
+- Doküman Tarihçesi altinda Katılımcılar, Revize tarih, Kontrol EDEN VE ONAYLAYAN tablolari bos birakilmaz; bilinmeyen degerler [ACIK KONU] olur.
+- EK A altinda İLGİLİ / REFERANS DOKÜMANLAR ve EKLENTİ tablolari yer alir.
+
+${mindsetHint}
+`.trim();
 }
 
 async function runChatOnly(input: SingleChatInput, classification: IntentClassification): Promise<SingleChatResult> {
@@ -130,23 +225,41 @@ async function runChatOnly(input: SingleChatInput, classification: IntentClassif
   let thinking = '';
   let tokens = 0;
   let lastParts: { message: string; questions?: Question[]; actionSummary?: string } = { message: '' };
-  const sys = `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\nBu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.\n\nÇIKTI JSON:\n{ "message": "kullanıcıya gösterilecek kısa doğal dil/Markdown", "questions": [ { "id": "q1", "text": "...", "options": ["..."] } ], "actionSummary": "opsiyonel" }\n\n- Netleştirici soru soracaksan questions alanını doldur ve her soruya 2-4 seçenek koy.`;
-  await callAiWithRetry(() => callGemini({
-    model: input.model,
-    systemInstruction: sys,
-    contents: [...input.history, { role: 'user', parts: [{ text: input.userMessage }] }],
-    onChunk: (text, think, tokenCount) => {
-      raw = text;
-      if (think) thinking = think;
-      if (tokenCount) tokens = tokenCount;
-      const parts = extractParts(raw);
-      lastParts = parts;
-      input.onStream(parts.message || '', thinking, parts.questions, parts.actionSummary, tokens);
-    },
-  }));
+  const sys = `${input.systemInstruction}
+
+${DRAFT_FIRST_SYSTEM_RULE}
+
+Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
+
+ÇIKTI FORMATI (zorunlu JSON):
+{ "message": "kullanıcıya gösterilecek kısa doğal dil/Markdown",
+  "questions": [ { "id": "q1", "text": "...", "options": ["..."] } ],
+  "actionSummary": "opsiyonel iç özet" }
+
+- Uzun doküman üretme; sadece konuşma cevabı ver.
+- Netleştirici soru soracaksan questions alanını doldur (2-4 seçenek).`;
+  await callAiWithRetry(() =>
+    callGemini({
+      model: input.model,
+      systemInstruction: sys,
+      contents: [
+        ...input.history,
+        { role: 'user', parts: [{ text: input.userMessage }] },
+      ],
+      onChunk: (t, think, tk) => {
+        raw = t;
+        if (think) thinking = think;
+        if (tk) tokens = tk;
+        const parts = extractParts(raw);
+        lastParts = parts;
+        input.onStream(parts.message || '', thinking, parts.questions, parts.actionSummary, tokens);
+      },
+    })
+  );
   const finalParts = extractParts(raw);
+  const finalMessage = finalParts.message || lastParts.message || '';
   return {
-    text: finalParts.message || lastParts.message || '',
+    text: finalMessage,
     thinking,
     questions: finalParts.questions || lastParts.questions,
     actionSummary: finalParts.actionSummary || lastParts.actionSummary,
@@ -156,36 +269,104 @@ async function runChatOnly(input: SingleChatInput, classification: IntentClassif
   };
 }
 
-async function runAskClarifyingQuestions(input: SingleChatInput, classification: IntentClassification, code?: string): Promise<SingleChatResult> {
+async function runAskClarifyingQuestions(
+  input: SingleChatInput,
+  classification: IntentClassification,
+  code?: string,
+  behaviorDecision?: BehaviorDecision,
+  preferredQuestions?: Question[],
+): Promise<SingleChatResult> {
   input.onPhase('ACT', 'Netleştirici sorular hazırlanıyor...');
-  if (classification.clarificationQuestions && classification.clarificationQuestions.length > 0) {
-    const questions = normalizeQuestions(classification.clarificationQuestions) || [];
+
+  if (preferredQuestions && preferredQuestions.length > 0) {
+    const questions = preferredQuestions.slice(0, 4);
     const msg = code === 'MISSING_SELECTION'
       ? 'Seçili metin göremedim. Dokümandan ilgili kısmı seçip tekrar dener misin?'
-      : 'Devam etmeden önce şu kritik noktaları netleştirmem gerekiyor. Her soruda hızlı cevap seçebilir veya kendi cevabını yazabilirsin.';
-    input.onStream(msg, '', questions, 'ask_clarifying_questions', 0);
-    return { text: msg, thinking: '', questions, intent: 'ask_questions', classification, tokenCount: 0 };
+      : 'Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen "Varsayımlarla ilerle" diyerek etiketli taslağa geçebilirsin.';
+    input.onStream(msg, '', questions, 'ask_clarifying_questions_gap_matrix', 0);
+    return {
+      text: msg,
+      thinking: '',
+      questions,
+      intent: 'ask_questions',
+      classification,
+      tokenCount: 0,
+    };
   }
 
+  // If the classifier already provided good questions, use them directly.
+  if (classification.clarificationQuestions && classification.clarificationQuestions.length > 0) {
+    const domainDiscovery = /behavior:domain_discovery_before_draft:([^;]+)/.exec(classification.reason || '');
+    const domainLabel = domainDiscovery?.[1]
+      ? domainDiscovery[1].replace(/_/g, ' ')
+      : '';
+    const humanProfile = behaviorDecision?.humanProfile;
+    const criticalInfo = humanProfile?.missingCriticalInfo?.length
+      ? ` Ozellikle ${humanProfile.missingCriticalInfo.join(', ')} kararlarini netlestirmem gerekiyor.`
+      : '';
+    const firstRationale = humanProfile?.questionRationale?.[0]
+      ? ` Ilk soru onemli cunku ${humanProfile.questionRationale[0]}`
+      : '';
+    const maxQuestions = domainDiscovery ? 4 : 3;
+    const questions: Question[] = classification.clarificationQuestions
+      .slice(0, maxQuestions)
+      .map((text, i) => parseClassifierQuestion(text, i));
+    const cognitiveAsk = /cognitive:ask_first/.test(classification.reason || '');
+    const msg = code === 'MISSING_SELECTION'
+      ? 'Seçili metin göremedim. Dokümandan ilgili kısmı seçip tekrar dener misin?'
+      : domainDiscovery
+        ? `Talebi ${domainLabel || humanProfile?.projectDomain || 'is analizi'} konusu olarak algiladim. Insan is analisti gibi ilerlemek icin once kritik karar noktalarini netlestirelim.${criticalInfo}${firstRationale} Istersen "Varsayimlarla ilerle" diyerek ilk taslagi hemen urettirebilirsin.`
+        : cognitiveAsk
+          ? `Bu talep dokumani saglam kurmak icin biraz seyrek. Kor bir taslak uretmek yerine once dokumani yanlis kurdurabilecek kritik kararlari netlestirelim. Istersen "Varsayimlarla ilerle" diyerek isaretli varsayimlarla taslaga gecebilirim.`
+        : 'Devam etmeden once su kritik noktalari netlestirmem gerekiyor.';
+    input.onStream(msg, '', questions, 'ask_clarifying_questions', 0);
+    return {
+      text: msg,
+      thinking: '',
+      questions,
+      intent: 'ask_questions',
+      classification,
+      tokenCount: 0,
+    };
+  }
+
+  // Otherwise ask the model to produce 2-3 quick-answer questions.
   let raw = '';
   let tokens = 0;
-  const sys = `Sen JetWork AI'sın. Kullanıcının isteğini netleştirmek için EN FAZLA 3 hızlı cevaplanabilir soru üret.\n\nÇIKTI JSON:\n{ "message": "kısa giriş", "questions": [ { "id": "q1", "text": "...", "options": ["seçenek 1", "seçenek 2", "seçenek 3"] } ] }\n\n- Her soruda 2-4 seçenek zorunlu.\n- Genel BA soruları yerine talebe özel kritik karar soruları sor.\n- Dokümanı değiştirme.`;
-  await callAiWithRetry(() => callGemini({
-    model: input.model,
-    systemInstruction: sys,
-    contents: [...input.history, { role: 'user', parts: [{ text: input.userMessage }] }],
-    onChunk: (text, _think, tokenCount) => {
-      raw = text;
-      if (tokenCount) tokens = tokenCount;
-      const parts = extractParts(raw);
-      input.onStream(parts.message || '', '', parts.questions, parts.actionSummary, tokens);
-    },
-  }));
+  const sys = `Sen JetWork AI'sın. Kullanıcının isteğini netleştirmek için EN FAZLA 3 hızlı cevaplanabilir soru üret.
+
+ÇIKTI JSON:
+{ "message": "kısa açıklayıcı giriş",
+  "questions": [ { "id": "q1", "text": "...", "options": ["seçenek 1", "seçenek 2", "seçenek 3"] } ] }
+
+- Her soruda 2-4 seçenek olmalı.
+- Dokümanı değiştirme.`;
+  await callAiWithRetry(() =>
+    callGemini({
+      model: input.model,
+      systemInstruction: `${sys}
+
+${buildBaMindsetInstruction({ mode: 'ask_clarifying_questions', domain: classification.baAgentFocus || 'generic_ba', depth: 'standard' })}
+
+- En fazla 3 soru uret; 4 soru uretme.
+- Soru ancak kritik karar eksigini kapatacaksa sorulur.`,
+      contents: [
+        ...input.history,
+        { role: 'user', parts: [{ text: input.userMessage }] },
+      ],
+      onChunk: (t, _th, tk) => {
+        raw = t;
+        if (tk) tokens = tk;
+        const parts = extractParts(raw);
+        input.onStream(parts.message || '', '', parts.questions?.slice(0, 3), parts.actionSummary, tokens);
+      },
+    })
+  );
   const finalParts = extractParts(raw);
   return {
     text: finalParts.message || 'Birkaç netleştirici sorum var.',
     thinking: '',
-    questions: finalParts.questions,
+    questions: finalParts.questions?.slice(0, 3),
     actionSummary: finalParts.actionSummary,
     intent: 'ask_questions',
     classification,
@@ -193,77 +374,156 @@ async function runAskClarifyingQuestions(input: SingleChatInput, classification:
   };
 }
 
-async function runUpdateSelectedText(input: SingleChatInput, classification: IntentClassification): Promise<SingleChatResult> {
+async function runUpdateSelectedText(
+  input: SingleChatInput,
+  classification: IntentClassification
+): Promise<SingleChatResult> {
   input.onPhase('ACT', 'Seçili metin güncelleniyor...');
-  const section: DocumentSectionKey = (classification.targetSection as DocumentSectionKey) || (input.selectedSection as DocumentSectionKey) || 'businessAnalysis';
-  const editSystem = `Kullanıcının talep ettiği şekilde SADECE aşağıdaki seçili metni yeniden yaz.\nSonucu düz metin/Markdown olarak döndür, başka yorum EKLEME.\n\n[SEÇİLİ METİN]\n${input.selectedNodeContent || ''}`;
+  const section: DocumentSectionKey =
+    (classification.targetSection as DocumentSectionKey) ||
+    (input.selectedSection as DocumentSectionKey) ||
+    'businessAnalysis';
+
+  const editSystem = `Kullanıcının talep ettiği şekilde SADECE aşağıdaki seçili metni yeniden yaz.
+Sonucu düz metin/Markdown olarak döndür, başka yorum EKLEME.
+
+[SEÇİLİ METİN]
+${input.selectedNodeContent || ''}`;
   let newContent = '';
   let thinking = '';
   let tokens = 0;
-  await callAiWithRetry(() => callGemini({
-    model: input.model,
-    systemInstruction: editSystem,
-    contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
-    onChunk: (text, think, tokenCount) => {
-      newContent = text;
-      if (think) thinking = think;
-      if (tokenCount) tokens = tokenCount;
-    },
-  }));
-  const updated = input.documentContent ? applyNodeUpdate(input.documentContent, section, newContent) : undefined;
+  await callAiWithRetry(() =>
+    callGemini({
+      model: input.model,
+      systemInstruction: editSystem,
+      contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
+      onChunk: (t, think, tk) => {
+        newContent = t;
+        if (think) thinking = think;
+        if (tk) tokens = tk;
+      },
+    })
+  );
+  const updated = input.documentContent
+    ? applyNodeUpdate(input.documentContent, section, newContent)
+    : undefined;
   const summary = `Seçili metni "${section}" bölümünde güncelledim.`;
   input.onStream(summary, thinking, undefined, summary, tokens);
-  return { text: summary, thinking, actionSummary: summary, document: updated, intent: 'update_node', classification, tokenCount: tokens };
+  return {
+    text: summary,
+    thinking,
+    actionSummary: summary,
+    document: updated,
+    intent: 'update_node',
+    classification,
+    tokenCount: tokens,
+  };
 }
 
-async function runResearchInternal(input: SingleChatInput, classification: IntentClassification): Promise<SingleChatResult> {
+async function runResearchInternal(
+  input: SingleChatInput,
+  classification: IntentClassification
+): Promise<SingleChatResult> {
   input.onPhase('RESEARCH', 'Kurumsal hafıza taranıyor...');
   const query = input.userMessage;
   let hits: { content: string }[] = [];
   try {
-    const { data } = await supabase.rpc('match_knowledge_text', { query_text: query, match_count: 5 });
+    const { data } = await supabase.rpc('match_knowledge_text', {
+      query_text: query,
+      match_count: 5,
+    });
     hits = data || [];
-  } catch (error) {
-    console.warn('match_knowledge_text failed:', error);
+  } catch (e) {
+    console.warn('match_knowledge_text failed:', e);
   }
-  if (hits.length === 0) hits = hybridSearch(query, input.knowledgeBase, 5).map((hit) => ({ content: hit.content }));
+  if (hits.length === 0) {
+    hits = hybridSearch(query, input.knowledgeBase, 5).map((h) => ({ content: h.content }));
+  }
   const text = hits.length > 0
-    ? `**Kurumsal Hafıza (${query}):**\n\n${hits.map((hit, index) => `${index + 1}. ${hit.content}`).join('\n\n')}`
+    ? `**Kurumsal Hafıza (${query}):**\n\n${hits.map((h, i) => `${i + 1}. ${h.content}`).join('\n\n')}`
     : `"${query}" için kurumsal hafızada kayıt bulunamadı.`;
   input.onStream(text, '', undefined, `research_internal(${query})`, 0);
-  return { text, thinking: '', intent: 'research_internal', classification, tokenCount: 0 };
+  return {
+    text,
+    thinking: '',
+    intent: 'research_internal',
+    classification,
+    tokenCount: 0,
+  };
 }
 
-async function runResearchWeb(input: SingleChatInput, classification: IntentClassification): Promise<SingleChatResult> {
+async function runResearchWeb(
+  input: SingleChatInput,
+  classification: IntentClassification
+): Promise<SingleChatResult> {
   input.onPhase('RESEARCH', 'Web kaynakları taranıyor...');
   let text = '';
   let grounding: { uri: string; title: string }[] = [];
   let tokens = 0;
-  await callAiWithRetry(() => callGemini({
-    model: input.model,
-    systemInstruction: ANALYST_WEB_SYSTEM_PROMPT,
-    contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
-    onChunk: (chunk, _think, tokenCount) => {
-      text = chunk;
-      if (tokenCount) tokens = tokenCount;
-      input.onStream(text, '', undefined, undefined, tokens);
-    },
-    onGrounding: (urls) => {
-      grounding = urls;
-      if (input.onGrounding) input.onGrounding(urls);
-    },
-  }));
-  return { text, thinking: '', groundingUrls: grounding.length > 0 ? grounding : undefined, actionSummary: 'research_web', intent: 'research_web', classification, tokenCount: tokens };
+  await callAiWithRetry(() =>
+    callGemini({
+      model: input.model,
+      systemInstruction: ANALYST_WEB_SYSTEM_PROMPT,
+      contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
+      onChunk: (t, _th, tk) => {
+        text = t;
+        if (tk) tokens = tk;
+        input.onStream(text, '', undefined, undefined, tokens);
+      },
+      onGrounding: (urls) => {
+        grounding = urls;
+        if (input.onGrounding) input.onGrounding(urls);
+      },
+    })
+  );
+  return {
+    text,
+    thinking: '',
+    groundingUrls: grounding.length > 0 ? grounding : undefined,
+    actionSummary: 'research_web',
+    intent: 'research_web',
+    classification,
+    tokenCount: tokens,
+  };
 }
 
-async function runBaLoop(input: SingleChatInput, classification: IntentClassification, opts: { forceDraft?: boolean } = {}): Promise<SingleChatResult> {
-  const intentOut: SingleChatIntent = classification.subIntent === 'generate_test_cases'
-    ? 'generate_tests'
-    : classification.subIntent === 'generate_flow_diagram' || classification.subIntent === 'generate_bpmn' || classification.subIntent === 'generate_mermaid'
-      ? 'generate_flow'
-      : classification.primaryIntent === 'document_editing'
-        ? 'revise_section'
-        : 'analyze_request';
+async function runBaLoop(
+  input: SingleChatInput,
+  classification: IntentClassification,
+  opts: { forceDraft?: boolean; behaviorInstruction?: string; turnDecision?: AiTurnDecision } = {}
+): Promise<SingleChatResult> {
+  const focus = classification.baAgentFocus;
+  const target = classification.targetSection;
+  const focusHint = focus === 'test'
+    ? '\n\n[ODAK] Test stratejisi, UAT ve kabul senaryolarini BA Analiz icinde detayli alt baslik olarak yaz; ayri test sekmesi uretmeye zorlama.'
+    : focus === 'flow'
+      ? '\n\n[ODAK] Surec akisini BA Analiz icinde metinsel/Mermaid taslak olarak yaz; ayri bpmn sekmesi uretmeye zorlama.'
+      : focus === 'technical_analysis'
+        ? '\n\n[ODAK] Teknik analiz, API, veri modeli ve entegrasyon mimarisini BA Analiz icinde kavramsal tasarim alt basliklari olarak yaz.'
+        : focus === 'review'
+          ? '\n\n[ODAK] "review" bolumunde riskler, acik sorular ve kalite gozden gecirmesi uret.'
+          : target
+            ? `\n\n[ODAK] Ozellikle "${target}" bolumunu guncelle; diger bolumleri koru.`
+            : '';
+  const behaviorHint = opts.behaviorInstruction ? `\n\n${opts.behaviorInstruction}` : '';
+  const decisionHint = opts.turnDecision ? `\n\n${buildAiTurnDecisionInstruction(opts.turnDecision)}` : '';
+  const sourceReport = analyzeSourceIntelligence({
+    sourceText: buildSourceCorpus({
+      userMessage: input.userMessage,
+      messages: input.messageHistory,
+      document: input.documentContent,
+    }),
+    workspaceTitle: input.workspaceTitle,
+  });
+  const sourceHint = sourceReport.confidence >= 45 || sourceReport.processes.length || sourceReport.mismatchWarnings.length
+    ? `\n\n${buildSourceIntelligencePrompt(sourceReport)}`
+    : '';
+
+  const intentOut: SingleChatIntent =
+    classification.subIntent === 'generate_test_cases' ? 'generate_tests'
+      : classification.subIntent === 'generate_flow_diagram' || classification.subIntent === 'generate_bpmn' || classification.subIntent === 'generate_mermaid' ? 'generate_flow'
+      : classification.primaryIntent === 'document_editing' ? 'revise_section'
+      : 'analyze_request';
 
   const loopOutput = await runBaAgentLoop({
     userMessage: input.userMessage,
@@ -271,7 +531,8 @@ async function runBaLoop(input: SingleChatInput, classification: IntentClassific
     documentContent: input.documentContent,
     knowledgeBase: input.knowledgeBase,
     model: input.model,
-    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${visibleFocusHint(classification)}\n\n[GORUNUR DOKUMAN YUZEYI]\n- Sadece businessAnalysis ve review bolumlerini uret.\n- IT analiz, test, UAT ve flow detaylarini businessAnalysis icinde alt baslik olarak yaz.\n- code/test/bpmn alanlarini zorunlu uretme.\n- businessAnalysis ana basligi KAVRAMSAL TASARIM RAPORU olmalı; Word kavramsal tasarım yapısına uy.`,
+    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}${behaviorHint}${decisionHint}${sourceHint}`,
+    turnDecision: opts.turnDecision,
     onPhase: (phase, label) => input.onPhase(phase, label),
     onThinking: input.onThinking,
     onActStream: input.onStream,
@@ -280,38 +541,115 @@ async function runBaLoop(input: SingleChatInput, classification: IntentClassific
 
   let finalDocument = loopOutput.document;
   let finalText = loopOutput.text;
-  let finalQuestions = normalizeQuestions(loopOutput.questions as any) || loopOutput.questions;
+  let finalQuestions = loopOutput.questions;
+  const forceDraftAllowed = !!opts.forceDraft
+    && opts.turnDecision?.action !== 'ask_questions'
+    && opts.turnDecision?.action !== 'answer_only'
+    && opts.turnDecision?.action !== 'research_first';
 
-  if (opts.forceDraft && !finalDocument) {
+  // Force-draft fallback: BA loop finished without a document even though
+  // the caller required one. Make a second, narrower call that MUST return
+  // the document field per schema.
+  if (forceDraftAllowed && !finalDocument) {
     input.onPhase('ACT', 'Taslak zorla üretiliyor...');
     try {
-      const fallbackSystem = `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU DERIN BA DOKUMAN URETIMI - SON CAGRI]\nOnceki adimda document alani dolmadi. Simdi SADECE dokumani uretmen gerekiyor.\n- questions alanı BOS olmalı.\n- document alani zorunlu: businessAnalysis ve review bolumlerini doldur.\n- businessAnalysis KAVRAMSAL TASARIM RAPORU formatında olsun.\n- Teknik analiz, test ve surec akisini businessAnalysis icinde alt baslik olarak yaz; code/test/bpmn alanlarini zorunlu uretme.\n- Eksik bilgileri [VARSAYIM] etiketi ile dokuman icinde isaretle.\n- Belirsizlikleri review.content icinde Acik Sorular basligi altinda listele.`;
+      const fallbackSystem = `${input.systemInstruction}
+
+${DRAFT_FIRST_SYSTEM_RULE}
+${behaviorHint}
+${sourceHint}
+
+[ZORUNLU DERIN BA DOKUMAN URETIMI - SON CAGRI]
+Onceki adimda \`document\` alani dolmadi. Simdi SADECE dokumani uretmen gerekiyor.
+- \`questions\` alanı BOŞ olmalı.
+- \`document\` alani zorunlu: businessAnalysis ve review bolumlerini doldur.
+- Teknik analiz, test ve surec akisini businessAnalysis icinde alt baslik olarak yaz; code/test/bpmn alanlarini zorunlu uretme.
+- Eksik bilgileri "[VARSAYIM]" etiketi ile dokuman icinde isaretle.
+- Belirsizlikleri review.content icinde "## Acik Sorular" basligi altinda listele.
+- Mesaj 2-3 cumleyi gecmesin; detaylar dokumana yazilsin.
+
+${buildDeepBaActInstructions(buildRecentSubject(input))}`;
+
+      const fallbackContents: any[] = [
+        ...input.history,
+        {
+          role: 'user',
+          parts: [{ text: `Kullanıcı talebi ve konuşma geçmişindeki kararlara dayanarak ŞİMDİ dokümanı üret. Son kullanıcı mesajı: "${input.userMessage}"` }],
+        },
+      ];
+      if (input.documentContent) {
+        const first = fallbackContents[0]?.parts?.[0];
+        if (first && 'text' in first) {
+          first.text = `Mevcut Doküman (varsa genişlet):\n${JSON.stringify(input.documentContent, null, 2)}\n\n${first.text}`;
+        }
+      }
+
       const fallback = await callGemini({
         model: input.model,
         systemInstruction: fallbackSystem,
-        contents: [...input.history, { role: 'user', parts: [{ text: `Kullanıcı talebi ve konuşma geçmişindeki kararlara dayanarak ŞİMDİ dokümanı üret. Son kullanıcı mesajı: "${input.userMessage}"` }] }],
+        contents: fallbackContents,
         responseSchema: chatResponseJsonSchema,
         onChunk: () => {},
       });
-      const parsed = JSON.parse((fallback.text || '').trim());
-      if (parsed && typeof parsed === 'object' && parsed.document) {
-        finalDocument = parsed.document;
-        if (typeof parsed.message === 'string' && parsed.message.trim()) finalText = parsed.message.trim();
-        finalQuestions = undefined;
+
+      try {
+        const parsed = JSON.parse((fallback.text || '').trim());
+        if (parsed && typeof parsed === 'object' && parsed.document) {
+          finalDocument = parsed.document;
+          if (typeof parsed.message === 'string' && parsed.message.trim()) {
+            finalText = parsed.message.trim();
+          }
+          finalQuestions = undefined;
+        }
+      } catch {
+        // noop — handled by honesty guard below
       }
-    } catch (error) {
-      console.warn('Force-draft fallback call failed:', error);
+    } catch (err) {
+      console.warn('Force-draft fallback call failed:', err);
     }
   }
 
-  if (!finalDocument && opts.forceDraft && (finalText || '').trim().length > 300) {
+  // Last-resort synthesis: document-producing turns must not leave the right
+  // panel empty. Even if the model times out or forgets the `document` field,
+  // create a seed BA document and let the post-processor/quality gate deepen it.
+  if (!finalDocument && forceDraftAllowed) {
+    const base = input.documentContent || ({} as DocumentData);
+    const safeText = (finalText || '').trim();
+    const seedContent = safeText.length > 120
+      ? safeText
+      : [
+        '# KAVRAMSAL TASARIM RAPORU',
+        '',
+        '## 1. Talep Ozeti',
+        input.userMessage,
+        '',
+        '## 2. Baslangic Analiz Notu',
+        'AI uretim cagrisi tam dokuman alani dondurmedigi icin bu taslak talep uzerinden baslatildi. Kalite kapisi; problem modeli, surec modeli bloklari, is gerekleri, KPI, kaynak/varsayim/acik konu ayrimi, test/UAT ve degisim yonetimi bolumlerini otomatik tamamlayacaktir.',
+      ].join('\n');
     finalDocument = {
-      businessAnalysis: { content: finalText, status: 'DRAFT', flags: [] },
-      review: { content: '## Açık Sorular\n- [AÇIK KONU] Model yapılandırılmış doküman döndürmedi; içerik BA Analiz içine taşındı.', status: 'NEEDS_REVISION', flags: ['STRUCTURED_DOCUMENT_FALLBACK'] },
+      ...(base as any),
+      businessAnalysis: {
+        content: seedContent,
+        status: 'DRAFT',
+        flags: ['FORCE_DRAFT_SEED'],
+      },
+      review: {
+        content: [
+          '## Review',
+          '',
+          '- [VARSAYIM] Model tam document alani dondurmedigi icin seed taslak olusturuldu.',
+          '- [ACIK KONU] Is birimi tarafindan kritik kararlar ve kapsam dogrulanmali.',
+          '- [KALITE] Post-processor ve kalite kapisi dokumani derinlestirecek.',
+        ].join('\n'),
+        status: 'NEEDS_REVISION',
+        flags: ['FORCE_DRAFT_SEED_REVIEW'],
+      },
     } as DocumentData;
   }
 
-  const claimsUpdate = /(doküman|dokuman|sağ panel|sag panel).{0,40}(güncellen|guncellen|oluşturul|olusturul|işlendi|islendi|eklen|aktarıl|aktaril)/i.test(finalText || '');
+  // Honesty guard: if the assistant text claims document was updated but no
+  // document was actually produced, rewrite it to be truthful.
+  const claimsUpdate = /(doküman|sağ panel).{0,40}(güncellen|oluşturul|işlendi|eklen|aktarıl)/i.test(finalText || '');
   if (claimsUpdate && !finalDocument) {
     finalText = 'Şu an doküman güncellemesi üretemedim. Lütfen talebi biraz daha netleştirin veya "Varsayımlarla ilerle" aksiyonunu seçin; eksik alanları varsayımla dolduracağım.';
   }
@@ -325,62 +663,136 @@ async function runBaLoop(input: SingleChatInput, classification: IntentClassific
     document: finalDocument,
     intent: intentOut,
     classification,
+    turnDecision: opts.turnDecision,
     tokenCount: loopOutput.tokenCount,
   };
 }
 
-function runSystemMessage(input: SingleChatInput, classification: IntentClassification, code: string): SingleChatResult {
+function runSystemMessage(
+  input: SingleChatInput,
+  classification: IntentClassification,
+  code: string
+): SingleChatResult {
   const msg = code === 'ZERO_TOUCH_DISABLED'
     ? 'Ekip modu bu sürümde aktif değil. Bu talebi tekli JetWork AI modu ile analiz edip dokümana aktarabilirim. Devam edeyim mi?'
     : code === 'AGENT_DEBATE_DISABLED'
-      ? 'Görünür çok ajan tartışması MVPde kapalı. Bu ihtiyacı tekli JetWork AI ile karşılayabilirim.'
+      ? 'Görünür çok ajan tartışması MVP\'de kapalı. Bu ihtiyacı tekli JetWork AI ile karşılayabilirim.'
       : 'Bu işlemi şu an desteklemiyorum.';
   input.onStream(msg, '', undefined, code, 0);
-  return { text: msg, thinking: '', intent: 'chat_only', classification, tokenCount: 0 };
+  return {
+    text: msg,
+    thinking: '',
+    intent: 'chat_only',
+    classification,
+    tokenCount: 0,
+  };
 }
 
-function runWorkflowStub(input: SingleChatInput, classification: IntentClassification): SingleChatResult {
+function runWorkflowStub(
+  input: SingleChatInput,
+  classification: IntentClassification
+): SingleChatResult {
   const subMap: Partial<Record<SubIntent, string>> = {
     export_document: 'Dokümanı indirme için sağ panelin üst kısmındaki indir düğmesini kullanabilirsin. DOCX/HTML çıkışı yakında aktif olacak.',
+    export_section: 'Belirli bir sekmeyi export etmek yakında aktif olacak. Şu an tüm dokümanı indirebilirsin.',
     share_document: 'Paylaşım linki özelliği yakında aktif olacak.',
     compare_versions: 'Versiyon karşılaştırma sağ paneldeki version geçmişinden yapılabilir.',
     show_change_history: 'Değişiklik geçmişi sağ panelde versiyon listesi olarak görünür.',
+    show_last_changes: 'Son değişiklikler sağ paneldeki diff görünümünde incelenebilir.',
     approve_section: 'Bölüm onaylama yakında aktif olacak.',
     mark_needs_revision: 'Revizyon işareti yakında aktif olacak.',
+    mark_review_ready: 'Review-ready durumu yakında aktif olacak.',
   };
   const msg = subMap[classification.subIntent] || 'Bu iş akışı yakında aktif olacak.';
   input.onStream(msg, '', undefined, `workflow:${classification.subIntent}`, 0);
-  return { text: msg, thinking: '', intent: 'workflow_action', classification, tokenCount: 0 };
+  return {
+    text: msg,
+    thinking: '',
+    intent: 'workflow_action',
+    classification,
+    tokenCount: 0,
+  };
 }
 
-function runMemoryStub(input: SingleChatInput, classification: IntentClassification): SingleChatResult {
+function runMemoryStub(
+  input: SingleChatInput,
+  classification: IntentClassification
+): SingleChatResult {
   const msg = 'Bu bilgiyi proje hafızasına not ettim. Dokümanın Review bölümünde hatırlatacağım.';
   input.onStream(msg, '', undefined, `memory:${classification.subIntent}`, 0);
-  return { text: msg, thinking: '', actionSummary: `memory:${classification.subIntent}`, intent: 'memory_action', classification, tokenCount: 0 };
+  return {
+    text: msg,
+    thinking: '',
+    actionSummary: `memory:${classification.subIntent}`,
+    intent: 'memory_action',
+    classification,
+    tokenCount: 0,
+  };
 }
 
-function runPreviewRequired(input: SingleChatInput, classification: IntentClassification): SingleChatResult {
-  const msg = `Bu işlem yüksek riskli (${classification.subIntent}). Uygulamadan önce onayını istiyorum.\n\nİstediğin değişikliği bir sonraki mesajında "devam et" veya "uygula" diyerek onaylarsan, değişiklik sağ panelde diff olarak gösterilecek ve versiyon olarak kaydedilecek. Vazgeçmek istersen "iptal" yazabilirsin.`;
+function runPreviewRequired(
+  input: SingleChatInput,
+  classification: IntentClassification
+): SingleChatResult {
+  const msg = `Bu işlem yüksek riskli (${classification.subIntent}). Uygulamadan önce onayını istiyorum.
+
+İstediğin değişikliği bir sonraki mesajında "devam et" veya "uygula" diyerek onaylarsan, değişiklik sağ panelde diff olarak gösterilecek ve versiyon olarak kaydedilecek. Vazgeçmek istersen "iptal" yazabilirsin.`;
   input.onStream(msg, '', undefined, `preview_required:${classification.subIntent}`, 0);
-  return { text: msg, thinking: '', actionSummary: `preview_required:${classification.subIntent}`, intent: 'preview_required', classification, tokenCount: 0 };
+  return {
+    text: msg,
+    thinking: '',
+    actionSummary: `preview_required:${classification.subIntent}`,
+    intent: 'preview_required',
+    classification,
+    tokenCount: 0,
+  };
 }
 
-const runSingleChatOrchestratorInner = async (input: SingleChatInput): Promise<SingleChatResult> => {
+// ---------------------------------------------------------------------------
+// Public entry
+// ---------------------------------------------------------------------------
+
+const runSingleChatOrchestratorInner = async (
+  input: SingleChatInput
+): Promise<SingleChatResult> => {
   input.onPhase('INTENT', 'Niyet belirleniyor...');
-  const signals = computeDiscoverySignals(input.userMessage, input.messageHistory || [], input.documentContent);
+
+  const signals = computeDiscoverySignals(
+    input.userMessage,
+    input.messageHistory || [],
+    input.documentContent,
+  );
   const turnInput: SingleChatInput = signals.newStandaloneRequest
-    ? { ...input, history: [], messageHistory: [], documentContent: null }
+    ? {
+      ...input,
+      history: [],
+      messageHistory: [],
+      documentContent: null,
+    }
     : input;
 
+  // Short-circuit 1: pure greeting / small talk. Deterministic, no LLM call,
+  // no questions, no document change. Prevents the model from drifting the
+  // JetWork domain into job/talent/freelance questions.
   if (signals.greetingOnly) {
-    const greetingClassification = buildClassification('small_talk', { reason: 'greeting_detected' });
+    const greetingClassification = buildClassification('small_talk', {
+      reason: 'greeting_detected',
+    });
     const isCorrection = /\b(dedim|yazdım|yazdim|söyledim|soyledim|verdim|sadece|ne sorusu|neden soru)\b/i.test(input.userMessage || '');
     const msg = isCorrection
       ? 'Haklısın, sadece selamlaştın. İyiyim, teşekkür ederim. Analiz etmek istediğin bir talep olduğunda buradayım.'
       : 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.';
     input.onPhase('ACT', 'Cevap hazırlanıyor...');
     input.onStream(msg, '', undefined, 'small_talk_greeting', 0);
-    return { text: msg, thinking: '', questions: undefined, actionSummary: 'small_talk_greeting', intent: 'chat_only', classification: greetingClassification, tokenCount: 0 };
+    return {
+      text: msg,
+      thinking: '',
+      questions: undefined,
+      actionSummary: 'small_talk_greeting',
+      intent: 'chat_only',
+      classification: greetingClassification,
+      tokenCount: 0,
+    };
   }
 
   let classification = await classifyIntent({
@@ -391,33 +803,204 @@ const runSingleChatOrchestratorInner = async (input: SingleChatInput): Promise<S
     model: turnInput.model,
   });
 
-  if (signals.mustGenerateNow) {
+  const behaviorDecision = buildBehaviorDecision({
+    userMessage: turnInput.userMessage,
+    document: turnInput.documentContent,
+    classification,
+    discoveryReadiness: signals.baDiscoveryReadiness,
+  });
+  const turnSourceReport = analyzeSourceIntelligence({
+    sourceText: buildSourceCorpus({
+      userMessage: turnInput.userMessage,
+      messages: turnInput.messageHistory,
+      document: turnInput.documentContent,
+    }),
+    workspaceTitle: turnInput.workspaceTitle,
+  });
+  const cognitiveFrame = buildBaCognitiveFrame({
+    userMessage: turnInput.userMessage,
+    recentConversation: turnInput.history
+      .slice(-6)
+      .map(item => item.parts.map(part => part.text).join('\n'))
+      .filter(Boolean)
+      .join('\n\n'),
+    document: turnInput.documentContent,
+    sourceReport: turnSourceReport,
+    behaviorDecision,
+  });
+  classification = applyBehaviorDecisionToClassification(
+    classification,
+    behaviorDecision,
+    turnInput.documentContent,
+  );
+  const aiDiscoverySignals = {
+    mustGenerateNow: signals.mustGenerateNow,
+    greetingOnly: signals.greetingOnly,
+    newStandaloneRequest: signals.newStandaloneRequest,
+    reason: signals.reason,
+  };
+  const aiTurnDecision = buildAiTurnDecision({
+    userMessage: turnInput.userMessage,
+    document: turnInput.documentContent,
+    classification,
+    behaviorDecision,
+    cognitiveFrame,
+    sourceReport: turnSourceReport,
+    discoverySignals: aiDiscoverySignals,
+  });
+  const copilotTrace = buildCopilotCognitiveTrace({
+    userMessage: turnInput.userMessage,
+    messages: turnInput.messageHistory,
+    knowledgeBase: turnInput.knowledgeBase,
+    document: turnInput.documentContent,
+    hasSelectedText: !!turnInput.selectedNodeContent,
+    classification,
+    behaviorDecision,
+    sourceReport: turnSourceReport,
+    cognitiveFrame,
+    turnDecision: aiTurnDecision,
+    discoverySignals: aiDiscoverySignals,
+  });
+  const runtimeSnapshot = buildCopilotRuntimeSnapshot({
+    userMessage: turnInput.userMessage,
+    messages: turnInput.messageHistory,
+    knowledgeBase: turnInput.knowledgeBase,
+    document: turnInput.documentContent,
+    workspaceTitle: turnInput.workspaceTitle,
+    projectMemory: turnInput.projectMemory,
+    sourceReport: turnSourceReport,
+    trace: copilotTrace,
+  });
+  const behaviorInstruction = [
+    buildBehaviorOrchestratorInstruction(behaviorDecision, turnSourceReport),
+    buildBaCognitiveInstruction(cognitiveFrame),
+    buildCopilotCognitiveInstruction(copilotTrace),
+    buildCopilotRuntimeInstruction(runtimeSnapshot),
+    buildAiTurnDecisionInstruction(aiTurnDecision),
+  ].join('\n\n');
+  turnInput.onThinking(
+    `AI akli kuruldu: karar=${aiTurnDecision.action}, profil=${aiTurnDecision.artifactProfile.id}, mod=${cognitiveFrame.artifactMode}, kaynak=${cognitiveFrame.sourceRichness}, runtime=${runtimeSnapshot.currentState}/${runtimeSnapshot.completionStatus}, coverage=${cognitiveFrame.coverageSummary.score}/100, guven=${cognitiveFrame.confidence}/100. ${buildCopilotThinkingSummary(copilotTrace)}`
+  );
+
+  // Runtime snapshot is the product-level decision contract. The trace still
+  // explains the reasoning, but routing below follows runtime state/status so
+  // "ask / draft / execute" is decided by the same model that Review exposes.
+  const copilotFinalAction = runtimeSnapshot.finalAction;
+  const runtimeShouldAsk = (
+    runtimeSnapshot.currentState === 'ask_questions'
+    || runtimeSnapshot.completionStatus === 'awaiting_user' && copilotFinalAction === 'ask_blocking_questions'
+  ) && !signals.mustGenerateNow;
+  const runtimeShouldDraft = (
+    ['draft_with_assumptions', 'generate_source_grounded_draft', 'revise_existing_artifact', 'repair_artifact'].includes(copilotFinalAction)
+    || ['generate_artifact', 'validate_artifact', 'repair_artifact', 'complete'].includes(runtimeSnapshot.currentState)
+  ) && runtimeSnapshot.completionStatus !== 'awaiting_user';
+  const cognitiveShouldAsk = (
+    runtimeShouldAsk
+    || copilotFinalAction === 'ask_blocking_questions'
+    || ['ask_first', 'block_until_source'].includes(cognitiveFrame.action)
+  ) && !signals.mustGenerateNow;
+  const cognitiveShouldDraft = [
+    'draft_source_grounded',
+    'draft_with_assumptions',
+    'revise_existing',
+  ].includes(cognitiveFrame.action)
+    || [
+      'draft_with_assumptions',
+      'generate_source_grounded_draft',
+      'revise_existing_artifact',
+      'repair_artifact',
+    ].includes(copilotFinalAction)
+    || runtimeShouldDraft;
+
+  if (aiTurnDecision.action === 'research_first') {
+    return runResearchWeb(
+      turnInput,
+      {
+        ...classification,
+        requiresResearch: true,
+        researchType: 'web',
+        reason: `${classification.reason}; ai_turn_decision:${aiTurnDecision.reason}`,
+      },
+    );
+  }
+
+  if (aiTurnDecision.action === 'ask_questions') {
+    const gapQuestions = buildBaCognitiveQuestionItems(
+      cognitiveFrame,
+      aiTurnDecision.questionPolicy.maxQuestions || 3,
+    );
+    classification = {
+      ...classification,
+      documentImpact: 'none',
+      operation: 'none',
+      requiresClarification: true,
+      clarificationQuestions: buildBaCognitiveQuestions(cognitiveFrame),
+      shouldRunBaAgentLoop: false,
+      reason: `${classification.reason}; ai_turn_decision:${aiTurnDecision.reason}; copilot:${copilotFinalAction}; cognitive:ask_first:${cognitiveFrame.action}:${cognitiveFrame.artifactMode}:${cognitiveFrame.sourceRichness}`,
+    };
+    return runAskClarifyingQuestions(turnInput, classification, undefined, behaviorDecision, gapQuestions);
+  }
+
+  if (shouldPauseForBehaviorDiscovery(behaviorDecision) && aiTurnDecision.questionPolicy.shouldAsk) {
+    return runAskClarifyingQuestions(turnInput, classification, undefined, behaviorDecision);
+  }
+
+  // Short-circuit 2: behavior engine or discovery guard decided the turn must
+  // produce/update a visible document. This is now the main decision point for
+  // draft-first BA work.
+  if (['draft_document', 'revise_document', 'repair_document'].includes(aiTurnDecision.action)) {
     classification = {
       ...classification,
       primaryIntent: 'analysis_generation',
-      subIntent: classification.subIntent === 'generate_test_cases' || classification.subIntent === 'generate_flow_diagram' || classification.subIntent === 'generate_bpmn' ? classification.subIntent : 'generate_business_analysis',
+      subIntent: classification.subIntent === 'generate_test_cases'
+        || classification.subIntent === 'generate_flow_diagram'
+        || classification.subIntent === 'generate_bpmn'
+        ? classification.subIntent
+        : 'generate_business_analysis',
       documentImpact: 'updates_document',
       operation: 'replace_or_create_section',
-      targetSection: 'businessAnalysis',
+      targetSection: classification.targetSection === 'review' ? 'review' : 'businessAnalysis',
       requiresClarification: false,
       clarificationQuestions: undefined,
       requiresPreview: false,
       shouldRunBaAgentLoop: true,
       baAgentFocus: classification.baAgentFocus || 'business_analysis',
       confidence: Math.max(classification.confidence, 0.85),
-      reason: `discovery_guard:${signals.reason}`,
+      reason: `${classification.reason}; ai_turn_decision:${aiTurnDecision.reason}; copilot:${copilotFinalAction}; orchestrator_behavior:${behaviorDecision.reason}; cognitive_action:${cognitiveFrame.action}; discovery_guard:${signals.reason}`,
     };
     turnInput.onPhase('ACT', 'Taslak dokümana geçiliyor...');
-    return runBaLoop({ ...turnInput, systemInstruction: `${turnInput.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n[ZORUNLU DOKUMAN URETIMI]\nKullanıcı "${signals.reason}" sinyali verdi. Yeni soru sorma. document.businessAnalysis ve document.review üret. Teknik, test ve flow detaylarını BA Analiz içinde alt başlık yap. questions alanını boş bırak.` }, classification, { forceDraft: true });
+    const result = await runBaLoop(
+      {
+        ...turnInput,
+        systemInstruction: `${turnInput.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n${behaviorInstruction}\n\n[ZORUNLU DERIN BA DOKUMAN URETIMI]\nKullanici "${signals.reason || behaviorDecision.reason}" sinyali verdi. YENI SORU SORMA. Cevabin chatResponse JSON semasinda olmali ve \`document\` alani ZORUNLU olarak gorunur urun yuzeyindeki bolumleri icermelidir:\n- businessAnalysis: BA Analiz / kavramsal tasarim icerigi. Amac, kapsam, paydaslar, As-Is/To-Be, surecler, BR/FR/NFR/INT/RPT/SEC gereksinimler, veri modeli, entegrasyon mimarisi, ekran/validasyon/bildirim, hata yonetimi, UAT ve kabul kriterleri ayni bolumde karar verilebilir seviyede yazilir.\n- review: kaynak/dogrulama ozeti, riskler, acik sorular, varsayimlar, kalite kapisi ve sonraki aksiyonlar.\n- code/test/bpmn alanlarini zorunlu uretme; teknik, test ve akis detaylarini businessAnalysis icinde alt baslik olarak yaz.\nEksik bilgileri dokuman icinde "[VARSAYIM]" olarak isaretle ve Review > Acik Sorular bolumune ekle. \`questions\` alanini BOS birak.\n\n${buildDeepBaActInstructions(buildRecentSubject(turnInput))}`,
+      },
+      classification,
+      {
+        forceDraft: aiTurnDecision.documentPolicy.forceDocumentGeneration,
+        behaviorInstruction,
+        turnDecision: aiTurnDecision,
+      },
+    );
+    return {
+      ...result,
+      turnDecision: aiTurnDecision,
+      document: attachCopilotRuntimeToDocument(
+        attachCopilotTraceToDocument(result.document, copilotTrace),
+        runtimeSnapshot,
+      ),
+    };
   }
 
-  const action = decideAction(classification, { hasSelectedText: !!turnInput.selectedNodeContent, zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH });
+  const action = decideAction(classification, {
+    hasSelectedText: !!turnInput.selectedNodeContent,
+    zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH,
+  });
 
   switch (action.type) {
     case 'SYSTEM_MESSAGE':
       return runSystemMessage(turnInput, classification, action.code || 'UNSUPPORTED');
     case 'ASK_CLARIFYING_QUESTIONS':
-      return runAskClarifyingQuestions(turnInput, classification, action.code);
+      return runAskClarifyingQuestions(turnInput, classification, action.code, behaviorDecision);
     case 'PREVIEW_DOCUMENT_CHANGE':
       return runPreviewRequired(turnInput, classification);
     case 'CHAT_ONLY':
@@ -426,11 +1009,19 @@ const runSingleChatOrchestratorInner = async (input: SingleChatInput): Promise<S
       return runUpdateSelectedText(turnInput, classification);
     case 'RUN_RESEARCH': {
       const rt = classification.researchType;
-      if (rt === 'internal' || rt === 'workspace_history' || classification.subIntent === 'research_internal_knowledge' || classification.subIntent === 'research_workspace_history') return runResearchInternal(turnInput, classification);
+      if (rt === 'internal' || rt === 'workspace_history' || classification.subIntent === 'research_internal_knowledge' || classification.subIntent === 'research_workspace_history') {
+        return runResearchInternal(turnInput, classification);
+      }
       return runResearchWeb(turnInput, classification);
     }
     case 'SUGGEST_DOCUMENT_UPDATE':
-      return runChatOnly({ ...turnInput, systemInstruction: `${turnInput.systemInstruction}\n\n[MOD] Öneri modu: dokümana yazmadan ne ekleyebileceğini özetle ve sonunda "Dokümana işleyeyim mi?" diye sor.` }, classification);
+      // Suggest-only flow: produce an answer without touching the document,
+      // but include a CTA for the user to apply it. Same path as chat_only
+      // but seed the prompt with a "suggest, don't apply" hint.
+      return runChatOnly(
+        { ...turnInput, systemInstruction: `${turnInput.systemInstruction}\n\n[MOD] Öneri modu: dokümana yazmadan ne ekleyebileceğini özetle ve sonunda "Dokümana işleyeyim mi?" diye sor.` },
+        classification,
+      );
     case 'MEMORY_ACTION':
       return runMemoryStub(turnInput, classification);
     case 'WORKFLOW_ACTION':
@@ -438,29 +1029,51 @@ const runSingleChatOrchestratorInner = async (input: SingleChatInput): Promise<S
     case 'RUN_BA_AGENT_LOOP':
     case 'UPDATE_DOCUMENT_SECTION':
     default:
-      return runBaLoop(turnInput, classification, { forceDraft: true });
+      // Analysis / document-update paths must ALWAYS end up with a document
+      // patch. forceDraft makes a second narrower call if the first attempt
+      // returns no `document` field.
+      {
+        const result = await runBaLoop(turnInput, classification, {
+          forceDraft: aiTurnDecision.documentPolicy.forceDocumentGeneration,
+          behaviorInstruction,
+          turnDecision: aiTurnDecision,
+        });
+        return {
+          ...result,
+          turnDecision: aiTurnDecision,
+          document: attachCopilotRuntimeToDocument(
+            attachCopilotTraceToDocument(result.document, copilotTrace),
+            runtimeSnapshot,
+          ),
+        };
+      }
   }
 };
 
-export const runSingleChatOrchestrator = async (input: SingleChatInput): Promise<SingleChatResult> => {
+export const runSingleChatOrchestrator = async (
+  input: SingleChatInput
+): Promise<SingleChatResult> => {
   const result = await runSingleChatOrchestratorInner(input);
-  const normalizedResultQuestions = normalizeQuestions(result.questions as any) || result.questions;
-  let normalizedResult = { ...result, questions: normalizedResultQuestions };
-  if (normalizedResult.questions && containsBlockedQuestionDomain(normalizedResult.questions as any)) {
-    normalizedResult = {
-      ...normalizedResult,
+  // Question domain guard: strip any questions that drifted outside the
+  // JetWork analysis domain (job / talent / freelance / remote etc.).
+  if (result.questions && containsBlockedQuestionDomain(result.questions as any)) {
+    return {
+      ...result,
       questions: undefined,
-      text: normalizedResult.text && normalizedResult.text.trim().length > 0
-        ? normalizedResult.text
+      text: result.text && result.text.trim().length > 0
+        ? result.text
         : 'Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin.',
     };
   }
-  if (normalizedResult.classification?.subIntent === 'small_talk') {
-    const claimsQuestionsPrepared = /(soru hazırladım|birkaç kısa soru|aşağıdaki soruları|netleştirmek için .* soru)/i.test(normalizedResult.text || '');
-    const cleanText = claimsQuestionsPrepared || !(normalizedResult.text || '').trim()
+  // Also guard small_talk: never let questions leak through for pure greetings,
+  // and rewrite any "Birkaç soru hazırladım / aşağıdaki soruları" claims so the
+  // final message stays short and JetWork-domain appropriate.
+  if (result.classification?.subIntent === 'small_talk') {
+    const claimsQuestionsPrepared = /(soru hazırladım|birkaç kısa soru|aşağıdaki soruları|netleştirmek için .* soru)/i.test(result.text || '');
+    const cleanText = claimsQuestionsPrepared || !(result.text || '').trim()
       ? 'Haklısın, sadece selamlaştın. İyiyim, teşekkür ederim. Analiz etmek istediğin bir talep olduğunda buradayım.'
-      : normalizedResult.text;
-    return { ...normalizedResult, questions: undefined, text: cleanText };
+      : result.text;
+    return { ...result, questions: undefined, text: cleanText };
   }
-  return normalizedResult;
+  return result;
 };

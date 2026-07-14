@@ -8,6 +8,14 @@ export interface PromptContext {
   settings?: PromptSettings | null;
 }
 
+const VISIBLE_DOCUMENT_SURFACE_RULE = `
+[GORUNUR DOKUMAN YUZEYI - GUNCEL KURAL]
+- Sag panelde gorunur ve guncellenecek ana sekmeler yalnizca businessAnalysis (BA Analiz) ve review alanlaridir.
+- IT Analiz, Test, FLOW, BPMN, teknik mimari, veri modeli, UAT ve akis detaylari ayri code/test/bpmn sekmelerine yazilmaz; gerekiyorsa businessAnalysis icinde alt baslik olarak yazilir.
+- Review yalnizca kalite, risk, kaynak/dogrulama, varsayim, acik konu ve hizli aksiyon notlarini tasir.
+- Eski talimatlarda IT Analiz/Test/FLOW/BPMN alanlarini ayri doldur deniyorsa bu guncel kural gecerlidir.
+`.trim();
+
 export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   reasoningFramework: 'cot',
   contextWindowSize: 10,
@@ -196,7 +204,7 @@ export function buildSystemPrompt(context: PromptContext): string {
   const settings = context.settings || DEFAULT_PROMPT_SETTINGS;
 
   if (context.role === 'SYSTEM') {
-    return `${settings.systemInstruction}\n\n${settings.negativeConstraints}\n\n${settings.cotInstruction}`;
+    return `${settings.systemInstruction}\n\n${VISIBLE_DOCUMENT_SURFACE_RULE}\n\n${settings.negativeConstraints}\n\n${settings.cotInstruction}`;
   }
 
   const persona = settings.rolePersonas[context.role] || settings.rolePersonas['BA'] || '';
@@ -211,12 +219,14 @@ export function buildSystemPrompt(context: PromptContext): string {
   
   // Orchestrator has a specific JSON output requirement, so we don't add the full strict constraints to it
   if (context.role === 'Orchestrator') {
-    return `${persona}\n\n${reasoningInstruction}\n\n${context.additionalContext || ''}`;
+    return `${persona}\n\n${VISIBLE_DOCUMENT_SURFACE_RULE}\n\n${reasoningInstruction}\n\n${context.additionalContext || ''}`;
   }
 
   return `
 [ROL VE GÖREV]
 ${persona}
+
+${VISIBLE_DOCUMENT_SURFACE_RULE}
 
 ${reasoningInstruction}
 

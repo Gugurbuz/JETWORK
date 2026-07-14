@@ -9,9 +9,27 @@ import {
   ALL_SUB_INTENTS,
   SLASH_COMMAND_MAP,
   DocumentSectionKey,
+  BaAgentFocus,
 } from './intentTypes';
+import {
+  buildBaClarifyingQuestions,
+  buildBaDiscoveryState,
+  buildBaEnginePromptContext,
+  isLikelyBaDiscoveryAnswer,
+} from '../../modules/ai-ba-engine';
+import {
+  requiresExternalKnowledge,
+  shouldUseDeepBaAssistant,
+} from '../../modules/deep-ba-assistant';
+import { applyBehaviorDecisionToClassification, buildBehaviorDecision } from './behaviorDecision';
+import { buildContextualDiscoveryQuestions } from './baDiscoveryProfiles';
+import {
+  applyIntentProfileToClassification,
+  buildIntentProfilePromptContext,
+  detectDeterministicIntentProfile,
+} from './intentProfile';
 
-const SECTION_ENUM = ['businessAnalysis', 'code', 'test', 'bpmn', 'review'];
+const SECTION_ENUM = ['businessAnalysis', 'review'];
 
 const classifierSchema = {
   type: Type.OBJECT,
@@ -40,17 +58,68 @@ Görünür çok ajan tartışması başlatma. Zero-Touch MVP'de kapalıdır.
 Sadece geçerli JSON döndür. Markdown, açıklama veya serbest metin yazma.
 
 KURALLAR:
+- Görünür doküman yüzeyi şimdilik sadece businessAnalysis ve review sekmeleridir. Teknik analiz, test veya flow istenirse targetSection olarak businessAnalysis ya da review seç; baAgentFocus ile odağı belirt.
+- Teknik analiz / mimari / API / entegrasyon isteklerinde baAgentFocus = 'technical_analysis'.
+- Test / UAT / kabul senaryosu isteklerinde baAgentFocus = 'test'.
+- BPMN / Mermaid / süreç akışı isteklerinde baAgentFocus = 'flow'.
+- Risk / kalite / review isteklerinde baAgentFocus = 'review' veya 'quality'.
 - Sadece açıklama isteniyorsa documentImpact = 'none'.
 - Dokümana ekle/yaz/güncelle/çıkar/hazırla deniyorsa uygun targetSection belirle.
 - Seçili metin varsa "bunu/şunu" önce selectedText'e bağlanır.
 - Silme, komple baştan yazma, restore gibi riskli işlemlerde requiresPreview = true.
 - Emin değilsen requiresClarification = true yap; doküman güncelleme önerme.
+- Kullanici sadece "dokuman hazirla / FDD hazirla / kavramsal tasarim yaz" diyorsa bunu hedef cikti niyeti say; kritik baglam eksikse soru sorulabilir.
+- Kullanici "varsayimlarla ilerle", "bu bilgilerle devam", "soru sorma", "hizli taslak", "ilk taslagi cikar", "sen yap", "devam et" diyorsa soru sorma; analysis_generation ve shouldRunBaAgentLoop kullan.
+- Kullanıcı önceki soru kartlarına cevap veriyorsa bunu yeni BA girdisi say; generate_business_analysis veya add_requirement_detail seç.
 - Bilinmeyen kurumsal bilgi varsa uydurma; assumption/open question üret.
 - Kullanıcı bir talep/fikir/entegrasyon anlatıyorsa ve boş dokümana yazılacaksa -> generate_business_analysis (analysis_generation).
 - "araştır / güncel bilgi / best practice" açıkça geçiyorsa research_* intentleri kullan.
 - /ekip -> zero_touch_requested.
 
 ÖNEMLİ: Yanıt yalnızca şu JSON: { subIntent, targetSection, secondaryTargetSection, operation, documentImpact, confidence (0-1), riskLevel, requiresResearch, researchType, requiresClarification, clarificationQuestions, requiresPreview, shouldRunBaAgentLoop, baAgentFocus, reason }.`;
+
+const GENERATE_WITH_ASSUMPTIONS_RE = /\b(devam\s+et|durma|varsay[ıi]mlarla|varsayimlarla|bu bilgilerle|mevcut bilgilerle|h[ıi]zl[ıi]\s+taslak|hizli\s+taslak|ilk\s+tasla[ğg]?[ıi]?\s*([çc][ıi]kar|olustur|haz[ıi]rla|uret|yaz)|kabaca\s+taslak|taslakla\s+ilerle|uygula|ba[şs]la|tamam|ok|next|sen yap|ben mi yap[ıi]cam|ben mi yapacagim|soru sorma|daha fazla soru sorma)\b/i;
+
+function formatClassifierQuestion(text: string, options: string[] = []): string {
+  return options.length > 0 ? `${text}\nSecenekler: ${options.join(' | ')}` : text;
+}
+
+function normalizeQuestionDomainText(value: string): string {
+  return (value || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/\u0131/g, 'i')
+    .replace(/\u015f/g, 's')
+    .replace(/\u011f/g, 'g')
+    .replace(/\u00fc/g, 'u')
+    .replace(/\u00f6/g, 'o')
+    .replace(/\u00e7/g, 'c');
+}
+
+function buildContextualClarificationQuestions(userMessage: string): string[] {
+  const profiledQuestions = buildContextualDiscoveryQuestions(userMessage);
+  if (profiledQuestions.length > 0) return profiledQuestions;
+
+  const normalizedText = normalizeQuestionDomainText(userMessage);
+  const isSapCrmAiSalesBot = /sap\s*crm/.test(normalizedText)
+    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis botu|sales bot|lead|opportunity|firsat)/.test(normalizedText);
+  if (isSapCrmAiSalesBot) {
+    return [
+      formatClassifierQuestion('AI satis botu hangi kanallarda calisacak?', ['Web chat + WhatsApp', 'SAP CRM icinde temsilci asistani', 'Varsayimla coklu kanal']),
+      formatClassifierQuestion('SAP CRM tarafinda hangi satis nesneleri yonetilecek?', ['Lead + Opportunity + Activity', 'Sadece lead olusturma', 'Varsayimla lead ve opportunity kapsamda']),
+      formatClassifierQuestion('Bot hangi seviyede aksiyon alabilecek?', ['Sadece oneri ve ozet', 'Lead nitelendirme + CRM kaydi', 'Varsayimla kritik islemler temsilci onayli']),
+      formatClassifierQuestion('Insana devir ve kalite kontrol nasil ilerlesin?', ['Dusuk guvende temsilciye devir', 'Tum satis aksiyonlari onayli', 'Varsayimla risk bazli devir modeli']),
+    ];
+  }
+  const isSapIys = /sap\s+crm/i.test(userMessage) && /iys|i[\. ]?y[\. ]?s|ileti y[oö]netim sistemi|ileti yonetim sistemi/i.test(userMessage);
+  if (!isSapIys) return [];
+
+  return [
+    formatClassifierQuestion('IYS izin kapsami hangi iletisim kanallarini icermeli?', ['SMS/MESAJ + EPOSTA + ARAMA', 'Sadece SMS/EPOSTA', 'Varsayimla tum kanallar']),
+    formatClassifierQuestion('Sirket IYS tarafinda tek marka kodu mu, coklu marka yapisi mi kullaniyor?', ['Tek marka kodu', 'Coklu marka', 'Varsayimla coklu marka desteklensin']),
+    formatClassifierQuestion('SAP CRM ile IYS arasinda hangi ara katman varsayilsin?', ['SAP CPI', 'SAP PI/PO', 'Varsayimla CPI veya PO karari acik kalsin']),
+    formatClassifierQuestion('Ilk aktarim ve gunluk mutabakat kapsami nasil ele alinsin?', ['Initial load + gunluk delta', 'Sadece gunluk delta', 'Varsayimla ikisi de kapsamda']),
+  ];
+}
 
 function docSummary(doc: DocumentData | null): string {
   if (!doc) return 'boş';
@@ -105,95 +174,155 @@ export interface ClassifyInput {
   model: string;
 }
 
-function normalizeForDiscovery(value: string): string {
-  return (value || '')
-    .trim()
-    .toLocaleLowerCase('tr-TR')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ı/g, 'i')
-    .replace(/ş/g, 's')
-    .replace(/ğ/g, 'g')
-    .replace(/ü/g, 'u')
-    .replace(/ö/g, 'o')
-    .replace(/ç/g, 'c')
-    .replace(/[.!?,;:]/g, '')
-    .replace(/\s+/g, ' ');
+function normalizeVisibleSection(section?: DocumentSectionKey): DocumentSectionKey | undefined {
+  if (!section) return undefined;
+  return section === 'review' ? 'review' : 'businessAnalysis';
 }
 
-function hasDocumentContent(doc: DocumentData | null): boolean {
-  if (!doc) return false;
-  return Object.values(doc as any).some((section: any) => section?.content && String(section.content).trim().length > 0);
+function focusFromSubIntent(subIntent: SubIntent): BaAgentFocus | undefined {
+  if (['generate_test_cases', 'generate_error_scenarios', 'check_testability', 'check_traceability'].includes(subIntent)) return 'test';
+  if (['generate_flow_diagram', 'generate_bpmn', 'generate_mermaid'].includes(subIntent)) return 'flow';
+  if (['generate_technical_analysis', 'generate_integration_analysis', 'generate_api_contract', 'generate_developer_handoff'].includes(subIntent)) return 'technical_analysis';
+  if (['review_document_quality', 'score_document'].includes(subIntent)) return 'quality';
+  if (['generate_review_report', 'find_risks', 'find_missing_sections', 'find_open_questions', 'prepare_review_summary', 'prepare_management_summary'].includes(subIntent)) return 'review';
+  return undefined;
 }
 
-function sparseDiscoveryQuestions(normalized: string): string[] {
-  if (/sap\s*crm/.test(normalized) && /(iys|ileti yonetim sistemi)/.test(normalized)) {
-    return [
-      'İYS entegrasyonunda hedef kapsam hangi izin kanallarını kapsıyor: SMS, e-posta, arama ve/veya çoklu marka?',
-      'SAP CRM tarafında izin verisi hangi nesne ve alanlarda tutuluyor; mevcut veri kalitesi ve telefon/e-posta formatı ne durumda?',
-      'Senkronizasyon modeli nasıl olmalı: anlık API, batch/delta mutabakat, initial load ve retry/kuyruk ihtiyacı var mı?',
-      'Yasal uyum ve operasyon için başarı hangi KPI ve kontrollerle ölçülecek: 3 iş günü kuralı, ret sonrası durdurma, log/audit, hata raporu?',
-    ];
-  }
-
-  if (/sap\s*crm/.test(normalized) && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|sales)/.test(normalized)) {
-    return [
-      'AI satış botu hangi kanallarda çalışacak ve birincil kullanıcı kim olacak: müşteri, satış temsilcisi, bayi, çağrı merkezi veya iç ekip?',
-      'SAP CRM tarafında bot hangi nesneleri okuyup/yazacak: Lead, Opportunity, Activity, Business Partner, teklif, sipariş veya kampanya?',
-      'Botun karar yetkisi nerede bitecek; hangi durumlarda insan satış temsilcisine devredecek ve onay akışı gerekecek?',
-      'Başarı KPI’ları ve risk sınırları neler olacak: lead dönüşüm oranı, yanıt süresi, veri doğruluğu, KVKK/onay, hatalı öneri toleransı?',
-    ];
-  }
-
-  return [
-    'Çözmek istediğimiz ana iş problemi ve hedef kullanıcı grubu nedir?',
-    'Mevcut süreç veya sistemde bugün hangi ağrı noktaları var?',
-    'İlk sürümde kesinlikle olması gereken fonksiyonlar ve kapsam dışı kalacak alanlar neler?',
-    'Başarıyı hangi KPI, kabul kriteri veya iş değeriyle ölçeceğiz?',
-  ];
+function visibleSectionForFocus(focus?: BaAgentFocus, fallback?: DocumentSectionKey): DocumentSectionKey {
+  if (focus === 'review' || focus === 'quality') return 'review';
+  return normalizeVisibleSection(fallback) || 'businessAnalysis';
 }
 
-function classifySparseInitialDomainDiscovery(input: ClassifyInput): IntentClassification | null {
-  if (hasDocumentContent(input.document)) return null;
+function preserveGenerationSubIntent(input: ClassifyInput, normalized: IntentClassification, userIsAnswering: boolean): SubIntent {
+  if (userIsAnswering) return input.document ? 'add_requirement_detail' : 'generate_business_analysis';
+  if (normalized.primaryIntent === 'analysis_generation') return normalized.subIntent;
+  if (normalized.baAgentFocus === 'test') return 'generate_test_cases';
+  if (normalized.baAgentFocus === 'flow') return 'generate_flow_diagram';
+  if (normalized.baAgentFocus === 'technical_analysis') return 'generate_technical_analysis';
+  if (normalized.baAgentFocus === 'review' || normalized.baAgentFocus === 'quality') return 'generate_review_report';
+  return input.document ? 'add_requirement_detail' : 'generate_business_analysis';
+}
 
-  const normalized = normalizeForDiscovery(input.userMessage);
-  const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
-  const isSapCrmDomain = /sap\s*crm/.test(normalized)
-    && /(ai|yapay zeka|bot|chatbot|asistan|assistant|satis|sales|iys|ileti yonetim sistemi)/.test(normalized);
-  const asksForDocumentOutput = /(ba analiz|is analiz|kavramsal|tasarim|dokuman|rapor|brd|fdd|hazirla|olustur|uret|yaz)/.test(normalized);
-  const explicitlyAllowsDraft = /(varsayimlarla|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap|direkt olustur|direkt hazirla)/.test(normalized);
+function shouldApplyBaDiscovery(classification: IntentClassification): boolean {
+  return ['requirement_intake', 'analysis_generation', 'document_editing', 'quality_review'].includes(classification.primaryIntent)
+    || classification.documentImpact === 'updates_document'
+    || classification.shouldRunBaAgentLoop;
+}
 
-  if (!isSapCrmDomain || !asksForDocumentOutput || explicitlyAllowsDraft || tokenCount > 14) {
-    return null;
-  }
-
-  return buildClassification('generate_business_analysis', {
-    targetSection: 'businessAnalysis',
-    operation: 'none',
-    documentImpact: 'none',
-    confidence: 0.9,
-    riskLevel: 'medium',
-    requiresClarification: true,
-    clarificationQuestions: sparseDiscoveryQuestions(normalized),
-    requiresPreview: false,
-    shouldRunBaAgentLoop: false,
-    baAgentFocus: 'business_analysis',
-    reason: 'deterministic:sparse_initial_domain_discovery_before_document',
+export function normalizeBaClassifierOutput(input: ClassifyInput, classification: IntentClassification): IntentClassification {
+  const state = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
+  const userForcesDraft = GENERATE_WITH_ASSUMPTIONS_RE.test(input.userMessage);
+  const userIsAnswering = isLikelyBaDiscoveryAnswer(input.userMessage);
+  const externalKnowledgeNeeded = requiresExternalKnowledge(input.userMessage);
+  const deepBaMode = shouldUseDeepBaAssistant(input.userMessage);
+  const intentProfile = detectDeterministicIntentProfile({
+    userMessage: input.userMessage,
+    hasDocument: !!input.document,
+    hasSelectedText: !!input.selectedText,
   });
+  let normalized: IntentClassification = {
+    ...classification,
+    targetSection: normalizeVisibleSection(classification.targetSection),
+    secondaryTargetSection: normalizeVisibleSection(classification.secondaryTargetSection),
+    baAgentFocus: classification.baAgentFocus || focusFromSubIntent(classification.subIntent),
+    requiresResearch: classification.requiresResearch || externalKnowledgeNeeded,
+    researchType: classification.researchType || (externalKnowledgeNeeded ? 'web' : undefined),
+  };
+  normalized = applyIntentProfileToClassification(normalized, intentProfile);
+
+  if (!shouldApplyBaDiscovery(normalized)) return normalized;
+
+  const behaviorDecision = buildBehaviorDecision({
+    userMessage: input.userMessage,
+    document: input.document,
+    classification: normalized,
+    discoveryReadiness: state.readinessScore,
+  });
+  normalized = applyBehaviorDecisionToClassification(normalized, behaviorDecision, input.document);
+
+  if (behaviorDecision.mode === 'ask_clarifying_questions' || behaviorDecision.shouldUpdateDocument || behaviorDecision.mode === 'chat_only') {
+    return normalized;
+  }
+
+  if (userForcesDraft || userIsAnswering) {
+    const nextSubIntent = preserveGenerationSubIntent(input, normalized, userIsAnswering);
+    const nextFocus = normalized.baAgentFocus || focusFromSubIntent(nextSubIntent) || 'business_analysis';
+    return {
+      ...normalized,
+      primaryIntent: 'analysis_generation',
+      subIntent: nextSubIntent,
+      targetSection: visibleSectionForFocus(nextFocus, normalized.targetSection),
+      documentImpact: 'updates_document',
+      operation: input.document && userIsAnswering ? 'append_to_section' : (normalized.operation === 'none' ? 'replace_or_create_section' : normalized.operation),
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: nextFocus,
+      confidence: Math.max(normalized.confidence, 0.82),
+      requiresResearch: normalized.requiresResearch || deepBaMode,
+      researchType: normalized.researchType || (deepBaMode ? 'web' : undefined),
+      reason: `${normalized.reason}; ba_engine:${userIsAnswering ? 'answer_mapper' : 'force_draft'}; focus:${nextFocus}${deepBaMode ? '; deep_ba_assistant_v2' : ''}`,
+    };
+  }
+
+  const criticalDiscoveryGap = !input.document && state.readinessScore < 55 && state.criticalMissing.length >= 2;
+  const lowConfidence = normalized.confidence < 0.55;
+  const shouldAsk = normalized.requiresClarification || lowConfidence || criticalDiscoveryGap;
+  if (!shouldAsk) return normalized;
+
+  const discoveryQuestions = [
+    ...buildContextualClarificationQuestions(input.userMessage),
+    ...buildBaClarifyingQuestions(state, 3).map((question) => formatClassifierQuestion(question.text, question.options)),
+  ].slice(0, 3);
+  if (discoveryQuestions.length === 0) return normalized;
+
+  return {
+    ...normalized,
+    requiresClarification: true,
+    clarificationQuestions: discoveryQuestions,
+    documentImpact: 'none',
+    operation: 'none',
+    shouldRunBaAgentLoop: false,
+    confidence: Math.max(normalized.confidence, 0.58),
+    reason: `${normalized.reason}; ba_engine:missing_discovery_context`,
+  };
 }
 
 export async function classifyIntent(input: ClassifyInput): Promise<IntentClassification> {
   const slash = parseSlashCommand(input.userMessage);
-  if (slash) return slash;
+  if (slash) return normalizeBaClassifierOutput(input, slash);
 
-  const sparseDiscovery = classifySparseInitialDomainDiscovery(input);
-  if (sparseDiscovery) return sparseDiscovery;
-
+  const discoveryState = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
+  const intentProfile = detectDeterministicIntentProfile({
+    userMessage: input.userMessage,
+    hasDocument: !!input.document,
+    hasSelectedText: !!input.selectedText,
+  });
+  if (intentProfile?.bypassModel) {
+    return normalizeBaClassifierOutput(
+      input,
+      buildClassification(intentProfile.subIntent, {
+        targetSection: intentProfile.targetSection,
+        secondaryTargetSection: intentProfile.secondaryTargetSection,
+        operation: intentProfile.operation,
+        documentImpact: intentProfile.documentImpact,
+        confidence: intentProfile.confidence,
+        riskLevel: intentProfile.riskLevel,
+        requiresResearch: intentProfile.requiresResearch,
+        researchType: intentProfile.researchType,
+        requiresClarification: intentProfile.requiresClarification,
+        requiresPreview: intentProfile.requiresPreview,
+        shouldRunBaAgentLoop: intentProfile.shouldRunBaAgentLoop,
+        baAgentFocus: intentProfile.baAgentFocus,
+        reason: intentProfile.reason,
+      }),
+    );
+  }
   const selection = input.selectedText
     ? `\n[SEÇİLİ METİN (${input.selectedSection || '?'})]\n"""${String(input.selectedText).slice(0, 400)}"""`
     : '';
 
-  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
+  const prompt = `[DOKÜMAN DURUMU] ${docSummary(input.document)}${selection}\n\n${buildIntentProfilePromptContext(intentProfile)}\n\n${buildBaEnginePromptContext(discoveryState)}\n\n[KULLANICI MESAJI]\n${input.userMessage}\n\nJSON ile cevapla.`;
 
   try {
     const res = await callAiWithRetry(() =>
@@ -226,10 +355,13 @@ export async function classifyIntent(input: ClassifyInput): Promise<IntentClassi
       baAgentFocus: parsed.baAgentFocus,
       reason: parsed.reason || 'classifier',
     });
-    return classification;
+    return normalizeBaClassifierOutput(input, classification);
   } catch (e) {
     console.warn('Intent classifier failed, using heuristic fallback:', e);
-    return buildClassification(fallbackSubIntent(input), { confidence: 0.45, reason: 'classifier_fallback' });
+    return normalizeBaClassifierOutput(
+      input,
+      buildClassification(fallbackSubIntent(input), { confidence: 0.45, reason: 'classifier_fallback' })
+    );
   }
 }
 
@@ -237,15 +369,19 @@ function fallbackSubIntent(input: ClassifyInput): SubIntent {
   const msg = input.userMessage.trim().toLowerCase();
   const hasDoc = !!(input.document && Object.values(input.document).some((s: any) => s?.content));
 
-  if (msg.length < 30 && /(selam|merhaba|hi|nasılsın|naber)/i.test(msg)) return 'small_talk';
-  if (input.selectedText && /(bunu|şunu|burayı)/i.test(msg) && /(açıkla|anlat)/i.test(msg)) return 'explain_selected_text';
-  if (input.selectedText && /(bunu|şunu|burayı)/i.test(msg)) return 'improve_selected_text';
-  if (/(test|kabul kriter|uat)/i.test(msg)) return 'generate_test_cases';
-  if (/(akış|bpmn|mermaid|flow|süreç)/i.test(msg)) return 'generate_flow_diagram';
+  if (isLikelyBaDiscoveryAnswer(input.userMessage)) return hasDoc ? 'add_requirement_detail' : 'generate_business_analysis';
+  if (msg.length < 30 && /(selam|merhaba|hi|nas[ıi]ls[ıi]n|naber)/i.test(msg)) return 'small_talk';
+  if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg) && /(a[çc][ıi]kla|anlat)/i.test(msg)) return 'explain_selected_text';
+  if (input.selectedText && /(bunu|şunu|buray[ıi])/i.test(msg)) return 'improve_selected_text';
+  if (/(test|kabul kriter|uat|senaryo)/i.test(msg)) return 'generate_test_cases';
+  if (/(ak[ıi]ş|bpmn|mermaid|flow|s[üu]re[çc])/i.test(msg)) return 'generate_flow_diagram';
+  if (/(api kontrat|api contract|endpoint|servis sözleşmesi|servis sozlesmesi)/i.test(msg)) return 'generate_api_contract';
+  if (/(entegrasyon|integration)/i.test(msg)) return 'generate_integration_analysis';
+  if (/(teknik|mimari|developer handoff|geliştirici devri|gelistirici devri)/i.test(msg)) return 'generate_technical_analysis';
   if (/(risk|eksik|review|kalite|inceleme)/i.test(msg)) return 'find_risks';
-  if (/(araştır|best practice|güncel|standart)/i.test(msg)) return 'research_web';
-  if (/(indir|export|paylaş|versiyon)/i.test(msg)) return 'export_document';
-  if (/(nedir|açıkla|anlat|nasıl kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
+  if (/(ara[şs]t[ıi]r|best practice|g[üu]ncel|standart)/i.test(msg)) return 'research_web';
+  if (/(indir|export|payla[şs]|versiyon)/i.test(msg)) return 'export_document';
+  if (/(nedir|a[çc][ıi]kla|anlat|nas[ıi]l kullan)/i.test(msg) && msg.length < 80) return 'ask_explanation';
   if (hasDoc) return 'add_requirement_detail';
   return 'generate_business_analysis';
 }
