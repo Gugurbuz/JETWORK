@@ -1,6 +1,7 @@
 import { parse as parsePartialJson } from 'partial-json';
 import { callGemini } from './geminiService';
 import { chatResponseJsonSchema } from '../schemas';
+import { hybridSearch } from './contextManager';
 import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
 import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
 
@@ -25,45 +26,58 @@ export interface AgentLoopOutput {
   questions?: Question[];
   actionSummary?: string;
   groundingUrls?: { uri: string; title: string }[];
-  plan?: { plan: string; assumptions: string[]; needsWebSearch: boolean; searchQueries: string[]; documentGapsToCheck: string[]; clarificationsNeeded: string[] };
+  plan?: PlanOutput;
   research?: string;
-  reflection?: { gapsFound: string[]; flagsToRaise: { section: string; reason: string }[]; criticalQuestionsForUser: string[]; readyToAct: boolean; reasoning: string };
+  reflection?: ReflectOutput;
   document?: DocumentData | null;
   tokenCount: number;
 }
 
+interface PlanOutput {
+  plan: string;
+  assumptions: string[];
+  needsWebSearch: boolean;
+  searchQueries: string[];
+  documentGapsToCheck: string[];
+  clarificationsNeeded: string[];
+}
+
+interface ReflectOutput {
+  gapsFound: string[];
+  flagsToRaise: { section: string; reason: string }[];
+  criticalQuestionsForUser: string[];
+  readyToAct: boolean;
+  reasoning: string;
+}
+
 const ACT_TIMEOUT_MS = 90000;
 
-const sanitizeSection = (section: any): SectionData | undefined => {
+function emptySection(content = ''): SectionData {
+  return { content, status: 'DRAFT', flags: [] };
+}
+
+function sanitizeSection(section: any): SectionData | undefined {
   if (!section || typeof section !== 'object') return undefined;
   const content = typeof section.content === 'string' ? section.content : '';
   if (!content.trim()) return undefined;
   const status = ['DRAFT', 'NEEDS_REVISION', 'APPROVED'].includes(section.status) ? section.status : 'DRAFT';
   const flags = Array.isArray(section.flags) ? section.flags.filter((flag: any) => typeof flag === 'string') : [];
   return { content, status, flags };
-};
+}
 
-const emptySection = (content = ''): SectionData => ({ content, status: 'DRAFT', flags: [] });
-
-const sanitizeDocument = (document: any): DocumentData | undefined => {
+function sanitizeDocument(document: any): DocumentData | undefined {
   if (!document || typeof document !== 'object') return undefined;
   const businessAnalysis = sanitizeSection(document.businessAnalysis);
-  const code = sanitizeSection(document.code);
-  const test = sanitizeSection(document.test);
-  const bpmn = sanitizeSection(document.bpmn);
   const review = sanitizeSection(document.review);
-  if (!businessAnalysis && !code && !test && !bpmn && !review) return undefined;
+  if (!businessAnalysis && !review) return undefined;
   return {
     businessAnalysis: businessAnalysis || emptySection(),
-    code: code || emptySection('Teknik analiz, entegrasyon, veri modeli ve hata yonetimi detaylari BA Analiz icindeki ilgili bolumlerde ele alinmistir.'),
-    test: test || emptySection('Test, UAT, negatif senaryo ve kabul kriterleri BA Analiz icindeki Test / UAT bolumunde ele alinmistir.'),
-    ...(bpmn ? { bpmn } : {}),
     ...(review ? { review } : {}),
     suggestions: Array.isArray(document.suggestions) ? document.suggestions.filter((item: any) => typeof item === 'string') : undefined,
   };
-};
+}
 
-const extractActParts = (raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string; document?: DocumentData } => {
+function extractActParts(raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string; document?: DocumentData } {
   if (!raw) return { message: '' };
   let trimmed = raw.trim();
   const fenceMatch = trimmed.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
@@ -84,88 +98,113 @@ const extractActParts = (raw: string): { message: string; thinking?: string; que
     return { message: '' };
   }
   return { message: '' };
-};
+}
 
-const buildFallbackDocument = (userMessage: string, streamedText = ''): DocumentData => {
-  const summary = streamedText.trim().length > 120
-    ? streamedText.trim()
-    : `Kullanici talebi: ${userMessage}`;
+function briefDocumentSummary(document: DocumentData | null): string {
+  if (!document) return '(Henuz dokuman yok.)';
+  return [
+    document.businessAnalysis?.content ? `BA Analiz:\n${document.businessAnalysis.content.slice(0, 1800)}` : '',
+    document.review?.content ? `Review:\n${document.review.content.slice(0, 900)}` : '',
+  ].filter(Boolean).join('\n\n') || '(Dokuman bolumleri bos.)';
+}
 
+function detectDocumentIntent(text = ''): boolean {
+  return /dok[uü]man|kavramsal|tasar[iı]m|analiz|gereksinim|s[uü]re[cç]|flow|bpmn|test|uat|fdd|brd|rapor|haz[iı]rla|olu[sş]tur|yaz/i.test(text);
+}
+
+function buildFallbackDocument(userMessage: string, streamedText = '', existing?: DocumentData | null): DocumentData {
+  const source = [userMessage, streamedText].filter(Boolean).join('\n\n').slice(0, 2400);
   const businessAnalysis = [
     '# KAVRAMSAL TASARIM RAPORU',
     '',
-    '## 1. Proje Kimlik Karti',
+    '## 1. PROJE KIMLIK KARTI',
     '| Alan | Deger | Kaynak Durumu |',
-    '| --- | --- | --- |',
-    '| Talep | ' + userMessage.replace(/\|/g, '/') + ' | DOGRUDAN TALEP |',
+    '|---|---|---|',
+    `| Talep | ${userMessage.replace(/\|/g, '/')} | DOGRUDAN TALEP |`,
     '| Dokuman Durumu | Canli guvenli taslak | VARSAYIM |',
-    '| Paydaslar | Is birimi, operasyon, IT, satis/servis ekipleri, destek ve raporlama kullanicilari | VARSAYIM |',
+    '| Paydaslar | Is birimi, operasyon, IT, destek, raporlama kullanicilari | VARSAYIM |',
     '',
-    '## 2. Problem Modeli',
-    summary,
+    '## 2. Amac',
+    'Bu dokuman kullanici talebini karar verilebilir kavramsal tasarim seviyesine tasimak icin hazirlanmistir. Net olmayan noktalar [VARSAYIM] veya [ACIK KONU] olarak isaretlenir.',
     '',
-    '## 3. As-Is / To-Be',
+    '## 3. Problem Modeli / As-Is / To-Be',
     '| Boyut | As-Is | To-Be |',
-    '| --- | --- | --- |',
-    '| Surec | Mevcut ihtiyac ayrintilari kullanicidan veya dokumandan netlestirilmelidir. | Ana surecler, aktorler, ekran davranislari, veri ve entegrasyon kurallari karar verilebilir seviyede modellenir. |',
-    '| Kontrol | Eksik veya daginik takip olabilir. | Validasyon, yetki, audit, hata ve bildirim kurallari tanimlanir. |',
+    '|---|---|---|',
+    '| Is ihtiyaci | Kaynak talep ayrintilari sinirli veya daginik olabilir. | Problem, hedef, kapsam, aktor, ekran, veri, entegrasyon, kural ve KPI birlikte modellenir. |',
+    '| Surec takibi | Manuel kararlar, kopuk takip veya genel tarif riski bulunur. | Her surec icin tetikleyici, karar, hata, kapanis ve raporlama kurali yazilir. |',
+    '| Kalite | Genel taslak karar vermeye yetmeyebilir. | BR/FR/NFR/INT/UI/RPT/SEC/TEST izleriyle testlenebilir tasarim uretilir. |',
     '',
-    '## 4. Surec Modeli Bloklari',
-    '### SUREC MODELI - 1 "Talep alma ve niyet/kapsam belirleme"',
-    '- Tetikleyici: Kullanici talebi veya proje dokumani.',
+    '## 4. Kaynak Talep Ozeti',
+    source || '[ACIK KONU] Kaynak talep metni bulunamadi.',
+    '',
+    '## 5. SUREC TASARIMI',
+    '### SUREC MODELI - 1 "Talep alma, niyet ve kapsam belirleme"',
+    '- Tetikleyici: Kullanici talebi, ek dokuman veya mevcut sohbet baglami.',
     '- Aktorler: Is analisti, is birimi, IT, operasyon.',
-    '- Cikis: Oncelikli kapsam, acik konular ve varsayimlar.',
+    '- Cikis: Problem cercevesi, varsayimlar, acik konular ve oncelikli kapsam.',
     '',
     '### SUREC MODELI - 2 "Cozum tasarimi ve gereksinimlestirme"',
-    '- Tetikleyici: Kapsam onayi veya varsayimli ilerleme karari.',
-    '- Aktorler: Is analisti, cozum mimari, uygulama ekibi.',
-    '- Cikis: BR/FR/NFR/INT/UI/RPT/SEC gereksinimleri, ekran ve veri kurallari.',
+    '- Tetikleyici: Kapsam veya varsayimli ilerleme karari.',
+    '- Aktorler: Is analisti, cozum mimari, uygulama ekibi, QA.',
+    '- Cikis: Surec akislari, is kurallari, ekran davranislari, veri ve entegrasyon karar noktalari.',
     '',
     '### SUREC MODELI - 3 "UAT, onay ve canli gecis hazirligi"',
     '- Tetikleyici: Tasarim dokumani review hazir hale geldiginde.',
     '- Aktorler: Is birimi, test ekibi, operasyon, destek.',
-    '- Cikis: UAT kabul, risk ve rollback plani.',
+    '- Cikis: UAT kabul kriterleri, risk listesi, rollback ve operasyon devri.',
     '',
-    '## 5. Is Gerekleri ve KPI',
-    '| Kod | Tur | Aciklama | Kabul Kriteri |',
-    '| --- | --- | --- | --- |',
-    '| BR-01 | Is Kurali | Kritik kararlar [DOGRULANDI], [VARSAYIM], [ACIK KONU] olarak ayrilir. | Review bolumunde ayrim gorunur. |',
-    '| FR-01 | Fonksiyonel | Kullanici ana surecleri takip edebilir ve cikti dokumani olusturabilir. | BA Analiz paneli dolu uretilir. |',
-    '| UI-01 | Ekran | Eksik bilgi, hata ve basari durumlari icin kullanici mesaji tanimlanir. | Toast/validasyon mesajlari dokumanda yer alir. |',
-    '| INT-01 | Entegrasyon | Harici sistem/API ihtiyaclari kaynak ve sahiplikle yazilir. | Entegrasyon kararlari acik konu veya varsayim olarak isaretlenir. |',
-    '| KPI-01 | Olcum | Dokuman kapsami, acik konu sayisi, UAT basari orani ve hata orani izlenir. | KPI tablosu review ile uyumludur. |',
-    '| TEST-01 | UAT | Pozitif, negatif, yetki, entegrasyon hata ve regresyon senaryolari tanimlanir. | UAT onayi olmadan canli gecis yapilmaz. |',
+    '## 6. Is Gerekleri ve KPIs',
+    '| Kod | Tur | Gereksinim | Kabul Kriteri |',
+    '|---|---|---|---|',
+    '| BR-01 | Is kurali | Kritik kararlar kaynak, varsayim ve acik konu olarak ayrilir. | Review bolumunde ayrim gorunur. |',
+    '| FR-01 | Fonksiyonel | Kullanici talebine gore kavramsal tasarim dokumani uretilir. | Sag panelde BA Analiz dolu olusur. |',
+    '| UI-01 | Ekran | Hata, uyari, basari ve eksik bilgi mesajlari tanimlanir. | Mesajlar kullanici aksiyonuna baglanir. |',
+    '| INT-01 | Entegrasyon | Harici sistem/API ihtiyaclari sahiplik, hata ve retry ile yazilir. | Entegrasyon varsayimlari acikca isaretlenir. |',
+    '| NFR-01 | Operasyonel kalite | Performans, loglama, audit, guvenlik ve destek ihtiyaclari yazilir. | NFR satirlari testlenebilir olur. |',
+    '| KPI-01 | KPI | Surec tamamlanma, hata orani, manuel is yuku ve UAT basarisi izlenir. | KPI kaynak ve hedefleri reviewda takip edilir. |',
+    '| TEST-01 | UAT | Pozitif, negatif, yetki, entegrasyon hata ve regresyon testleri tanimlanir. | Kritik UAT senaryolari onaylanmadan canli gecis olmaz. |',
     '',
-    '## 6. Ekran, Validasyon ve Mesajlar',
-    '- Basarili islem: "Dokuman taslagi olusturuldu; Review bolumunde varsayim ve acik konulari kontrol edin."',
-    '- Eksik bilgi: "Kritik karar eksik; varsayimla ilerleyebilir veya acik konu olarak birakabilirsiniz."',
-    '- Hata: "Dokuman uretimi tamamlanamadi; guvenli taslak olusturuldu ve review isareti eklendi."',
+    '## 7. Ekran / Validasyon / Mesaj Standardi',
+    '- Basari mesaji: Dokuman taslagi olusturuldu; Review bolumunde varsayim ve acik konulari kontrol edin.',
+    '- Uyari mesaji: Kritik karar net degil; varsayimla ilerleyebilir veya acik konu olarak birakabilirsiniz.',
+    '- Hata mesaji: Uretim tamamlanamadi; guvenli taslak olusturuldu ve kalite notu eklendi.',
     '',
-    '## 7. Test / UAT ve Degisim Yonetimi',
+    '## 8. Test / UAT ve Degisim Yonetimi',
     '- Pozitif akis, negatif validasyon, yetki, entegrasyon hata, raporlama ve regresyon senaryolari test edilir.',
     '- Pilot, egitim, canli gecis, rollback ve operasyon devri plani hazirlanir.',
     '',
-    '## 8. Acik Konular',
-    '- [ACIK KONU] Net kapsam, sistem sahipligi, veri alanlari, ekranlar, entegrasyonlar ve KPI hedefleri is birimiyle dogrulanmalidir.',
+    '## EK A',
+    '| Dokuman | Versiyon | Not |',
+    '|---|---|---|',
+    '| Kaynak talep / sohbet | V0.1 | Kullanici girdisi ana kaynak kabul edilir. |',
+    '| UAT kanitlari | [ACIK KONU] | Canli gecis oncesi tamamlanir. |',
+  ].join('\n');
+
+  const review = [
+    '## Review',
+    '- Durum: NEEDS_REVISION / CANLI GUVENLI TASLAK',
+    '- Kaynakla dogrudan dogrulanmayan kararlar [VARSAYIM] veya [ACIK KONU] olarak tutuldu.',
+    '- Hızlı aksiyonlar: Word formatina duzelt, Review acik konularini kapat, UAT senaryolarini detaylandir.',
   ].join('\n');
 
   return {
+    ...(existing || {}),
     businessAnalysis: { content: businessAnalysis, status: 'DRAFT', flags: ['SAFE_FALLBACK_DOCUMENT'] },
-    code: emptySection('Teknik analiz detaylari BA Analiz icinde kavramsal seviyede ele alinmistir.'),
-    test: emptySection('Test ve UAT detaylari BA Analiz icindeki Test / UAT bolumunde ele alinmistir.'),
-    review: {
-      content: [
-        '## Review',
-        '- [VARSAYIM] Model cagrisi tam yapilandirilmis dokuman dondurmediyse guvenli taslak olusturuldu.',
-        '- [ACIK KONU] Is birimi kapsam, ekran, veri ve entegrasyon kararlarini dogrulamalidir.',
-        '- [KALITE] Sonraki aksiyon: Eksikleri tamamla, Word formatina duzelt, Review acik konularini kapat.',
-      ].join('\n'),
-      status: 'NEEDS_REVISION',
-      flags: ['SAFE_FALLBACK_REVIEW'],
-    },
-    suggestions: ['Eksikleri tamamla', 'Word formatina duzelt', 'Review acik konularini kapat'],
+    review: { content: review, status: 'NEEDS_REVISION', flags: ['SAFE_FALLBACK_REVIEW'] },
+    suggestions: ['Word formatina duzelt', 'Review acik konularini kapat', 'UAT senaryolarini detaylandir'],
   };
-};
+}
+
+function buildPlan(userMessage: string): PlanOutput {
+  return {
+    plan: `Talebi is analizi/kavramsal tasarim bakisiyla isle: ${userMessage.slice(0, 180)}`,
+    assumptions: [],
+    needsWebSearch: /mevzuat|api|sap|iys|guncel|resmi kaynak/i.test(userMessage),
+    searchQueries: [],
+    documentGapsToCheck: ['Problem modeli', 'Surec modeli', 'Is gerekleri', 'KPI', 'Ekran/validasyon', 'UAT', 'Review'],
+    clarificationsNeeded: [],
+  };
+}
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
   const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream } = input;
@@ -176,42 +215,54 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   let finalActionSummary: string | undefined;
   let finalDocument: DocumentData | undefined;
 
+  const plan = buildPlan(userMessage);
   const actionIntent = detectAiActionIntent(userMessage, []);
   const actionIntentContext = buildActionIntentContext(actionIntent);
-  const memoryContext = knowledgeBase.slice(0, 6).map(item => `- ${item.content}`).join('\n') || '- Ilgili kurumsal hafiza yok.';
+  const docSummary = briefDocumentSummary(documentContent);
+  const recentConversation = history.slice(-8).map(item => item.parts?.[0]?.text || '').filter(Boolean).join('\n').slice(0, 3000);
+  const knowledgeContext = hybridSearch(userMessage, knowledgeBase, 5).map(item => `- ${item.content}`).join('\n') || '- Ilgili kurumsal hafiza bulunamadi.';
+  const wantsDocument = detectDocumentIntent(userMessage);
 
   onPhase('PLAN', 'Strateji belirleniyor...');
-  onThinking('Talep problem, kapsam, kaynak/varsayim ayrimi, surec modeli, gereksinim, KPI ve UAT acisindan cerceveleniyor.');
-
+  onThinking('Talep; problem, kapsam, kaynak, varsayim, surec, gereksinim, KPI ve UAT acisindan cerceveleniyor.');
+  onPhase('RESEARCH', 'Kaynak ve baglam taraniyor...');
   onPhase('ACT', 'Dokuman hazirlaniyor...');
   onActStream('', '', undefined, undefined, totalTokens);
 
-  const safeSystemInstruction = [
+  const liveSystem = [
     systemInstruction,
     '',
-    '[CANLI GUVENLI BA DOKUMAN URETIMI]',
+    '[JETWORK CANLI BA MOTORU - ZORUNLU]',
     '- Cevap chatResponse JSON semasinda olmali.',
-    '- document alani zorunludur; businessAnalysis, code, test ve review alanlarini doldur.',
-    '- Gorunur ana detay businessAnalysis icinde olmalidir: kavramsal tasarim, surec modelleri, is gerekleri, KPI, ekran/validasyon/toast, veri, entegrasyon, test/UAT, degisim yonetimi, acik konular.',
-    '- code/test alanlari bos kalmasin ama teknik/test detaylarini businessAnalysis icinde de yaz.',
-    '- Eksik bilgileri [VARSAYIM] veya [ACIK KONU] olarak isaretle.',
-    '- questions alanini sadece gercekten bloklayici karar varsa doldur; varsayimla ilerleme sinyali varsa bos birak.',
-    '- Mesaj kisa olsun; asil detay dokumanda olsun.',
+    '- Kullanici dokuman, kavramsal tasarim, analiz, gereksinim, surec, test veya rapor istiyorsa document alani ZORUNLUDUR.',
+    '- Chat mesaji kisa olmalı; asil detay document.businessAnalysis.content icinde olmali.',
+    '- document.businessAnalysis.content ana basligi KAVRAMSAL TASARIM RAPORU olmalı.',
+    '- Word/kavramsal omurga zorunlu: Proje Kimlik Karti, Amac, Dokuman Tarihcesi, Surec Tasarimi, SUREC MODELI bloklari, Is Gerekleri ve KPIs, UAT, Degisim Yonetimi, EK A.',
+    '- Kaynak talepte acik surec/ekran/rol/sistem/KPI varsa aynen tasinir; baska projeden SAP/IYS/D2D/dijital imza gibi sabit kalip bulastirilmaz.',
+    '- Bilgi kesin degilse [VARSAYIM], karar bekliyorsa [ACIK KONU], kaynakla destekliyse [DOGRULANDI] yaz.',
+    '- Yalnizca bloklayici ve geri donusu pahali karar varsa questions uret; aksi halde varsayimla dokuman uret.',
+    '- Review bolumunde kalite notu, risk, varsayim, acik konu ve hizli aksiyonlari yaz.',
     '',
-    '[OTONOM NIYET SINYALI]',
-    actionIntentContext || '- Yok.',
+    '[KULLANICI TALEBI]',
+    userMessage,
     '',
-    '[KURUMSAL HAFIZA]',
-    memoryContext,
+    '[SON KONUSMA]',
+    recentConversation || '- Yok.',
     '',
     '[MEVCUT DOKUMAN]',
-    documentContent ? JSON.stringify(documentContent).slice(0, 5000) : '- Henuz dokuman yok.',
+    docSummary,
+    '',
+    '[KURUMSAL HAFIZA]',
+    knowledgeContext,
+    '',
+    '[OTONOM NIYET]',
+    actionIntentContext || '- Yok.',
   ].join('\n');
 
   try {
     const response = await callGemini({
       model,
-      systemInstruction: safeSystemInstruction,
+      systemInstruction: liveSystem,
       contents: [...history, { role: 'user', parts: [{ text: userMessage }] }],
       responseSchema: chatResponseJsonSchema,
       timeoutMs: ACT_TIMEOUT_MS,
@@ -226,7 +277,6 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
         onActStream(finalText, finalThinking, finalQuestions, finalActionSummary, totalTokens);
       },
     });
-
     const parts = extractActParts(response.text);
     const raw = (response.text || '').trim();
     const rawLooksJson = raw.startsWith('{') || raw.startsWith('```');
@@ -237,38 +287,29 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
     finalDocument = parts.document || finalDocument;
     totalTokens = Math.max(totalTokens, response.tokenCount || 0);
   } catch (error) {
-    console.warn('BA ACT generation failed or timed out; using safe fallback document:', error);
+    console.warn('BA generation failed; using safe fallback document:', error);
   }
 
-  if (!finalDocument) {
-    finalDocument = buildFallbackDocument(userMessage, finalText);
-    finalText = finalText && finalText.trim().length > 80
-      ? finalText
-      : 'Dokuman uretim cagrisi tamamlanamadigi icin sag panelde guvenli kavramsal tasarim taslagi olusturdum; varsayim ve acik konular Review bolumunde isaretlendi.';
-    finalActionSummary = finalActionSummary || 'Sag panel icin guvenli BA taslagi olusturuldu; eksikler varsayim/acik konu olarak isaretlendi.';
+  if (wantsDocument && !finalDocument) {
+    finalDocument = buildFallbackDocument(userMessage, finalText, documentContent);
+    finalText = 'Sag panelde guvenli kavramsal tasarim taslagi olusturdum; varsayim ve acik konular Review bolumunde isaretlendi.';
+    finalActionSummary = 'BA Analiz ve Review bolumleri guvenli taslak olarak guncellendi.';
   }
 
   return {
-    text: finalText,
+    text: finalText || 'Islem tamamlandi.',
     thinking: finalThinking,
     questions: finalQuestions,
     actionSummary: finalActionSummary,
     groundingUrls: undefined,
-    plan: {
-      plan: 'Talebi kavramsal tasarim dokumani olarak cercevele, eksikleri varsayim/acik konu olarak ayir, sag paneli bos birakma.',
-      assumptions: [],
-      needsWebSearch: false,
-      searchQueries: [],
-      documentGapsToCheck: ['Problem modeli', 'Surec modeli', 'Gereksinim', 'KPI', 'UAT', 'Review'],
-      clarificationsNeeded: [],
-    },
-    research: memoryContext,
+    plan,
+    research: knowledgeContext,
     reflection: {
       gapsFound: [],
       flagsToRaise: [],
       criticalQuestionsForUser: [],
       readyToAct: true,
-      reasoning: 'Canli guvenli loop: model takilirsa fallback dokuman uretir.',
+      reasoning: 'Canli hotfix: dokuman niyetinde sag panel bos kalmaz; kaynak/varsayim/acik konu ayrimi zorlanir.',
     },
     document: finalDocument,
     tokenCount: totalTokens,
