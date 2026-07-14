@@ -112,6 +112,92 @@ function detectDocumentIntent(text = ''): boolean {
   return /dok[uü]man|kavramsal|tasar[iı]m|analiz|gereksinim|s[uü]re[cç]|flow|bpmn|test|uat|fdd|brd|rapor|haz[iı]rla|olu[sş]tur|yaz/i.test(text);
 }
 
+function normalizeIntentText(text = ''): string {
+  return text
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[ıİ]/g, 'i')
+    .replace(/[şŞ]/g, 's')
+    .replace(/[ğĞ]/g, 'g')
+    .replace(/[üÜ]/g, 'u')
+    .replace(/[öÖ]/g, 'o')
+    .replace(/[çÇ]/g, 'c')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectSourceSensitiveIntent(text = ''): boolean {
+  const normalized = normalizeIntentText(text);
+  return /mevzuat|kanun|api|sap|iys|guncel|resmi kaynak|kkb|findeks|kvkk|kredi|risk|muvafakat|finans|finansal veri|kisisel veri|entegrasyon/.test(normalized);
+}
+
+function detectSparseHighImpactBrief(text = ''): boolean {
+  const normalized = normalizeIntentText(text);
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  const highImpact = /kkb|findeks|kvkk|muvafakat|kredi notu|finansal veri|kisisel veri|sap|entegrasyon|api/.test(normalized);
+  const explicitDocument = detectDocumentIntent(text);
+  return highImpact && !explicitDocument && wordCount <= 18;
+}
+
+function buildDiscoveryQuestions(userMessage: string): Question[] {
+  const normalized = normalizeIntentText(userMessage);
+  const kkbLike = /kkb|findeks|kredi|muvafakat/.test(normalized);
+
+  if (kkbLike) {
+    return [
+      {
+        id: 'business_problem',
+        text: 'Bu entegrasyonda asil is problemi nedir: manuel Findeks sorgusunu azaltmak mi, risk kararini hizlandirmak mi, yoksa kredi uygunluk kontrolunu standartlastirmak mi?',
+        options: ['Risk kararini CRM icinde hizlandirmak', 'Manuel sorgu ve operasyon yukunu azaltmak', 'Teklif/onay surecinde kredi uygunlugunu standartlastirmak'],
+      },
+      {
+        id: 'trigger_point',
+        text: 'Findeks/KKB sorgusu hangi is adiminda tetiklenmeli?',
+        options: ['Musteri karti olusturma', 'Teklif veya basvuru onayi', 'Yetkili kullanicinin manuel butonu'],
+      },
+      {
+        id: 'consent_and_scope',
+        text: 'Muvafakat, KVKK ve veri saklama sureci nasil yonetilecek?',
+        options: ['SMS/onay servisi ile dijital muvafakat', 'Mevcut onay kaydi kontrolu', 'Islak imza veya operasyonel belge kontrolu'],
+      },
+      {
+        id: 'decision_usage',
+        text: 'Findeks sonucunun sistem davranisi ne olacak: sadece bilgi mi, otomatik karar mi, yoksa onay akisi mi baslatacak?',
+        options: ['Sadece goruntuleme ve log', 'Risk skoruna gore otomatik kural', 'Yetkili onay akisi baslatma'],
+      },
+    ];
+  }
+
+  return [
+    {
+      id: 'business_problem',
+      text: 'Bu projede asil cozulmek istenen is problemi nedir?',
+      options: ['Operasyonel sureci hizlandirmak', 'Hata ve manuel isi azaltmak', 'Karar ve takip kalitesini artirmak'],
+    },
+    {
+      id: 'current_state',
+      text: 'Bugunku mevcut surec nasil ilerliyor ve en buyuk darboğaz nerede?',
+      options: ['Manuel takip var', 'Sistemler arasi kopukluk var', 'Raporlama ve izlenebilirlik zayif'],
+    },
+    {
+      id: 'critical_decision',
+      text: 'Bu tasarimi en cok degistirecek kritik karar hangisi?',
+      options: ['Sistem entegrasyon modeli', 'Yetki ve onay modeli', 'Veri sahipligi ve kalite kurallari'],
+    },
+  ];
+}
+
+function buildExplorationFirstMessage(userMessage: string): string {
+  return [
+    'Bu mesaj tam kavramsal dokuman uretmek icin fazla erken; bu asamada insan BA gibi once problemi, mevcut durumu, karar etkisini ve kaynak gerektiren noktaları netlestirmem gerekiyor.',
+    '',
+    `Algiladigim proje fikri: ${userMessage}`,
+    '',
+    'KKB/Findeks, KVKK, muvafakat, kredi notu veya harici servis/API gibi alanlarda resmi kaynak veya kurum dokumani olmadan dogrulanmis bilgi iddiasi kurmamaliyim. Cevaplarindan sonra kavramsal tasarim dokumanini kaynak/varsayim/acik konu ayrimi ile uretirim.',
+  ].join('\n');
+}
+
 function buildFallbackDocument(userMessage: string, streamedText = '', existing?: DocumentData | null): DocumentData {
   const source = [userMessage, streamedText].filter(Boolean).join('\n\n').slice(0, 2400);
   const businessAnalysis = [
@@ -196,12 +282,13 @@ function buildFallbackDocument(userMessage: string, streamedText = '', existing?
 }
 
 function buildPlan(userMessage: string): PlanOutput {
+  const sourceSensitive = detectSourceSensitiveIntent(userMessage);
   return {
     plan: `Talebi is analizi/kavramsal tasarim bakisiyla isle: ${userMessage.slice(0, 180)}`,
     assumptions: [],
-    needsWebSearch: /mevzuat|api|sap|iys|guncel|resmi kaynak/i.test(userMessage),
-    searchQueries: [],
-    documentGapsToCheck: ['Problem modeli', 'Surec modeli', 'Is gerekleri', 'KPI', 'Ekran/validasyon', 'UAT', 'Review'],
+    needsWebSearch: sourceSensitive,
+    searchQueries: sourceSensitive ? [userMessage] : [],
+    documentGapsToCheck: ['Problem modeli', 'Mevcut durum', 'Hedef durum', 'Surec modeli', 'Is gerekleri', 'KPI', 'Ekran/validasyon', 'UAT', 'Kaynak dogrulama', 'Review'],
     clarificationsNeeded: [],
   };
 }
@@ -222,11 +309,12 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   const recentConversation = history.slice(-8).map(item => item.parts?.[0]?.text || '').filter(Boolean).join('\n').slice(0, 3000);
   const knowledgeContext = hybridSearch(userMessage, knowledgeBase, 5).map(item => `- ${item.content}`).join('\n') || '- Ilgili kurumsal hafiza bulunamadi.';
   const wantsDocument = detectDocumentIntent(userMessage);
+  const explorationFirst = detectSparseHighImpactBrief(userMessage);
 
   onPhase('PLAN', 'Strateji belirleniyor...');
   onThinking('Talep; problem, kapsam, kaynak, varsayim, surec, gereksinim, KPI ve UAT acisindan cerceveleniyor.');
   onPhase('RESEARCH', 'Kaynak ve baglam taraniyor...');
-  onPhase('ACT', 'Dokuman hazirlaniyor...');
+  onPhase('ACT', explorationFirst ? 'Kesif sorulari hazirlaniyor...' : 'Dokuman hazirlaniyor...');
   onActStream('', '', undefined, undefined, totalTokens);
 
   const liveSystem = [
@@ -235,13 +323,19 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
     '[JETWORK CANLI BA MOTORU - ZORUNLU]',
     '- Cevap chatResponse JSON semasinda olmali.',
     '- Kullanici dokuman, kavramsal tasarim, analiz, gereksinim, surec, test veya rapor istiyorsa document alani ZORUNLUDUR.',
+    '- Kullanici sadece kisa bir proje fikri yazdiysa ve dokuman/hazirla/analiz demediyse tam dokuman olusturma; once problem, mevcut durum, hedef durum, kritik karar ve kaynak ihtiyacini netlestiren sorular sor.',
+    '- KKB, Findeks, KVKK, kredi notu, muvafakat, finansal veri, mevzuat, API veya harici kurum servislerinde resmi kaynak/kurum dokumani olmadan dogrulanmis iddia kurma.',
+    '- Kaynak gerektiren ama kaynak dogrulanmayan konuda dokuman istenirse bunu on kesif taslagi olarak konumlandir; 100 puanlik nihai dokuman gibi anlatma.',
     '- Chat mesaji kisa olmalı; asil detay document.businessAnalysis.content icinde olmali.',
     '- document.businessAnalysis.content ana basligi KAVRAMSAL TASARIM RAPORU olmalı.',
     '- Word/kavramsal omurga zorunlu: Proje Kimlik Karti, Amac, Dokuman Tarihcesi, Surec Tasarimi, SUREC MODELI bloklari, Is Gerekleri ve KPIs, UAT, Degisim Yonetimi, EK A.',
-    '- Kaynak talepte acik surec/ekran/rol/sistem/KPI varsa aynen tasinir; baska projeden SAP/IYS/D2D/dijital imza gibi sabit kalip bulastirilmaz.',
+    '- Kaynak talepte acik surec/ekran/rol/sistem/KPI varsa aynen tasinir; baska projeden SAP/IYS/D2D/dijital imza/AI satis botu gibi sabit kalip bulastirilmaz.',
     '- Bilgi kesin degilse [VARSAYIM], karar bekliyorsa [ACIK KONU], kaynakla destekliyse [DOGRULANDI] yaz.',
     '- Yalnizca bloklayici ve geri donusu pahali karar varsa questions uret; aksi halde varsayimla dokuman uret.',
     '- Review bolumunde kalite notu, risk, varsayim, acik konu ve hizli aksiyonlari yaz.',
+    '',
+    '[PLAN]',
+    JSON.stringify(plan),
     '',
     '[KULLANICI TALEBI]',
     userMessage,
@@ -290,6 +384,13 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
     console.warn('BA generation failed; using safe fallback document:', error);
   }
 
+  if (explorationFirst && !wantsDocument) {
+    finalDocument = undefined;
+    finalQuestions = finalQuestions && finalQuestions.length ? finalQuestions : buildDiscoveryQuestions(userMessage);
+    finalText = buildExplorationFirstMessage(userMessage);
+    finalActionSummary = 'Tam dokuman yerine on kesif sorulari hazirlandi; cevaplara gore kavramsal tasarim uretilecek.';
+  }
+
   if (wantsDocument && !finalDocument) {
     finalDocument = buildFallbackDocument(userMessage, finalText, documentContent);
     finalText = 'Sag panelde guvenli kavramsal tasarim taslagi olusturdum; varsayim ve acik konular Review bolumunde isaretlendi.';
@@ -305,11 +406,13 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
     plan,
     research: knowledgeContext,
     reflection: {
-      gapsFound: [],
+      gapsFound: explorationFirst ? ['Kisa ve yuksek etkili proje fikri; tam dokuman icin once kesif gerekir.'] : [],
       flagsToRaise: [],
-      criticalQuestionsForUser: [],
-      readyToAct: true,
-      reasoning: 'Canli hotfix: dokuman niyetinde sag panel bos kalmaz; kaynak/varsayim/acik konu ayrimi zorlanir.',
+      criticalQuestionsForUser: explorationFirst ? (finalQuestions || []).map((question) => question.text) : [],
+      readyToAct: !explorationFirst || wantsDocument,
+      reasoning: explorationFirst
+        ? 'Yuksek etkili/kaynak gerektiren kisa proje fikrinde once kesif sorulari soruldu; tam dokuman bilincli olarak bekletildi.'
+        : 'Canli hotfix: dokuman niyetinde sag panel bos kalmaz; kaynak/varsayim/acik konu ayrimi zorlanir.',
     },
     document: finalDocument,
     tokenCount: totalTokens,
