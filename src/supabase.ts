@@ -63,16 +63,18 @@ export const signInAnonymously = async () => {
 };
 
 export const signInWithUsernameOrEmail = async (input: string, password: string) => {
-  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
-  let email = input;
+  const normalizedInput = input.trim();
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedInput);
+  let email = normalizedInput;
+
   if (!isEmail) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('email')
-      .eq('username', input)
-      .maybeSingle();
-    if (error || !data?.email) throw new Error('Kullanıcı adı bulunamadı.');
-    email = data.email;
+    const { data, error } = await supabase.rpc('lookup_email_for_username', {
+      lookup_username: normalizedInput,
+    });
+
+    if (error || !data) throw new Error('Kullanıcı adı bulunamadı.');
+    email = data;
   }
+
   return signInWithEmailAndPassword(email, password);
 };
