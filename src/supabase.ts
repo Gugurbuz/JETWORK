@@ -27,9 +27,15 @@ export const onAuthStateChanged = (callback: (user: AuthUser | null) => void) =>
     callback(normalizeAuthUser(session?.user || null));
   });
 
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    callback(normalizeAuthUser(session?.user || null));
-  });
+  supabase.auth
+    .getSession()
+    .then(({ data: { session } }) => {
+      callback(normalizeAuthUser(session?.user || null));
+    })
+    .catch((error) => {
+      console.error('Failed to read auth session:', error);
+      callback(null);
+    });
 
   return () => subscription.unsubscribe();
 };
