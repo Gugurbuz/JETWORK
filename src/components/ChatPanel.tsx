@@ -77,7 +77,7 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
   };
 
   return (
-    <div className="mt-4 space-y-3 border border-theme-border/50 bg-theme-surface/50 p-3 rounded-xl">
+    <div data-testid="interactive-questions" className="mt-4 space-y-3 border border-theme-border/50 bg-theme-surface/50 p-3 rounded-xl">
       <h4 className="font-semibold text-theme-text text-sm flex items-center gap-2">
         <Lightbulb className="w-4 h-4 text-theme-primary" />
         Lütfen aşağıdaki soruları yanıtlayın:
@@ -87,11 +87,12 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
 
         return (
         <div key={q.id} className="space-y-2 p-2.5 bg-theme-bg border border-theme-border rounded-lg">
-          <p className="text-sm font-medium text-theme-text">{i + 1}. {q.text}</p>
+          <p data-testid="question-prompt" className="text-sm font-medium text-theme-text">{i + 1}. {q.text}</p>
           <div className="flex flex-wrap gap-2 mt-2">
             {visibleOptions.map(opt => (
               <button
                 key={opt}
+                data-testid="question-option"
                 onClick={() => setAnswers(prev => ({ ...prev, [q.id]: { type: 'option', value: opt } }))}
                 className={cn(
                   "px-3 py-1.5 text-xs rounded-lg border transition-colors",
