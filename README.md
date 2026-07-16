@@ -19,7 +19,7 @@ Project memory and pending operations are persisted in Supabase. Local storage i
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 22.13 or newer (Node.js 24 is used in CI)
 - pnpm 11.9 or newer
 - A Supabase project
 - Supabase CLI for migrations and Edge Function deployment
