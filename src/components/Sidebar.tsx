@@ -32,12 +32,46 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [showUserMenu, setShowUserMenu] = React.useState(false);
   const [expandedProjects, setExpandedProjects] = React.useState<Record<string, boolean>>({});
+  const [activeProjectScope, setActiveProjectScope] = React.useState<'owned' | 'shared'>('owned');
+  const [projectSearch, setProjectSearch] = React.useState('');
 
   const projects = useStore(state => state.projects);
   const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
   const currentProjectId = useStore(state => state.currentProjectId);
   const projectMemory = useStore(state => state.projectMemory);
   const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
+
+  const visibleProjects = React.useMemo(() => {
+    if (activeProjectScope === 'shared') return [];
+
+    const query = projectSearch.trim().toLocaleLowerCase('tr-TR');
+    if (!query) return projects;
+
+    return projects.filter((project) => {
+      const searchableText = [
+        project.name,
+        project.description,
+        ...project.workspaces.flatMap((workspace) => [
+          workspace.title,
+          workspace.issueKey,
+          workspace.type,
+          workspace.status,
+        ]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('tr-TR');
+
+      return searchableText.includes(query);
+    });
+  }, [activeProjectScope, projectSearch, projects]);
+
+  const emptyProjectsMessage =
+    activeProjectScope === 'shared'
+      ? 'Paylaşılan proje yok.'
+      : projectSearch.trim()
+        ? 'Aramanızla eşleşen proje yok.'
+        : 'Henüz proje yok.';
 
   const toggleProject = (projectId: string) => {
     setExpandedProjects(prev => ({
@@ -80,10 +114,30 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
       <div className="p-4 shrink-0 overflow-hidden flex flex-col gap-4">
         {!isCollapsed && (
           <div className="flex bg-theme-surface border border-theme-border rounded-lg p-1">
-            <button className="flex-1 text-xs font-semibold py-1.5 bg-theme-surface-hover rounded-md text-theme-text shadow-sm">
+            <button
+              type="button"
+              aria-pressed={activeProjectScope === 'owned'}
+              onClick={() => setActiveProjectScope('owned')}
+              className={cn(
+                "flex-1 text-xs py-1.5 rounded-md transition-colors",
+                activeProjectScope === 'owned'
+                  ? "font-semibold bg-theme-surface-hover text-theme-text shadow-sm"
+                  : "font-medium text-theme-text-muted hover:text-theme-text"
+              )}
+            >
               Projelerim
             </button>
-            <button className="flex-1 text-xs font-medium py-1.5 text-theme-text-muted hover:text-theme-text transition-colors">
+            <button
+              type="button"
+              aria-pressed={activeProjectScope === 'shared'}
+              onClick={() => setActiveProjectScope('shared')}
+              className={cn(
+                "flex-1 text-xs py-1.5 rounded-md transition-colors",
+                activeProjectScope === 'shared'
+                  ? "font-semibold bg-theme-surface-hover text-theme-text shadow-sm"
+                  : "font-medium text-theme-text-muted hover:text-theme-text"
+              )}
+            >
               Paylaşılanlar
             </button>
           </div>
@@ -95,6 +149,8 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
             <input 
               type="text" 
               placeholder="Proje ara" 
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
               className="w-full bg-theme-surface border border-theme-border rounded-md pl-9 pr-3 py-2 text-xs text-theme-text placeholder:text-theme-text-muted outline-none focus:border-theme-primary transition-colors"
             />
           </div>
@@ -110,22 +166,27 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
         >
           <div>
             <div className="flex items-center justify-between mb-3 px-2">
-              <h3 className="text-[11px] font-bold text-theme-text-muted">Projeler</h3>
-              <button 
-                onClick={() => setShowNewProjectModal(true)}
-                className="w-5 h-5 rounded-full bg-theme-surface-hover flex items-center justify-center text-theme-text-muted hover:text-theme-text transition-colors"
-                title="Yeni Proje"
-              >
-                <Plus size={12} />
-              </button>
+              <h3 className="text-[11px] font-bold text-theme-text-muted">
+                {activeProjectScope === 'shared' ? 'Paylaşılanlar' : 'Projeler'}
+              </h3>
+              {activeProjectScope === 'owned' && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewProjectModal(true)}
+                  className="w-5 h-5 rounded-full bg-theme-surface-hover flex items-center justify-center text-theme-text-muted hover:text-theme-text transition-colors"
+                  title="Yeni Proje"
+                >
+                  <Plus size={12} />
+                </button>
+              )}
             </div>
             <div className="space-y-1">
-              {projects.length === 0 ? (
+              {visibleProjects.length === 0 ? (
                 <div className="text-[11px] text-theme-text-muted text-center py-4 px-2 bg-theme-surface/50 rounded-lg border border-theme-border/50 border-dashed">
-                  Henüz proje yok.
+                  {emptyProjectsMessage}
                 </div>
               ) : (
-                projects.map(project => (
+                visibleProjects.map(project => (
                   <div key={project.id} className="relative group">
                   <div className={cn(
                     "w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors text-left",

@@ -11,6 +11,55 @@ import { ZERO_TOUCH_AGENTS } from '../constants';
 import { useStore } from '../store/useStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 
+const contextualQuestionOptions = (question: Question): string[] => {
+  const explicitOptions = (question.options || [])
+    .map(option => String(option || '').trim())
+    .filter(Boolean);
+  if (explicitOptions.length >= 2) return explicitOptions;
+
+  const text = `${question.text} ${explicitOptions.join(' ')}`.toLocaleLowerCase('tr-TR');
+  if (/problem|ihtiyac|ama[cç]|hedef|deger|değer/.test(text)) {
+    return ['Ana problem ve is degeri net', 'Problem varsayimla modellensin', 'Acik konu olarak kalsin'];
+  }
+  if (/mevcut|as-is|bug[uü]n|su an|şu an|current state|legacy/.test(text)) {
+    return ['Manuel/kopuk takip var', 'Mevcut sistem var ama yetersiz', 'Acik konu olarak kalsin'];
+  }
+  if (/iys|izin|marka|sms|eposta|e-posta|arama|onay|ret/.test(text)) {
+    return ['SMS + e-posta + arama, tek marka', 'Coklu marka ve tum kanallar', 'Acik konu olarak kalsin'];
+  }
+  if (/lead|firsat|fırsat|opportunity|sales bot|satis bot|satış bot/.test(text)) {
+    return ['Lead + opportunity olustursun', 'Sadece lead nitelendirsin', 'Temsilci onayi zorunlu'];
+  }
+  if (/kanal|channel|web|mobil|mobile|whatsapp|cagri|çağrı|mail/.test(text)) {
+    return ['Web + mobil + cagri merkezi', 'Sadece web chat', 'Varsayimla cok kanal'];
+  }
+  if (/offline|senkron|sync|delta|mobil|mobile|saha|d2d/.test(text)) {
+    return ['Offline-first + delta sync', 'Online agirlikli', 'Acik konu olarak kalsin'];
+  }
+  if (/kaynak|hafiza|kanıt|kanit|evidence|memory|rag|context/.test(text)) {
+    return ['Kaynak zorunlu + varsayim ayrimi', 'Proje hafizasi oncelikli', 'Acik konu olarak kalsin'];
+  }
+  if (/arac|tool|aksiyon|yetki|onay|audit/.test(text)) {
+    return ['Riskli aksiyonlar onayli', 'Sadece analiz ve dokuman', 'Kod/test/dokuman kullanabilir'];
+  }
+  if (/entegrasyon|api|erp|crm|sap|odeme|webhook|middleware/.test(text)) {
+    return ['REST/API entegrasyonu', 'Batch/delta senkronizasyon', 'Acik konu olarak isaretle'];
+  }
+  if (/rol|aktor|paydas|onay|raci|temsilci|operasyon/.test(text)) {
+    return ['Is birimi + Operasyon + IT', 'Rol bazli onay modeli', 'Varsayimla RACI taslakla'];
+  }
+  if (/kpi|basari|olcum|sla|dashboard|rapor/.test(text)) {
+    return ['SLA + hata orani + hacim', 'Izlenebilirlik ve karar kalitesi', 'Varsayimla KPI seti'];
+  }
+  if (/kapsam|mvp|ilk surum|faz/.test(text)) {
+    return ['MVP kapsam', 'Uctan uca kapsam', 'Varsayimla kurumsal BA kapsami'];
+  }
+  if (/dokuman|doküman|belge|evrak|sozlesme|sözlesme|sözleşme|file/.test(text)) {
+    return ['Zorunlu belge matrisi olsun', 'Belge yukleme + onay akisli', 'Acik konu olarak kalsin'];
+  }
+  return ['Varsayimla ilerle', 'Acik konu kalsin', 'Ben netlestirecegim'];
+};
+
 const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
   const [answers, setAnswers] = useState<Record<string, { type: 'option' | 'custom', value: string }>>({});
 
@@ -33,11 +82,14 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
         <Lightbulb className="w-4 h-4 text-theme-primary" />
         Lütfen aşağıdaki soruları yanıtlayın:
       </h4>
-      {questions.map((q, i) => (
+      {questions.map((q, i) => {
+        const visibleOptions = contextualQuestionOptions(q);
+
+        return (
         <div key={q.id} className="space-y-2 p-2.5 bg-theme-bg border border-theme-border rounded-lg">
           <p className="text-sm font-medium text-theme-text">{i + 1}. {q.text}</p>
           <div className="flex flex-wrap gap-2 mt-2">
-            {(q.options || []).map(opt => (
+            {visibleOptions.map(opt => (
               <button
                 key={opt}
                 onClick={() => setAnswers(prev => ({ ...prev, [q.id]: { type: 'option', value: opt } }))}
@@ -65,7 +117,8 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
             }}
           />
         </div>
-      ))}
+        );
+      })}
       <button
         onClick={handleSubmit}
         disabled={Object.keys(answers).length === 0}
@@ -76,14 +129,14 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
       </button>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
         <button
-          onClick={() => onSubmit('Bu bilgilerle dokümanı oluştur. Yeni soru sorma, varsayımlarla ilerle; eksikleri Review > Açık Sorular bölümüne yaz.')}
+          onClick={() => onSubmit('Bu bilgilerle dokümanı oluştur. Yeni soru sorma, varsayımlarla ilerle; tamamlanacak kararları Review > Açık Sorular bölümüne yaz.')}
           className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
           title="Mevcut bilgilerle taslak üret"
         >
           Bu bilgilerle dokümanı oluştur
         </button>
         <button
-          onClick={() => onSubmit('Varsayımlarla ilerle. Eksik bilgileri tahmini olarak doldur; sağ panelde taslağı üret.')}
+          onClick={() => onSubmit('Varsayımlarla ilerle. Tamamlanacak bilgileri tahmini olarak doldur; sağ panelde taslağı üret.')}
           className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
           title="Varsayımlarla taslak üret"
         >
@@ -414,6 +467,16 @@ const MessageItem = memo(({
                   </ReactMarkdown>
                 </div>
               )}
+
+              {msg.role === 'model' && msg.actionSummary && !msg.isTyping && (
+                <div className="flex items-start gap-2 rounded-lg border border-theme-primary/20 bg-theme-primary/5 px-3 py-2 text-xs text-theme-text">
+                  <Check size={13} className="mt-0.5 shrink-0 text-theme-primary" />
+                  <div className="leading-relaxed">
+                    <span className="font-semibold text-theme-text">Ne yaptım? </span>
+                    <span className="text-theme-text-muted">{msg.actionSummary}</span>
+                  </div>
+                </div>
+              )}
               
               {msg.questions && msg.questions.length > 0 && !msg.isTyping && (
                 <InteractiveQuestions 
@@ -570,10 +633,15 @@ export function ChatPanel({
       ]
     : hasDocument
       ? [
+          "Tamamlanacak alanları kapat. Kalite raporundaki zayıf alanları dokumana isle; yeni soru sorma, varsayimlari ve acik konulari Review'da ayir.",
+          "Word formatina duzelt. BA Analiz'i KAVRAMSAL TASARIM RAPORU sablonuna gore yeniden duzenle; surec modeli bloklarini otomatik cogalt.",
+          "Review'daki acik konulari kapat. Yanitlanabilir maddeleri varsayimlarla kapat; dogrulanamayanlari ACIK KONU olarak birak ve kaynak matrisini guncelle.",
+          "Traceability matrisini tamamla. Her REQ maddesini BR/FR, kabul kriteri ve UAT test senaryosuna bagla.",
+          "Coverage matrisini tamamla. Aktor, happy path, alternatif akis, istisna, validasyon, yetki, veri, entegrasyon, NFR, raporlama ve audit kapsamlarini kapat.",
           "Bu mimariyi nasıl daha ölçeklenebilir (scalable) yaparız?",
           "Sistemin zayıf noktaları (single point of failure) neler?",
-          "Bu entegrasyon için bir Sequence Diagram mantığı kur",
-          "Bunu bir BPMN süreç diyagramına dönüştür"
+          "Bu entegrasyon icin BA icinde sequence/akis mantigini detaylandir",
+          "Surec akis diyagramini BA Analiz icinde Mermaid taslagi olarak ekle"
         ]
       : [];
 
@@ -657,7 +725,7 @@ export function ChatPanel({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
     if (files.length === 0) return;
 
     for (const file of files) {
@@ -853,7 +921,7 @@ export function ChatPanel({
     e.stopPropagation();
     setIsDragging(false);
     
-    const files = Array.from(e.dataTransfer.files);
+    const files: File[] = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
     for (const file of files) {
@@ -1225,9 +1293,10 @@ export function ChatPanel({
                         setInput(suggestion);
                         if (textareaRef.current) textareaRef.current.focus();
                       }}
+                      title={suggestion}
                       className="px-3 py-1.5 rounded-full border border-theme-border bg-theme-bg text-sm text-theme-text hover:bg-theme-surface-hover whitespace-nowrap shadow-sm shrink-0"
                     >
-                      {suggestion}
+                      {suggestion.split('.')[0]}
                     </button>
                   ))}
                 </div>

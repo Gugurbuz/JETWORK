@@ -41,6 +41,8 @@ export function MainContent({
               <div className="flex items-center justify-center gap-4">
                 <button
                   onClick={() => setShowNewProjectModal(true)}
+                  aria-label="Open new project dialog"
+                  data-testid="open-new-project"
                   className="px-4 py-2 bg-theme-surface border border-theme-border hover:bg-theme-surface-hover text-theme-text rounded-md text-sm font-semibold transition-colors"
                 >
                   Yeni Proje

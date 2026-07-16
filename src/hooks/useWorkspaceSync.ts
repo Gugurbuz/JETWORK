@@ -22,6 +22,7 @@ export function useWorkspaceSync(
   const setIsLoadingWorkspace = useStore(state => state.setIsLoadingWorkspace);
   const documentContent = useStore(state => state.documentContent);
   const setDocumentContent = useStore(state => state.setDocumentContent);
+  const setProjectMemory = useStore(state => state.setProjectMemory);
   const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
   const setIsAiActive = useStore(state => state.setIsAiActive);
 
@@ -61,6 +62,7 @@ export function useWorkspaceSync(
   useEffect(() => {
     if (!currentWorkspaceId || !user || !isAuthReady) {
       setDocumentContent(null);
+      setProjectMemory({});
       return;
     }
 
@@ -90,6 +92,18 @@ export function useWorkspaceSync(
       } catch (e) {
         console.error('Failed to parse cached document', e);
       }
+    }
+
+    const cachedMemory = localStorage.getItem(`jetwork_project_memory_${currentWorkspaceId}`);
+    if (cachedMemory) {
+      try {
+        setProjectMemory(JSON.parse(cachedMemory));
+      } catch (e) {
+        console.error('Failed to parse cached project memory', e);
+        setProjectMemory({});
+      }
+    } else {
+      setProjectMemory({});
     }
 
     if (!hasExistingMessages && !isAlreadyListening) {

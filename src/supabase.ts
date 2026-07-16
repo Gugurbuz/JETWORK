@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const viteEnv = (import.meta as any).env || {};
+const supabaseUrl = viteEnv.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseAnonKey = viteEnv.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -27,9 +28,15 @@ export const onAuthStateChanged = (callback: (user: AuthUser | null) => void) =>
     callback(normalizeAuthUser(session?.user || null));
   });
 
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    callback(normalizeAuthUser(session?.user || null));
-  });
+  supabase.auth
+    .getSession()
+    .then(({ data: { session } }) => {
+      callback(normalizeAuthUser(session?.user || null));
+    })
+    .catch((error) => {
+      console.error('Failed to read auth session:', error);
+      callback(null);
+    });
 
   return () => subscription.unsubscribe();
 };

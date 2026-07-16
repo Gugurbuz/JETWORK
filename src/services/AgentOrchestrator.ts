@@ -27,9 +27,6 @@ export class AgentOrchestrator {
     if (!this.currentDocument) {
       this.currentDocument = {
         businessAnalysis: { content: '', status: 'DRAFT', flags: [] },
-        code: { content: '', status: 'DRAFT', flags: [] },
-        test: { content: '', status: 'DRAFT', flags: [] },
-        bpmn: { content: '', status: 'DRAFT', flags: [] },
         review: { content: '', status: 'DRAFT', flags: [] }
       };
     }
@@ -41,7 +38,7 @@ Kullanıcının isteklerini analiz edip, sağ taraftaki dokümanda (Canvas) gere
 
 KATI KURAL (GUARDRAIL):
 1. Asla doğrudan uzun metinler uydurma. Kullanıcının isteğini analiz et ve sağdaki dokümanda nereyi değiştirmen gerekiyorsa SADECE \`apply_micro_edit\` aracını kullan.
-2. Eğer kullanıcıdan yeni bir bilgi geldiğinde veya bir talep olduğunda, SADECE soru sormakla yetinme! Mutlaka dokümanın ilgili sekmesini (businessAnalysis, code, test, bpmn) \`apply_micro_edit\` aracı ile güncelle.
+2. Eğer kullanıcıdan yeni bir bilgi geldiğinde veya bir talep olduğunda, SADECE soru sormakla yetinme! Mutlaka görünür doküman yüzeyindeki ilgili alanı (businessAnalysis veya review) \`apply_micro_edit\` aracı ile güncelle. Teknik analiz, test, UAT ve akış detaylarını ayrı code/test/bpmn sekmelerine değil businessAnalysis içine yaz.
 3. Dokümanı güncellerken, \`targetText\` alanına dokümandaki mevcut metni BİREBİR, HARFİ HARFİNE yazmalısın.
 4. Eğer yeni bir metin ekliyorsan, eklenecek yerin hemen öncesindeki metni \`targetText\` olarak yaz ve \`replacementText\` alanına \`targetText\` + yeni metin şeklinde yaz.
 5. Eğer doküman tamamen boşsa veya ilgili sekme boşsa, \`targetText\` alanını boş bırakabilirsin.
