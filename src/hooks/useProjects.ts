@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { supabase } from '../supabase';
 import { Project, Workspace } from '../types';
 import { User } from './useAuth';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
 import { rowsToCamel } from '../lib/mapping';
 
 async function loadAll(user: User, setProjects: (projects: Project[]) => void) {
@@ -45,8 +45,8 @@ async function loadAll(user: User, setProjects: (projects: Project[]) => void) {
 }
 
 export function useProjects(user: User | null, isAuthReady: boolean) {
-  const projects = useStore(state => state.projects);
-  const setProjects = useStore(state => state.setProjects);
+  const projects = useDataStore(state => state.projects);
+  const setProjects = useDataStore(state => state.setProjects);
 
   useEffect(() => {
     if (!user || !isAuthReady) return;

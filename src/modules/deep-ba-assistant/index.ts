@@ -115,16 +115,10 @@ export function buildDeepBaResearchPlan(userMessage = ''): DeepBaResearchPlan {
       'Teknik, test ve akis detaylari ayri gizli sekmelere degil BA Analiz ve Review icine gomulecek.',
     ],
     documentGapsToCheck: [
-      'Konu ve is problemi',
-      'Resmi/mevzuatsal baglam ve kaynak ozeti',
-      'As-Is / To-Be surec anlatimi',
-      'Kanal, marka, alici tipi ve veri eslestirme kurallari',
-      'BR/FR/NFR/INT/RPT/SEC kodlu gereksinimler',
-      'Hata, retry, audit, mutabakat ve operasyonel izleme',
-      'Ekran, validasyon, bildirim ve raporlama ihtiyaclari',
-      'UAT ve kabul kriterleri',
-      'Riskler, varsayimlar ve acik sorular',
-      'Kaynak ve dogrulama matrisi',
+      'Talep, artifact modu ve secili profil uyumu',
+      'Kaynak sinyallerinin ciktiya sadakati',
+      'Yuksek etkili bilgi bosluklari ve varsayilabilirlik',
+      'DOGRULANDI / VARSAYIM / ACIK KONU kanit ayrimi',
     ],
   };
 }
@@ -133,42 +127,18 @@ export function buildDeepBaActInstructions(userMessage = ''): string {
   const sourcePolicy = buildSourceVerificationPolicy(userMessage);
   const domainAddendum = actInstructionsForSource(userMessage).join('\n');
   return `
-[DEEP BA ASSISTANT V2]
-Bu turda asistanin ana hedefi sohbet derinligini ve dokuman kalitesini artirmaktir.
+[DEEP BA ANALIZ DAVRANISI]
+Bu katman analiz derinligini ve kanit disiplinini tanimlar; dokuman turunu veya bolumlerini secmez.
 
 ${BA_MINDSET_SYSTEM_INSTRUCTION}
 
-Gorunur cikti yuzeyi:
-- document.businessAnalysis: karar verilebilir BA / kavramsal tasarim dokumani.
-- document.review: kalite kontrol, riskler, acik sorular, kaynak guvenilirligi ve sonraki adimlar.
-- code, test ve bpmn alanlarini zorunlu uretme. Teknik analiz, test paketi ve akislar BA Analiz icinde alt baslik olarak yazilir.
-
-businessAnalysis.content su omurgayi mumkun oldugunca doldurur:
-1. Calisma ozeti ve hedef karar
-2. Proje kimlik karti
-3. Problem / ihtiyac ve is degeri
-4. Kaynak / mevzuat / standart baglami
-5. Kapsam ve kapsam disi
-6. Paydaslar, roller ve sorumluluklar
-7. As-Is / To-Be surec anlatimi
-8. Uc uca is surecleri, tetikleyiciler, karar noktalari ve istisnalar
-9. BR/FR/NFR/INT/RPT/SEC kodlu gereksinimler
-10. Kavramsal veri modeli ve veri eslestirme tablolari
-11. Kavramsal entegrasyon mimarisi
-12. Ekran, form, validasyon, toast/modal/bildirim ve rapor ihtiyaclari
-13. Hata yonetimi, retry, audit, loglama, mutabakat ve operasyonel izleme
-14. UAT, kabul kriterleri ve kalite kapilari
-15. Varsayimlar ve acik konular
-
-review.content su omurgayi doldurur:
-- Kaynak ve Dogrulama Matrisi: | Konu | Durum | Kaynak / Kanit | Dokumandaki Kullanim | Not |
-- Dogrulandi: kaynakla desteklenen mevzuat/API/standart maddeleri
-- Varsayimlar: is veya teknik karara dayali ama henuz teyit edilmemis maddeler
-- Acik Konular: kullanici, kurum, tedarikci veya resmi dokumanla netlesmesi gereken maddeler
-- Risk listesi ve etki/olasilik notlari
-- Netlestirilmesi gereken kararlar
-- Kalite kapisi notu
-- Sonraki aksiyonlar ve sprint onerisi
+Dokuman yapisi kurallari:
+- AiTurnDecision icindeki artifact profile tek yapisal otoritedir.
+- Profilin zorunlu basliklarini ve sirasini koru; farkli bir genel BA omurgasi uygulama.
+- Profilde olmayan teknik analiz, test, API, ekran, entegrasyon veya surec bolumlerini otomatik ekleme.
+- Bir detay talep, kaynak veya profil icin gerekliyse ilgili profile uygun yerde karar verilebilir derinlikte isle.
+- Kaynakta olmayan rol, sistem, surec, KPI, esik, ekran veya teknik urun adi uydurma.
+- Review yeni is gercegi uretmez; kanit durumu, risk, varsayim, celiski ve acik kararlari raporlar.
 
 Davranis kurallari:
 - Chat mesaji 2-5 cumlelik calisma ozeti olsun; detaylari sag panel dokumanina yaz.
@@ -189,7 +159,7 @@ export function buildDeepBaThinkingSummary(plan: DeepBaResearchPlan): string {
     'Deep BA Assistant v2 calisma ozeti:',
     `- Mod: ${plan.enabled ? 'kaynakli derin analiz' : 'derin BA taslagi'}`,
     `- Neden: ${plan.reason}`,
-    `- Kontrol basliklari: ${plan.documentGapsToCheck.slice(0, 5).join(', ')}`,
+    `- Kontrol boyutlari: ${plan.documentGapsToCheck.slice(0, 5).join(', ')}`,
   ].join('\n');
 }
 

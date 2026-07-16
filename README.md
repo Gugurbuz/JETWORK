@@ -1,20 +1,116 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# JetWork AI
 
-# Run and deploy your AI Studio app
+JetWork AI is a collaborative business-analysis workspace. It turns project conversations and source material into evidence-aware conceptual analysis documents while preserving human control over high-impact document changes.
 
-This contains everything you need to run your app locally.
+## Product Architecture
 
-View your app in AI Studio: https://ai.studio/apps/3b531d10-549d-428f-b0a2-e29e90b632e8
+The web client is React 19, TypeScript, Vite, Zustand, and TipTap. Supabase provides authentication, Postgres persistence, Realtime collaboration, and the `gemini-chat` Edge Function.
 
-## Run Locally
+The primary AI turn follows one decision path:
 
-**Prerequisites:**  Node.js
+1. `useMessages` records the user turn and invokes `runSingleChatOrchestrator`.
+2. `AiTurnDecision` classifies the intent, information gaps, research need, artifact mode, and confirmation policy.
+3. `baAgentLoop` plans deterministically and performs only the action authorized by that decision.
+4. Structured `EvidenceClaim` records distinguish verified, inferred, assumed, and conflicting claims.
+5. `documentPostProcessor` normalizes and scores output without adding business content.
+6. High-impact changes are stored as pending operations and require confirmation before persistence.
 
+Project memory and pending operations are persisted in Supabase. Local storage is only a cache and recovery fallback.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Prerequisites
+
+- Node.js 22.13 or newer (Node.js 24 is used in CI)
+- pnpm 11.9 or newer
+- A Supabase project
+- Supabase CLI for migrations and Edge Function deployment
+
+## Local Setup
+
+```bash
+pnpm install --frozen-lockfile
+cp .env.example .env.local
+pnpm run dev
+```
+
+Required browser environment variables:
+
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-publishable-anon-key
+```
+
+`GEMINI_API_KEY` is a server-side Edge Function secret. Never expose it through a `VITE_` variable.
+
+```bash
+supabase secrets set GEMINI_API_KEY=your-key
+supabase functions deploy gemini-chat
+```
+
+## Database
+
+Apply migrations in order:
+
+```bash
+supabase db push
+```
+
+The current migrations cover prompt settings, knowledge search, project memory, and confirmation-controlled pending operations. Review the target project before applying migrations to an existing production database.
+
+The RLS contract is executable with a local Supabase stack:
+
+```bash
+supabase test db supabase/tests/rls_contract.sql
+```
+
+All tables exposed through Supabase Data APIs must have Row Level Security enabled and ownership or workspace-membership policies. Enabling RLS without matching policies can block application access, so production policy changes require a reviewed migration and a smoke test with owner and non-member accounts.
+
+## Verification
+
+```bash
+pnpm run lint
+pnpm test
+pnpm run verify:ai-ba-engine
+pnpm run verify:ai-turn-decision
+pnpm run verify:deep-ba-assistant
+pnpm run verify:product-runtime
+pnpm run verify:document-quality
+pnpm run build
+```
+
+Authenticated browser smoke tests use Playwright and never store credentials in the repository:
+
+```bash
+E2E_BASE_URL=https://jetwork.vercel.app \
+E2E_USERNAME=your-user \
+E2E_PASSWORD=your-password \
+pnpm run test:e2e
+```
+
+The browser suite covers login, project/workspace creation, AI document generation, canonical Word headings, XSS non-execution, opaque sharing, and revocation. GitHub Actions runs it only when `E2E_USERNAME` and `E2E_PASSWORD` secrets are configured.
+
+GitHub Actions runs the same typecheck, unit tests, behavior regressions, and production build for pull requests and pushes to `main`.
+
+## Deployment
+
+The frontend is deployable to Vercel with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configured in the project environment. Database migrations and the `gemini-chat` Edge Function are deployed separately through Supabase.
+
+Before release, verify:
+
+- Supabase migrations are applied to the intended project.
+- `GEMINI_API_KEY` exists only in Supabase Edge Function secrets.
+- RLS policies prevent cross-workspace reads and writes.
+- The behavior regression suite passes.
+- A user can create a workspace, send a message, generate a document, preview a high-impact change, confirm it, and reload persisted memory.
+
+## Repository Map
+
+- `src/services/ai/aiTurnDecision.ts`: sole turn-level behavior decision contract
+- `src/services/singleChatOrchestrator.ts`: active single-chat orchestration
+- `src/services/baAgentLoop.ts`: decision-controlled analysis execution
+- `src/services/evidenceClaims.ts`: evidence ledger validation
+- `src/services/documentPostProcessor.ts`: read-only normalization and quality assessment
+- `src/services/projectMemoryRepository.ts`: persistent project memory
+- `src/services/pendingOperationRepository.ts`: preview and confirmation persistence
+- `supabase/functions/gemini-chat`: server-side Gemini gateway
+- `supabase/migrations`: database changes
+- `scripts`: deterministic behavior regression scenarios

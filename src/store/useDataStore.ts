@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Project, Message, ActiveUser, TypingUser } from '../types';
+import { Project, ActiveUser, TypingUser } from '../types';
 
 export interface UserShape {
   uid: string;
@@ -32,8 +32,6 @@ export interface DataState {
   selectWorkspace: (id: string) => void;
   selectProject: (id: string) => void;
 
-  messages: Message[];
-  setMessages: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
   activeUsers: ActiveUser[];
   setActiveUsers: (users: ActiveUser[]) => void;
   typingUsers: TypingUser[];
@@ -58,11 +56,6 @@ export const useDataStore = create<DataState>((set) => ({
   selectWorkspace: (id) => set({ currentWorkspaceId: id, currentProjectId: null }),
   selectProject: (id) => set({ currentProjectId: id, currentWorkspaceId: null }),
 
-  messages: [],
-  setMessages: (messages) =>
-    set((state) => ({
-      messages: typeof messages === 'function' ? messages(state.messages) : messages,
-    })),
   activeUsers: [],
   setActiveUsers: (users) => set({ activeUsers: users }),
   typingUsers: [],

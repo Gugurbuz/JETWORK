@@ -151,6 +151,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
               <div className="relative">
                 <Folder size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-text-muted" />
                 <select
+                  data-testid="new-workspace-project"
                   value={projectId}
                   onChange={(e) => setProjectId(e.target.value)}
                   required
@@ -172,6 +173,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
                 <Briefcase size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-text-muted" />
                 <input
                   type="text"
+                  data-testid="new-workspace-item-number"
                   value={itemNumber}
                   onChange={(e) => setItemNumber(e.target.value)}
                   placeholder="Örn: JET-1042"
@@ -187,6 +189,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
               </label>
               <input
                 type="text"
+                data-testid="new-workspace-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Örn: Kredi Kartı Ödeme Entegrasyonu"
@@ -296,6 +299,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
           <div className="sticky bottom-0 -mx-8 -mb-8 mt-2 flex justify-end gap-3 border-t border-theme-border bg-theme-surface px-8 py-4">
             <button
               type="button"
+              data-testid="new-workspace-submit"
               onClick={onClose}
               className="px-5 py-2.5 text-sm font-semibold text-theme-text-muted hover:text-theme-text transition-colors"
             >

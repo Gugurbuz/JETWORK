@@ -3,7 +3,9 @@ import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, 
 import { Project, Workspace } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
+import { useDocumentStore } from '../store/useDocumentStore';
+import { useUIStore } from '../store/useUIStore';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
@@ -35,11 +37,11 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
   const [activeProjectScope, setActiveProjectScope] = React.useState<'owned' | 'shared'>('owned');
   const [projectSearch, setProjectSearch] = React.useState('');
 
-  const projects = useStore(state => state.projects);
-  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
-  const currentProjectId = useStore(state => state.currentProjectId);
-  const projectMemory = useStore(state => state.projectMemory);
-  const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
+  const projects = useDataStore(state => state.projects);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const currentProjectId = useDataStore(state => state.currentProjectId);
+  const projectMemory = useDocumentStore(state => state.projectMemory);
+  const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
 
   const visibleProjects = React.useMemo(() => {
     if (activeProjectScope === 'shared') return [];
@@ -391,7 +393,7 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
                     <div className="w-full h-px bg-theme-border/50 my-1" />
                     
                     <button 
-                      onClick={() => { useStore.getState().setShowAISettingsModal(true); setShowUserMenu(false); }}
+                      onClick={() => { useUIStore.getState().setShowAISettingsModal(true); setShowUserMenu(false); }}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2 font-medium"
                     >
                       <BrainCircuit size={14} />

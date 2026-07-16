@@ -3,8 +3,10 @@ import { AlertTriangle, CheckCircle2, Download, Edit3, FileText, Save, Share2, W
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Collaborator, DocumentData, Message, SectionData } from '../types';
-import { useStore } from '../store/useStore';
-import { supabase } from '../supabase';
+import { useDataStore } from '../store/useDataStore';
+import { useDocumentStore } from '../store/useDocumentStore';
+import { sanitizeDocumentHtml } from '../lib/sanitizeHtml';
+import { createDocumentShare, revokeDocumentShare } from '../services/documentShareRepository';
 
 interface DocumentPanelProps {
   onGenerate: () => void;
@@ -45,34 +47,34 @@ const getStatusClass = (status?: SectionData['status']) => {
 const buildQuickActionPrompt = (action: string): string => {
   const normalized = action.toLocaleLowerCase('tr-TR');
   if (normalized.includes('sablon') || normalized.includes('şablon')) {
-    return 'BA Analiz dokumanini Word kavramsal tasarim sablonuna gore tamamla. Proje kimlik karti, dokuman tarihcesi, katilimcilar, kontrol/onay tablosu, surec modeli bloklari, is gerekleri/KPI, degisim yonetimi ve EK A yapisini Review kanitiyla birlikte guncelle.';
+    return 'Mevcut dokumani secili kurumsal Word kavramsal tasarim profiline gore duzelt. Baslik adlarini ve sirasini canonical profile gore koru; kaynakta olmayan surec, rol, sistem, KPI veya onay bilgisi uydurma. Degisikligi once onizleme olarak hazirla.';
   }
   if (normalized.includes('runtime') || normalized.includes('karar izi')) {
-    return 'Review tarafindaki Copilot Runtime State Machine alanini incele. State machine, source descriptors, working memory, tool execution truth, human approval points ve completion evidence satirlarini guncelle; calismayan araclari calismis gibi yazma.';
+    return 'Review icindeki eski Copilot Runtime State Machine veya ic karar izi bloklarini kullanici dokumanindan kaldirmak icin onizleme hazirla. Is icerigini koru; ic telemetriyi dokumana yeniden ekleme.';
   }
   if (normalized.includes('tamamlanacak') || normalized.includes('kalite raporu')) {
-    return 'Mevcut kavramsal tasarim dokumanindaki tamamlanacak alanlari kapat. Surec modeli bloklarini cogalt, is gerekleri/KPI, ekran davranislari, entegrasyonlar, zorunlu evrak/dokuman, UAT ve kabul kriterlerini detaylandir. Yeni soru sorma; bilinmeyenleri [VARSAYIM] veya [ACIK KONU] olarak isaretle.';
+    return 'Mevcut dokumanin salt okunur kalite bulgularini incele ve yalniz kaynak veya acik kullanici karariyla desteklenen eksikler icin repair onizlemesi hazirla. Sabit bolum veya satir sayisi dayatma; bilinmeyenleri [VARSAYIM] ya da [ACIK KONU] olarak ayir.';
   }
   if (normalized.includes('kaynak dogrulama') || normalized.includes('dogrulama matrisi')) {
     return 'Review bolumundeki Kaynak ve Dogrulama Matrisi alanini guncelle. Her kritik mevzuat, API, entegrasyon ve is kuralini DOGRULANDI / VARSAYIM / ACIK KONU olarak ayir; kaynak yoksa kesin hukum yazma ve aksiyon listesine ekle.';
   }
   if (normalized.includes('süreç') || normalized.includes('surec')) {
-    return 'Kaynak talep dokümanına göre süreç model bloklarını tamamla. Her süreç için iş kuralları, ekranlar, zorunlu evraklar, entegrasyonlar, KPI ve kabul kriterlerini BA Analiz içine ekle. Yeni soru sorma; tamamlanacak kararları [VARSAYIM] veya [AÇIK KONU] olarak işaretle.';
+    return 'Kaynakta açıkça tanımlanan süreçleri bul ve yalnız bu süreçler için seçili artifact profile uygun repair önizlemesi hazırla. Kaynakta süreç yoksa genel süreç adı uydurma; eksik kararı [AÇIK KONU] olarak raporla.';
   }
   if (normalized.includes('evrak') || normalized.includes('belge') || normalized.includes('doküman') || normalized.includes('dokuman')) {
     return 'Zorunlu evrak ve doküman yönetimi matrisini detaylandır. Her süreç için belge adı, zorunluluk, sahip rol, yükleme/kontrol kuralı, tamamlanmamış belge davranışı, saklama sistemi ve kabul kriterlerini BA Analiz içine ekle.';
   }
   if (normalized.includes('dashboard')) {
-    return 'Genel Dashboard ve proje bazlı Dashboard gereksinimlerini detaylandır. Kartlar, filtreler, KPI alanları, drill-down davranışı, rol bazlı görünüm, gecikme/deadline/kapasite/açık görev takibini BA Analiz içine ekle.';
+    return 'Kaynakta veya kullanıcı talebinde bulunan dashboard ihtiyacını ekran amacı, kullanıcı aksiyonları, state, filtre, ölçüm, yetki, boş ve hata durumları açısından detaylandır. Kaynakta olmayan kart, KPI veya rolü varsayma.';
   }
   if (normalized.includes('entegrasyon')) {
-    return 'Entegrasyon varsayımlarını ve açık konularını netleştir. SAP, EBA, FileNet/doküman yönetimi, bildirim/e-posta ve diğer sistemler için veri akışı, tetikleyici, hata/retry, log ve mutabakat kurallarını BA Analiz ve Review içine ekle.';
+    return 'Kaynakta adı geçen entegrasyonlar için kaynak, hedef, tetikleyici, veri, başarı/hata davranışı, güvenlik ve gözlemlenebilirlik boşluklarını değerlendir. Kaynakta bulunmayan sistem veya teknoloji ekleme; değişikliği onizleme olarak hazırla.';
   }
   if (normalized.includes('review') || normalized.includes('açık') || normalized.includes('acik')) {
     return 'Review bölümündeki açık konuları kapatmak için belgeyi gözden geçir. Doğrulandı / Varsayım / Açık Konu ayrımını yap, riskleri önceliklendir ve kapatılması gereken maddeleri aksiyon sahipleriyle listele.';
   }
   if (normalized.includes('word') || normalized.includes('format')) {
-    return 'Mevcut BA Analiz dokümanını şirket Word kavramsal tasarım formatına düzelt. Proje kimlik kartı, doküman tarihçesi, katılımcılar, onay tablosu, içindekiler, süreç modeli blokları ve EK A yapısını koru.';
+    return 'Mevcut BA Analiz dokümanını canonical şirket Word kavramsal tasarım profiline göre düzelt. Profil başlıklarını ve sırasını koru; gerçek katılımcı, onay, süreç veya KPI bilgisi yoksa [AÇIK KONU] kullan. Değişikliği önce onizleme olarak hazırla.';
   }
   return `${action}. Bu aksiyonu mevcut dokümana uygula; yeni soru sorma, tamamlanacak bilgileri [VARSAYIM] veya [AÇIK KONU] olarak işaretle.`;
 };
@@ -84,22 +86,26 @@ export function DocumentPanel({
   score,
   scoreExplanation,
 }: DocumentPanelProps) {
-  const activeTab = useStore(state => state.activeTab);
-  const setActiveTab = useStore(state => state.setActiveTab);
-  const documentContent = useStore(state => state.documentContent);
-  const isGenerating = useStore(state => state.isGenerating);
-  const isGeneratingDocument = useStore(state => state.isGeneratingDocument);
-  const isDiscussing = useStore(state => state.isDiscussing);
-  const isLoadingWorkspace = useStore(state => state.isLoadingWorkspace);
-  const setSelectedDocumentText = useStore(state => state.setSelectedDocumentText);
+  const activeTab = useDocumentStore(state => state.activeTab);
+  const setActiveTab = useDocumentStore(state => state.setActiveTab);
+  const documentContent = useDocumentStore(state => state.documentContent);
+  const isGenerating = useDocumentStore(state => state.isGenerating);
+  const isGeneratingDocument = useDocumentStore(state => state.isGeneratingDocument);
+  const isDiscussing = useDocumentStore(state => state.isDiscussing);
+  const isLoadingWorkspace = useDataStore(state => state.isLoadingWorkspace);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const user = useDataStore(state => state.user);
+  const setSelectedDocumentText = useDocumentStore(state => state.setSelectedDocumentText);
 
   const [isEditing, setIsEditing] = useState(false);
   const [draftContent, setDraftContent] = useState('');
   const [isSharing, setIsSharing] = useState(false);
+  const [activeShareId, setActiveShareId] = useState<string | null>(null);
 
   const safeActiveTab = TABS.includes(activeTab) ? activeTab : 'BA Analiz';
   const activeSection = getSectionByTab(documentContent, safeActiveTab);
   const activeContent = getContentByTab(documentContent, safeActiveTab);
+  const safeActiveContent = useMemo(() => sanitizeDocumentHtml(activeContent), [activeContent]);
   const currentFlags = activeSection?.flags || [];
   const currentStatus = activeSection?.status || 'DRAFT';
   const effectiveScore = documentContent?.score ?? score;
@@ -125,7 +131,7 @@ export function DocumentPanel({
 
     const nextSection: SectionData = {
       ...(activeSection || EMPTY_SECTION),
-      content,
+      content: sanitizeDocumentHtml(content),
       status: activeSection?.status || 'DRAFT',
       flags: activeSection?.flags || [],
     };
@@ -138,18 +144,13 @@ export function DocumentPanel({
   };
 
   const handleShare = async () => {
-    if (!documentContent) return;
+    if (!documentContent || !currentWorkspaceId || !user) return;
     setIsSharing(true);
     try {
-      const shareId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-      const { error } = await supabase.from('shared_analyses').insert({
-        id: shareId,
-        data: documentContent,
-        created_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      const shareUrl = `${window.location.origin}?shareId=${shareId}`;
+      const share = await createDocumentShare(currentWorkspaceId, user.uid, documentContent);
+      const shareUrl = `${window.location.origin}?share=${encodeURIComponent(share.token)}`;
       await navigator.clipboard.writeText(shareUrl);
+      setActiveShareId(share.id);
       alert(`Paylaşım bağlantısı panoya kopyalandı!\n\n${shareUrl}`);
     } catch (error) {
       console.error(error);
@@ -159,10 +160,25 @@ export function DocumentPanel({
     }
   };
 
+  const handleRevokeShare = async () => {
+    if (!activeShareId) return;
+    setIsSharing(true);
+    try {
+      await revokeDocumentShare(activeShareId);
+      setActiveShareId(null);
+      alert('Paylaşım bağlantısı iptal edildi.');
+    } catch (error) {
+      console.error(error);
+      alert('Paylaşım iptal edilirken hata oluştu.');
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   const handleDownload = () => {
     if (!documentContent) return;
     const blob = new Blob([
-      `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>${safeActiveTab}</title><style>body{font-family:Arial,sans-serif;line-height:1.6;max-width:960px;margin:0 auto;padding:32px;color:#111827}table{border-collapse:collapse;width:100%;margin:18px 0}th,td{border:1px solid #d1d5db;padding:10px;text-align:left}th{background:#f3f4f6}h1,h2,h3{color:#111827}pre{background:#111827;color:#f9fafb;padding:16px;border-radius:8px;overflow:auto}</style></head><body>${activeContent}</body></html>`
+      `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><title>${safeActiveTab}</title><style>body{font-family:Arial,sans-serif;line-height:1.6;max-width:960px;margin:0 auto;padding:32px;color:#111827}table{border-collapse:collapse;width:100%;margin:18px 0}th,td{border:1px solid #d1d5db;padding:10px;text-align:left}th{background:#f3f4f6}h1,h2,h3{color:#111827}pre{background:#111827;color:#f9fafb;padding:16px;border-radius:8px;overflow:auto}</style></head><body>${safeActiveContent}</body></html>`
     ], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -206,7 +222,7 @@ export function DocumentPanel({
       <div
         onMouseUp={handleSelect}
         className="jetwork-doc prose prose-slate max-w-none prose-headings:font-semibold prose-table:text-sm prose-th:bg-slate-100 prose-th:p-3 prose-td:p-3 prose-td:border prose-th:border prose-table:w-full"
-        dangerouslySetInnerHTML={{ __html: activeContent }}
+        dangerouslySetInnerHTML={{ __html: safeActiveContent }}
       />
     );
   };
@@ -246,9 +262,14 @@ export function DocumentPanel({
           )}
           {documentContent && (
             <>
-              <button onClick={handleShare} disabled={isSharing} className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md" title="Paylaş">
+              <button data-testid="share-document" onClick={handleShare} disabled={isSharing} className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md" title="Paylaş">
                 <Share2 size={14} className={isSharing ? 'animate-pulse' : ''} />
               </button>
+              {activeShareId && (
+                <button data-testid="revoke-document-share" onClick={handleRevokeShare} disabled={isSharing} className="p-1.5 text-theme-text-muted hover:text-red-600 hover:bg-red-500/10 rounded-md" title="Paylaşımı iptal et">
+                  <X size={14} />
+                </button>
+              )}
               <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-theme-primary text-theme-primary-fg text-[10px] font-bold uppercase tracking-widest hover:bg-theme-primary-hover rounded-md shadow-sm">
                 <Download size={12} /> İndir
               </button>
@@ -267,7 +288,7 @@ export function DocumentPanel({
             ) : !documentContent && (isGeneratingDocument || isDiscussing) ? (
               <GeneratingState isDiscussing={isDiscussing} />
             ) : (
-              <motion.div key={safeActiveTab} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="bg-theme-surface p-8 border border-theme-border/50 shadow-lg relative rounded-2xl">
+              <motion.div data-testid="document-panel-content" key={safeActiveTab} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="bg-theme-surface p-8 border border-theme-border/50 shadow-lg relative rounded-2xl">
                 <div className="absolute top-0 left-0 right-0 h-1 bg-theme-primary rounded-t-2xl opacity-80" />
                 <div className="mb-8 pb-4 border-b border-theme-border/50 flex justify-between items-start gap-4">
                   <div>

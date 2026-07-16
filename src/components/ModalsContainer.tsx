@@ -7,7 +7,9 @@ import { EditProjectModal } from './EditProjectModal';
 import { EditWorkspaceModal } from './EditWorkspaceModal';
 import { ConfirmModal } from './ConfirmModal';
 import { User } from '../hooks/useAuth';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 
 interface ModalsContainerProps {
   user: User | null;
@@ -36,27 +38,27 @@ export function ModalsContainer({
   handleDeleteProject,
   handleDeleteWorkspace
 }: ModalsContainerProps) {
-  const projects = useStore(state => state.projects);
-  const currentProjectId = useStore(state => state.currentProjectId);
-  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
-  const selectedModel = useStore(state => state.selectedModel);
-  const setSelectedModel = useStore(state => state.setSelectedModel);
-  const showSettingsModal = useStore(state => state.showSettingsModal);
-  const setShowSettingsModal = useStore(state => state.setShowSettingsModal);
-  const showNewItemModal = useStore(state => state.showNewItemModal);
-  const setShowNewItemModal = useStore(state => state.setShowNewItemModal);
-  const showNewProjectModal = useStore(state => state.showNewProjectModal);
-  const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
-  const showManageParticipantsModal = useStore(state => state.showManageParticipantsModal);
-  const setShowManageParticipantsModal = useStore(state => state.setShowManageParticipantsModal);
-  const editingProject = useStore(state => state.editingProject);
-  const setEditingProject = useStore(state => state.setEditingProject);
-  const editingWorkspace = useStore(state => state.editingWorkspace);
-  const setEditingWorkspace = useStore(state => state.setEditingWorkspace);
-  const deletingProject = useStore(state => state.deletingProject);
-  const setDeletingProject = useStore(state => state.setDeletingProject);
-  const deletingWorkspace = useStore(state => state.deletingWorkspace);
-  const setDeletingWorkspace = useStore(state => state.setDeletingWorkspace);
+  const projects = useDataStore(state => state.projects);
+  const currentProjectId = useDataStore(state => state.currentProjectId);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const selectedModel = useSettingsStore(state => state.selectedModel);
+  const setSelectedModel = useSettingsStore(state => state.setSelectedModel);
+  const showSettingsModal = useUIStore(state => state.showSettingsModal);
+  const setShowSettingsModal = useUIStore(state => state.setShowSettingsModal);
+  const showNewItemModal = useUIStore(state => state.showNewItemModal);
+  const setShowNewItemModal = useUIStore(state => state.setShowNewItemModal);
+  const showNewProjectModal = useUIStore(state => state.showNewProjectModal);
+  const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
+  const showManageParticipantsModal = useUIStore(state => state.showManageParticipantsModal);
+  const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
+  const editingProject = useUIStore(state => state.editingProject);
+  const setEditingProject = useUIStore(state => state.setEditingProject);
+  const editingWorkspace = useUIStore(state => state.editingWorkspace);
+  const setEditingWorkspace = useUIStore(state => state.setEditingWorkspace);
+  const deletingProject = useUIStore(state => state.deletingProject);
+  const setDeletingProject = useUIStore(state => state.setDeletingProject);
+  const deletingWorkspace = useUIStore(state => state.deletingWorkspace);
+  const setDeletingWorkspace = useUIStore(state => state.setDeletingWorkspace);
 
   const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
 

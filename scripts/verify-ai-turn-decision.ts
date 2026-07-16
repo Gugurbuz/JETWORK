@@ -253,10 +253,13 @@ const sensitiveProcessed = postProcessDocumentData({
 });
 
 const sensitiveReview = sensitiveProcessed.document.review?.content || '';
-assert(/Evidence Policy Guard/i.test(sensitiveReview), 'Sensitive post-processing should add Evidence Policy Guard');
-assert(/OFFICIAL_EVIDENCE_REQUIRED/i.test(sensitiveReview), 'Sensitive low-confidence claims should require official evidence');
-assert((sensitiveProcessed.document.review?.flags || []).includes('VERIFIED_CLAIM_SCOPE_REVIEW'), 'Verified claim scope should be flagged when DOGRULANDI appears without enough evidence');
-assert((sensitiveProcessed.document.suggestions || []).some(item => /Resmi kaynak/i.test(item)), 'Sensitive draft should suggest official-source verification');
+assert(!/Evidence Policy Guard|OFFICIAL_EVIDENCE_REQUIRED/i.test(sensitiveReview), 'Post-processing must not inject evidence prose into Review');
+assert((sensitiveProcessed.document.review?.flags || []).length === 0, 'Read-only quality assessment must not mutate Review flags');
+assert(!(sensitiveProcessed.document.suggestions || []).some(item => /Resmi kaynak/i.test(item)), 'Read-only quality assessment must not inject quick actions');
+assert(
+  (sensitiveProcessed.document.qualityAssessment?.findings || []).some(item => item.category === 'source'),
+  'Sensitive unsupported claims should be reported in qualityAssessment findings',
+);
 
 const gapDrivenQuestions = buildBaCognitiveQuestionItems({
   ...baseFrame,
@@ -287,5 +290,45 @@ assert(gapDrivenQuestions.every(question => question.options.length >= 2 && ques
 assert(/Karar etkisi/i.test(gapDrivenQuestions[0].text), 'Question text should explain decision impact');
 assert(gapDrivenQuestions[0].options.some(option => /sistem|api|operasyon|varsayim/i.test(option)), 'Process gap should expose concrete answer options');
 assert(gapDrivenQuestions[1].options.some(option => /SLA|Hata|KPI/i.test(option)), 'KPI gap should expose metric-oriented options');
+
+const pendingConfirmDecision = buildAiTurnDecision({
+  userMessage: 'uygula',
+  document: existingDocument,
+  classification: baseClassification,
+  behaviorDecision: baseBehavior,
+  cognitiveFrame: baseFrame,
+  sourceReport: baseSourceReport,
+  discoverySignals: {},
+  pendingOperation: { id: 'operation-1' },
+  pendingOperationLookupPerformed: true,
+});
+assert(pendingConfirmDecision.action === 'execute_confirmed_change', 'Confirmation must execute only the stored pending operation');
+assert(pendingConfirmDecision.documentPolicy.shouldUpdateDocument, 'Confirmed pending operation should update the document');
+
+const pendingCancelDecision = buildAiTurnDecision({
+  userMessage: 'iptal',
+  document: existingDocument,
+  classification: baseClassification,
+  behaviorDecision: baseBehavior,
+  cognitiveFrame: baseFrame,
+  sourceReport: baseSourceReport,
+  discoverySignals: {},
+  pendingOperation: { id: 'operation-1' },
+  pendingOperationLookupPerformed: true,
+});
+assert(pendingCancelDecision.action === 'cancel_pending_change', 'Cancellation must target the stored pending operation');
+
+const missingPendingDecision = buildAiTurnDecision({
+  userMessage: 'uygula',
+  document: existingDocument,
+  classification: baseClassification,
+  behaviorDecision: baseBehavior,
+  cognitiveFrame: baseFrame,
+  sourceReport: baseSourceReport,
+  discoverySignals: {},
+  pendingOperation: null,
+  pendingOperationLookupPerformed: true,
+});
+assert(missingPendingDecision.action === 'pending_operation_missing', 'Apply without a stored operation must not mutate the document');
 
 console.log('AI turn decision verification passed.');

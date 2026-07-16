@@ -1,5 +1,6 @@
 import type { ArtifactMode } from './baCognitiveFrame';
 import type { BaAgentFocus } from './intentTypes';
+import { CANONICAL_CONCEPTUAL_SECTIONS } from '../conceptualTemplate';
 
 export type ArtifactProfileId =
   | 'none'
@@ -58,16 +59,7 @@ export const ARTIFACT_PROFILES: Record<ArtifactProfileId, ArtifactProfile> = {
   conceptual_design_standard: {
     id: 'conceptual_design_standard',
     label: 'Kavramsal tasarim',
-    requiredSections: [
-      'KAVRAMSAL TASARIM RAPORU',
-      'Proje Kimlik Karti',
-      'Amac',
-      'Kapsam',
-      'As-Is / To-Be',
-      'Is Gerekleri ve KPIs',
-      'UAT / Kabul Kriterleri',
-      'Review',
-    ],
+    requiredSections: [...CANONICAL_CONCEPTUAL_SECTIONS],
     optionalSections: [
       'Surec modeli bloklari',
       'Ekran / validasyon / mesajlar',
@@ -86,18 +78,7 @@ export const ARTIFACT_PROFILES: Record<ArtifactProfileId, ArtifactProfile> = {
   conceptual_design_process_heavy: {
     id: 'conceptual_design_process_heavy',
     label: 'Surec agirlikli kavramsal tasarim',
-    requiredSections: [
-      'KAVRAMSAL TASARIM RAPORU',
-      'Proje Kimlik Karti',
-      'Dokuman Tarihcesi',
-      'Surec Tasarimi',
-      'SUREC MODELI bloklari',
-      'Is Gerekleri ve KPIs',
-      'Ust Duzey Musteri Gelistirmesi',
-      'Onemli Uyarlamalar',
-      'Degisim Yonetimi',
-      'EK A',
-    ],
+    requiredSections: [...CANONICAL_CONCEPTUAL_SECTIONS],
     optionalSections: ['Mermaid akis taslagi', 'Traceability matrisi', 'Kaynak dogrulama matrisi'],
     forbiddenSections: ['Baska proje/domain surec adlari'],
     processModelPolicy: 'required_for_profile',

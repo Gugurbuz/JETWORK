@@ -664,10 +664,10 @@ function decideCognitiveAction(
 function buildOutputPlan(artifactMode: ArtifactMode): string[] {
   const plans: Record<ArtifactMode, string[]> = {
     conceptual_analysis: [
-      'ProblemFrame: is problemi, hedef sonuc, as-is/to-be, paydaslar ve kapsam.',
-      'Surec modelleri: her ana surec icin tetikleyici, aktor, adim, karar, istisna, kapanis.',
-      'Gereksinimler: BR/FR/NFR/INT/RPT/SEC kodlu, kaynak/varsayim etiketiyle.',
-      'Review: dogrulandi / varsayim / acik konu, riskler ve hizli aksiyonlar.',
+      'Nihai baslik ve sira AiTurnDecision artifact profile sozlesmesinden gelir.',
+      'Problem ve hedef sonucu kaynak sinyalleriyle kur; eksik bilgiyi acik konu veya varsayim olarak ayir.',
+      'Surec modeli yalniz kaynakta acikca belirlenen surecler icin uretilir.',
+      'Review yeni is icerigi degil; kanit, risk, celiski, varsayim ve acik karar degerlendirmesidir.',
     ],
     process_design: [
       'Surec omurgasi ve aktor swimlane mantigi.',
@@ -761,14 +761,16 @@ function buildAntiPatterns(report: SourceIntelligenceReport): string[] {
 
 function buildDocumentContract(report: SourceIntelligenceReport, artifactMode: ArtifactMode): string[] {
   return uniq([
-    `Cikti modu ${artifactMode}; bolumler ve coverage bu moda gore uretilmelidir.`,
-    'businessAnalysis karar verilebilir kavramsal tasarim olmalidir: surec, rol, ekran, veri, entegrasyon, KPI, risk ve UAT bagli yazilir.',
-    'review kalite raporu olmalidir: dogrulandi / varsayim / acik konu ayrimi, riskler, coverage eksikleri ve hizli aksiyonlar.',
+    `Bilişsel cikti modu ${artifactMode}; nihai bolumler AiTurnDecision artifact profile tarafindan belirlenir.`,
     'Her kritik karar satirinda kaynak durumu yaz: [DOGRULANDI], [CIKARIM], [VARSAYIM], [CELISKI], [ACIK KONU].',
-    report.processes.length ? `Her kaynak surec icin ayri "SUREC MODELI - N" blogu ac: ${report.processes.map(process => process.title).join(' | ')}` : '',
-    report.documentRules.length ? 'Zorunlu evrak ve dokuman kurallari surec kapanis kriteri olarak yazilir.' : '',
-    report.dashboardNeeds.length ? 'Dashboard, deadline, gecikme ve acik gorev ihtiyaclari raporlama/KPI bolumune baglanir.' : '',
-    report.integrations.length ? 'Entegrasyonlar icin kaynak, hedef, tetikleyici, basari/hata davranisi ve audit yazilir.' : '',
+    report.processes.length && ['conceptual_analysis', 'process_design'].includes(artifactMode)
+      ? `Kaynak surec omurgasi: ${report.processes.map(process => process.title).join(' | ')}`
+      : '',
+    report.documentRules.length ? 'Kaynakta acikca verilen dokuman kurallarini ilgili profil bolumunde koru.' : '',
+    report.dashboardNeeds.length ? 'Kaynakta acikca verilen dashboard ve olcum ihtiyaclarini ilgili profil bolumunde koru.' : '',
+    report.integrations.length && ['conceptual_analysis', 'technical_analysis', 'api_specification'].includes(artifactMode)
+      ? 'Kaynakta acikca verilen entegrasyonlari secili profil derinliginde analiz et.'
+      : '',
   ]);
 }
 
@@ -859,12 +861,12 @@ export function buildBaCognitiveFrame(input: BuildBaCognitiveFrameInput): BaCogn
 
 export function buildBaCognitiveInstruction(frame: BaCognitiveFrame): string {
   return `
-[AI AKLI / BILISSEL MODEL - ZORUNLU]
-Bu katman sablon doldurmak icin degil, cevabi uretmeden once kurulacak is analizi ve vibe-coding zihinsel modelidir.
+[AI AKLI / BILISSEL MODEL - ACIKLAYICI ANALIZ]
+Bu katman sablon veya final aksiyon secmez. AiTurnDecision tek karar otoritesidir; buradaki model yalniz analiz ve kanit baglami saglar.
 
 Kaynak zenginligi: ${frame.sourceRichness}
 ArtifactMode: ${frame.artifactMode}
-Onerilen aksiyon: ${frame.action}
+Bilişsel aksiyon sinyali (otorite degil): ${frame.action}
 Guven skoru: ${frame.confidence}/100
 Coverage skoru: ${frame.coverageSummary.score}/100 (${frame.coverageSummary.coveredCount} covered, ${frame.coverageSummary.partialCount} partial, ${frame.coverageSummary.missingCount} missing)
 

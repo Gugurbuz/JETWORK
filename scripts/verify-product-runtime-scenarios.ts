@@ -3,7 +3,7 @@ import { buildBehaviorDecision } from '../src/services/ai/behaviorDecision';
 import { buildBaCognitiveFrame } from '../src/services/ai/baCognitiveFrame';
 import { buildAiTurnDecision } from '../src/services/ai/aiTurnDecision';
 import { buildCopilotCognitiveTrace } from '../src/services/ai/copilotCognitiveArchitecture';
-import { attachCopilotRuntimeToDocument, buildCopilotRuntimeSnapshot } from '../src/services/ai/copilotRuntimeState';
+import { buildCopilotRuntimeSnapshot } from '../src/services/ai/copilotRuntimeState';
 import { analyzeSourceIntelligence } from '../src/services/sourceIntelligence';
 import { postProcessDocumentData } from '../src/services/documentPostProcessor';
 import { evaluateDocumentQualityGate } from '../src/services/documentQualityGate';
@@ -131,18 +131,18 @@ const processed = postProcessDocumentData({
   workspaceTitle: '',
 }).document;
 
-assert(/Word Template Conformance Guard/i.test(processed.review?.content || ''), 'Processed document should carry Word template guard');
-assert(/Izlenebilirlik ve Testlenebilirlik Matrisi/i.test(processed.businessAnalysis?.content || ''), 'Processed document should carry traceability matrix');
-assert(/Analysis Coverage Matrix/i.test(processed.businessAnalysis?.content || ''), 'Processed document should carry analysis coverage matrix');
-assert((processed.suggestions || []).some(item => /Tamamlanacak alanları kapat|Şablon uyumunu tamamla/i.test(item)), 'Processed document should expose product quick actions');
+assert(!/Word Template Conformance Guard/i.test(processed.review?.content || ''), 'Read-only postprocessor must not inject a Word template guard');
+assert(!/Izlenebilirlik ve Testlenebilirlik Matrisi/i.test(processed.businessAnalysis?.content || ''), 'Read-only postprocessor must not inject traceability content');
+assert(!/Analysis Coverage Matrix/i.test(processed.businessAnalysis?.content || ''), 'Read-only postprocessor must not inject a coverage matrix');
+assert(!(processed.suggestions || []).some(item => /Tamamlanacak alanları kapat|Şablon uyumunu tamamla/i.test(item)), 'Read-only postprocessor must not inject quick actions');
+assert((processed.qualityAssessment?.findings || []).length > 0, 'Missing template and coverage should be exposed as assessment findings');
 
 const detailedRuntime = buildRuntimeFor(detailedRequest, {
   readiness: 90,
   mustGenerateNow: true,
 });
-const runtimeAttachedProcessed = attachCopilotRuntimeToDocument(processed, detailedRuntime.runtime) || processed;
-const gate = evaluateDocumentQualityGate(runtimeAttachedProcessed);
-assert(!gate.missingSections.some(item => /Runtime state machine/i.test(item)), 'Runtime-attached document should satisfy runtime state machine quality gate');
+const gate = evaluateDocumentQualityGate(processed);
+assert(!gate.missingSections.some(item => /Runtime state machine/i.test(item)), 'Quality gate must not require internal runtime telemetry');
 
 const executionScenario = buildRuntimeFor('repo incele kod gelistir build typecheck tarayici test et', {
   readiness: 80,

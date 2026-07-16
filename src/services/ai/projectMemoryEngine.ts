@@ -84,30 +84,11 @@ function extractExplicitMemory(text: string, out: ProjectMemory): void {
   });
 }
 
-function extractDocumentMemory(document: DocumentData | null | undefined, out: ProjectMemory): void {
-  if (!document) return;
-  const review = document.review?.content || '';
-  const ba = document.businessAnalysis?.content || '';
-  if (/Copilot Cognitive Decision Trace/i.test(review)) {
-    put(out, 'system.copilot_trace_enabled', 'Copilot Cognitive Decision Trace aktif; karar, evidence, gap, task plan ve validation loop Review tarafinda izlenir.');
-  }
-  if (/KAVRAMSAL TASARIM RAPORU/i.test(ba)) {
-    put(out, 'system.conceptual_template_enabled', 'Kavramsal tasarim raporu sablonu aktif; dokuman kimlik, surec modeli, gereksinim, KPI, UAT ve onay bolumlerini kapsar.');
-  }
-  if (/Evidence Ledger|Kaynak ve Dogrulama Matrisi/i.test(review)) {
-    put(out, 'system.evidence_ledger_enabled', 'Evidence ledger ve kaynak dogrulama matrisi Review kalite yuzeyinde izlenir.');
-  }
-  if (/Copilot Runtime State Machine|Tool Execution Truth|Completion Evidence/i.test(review)) {
-    put(out, 'system.runtime_state_enabled', 'Copilot Runtime State Machine aktif; state, kaynak, arac durustlugu, onay ve tamamlanma kaniti Review tarafinda izlenir.');
-  }
-}
-
 export function extractProjectMemoryUpdates(input: ProjectMemoryExtractionInput): ProjectMemory {
   const out: ProjectMemory = {};
   const combined = [input.userMessage, input.aiMessage || ''].filter(Boolean).join('\n');
   extractPreferenceMemory(combined, out);
   extractExplicitMemory(combined, out);
-  extractDocumentMemory(input.document, out);
   return out;
 }
 

@@ -1,145 +1,29 @@
-import { useStore } from '../store/useStore';
-import { supabase } from '../supabase';
-import { Message, DocumentData } from '../types';
-import { camelToSnake, nowIso } from '../lib/mapping';
-import { runZeroTouchMode } from '../services/agentRunner';
-import { saveDocumentAndVersion } from '../utils/documentUtils';
+import { useRef } from 'react';
+import { useDataStore } from '../store/useDataStore';
+import { useDocumentStore } from '../store/useDocumentStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
+import { Message } from '../types';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt } from '../services/promptEngine';
-import { hybridSearch, extractKeyFacts, summarizeConversation } from '../services/contextManager';
+import { hybridSearch, summarizeConversation } from '../services/contextManager';
 import { runSingleChatOrchestrator } from '../services/singleChatOrchestrator';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
-import { parse as parsePartialJson } from 'partial-json';
 import { useMessageStore } from '../store/useMessageStore';
-import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
-import type { AnalysisInputAttachment } from '../modules/conceptual-design/conceptualDesignTypes';
-import { postProcessDocumentData } from '../services/documentPostProcessor';
-import {
-  buildProjectMemoryContext,
-  extractProjectMemoryUpdates,
-  mergeProjectMemory,
-} from '../services/ai/projectMemoryEngine';
-
-const stripCodeFences = (raw: string): string => {
-  let t = raw.trim();
-  const fenceMatch = t.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
-  if (fenceMatch) t = fenceMatch[1].trim();
-  return t;
-};
-
-const extractChatParts = (raw: string): { message: string; thinking?: string; questions?: any[]; actionSummary?: string } => {
-  if (!raw) return { message: '' };
-  const trimmed = stripCodeFences(raw);
-  if (!trimmed.startsWith('{')) return { message: raw };
-  try {
-    const parsed: any = parsePartialJson(trimmed);
-    if (parsed && typeof parsed === 'object') {
-      return {
-        message: typeof parsed.message === 'string' ? parsed.message : '',
-        thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
-        questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
-        actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
-      };
-    }
-  } catch {}
-  return { message: '' };
-};
-
-const sanitizeDisplayText = (text: string): { text: string; questions?: any[]; actionSummary?: string } => {
-  if (!text) return { text: '' };
-  const trimmed = stripCodeFences(text);
-  if (!trimmed.startsWith('{')) return { text };
-  const parts = extractChatParts(trimmed);
-  return {
-    text: parts.message || '',
-    questions: parts.questions,
-    actionSummary: parts.actionSummary,
-  };
-};
-
-const toAnalysisAttachments = (
-  attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[],
-): AnalysisInputAttachment[] => (attachments || []).map(attachment => ({
-  name: attachment.name,
-  mimeType: attachment.mimeType,
-  data: attachment.data,
-}));
-
-const hasDocumentIntent = (text: string): boolean => /dok[üu]man|kavramsal tasar[ıi]m|iş analizi|is analizi|gereksinim|bpmn|ak[ıi]ş|toast|validasyon|modal|rapor/i.test(text);
-
-const ensureDocumentActionSummary = (
-  text: string,
-  options: {
-    changedSections: string[];
-    score?: number;
-    scoreExplanation?: string;
-    document?: DocumentData | null;
-  },
-): string => {
-  const current = text?.trim() || '';
-  if (/ne yapt[Ä±i]m|ne yaptim/i.test(current)) return current;
-  const changed = options.changedSections.length
-    ? options.changedSections.join(', ')
-    : 'Dokuman icerigi';
-  const flags = Array.from(new Set([
-    ...(options.document?.businessAnalysis?.flags || []),
-    ...(options.document?.review?.flags || []),
-  ]));
-  const controls = [
-    flags.includes('SOURCE_FIDELITY_REPAIRED') ? 'Kaynak uyum onarimi eklendi' : '',
-    flags.includes('SOURCE_FIDELITY_REPAIR_REQUIRED') ? 'Kaynak yansitma kontrolu Review tarafinda isaretlendi' : '',
-    flags.includes('OFFICIAL_SOURCE_VERIFICATION_REQUIRED') ? 'Resmi kaynak dogrulama guard devrede' : '',
-    flags.includes('TRACEABILITY_REPAIRED') ? 'REQ-BR-AC-TC izlenebilirlik matrisi eklendi' : '',
-    flags.includes('TRACEABILITY_REPAIR_REQUIRED') ? 'Kabul kriteri ve test baglantisi Review tarafinda isaretlendi' : '',
-    flags.includes('ANALYSIS_COVERAGE_REPAIRED') ? 'Analysis coverage matrisi eklendi' : '',
-    flags.includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED') ? 'Aktor/akis/istisna/veri/NFR kapsami Review tarafinda isaretlendi' : '',
-    flags.includes('CONCEPTUAL_TEMPLATE_APPLIED') ? 'Word kavramsal tasarim sablonu uygulandi' : '',
-    flags.includes('CONCEPTUAL_TEMPLATE_COMPLETED') ? 'Süreç ve ek bölümler şablona göre tamamlandı' : '',
-    flags.includes('SOURCE_ANCHORED_TEMPLATE_REBUILT') ? 'Dokuman kaynak talebe gore yeniden kuruldu' : '',
-    flags.includes('COPILOT_RUNTIME_STATE') ? 'Runtime state machine, tool honesty ve completion evidence Review tarafinda izlendi' : '',
-    flags.includes('WORD_TEMPLATE_CONFORMANCE_GUARD') ? 'Word şablon uyum kontrolü Review tarafında izlendi' : '',
-  ].filter(Boolean);
-  const guardQuickActions = [
-    flags.includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED') ? 'Coverage matrisini tamamla' : '',
-    flags.includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED') ? 'Istisna ve negatif akislari detaylandir' : '',
-    flags.includes('TRACEABILITY_REPAIR_REQUIRED') ? 'Traceability matrisini tamamla' : '',
-    flags.includes('TRACEABILITY_REPAIR_REQUIRED') ? 'Kabul kriterlerini testlere bagla' : '',
-    flags.includes('SOURCE_FIDELITY_REPAIR_REQUIRED') ? 'Kaynak talep izlerini dokumana isle' : '',
-    flags.includes('OFFICIAL_SOURCE_VERIFICATION_REQUIRED') ? 'Resmi kaynaklarla dogrula' : '',
-    flags.includes('COPILOT_RUNTIME_STATE') ? 'Runtime karar izini incele' : '',
-    flags.includes('WORD_TEMPLATE_REVIEW_REQUIRED') ? 'Şablon uyumunu tamamla' : '',
-  ].filter(Boolean);
-  const quickActions = Array.from(new Set([
-    ...guardQuickActions,
-    ...(options.document?.suggestions || []),
-  ])).slice(0, 4);
-  const quality = typeof options.score === 'number'
-    ? `Kalite puani: ${options.score}/100.`
-    : '';
-  const reason = options.scoreExplanation
-    ? `Puan nedeni: ${options.scoreExplanation}`
-    : '';
-  return [
-    current,
-    '',
-    '**Ne yaptim?**',
-    `- Sag panelde guncellenen alanlar: ${changed}.`,
-    controls.length ? `- Calisan kontroller: ${controls.join('; ')}.` : '',
-    quality ? `- ${quality}` : '',
-    reason ? `- ${reason}` : '',
-    quickActions.length ? `- Hizli aksiyonlar: ${quickActions.join('; ')}.` : '',
-  ].filter(Boolean).join('\n');
-};
+import { buildProjectMemoryContext } from '../services/ai/projectMemoryEngine';
+import { sanitizeAiDisplayText } from '../services/aiMessagePresentation';
+import { applyAiDocumentResult } from '../services/documentApplicationService';
+import { extractKnowledgeItems, persistTurnMemory } from '../services/memoryExtractionService';
+import { saveAiMessage, saveMessageReactions, saveUserMessage } from '../services/messageRepository';
+import { broadcastMessage, createAiStreamAdapter } from '../services/aiStreamAdapter';
 
 export const useMessages = (channelRef: any) => {
-  const {
-    user,
-    currentWorkspaceId,
-    setShowNewItemModal,
-    isZeroTouchMode,
-    setIsGenerating,
-    selectedModel
-  } = useStore();
+  const generationAbortRef = useRef<AbortController | null>(null);
+  const user = useDataStore(state => state.user);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const setShowNewItemModal = useUIStore(state => state.setShowNewItemModal);
+  const setIsGenerating = useDocumentStore(state => state.setIsGenerating);
+  const selectedModel = useSettingsStore(state => state.selectedModel);
 
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
     const id = currentWorkspaceId;
@@ -157,16 +41,6 @@ export const useMessages = (channelRef: any) => {
     return useMessageStore.getState().messagesByWorkspace[id] || [];
   };
 
-  const persistAiMessage = async (message: Message) => {
-    if (!currentWorkspaceId) return;
-    const { phase: _p, phaseLabel: _pl, isTyping: _it, retryPayload: _rp, ...persistable } = message as any;
-    const aiPayload = camelToSnake<Record<string, any>>(persistable);
-    aiPayload.workspace_id = currentWorkspaceId;
-    aiPayload.created_at = nowIso();
-    const { error: aiErr } = await supabase.from('messages').upsert(aiPayload);
-    if (aiErr) throw aiErr;
-  };
-
   const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => {
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
     if (!user) return;
@@ -176,16 +50,15 @@ export const useMessages = (channelRef: any) => {
       return;
     }
 
-    const isZeroTouchModeActive = FEATURE_FLAGS.ZERO_TOUCH && (text.startsWith('/ekip') || isZeroTouchMode);
+    generationAbortRef.current?.abort(new DOMException('Superseded by a newer user message.', 'AbortError'));
+    const generationController = new AbortController();
+    generationAbortRef.current = generationController;
+
     const isSingleAgentMode = FEATURE_FLAGS.SINGLE_AGENT_MENTIONS && text.startsWith('@');
 
     let targetAgentRole = '';
     let targetAgentName = '';
     let messageText = text;
-
-    if (!FEATURE_FLAGS.ZERO_TOUCH && text.startsWith('/ekip')) {
-      messageText = text.replace('/ekip', '').trim() || text;
-    }
 
     if (isSingleAgentMode) {
       const match = text.match(/^@(\w+)\s+(.*)/);
@@ -220,8 +93,6 @@ export const useMessages = (channelRef: any) => {
         }]);
         return;
       }
-    } else if (text.startsWith('/ekip')) {
-      messageText = text.replace('/ekip', '').trim();
     }
 
     const msgId = Date.now().toString();
@@ -240,36 +111,15 @@ export const useMessages = (channelRef: any) => {
     setMessages(prev => [...prev, newMsg]);
 
     try {
-      const payload = camelToSnake<Record<string, any>>({ ...newMsg, ownerId: user.uid });
-      payload.workspace_id = currentWorkspaceId;
-      payload.created_at = nowIso();
-      const { error } = await supabase.from('messages').upsert(payload);
-      if (error) throw error;
-
-      const { error: wsErr } = await supabase
-        .from('workspaces')
-        .update({ last_updated: nowIso() })
-        .eq('id', currentWorkspaceId);
-      if (wsErr) throw wsErr;
+      await saveUserMessage(currentWorkspaceId, user.uid, newMsg);
     } catch (err) {
       console.error('Failed to save user message to database:', err);
     }
 
-    if (channelRef.current) {
-      channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: { itemId: currentWorkspaceId, message: newMsg } });
-    }
-
-    if (isZeroTouchModeActive) {
-      runZeroTouchMode(newMsg, attachments);
-      return;
-    }
-
-    const analysisAttachments = toAnalysisAttachments(attachments);
-    const actionIntent = detectAiActionIntent(messageText, analysisAttachments);
-    const actionIntentContext = buildActionIntentContext(actionIntent);
+    broadcastMessage(channelRef, 'new_message', { itemId: currentWorkspaceId, message: newMsg });
 
     setIsGenerating(true);
-    const aiMsgId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+    const aiMsgId = crypto.randomUUID();
     const aiCreatedAt = Date.now();
     
     setMessages(prev => [...prev, {
@@ -283,17 +133,17 @@ export const useMessages = (channelRef: any) => {
       isTyping: true
     }]);
 
-    const state = useStore.getState();
-    const promptSettings = state.promptSettings;
-    const knowledgeBase = state.knowledgeBase;
-    const projectMemory = state.projectMemory || {};
-    const addKnowledge = state.addKnowledge;
+    const documentState = useDocumentStore.getState();
+    const promptSettings = useSettingsStore.getState().promptSettings;
+    const knowledgeBase = documentState.knowledgeBase;
+    const projectMemory = documentState.projectMemory || {};
+    const addKnowledge = documentState.addKnowledge;
     const memoryEnabled = promptSettings?.memoryEnabled ?? true;
     const contextWindowSize = promptSettings?.contextWindowSize ?? 10;
 
     try {
       const currentMessages = getCurrentMessages();
-      const documentContent = state.documentContent;
+      const documentContent = documentState.documentContent;
       
       let retrievedContext = '';
       if (memoryEnabled && knowledgeBase.length > 0) {
@@ -328,149 +178,82 @@ export const useMessages = (channelRef: any) => {
       }));
 
       const projectMemoryContext = memoryEnabled ? buildProjectMemoryContext(projectMemory) : '';
-      const additionalContext = [projectMemoryContext, retrievedContext, actionIntentContext].filter(Boolean).join('\n\n');
+      const additionalContext = [projectMemoryContext, retrievedContext].filter(Boolean).join('\n\n');
       let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext });
       if (targetAgentRole) {
         systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext });
       }
 
-      const selectedNodeContent = useStore.getState().selectedDocumentText || null;
-      const currentWorkspaceTitle = useStore.getState().projects
+      const selectedNodeContent = useDocumentStore.getState().selectedDocumentText || null;
+      const currentWorkspaceTitle = useDataStore.getState().projects
         .flatMap(project => project.workspaces)
         .find(workspace => workspace.id === currentWorkspaceId)?.title;
+      const streamAdapter = createAiStreamAdapter({
+        channelRef,
+        messageId: aiMsgId,
+        senderName: targetAgentName || 'JetWork AI',
+        senderRole: targetAgentName || 'Sistem Asistanı',
+        agentRole: targetAgentRole || undefined,
+        setMessages,
+      });
       const loopOutput = await runSingleChatOrchestrator({
         userMessage: messageText,
         history,
         messageHistory: currentMessages,
         documentContent,
+        workspaceId: currentWorkspaceId,
         workspaceTitle: currentWorkspaceTitle,
         projectMemory,
         knowledgeBase,
         model: selectedModel,
         systemInstruction,
+        signal: generationController.signal,
         selectedNodeContent,
-        onPhase: (phase, label) => {
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, phase, phaseLabel: label } : m));
-          if (channelRef.current) {
-            channelRef.current.send({
-              type: 'broadcast',
-              event: 'ai_stream_chunk',
-              payload: {
-                id: aiMsgId,
-                phase,
-                phaseLabel: label,
-                senderName: targetAgentName || 'JetWork AI',
-                senderRole: targetAgentName || 'Sistem Asistanı',
-                agentRole: targetAgentRole || undefined
-              }
-            });
-          }
-        },
-        onThinking: (thinkingText) => {
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, thinkingText } : m));
-        },
-        onStream: (text, thinking, questions, actionSummary, tokenCount) => {
-          const sanitized = sanitizeDisplayText(text);
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? {
-            ...m,
-            text: sanitized.text,
-            thinkingText: thinking,
-            questions: questions || sanitized.questions,
-            actionSummary: actionSummary || sanitized.actionSummary,
-            tokenCount
-          } : m));
-          if (channelRef.current) {
-            channelRef.current.send({
-              type: 'broadcast',
-              event: 'ai_stream_chunk',
-              payload: {
-                id: aiMsgId,
-                text: sanitized.text,
-                thinkingText: thinking,
-                questions: questions || sanitized.questions,
-                actionSummary: actionSummary || sanitized.actionSummary,
-                senderName: targetAgentName || 'JetWork AI',
-                senderRole: targetAgentName || 'Sistem Asistanı',
-                agentRole: targetAgentRole || undefined
-              }
-            });
-          }
-        },
-        onGrounding: (urls) => {
-          setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, groundingUrls: urls } : m));
-        }
+        ...streamAdapter,
       });
 
-      const sanitizedFinal = sanitizeDisplayText(loopOutput.text);
+      const sanitizedFinal = sanitizeAiDisplayText(loopOutput.text);
       let fullText = sanitizedFinal.text || loopOutput.text;
       if (fullText.trim().startsWith('{')) fullText = '';
       const finalThinking = loopOutput.thinking;
       const finalQuestions = loopOutput.questions || sanitizedFinal.questions;
       const finalActionSummary = loopOutput.actionSummary || sanitizedFinal.actionSummary;
 
-      let finalDocument: DocumentData | null = documentContent;
-      let changedSections: string[] = [];
-      let qualityScore = documentContent?.score;
-      let qualityExplanation = documentContent?.scoreExplanation;
+      const application = await applyAiDocumentResult({
+        loopOutput,
+        initialText: fullText,
+        existingDocument: documentContent,
+        userMessage: messageText,
+        recentMessages: currentMessages,
+        workspaceTitle: currentWorkspaceTitle,
+        workspaceId: currentWorkspaceId,
+        messageId: aiMsgId,
+      });
+      fullText = application.text;
+      const finalDocument = application.document;
+      const qualityScore = application.score;
+      const qualityExplanation = application.scoreExplanation;
 
-      if (loopOutput.document) {
-        const postProcessResult = postProcessDocumentData(loopOutput.document, documentContent, {
-          sourceText: [
-            messageText,
-            ...currentMessages.slice(-8).map(message => message.text || ''),
-          ].filter(Boolean).join('\n\n'),
-          workspaceTitle: currentWorkspaceTitle,
-          turnDecision: loopOutput.turnDecision,
-        });
-        finalDocument = postProcessResult.document;
-        changedSections = postProcessResult.changedSections;
-        qualityScore = postProcessResult.document.score ?? postProcessResult.qualityGate.score;
-        qualityExplanation = postProcessResult.document.scoreExplanation || postProcessResult.qualityGate.reason;
-
-        if (!postProcessResult.qualityGate.canPublishToPanel && hasDocumentIntent(messageText)) {
-          fullText = [
-            'Taslak oluşturdum ve kalite kapısı sağ panelde tamamlanacak alanları işaretledi.',
-            '',
-            `Kalite puanı: ${postProcessResult.qualityGate.score}/100`,
-            `Tamamlanacak/zayıf alanlar: ${postProcessResult.qualityGate.missingSections.join(', ') || 'Yok'}`,
-            '',
-            'Daha iyi sonuç için ekran görüntüleri, talep dokümanı veya süreç notlarını ekleyebilirsin; mevcut bilgilerle çalışmaya devam edebilirim.'
-          ].join('\n');
-        }
-      }
-
-      if ((!fullText || !fullText.trim()) && finalDocument && finalDocument !== documentContent) {
-        fullText = changedSections.length > 0
-          ? `Sağ panelde şu bölümler güncellendi: ${changedSections.join(', ')}.`
-          : 'İşlem tamamlandı.';
-      }
-
-      const docActuallyChanged = !!finalDocument && finalDocument !== documentContent;
-      if (docActuallyChanged) {
-        useStore.getState().setDocumentContent(finalDocument!);
-      } else if (fullText && /sağ panel|dokümana işlen|dokümanlara işlen|belgeye eklen/i.test(fullText)) {
-        fullText += '\n\n_Not: Dokümanda otomatik güncelleme yapılmadı. Devam etmek için yönergelerinizi netleştirebilir misiniz?_';
-      }
-
-      if (docActuallyChanged) {
-        fullText = ensureDocumentActionSummary(fullText, {
-          changedSections,
-          score: qualityScore,
-          scoreExplanation: qualityExplanation,
-          document: finalDocument,
-        });
+      if (application.applied && finalDocument) {
+        useDocumentStore.getState().setDocumentContent(finalDocument);
       }
 
       if (memoryEnabled) {
-        const memoryUpdates = extractProjectMemoryUpdates({
-          userMessage: messageText,
-          aiMessage: fullText,
-          document: finalDocument,
-        });
-        if (Object.keys(memoryUpdates).length > 0) {
-          const nextMemory = mergeProjectMemory(useStore.getState().projectMemory || {}, memoryUpdates);
-          useStore.getState().setProjectMemory(nextMemory);
-          localStorage.setItem(`jetwork_project_memory_${currentWorkspaceId}`, JSON.stringify(nextMemory));
+        try {
+          const nextMemory = await persistTurnMemory({
+            workspaceId: currentWorkspaceId,
+            messageId: aiMsgId,
+            userMessage: messageText,
+            aiMessage: fullText,
+            document: finalDocument,
+            currentMemory: useDocumentStore.getState().projectMemory || {},
+          });
+          if (nextMemory) {
+            useDocumentStore.getState().setProjectMemory(nextMemory);
+            localStorage.setItem(`jetwork_project_memory_${currentWorkspaceId}`, JSON.stringify(nextMemory));
+          }
+        } catch (error) {
+          console.error('Project memory persistence failed:', error);
         }
       }
 
@@ -488,53 +271,36 @@ export const useMessages = (channelRef: any) => {
         isTyping: false,
         senderName: targetAgentName || 'JetWork AI',
         senderRole: targetAgentName || 'Sistem Asistanı',
-        agentRole: targetAgentRole || actionIntent.type,
+        agentRole: targetAgentRole || loopOutput.turnDecision?.action || loopOutput.intent,
         createdAt: aiCreatedAt,
         score: qualityScore,
         scoreExplanation: qualityExplanation,
       };
 
       setMessages(prev => prev.map(m => m.id === aiMsgId ? completedAiMessage : m));
-      if (channelRef.current) {
-        channelRef.current.send({ 
-          type: 'broadcast', 
-          event: 'ai_stream_end', 
-          payload: completedAiMessage,
-        });
-      }
-      await persistAiMessage(completedAiMessage);
-
-      if (docActuallyChanged && finalDocument && Object.keys(finalDocument).length > 0) {
-        await saveDocumentAndVersion(currentWorkspaceId, aiMsgId, finalDocument);
-      }
+      broadcastMessage(channelRef, 'ai_stream_end', completedAiMessage);
+      await saveAiMessage(currentWorkspaceId, user.uid, completedAiMessage);
 
     } catch (error) {
       console.error('AI Error:', error);
+      const wasAborted = error instanceof DOMException && error.name === 'AbortError';
       setMessages(prev => prev.map(m => m.id === aiMsgId ? { 
         ...m, 
-        text: 'Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.', 
+        text: wasAborted ? 'Önceki üretim yeni talep nedeniyle iptal edildi.' : 'Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.',
         isTyping: false,
-        isError: true 
+        isError: !wasAborted,
       } : m));
     } finally {
       if (memoryEnabled) {
-        extractKeyFacts(messageText).then(facts => {
-          facts.forEach(f => {
-            if (f.importance >= 5) {
-              addKnowledge({
-                id: Date.now().toString() + Math.random().toString(36).substring(7),
-                content: f.fact,
-                keywords: f.fact.toLowerCase().split(' ').slice(0, 5),
-                importance: f.importance,
-                createdAt: Date.now(),
-                projectId: currentWorkspaceId
-              });
-            }
-          });
+        extractKnowledgeItems(currentWorkspaceId, messageText).then(items => {
+          items.forEach(addKnowledge);
         }).catch(console.error);
       }
 
-      setIsGenerating(false);
+      if (generationAbortRef.current === generationController) {
+        generationAbortRef.current = null;
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -566,37 +332,22 @@ export const useMessages = (channelRef: any) => {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions: newReactions } : m));
 
     try {
-      const { error } = await supabase
-        .from('messages')
-        .update({ reactions: newReactions })
-        .eq('id', messageId)
-        .eq('workspace_id', currentWorkspaceId);
-      if (error) throw error;
+      await saveMessageReactions(currentWorkspaceId, messageId, newReactions);
     } catch (error) {
       console.error('Error updating reaction:', error);
     }
   };
 
   const handleAcceptAiHandRaise = () => {
-    const state = useStore.getState();
+    const state = useDocumentStore.getState();
     if (state.aiHandRaised) {
       state.setAiHandRaised(null);
-      state.setIsDiscussing(true);
-      runZeroTouchMode({
-        id: Date.now().toString(),
-        role: 'user',
-        text: 'Lütfen devam et.',
-        senderName: 'Sistem',
-        senderRole: 'Sistem',
-        createdAt: Date.now()
-      });
+      void handleSendMessage('Lutfen mevcut analize ana JetWork AI karar hatti uzerinden devam et.');
     }
   };
 
   const handleGenerateDocument = async () => {
-    await handleSendMessage('Bu konusmaya gore kapsamli kavramsal tasarim dokumani olustur. Surec modelleri, is gerekleri, KPI, ekran/toast/validasyon davranislari, dokuman yonetimi, entegrasyonlar, test/UAT senaryolari ve akis detaylarini BA Analiz icinde detaylandir; Review bolumunde risk, acik konu ve kalite notlarini ayir.');
-    return;
-    await handleSendMessage('Bu konuşmaya göre kapsamlı kavramsal tasarım dokümanı oluştur. Süreç modelleri, iş gerekleri, KPI, toast/validasyon mesajları, doküman yönetimi, entegrasyonlar, test senaryoları ve akış/sequence detaylarını BA Analiz içinde detaylandır.');
+    await handleSendMessage('Bu konusmaya gore kapsamli kavramsal tasarim dokumani olustur. Kaynakta belirlenen surecleri, is gereklerini, KPI olcumlerini, ekran/toast/validasyon davranislarini, dokuman yonetimini, entegrasyonlari, test/UAT senaryolarini ve akis detaylarini BA Analiz icinde detaylandir; kaynakta olmayan degerleri uydurma ve Review bolumunde risk, varsayim, acik konu ve kalite bulgularini ayir.');
   };
 
   return { handleSendMessage, handleToggleReaction, handleAcceptAiHandRaise, handleGenerateDocument };

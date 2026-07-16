@@ -291,7 +291,7 @@ const DIGITAL_CONTRACT: BaDiscoveryProfile = {
       text: 'Sozlesme saklama ve arsivleme nerede yapilacak?',
       rationale: 'Arsiv sistemi kararinin veri modeli, entegrasyon, saklama suresi ve erisim yetkilerine etkisi vardir.',
       documentImpact: 'Veri modeli, entegrasyon mimarisi, rapor ve denetim ihtiyaclari.',
-      options: ['FileNet / DMS', 'Uygulama ici saklama', 'Acik konu olarak kalsin'],
+      options: ['Kurumsal DMS / ECM', 'Uygulama ici saklama', 'Acik konu olarak kalsin'],
     },
     {
       id: 'contract-approval-roles',

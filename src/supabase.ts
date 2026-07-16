@@ -73,13 +73,9 @@ export const signInWithUsernameOrEmail = async (input: string, password: string)
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
   let email = input;
   if (!isEmail) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('email')
-      .eq('username', input)
-      .maybeSingle();
-    if (error || !data?.email) throw new Error('Kullanıcı adı bulunamadı.');
-    email = data.email;
+    const { data, error } = await supabase.rpc('resolve_login_email', { p_username: input });
+    if (error || !data) throw new Error('Kullanıcı adı bulunamadı.');
+    email = data;
   }
   return signInWithEmailAndPassword(email, password);
 };

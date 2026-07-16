@@ -53,7 +53,6 @@ export interface UserSignals {
   selectedTextOnly: boolean;
   requestsToolUsage: boolean;
 }
-
 export interface ConfidenceProfile {
   intentConfidence: number;
   sourceConfidence: number;
@@ -563,7 +562,7 @@ function validationPlan(input: BuildCopilotCognitiveTraceInput, action: FinalAct
     base.push('Kod degisikligi varsa typecheck/build/test sonucunu kanit olarak ayir.');
   }
   if (input.behaviorDecision.domain !== 'generic_ba') {
-    base.push('Domain iddialarinda dogrulanmis bilgi ile Enerjisa/custom varsayimini ayir.');
+    base.push('Domain iddialarinda dogrulanmis bilgi ile projeye ozgu varsayimlari ayir.');
   }
   return base;
 }
@@ -631,46 +630,8 @@ function buildTaskPlan(
   }));
 }
 
-function mustIncludeForMode(mode: ArtifactMode): string[] {
-  const shared = [
-    'ProblemFrame: is problemi, hedef sonuc, mevcut durum, hedef durum, paydas, kapsam, kisit ve KPI.',
-    'Evidence ledger: DOGRULANDI / CIKARIM / VARSAYIM / CELISKI / ACIK_KONU ayrimi.',
-    'InformationGap matrisi: etki, geri donus maliyeti, varsayilabilirlik ve aksiyon.',
-    'Traceability: kaynak sinyali -> karar -> gereksinim -> test/kabul kriteri baglantisi.',
-  ];
-  const byMode: Record<ArtifactMode, string[]> = {
-    conceptual_analysis: [
-      'Surec modeli bloklari, BR/FR/NFR/INT/RPT/SEC gereksinimler, veri, entegrasyon, UI/validasyon, UAT ve degisim yonetimi.',
-    ],
-    process_design: [
-      'Happy path, alternatif akis, istisna akis, durum gecisleri, aktor/rol ve operasyon kapanis kriterleri.',
-    ],
-    user_story: [
-      'Persona, hedef, is degeri, kabul kriterleri, bagimlilik, DoR/DoD ve test notlari.',
-    ],
-    acceptance_criteria: [
-      'Given/When/Then, pozitif/negatif/sinir/yetki senaryolari ve on kosullar.',
-    ],
-    test_scenario: [
-      'On kosul, test verisi, adimlar, beklenen sonuc, negatif/alternatif/sinir ve regresyon kapsami.',
-    ],
-    technical_analysis: [
-      'Component, API/servis, veri modeli, hata/retry/logging/audit/guvenlik/performans/deployment.',
-    ],
-    api_specification: [
-      'Endpoint, auth, request/response, hata kodlari, idempotency, rate limit, retry ve contract test.',
-    ],
-    data_model: [
-      'Entity, alan, tip, zorunluluk, sahiplik, lifecycle, mapping, migration ve audit.',
-    ],
-    ui_specification: [
-      'Ekran state, aksiyon, form alanlari, validasyon, toast/modal, bos/hata durumlari ve erisilebilirlik.',
-    ],
-  };
-  return [...shared, ...byMode[mode]];
-}
-
 function buildArtifactContract(input: BuildCopilotCognitiveTraceInput): ArtifactContractSnapshot {
+  const artifactProfile = input.turnDecision?.artifactProfile;
   const turnSourcePolicy = input.turnDecision
     ? [
       `AI Turn Decision action=${input.turnDecision.action}, profile=${input.turnDecision.artifactProfile.id}.`,
@@ -683,10 +644,7 @@ function buildArtifactContract(input: BuildCopilotCognitiveTraceInput): Artifact
   return {
     mode: input.cognitiveFrame.artifactMode,
     visibleSections: ['businessAnalysis', 'review'],
-    mustInclude: unique([
-      ...mustIncludeForMode(input.cognitiveFrame.artifactMode),
-      ...input.cognitiveFrame.documentContract,
-    ]).slice(0, 12),
+    mustInclude: unique(artifactProfile?.requiredSections || input.cognitiveFrame.documentContract).slice(0, 24),
     sourcePolicy: [
       ...turnSourcePolicy,
       'Kullanici talebi ve ek dokuman ana gerceklik kaynagidir.',
@@ -695,16 +653,17 @@ function buildArtifactContract(input: BuildCopilotCognitiveTraceInput): Artifact
       'Modelin tahminleri [VARSAYIM], cikarimlari [CIKARIM], eksik kararlar [ACIK KONU] olarak yazilir.',
     ],
     forbiddenPatterns: [
+      ...(artifactProfile?.forbiddenSections || []),
       'Genel sablon basliklarini kaynak sureclerin yerine kullanma.',
       'Kaynakta olmayan domain, sistem, mikroservis, ekran veya mevzuat kararini kesin bilgi gibi yazma.',
       'Ayri code/test/bpmn sekmelerini yeni uretimde ana yuzey gibi kullanma.',
       'Kalite puani dusukse nedeni gizleme veya "taslak tamam" diye sunma.',
     ],
     qualityGates: [
-      'businessAnalysis karar verilebilir detayda olmalidir.',
-      'review kaynak/dogrulama, risk, varsayim, acik konu, kalite ve hizli aksiyon icermelidir.',
-      'Coverage: aktor, akis, istisna, is kurali, validasyon, yetki, veri, entegrasyon, NFR, rapor ve audit kontrol edilir.',
-      'Traceability ve evidence ledger yoksa cikti NEEDS_REVISION kabul edilir.',
+      `Secili artifact profile ${artifactProfile?.id || 'belirsiz'} baslik ve sirasi korunmalidir.`,
+      'Kaynakta verilen kritik sinyaller ciktiya yansitilmali; kaynakta olmayan gercekler uretilmemelidir.',
+      'VERIFIED/DOGRULANDI iddialari yapisal kanit olmadan yayinlanmamalidir.',
+      'Kalite degerlendirmesi dokumani degistirmeden bulgu uretmelidir.',
     ],
   };
 }
@@ -727,7 +686,7 @@ function buildValidationLoop(
     {
       stage: 'post_generation',
       check: 'Artifact contract mustInclude maddeleri businessAnalysis/review icinde karsilandi mi?',
-      failureAction: 'Self-review repair uygula; eksik coverage ve traceability bloklarini ekle.',
+      failureAction: 'Dokumani degistirmeden kalite bulgusu uret; repair ayri ve onayli bir aksiyon olmalidir.',
     },
     {
       stage: 'repair',
@@ -834,7 +793,6 @@ function renderProblemFrameSnapshot(problem: ProblemFrameSnapshot): string {
     `- successMetrics: ${problem.successMetrics.join(' | ') || '[YOK]'}`,
   ].join('\n');
 }
-
 function renderEvidenceLedger(entries: EvidenceLedgerEntry[]): string {
   return entries.length
     ? entries.slice(0, 10).map(entry => (
@@ -900,8 +858,8 @@ function renderValidationLoop(loop: ValidationLoopItem[]): string {
 
 export function buildCopilotCognitiveInstruction(trace: CopilotCognitiveTrace): string {
   return `
-[COPILOT COGNITIVE ARCHITECTURE - ZORUNLU KARAR IZI]
-Bu tur basit "soru sor / taslak uret" yonlendiricisi degildir. Asagidaki karar izini uygula.
+[COPILOT COGNITIVE ARCHITECTURE - ACIKLAYICI KARAR IZI]
+Bu blok final aksiyon veya dokuman yapisi secmez. AiTurnDecision tek karar otoritesidir; asagidaki iz yalniz analiz, kanit ve arac dogrulugu baglami saglar.
 
 State path:
 ${renderList(trace.statePath, 'state yok')}
@@ -909,7 +867,7 @@ ${renderList(trace.statePath, 'state yok')}
 UserSignals:
 ${renderKeyValueMap(trace.userSignals as unknown as Record<string, boolean>)}
 
-FinalAction:
+Runtime recommendation (otorite degil):
 - action: ${trace.finalDecision.action}
 - rationale: ${trace.finalDecision.rationaleCodes.join(' | ')}
 - userExplanation: ${trace.finalDecision.userExplanation}
@@ -957,17 +915,12 @@ ${renderValidationLoop(trace.validationLoop)}
 Validation plan:
 ${renderList(trace.finalDecision.validationPlan, 'validation yok')}
 
-Uygulama kurallari:
-- Nihai aksiyon ask_blocking_questions degilse genel BA sorulariyla durma; dokuman/cevap uretirken varsayimlari gorunur yap.
-- Nihai aksiyon ask_blocking_questions ise en fazla 3-5 kritik soru sor; her soru etki/geri donus maliyetine dayali olsun.
-- Required agents listesindeki perspektifleri tek dokuman/cevapta birlestir; ayri sekme uretmeye zorlama.
+Kanit ve dogruluk kurallari:
 - Required tools listesinde calistirmadigin araci calismis gibi sunma; sadece plan veya [DOGRULAMA GEREKIR] olarak yaz.
 - Tool execution plan availability degeri external_host_required ise bu araci JetWork icinde calistirdigini iddia etme.
 - ConfidenceProfile dusukse kesin hukum verme; Review'da dogrulanmadi/varsayim/acik konu ayrimini yap.
-- Ciktiyi kalite kapisindan gecir: eksik coverage varsa Review'a repair notu ve hizli aksiyon ekle.
-- Evidence ledger ve Gap decision matrix dokumanin Review bolumunde izlenebilir olmali.
-- Traceability matrix kaynak sinyali -> karar -> dokuman hedefi -> dogrulama bagini gostermeli.
-- Artifact contract mustInclude maddeleri businessAnalysis veya review icinde karsilanmali; karsilanmayanlari kalite dusus nedeni yap.
+- Evidence ledger, gap matrix ve traceability tanilama verisidir; artifact profile acikca istemiyorsa kullanici dokumanina icsel motor blogu olarak ekleme.
+- Artifact contract mustInclude maddeleri yalniz secili artifact profile'dan gelir; eksikler kalite bulgusudur, otomatik icerik ekleme gerekcesi degildir.
 `.trim();
 }
 
@@ -985,21 +938,12 @@ export function buildCopilotThinkingSummary(trace: CopilotCognitiveTrace): strin
 const REVIEW_START = '<!-- COPILOT_COGNITIVE_TRACE_START -->';
 const REVIEW_END = '<!-- COPILOT_COGNITIVE_TRACE_END -->';
 
-function replaceMarkedBlock(currentContent: string, nextBlock: string): string {
-  const escapedStart = REVIEW_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const escapedEnd = REVIEW_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const blockRegex = new RegExp(`${escapedStart}[\\s\\S]*?${escapedEnd}`, 'm');
-  if (blockRegex.test(currentContent || '')) return (currentContent || '').replace(blockRegex, nextBlock);
-  return [currentContent?.trim(), nextBlock].filter(Boolean).join('\n\n');
-}
-
 function mdCell(value: string | number | undefined): string {
   return String(value ?? '')
     .replace(/\r?\n/g, ' ')
     .replace(/\|/g, '/')
     .trim() || '[YOK]';
 }
-
 function reviewRows(headers: string[], rows: string[][]): string[] {
   return [
     `| ${headers.map(mdCell).join(' | ')} |`,
@@ -1131,19 +1075,4 @@ export function buildCopilotReviewMarkdown(trace: CopilotCognitiveTrace): string
     REVIEW_END,
   ].join('\n');
 }
-
-export function attachCopilotTraceToDocument(
-  document: DocumentData | null | undefined,
-  trace: CopilotCognitiveTrace,
-): DocumentData | null | undefined {
-  if (!document) return document;
-  const currentReview = document.review || { content: '', status: 'DRAFT' as const, flags: [] };
-  return {
-    ...document,
-    review: {
-      ...currentReview,
-      content: replaceMarkedBlock(currentReview.content || '', buildCopilotReviewMarkdown(trace)),
-      flags: Array.from(new Set([...(currentReview.flags || []), 'COPILOT_COGNITIVE_TRACE'])),
-    },
-  };
-}
+// Diagnostic Markdown is intentionally detached from user-facing documents.

@@ -1,4 +1,5 @@
 import type { DocumentData, Message, Question, SectionData } from '../../types';
+import { hasValidEvidenceLedger, invalidEvidenceClaims } from '../../services/evidenceClaims';
 
 export type BaDiscoveryPriority = 'critical' | 'high' | 'medium';
 export type BaDiscoveryFieldId =
@@ -366,6 +367,8 @@ export function evaluateBaQualityV2(document: DocumentData | null | undefined): 
   const review = sectionText(document?.review);
   const all = `${ba}\n${review}`;
   const sourceSensitive = hasAny(all, [/iys/i, /i[\. ]?y[\. ]?s/i, /mevzuat/i, /kanun/i, /api/i, /oauth/i, /entegrasyon/i]);
+  const evidenceLedgerValid = hasValidEvidenceLedger(document?.evidenceClaims || []);
+  const evidenceClaimsValid = invalidEvidenceClaims(document?.evidenceClaims || []).length === 0;
   const discovery = buildBaDiscoveryState({ document: document || null });
 
   if (!document || !ba.trim()) {
@@ -407,9 +410,9 @@ export function evaluateBaQualityV2(document: DocumentData | null | undefined): 
       { label: 'Açık sorular eksik', ok: hasAny(all, [/a[çc][ıi]k soru/i, /eksik bilgi/i]) },
     ]),
     ...(sourceSensitive ? [scoreSection('Kaynak ve doğrulama', [
-      { label: 'Doğrulandı / varsayım / açık konu matrisi eksik', ok: hasAny(review, [/kaynak/i, /kan[ıi]t/i]) && hasAny(review, [/DOGRULANDI/i, /DO[ĞG]RULANDI/i, /do[ğg]ruland/i]) && hasAny(review, [/VARSAYIM/i, /varsay[ıi]m/i]) && hasAny(review, [/ACIK KONU/i, /A[ÇC]IK KONU/i, /a[çc][ıi]k konu/i]) },
-      { label: 'Resmi kaynak / güvenilir referans notu eksik', ok: hasAny(review, [/resmi kaynak/i, /guvenilir referans/i, /güvenilir referans/i, /mevzuat/i, /api dok[üu]mantasyon/i]) },
-      { label: 'Varsayım ve açık konu ayrımı eksik', ok: hasAny(review, [/varsay[ıi]m/i]) && hasAny(review, [/a[çc][ıi]k konu/i, /dogrulama gerek/i, /do[ğg]rulama gerek/i]) },
+      { label: 'Yapısal EvidenceClaim kaydı eksik', ok: evidenceLedgerValid },
+      { label: 'VERIFIED iddiasının kaynak kanıtı eksik', ok: evidenceClaimsValid },
+      { label: 'Varsayım ve açık konu ayrımı eksik', ok: (document?.evidenceClaims || []).some(claim => ['ASSUMPTION', 'OPEN', 'INFERRED'].includes(claim.status)) },
     ])] : []),
     scoreSection('Kullanılabilirlik ve mesajlar', [
       { label: 'Ekran / kullanıcı etkileşimi eksik', ok: hasAny(all, [/ekran/i, /kullan[ıi]c[ıi] deneyimi/i, /ui/i]) },

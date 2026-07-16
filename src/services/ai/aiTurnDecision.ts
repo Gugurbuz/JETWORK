@@ -2,7 +2,7 @@ import type { DocumentData } from '../../types';
 import type { SourceIntelligenceReport } from '../sourceIntelligence';
 import type { ArtifactMode, BaCognitiveFrame } from './baCognitiveFrame';
 import type { BehaviorDecision } from './behaviorDecision';
-import type { IntentClassification } from './intentTypes';
+import type { DocumentOperation, DocumentSectionKey, IntentClassification } from './intentTypes';
 import {
   ARTIFACT_PROFILES,
   renderArtifactProfileInstruction,
@@ -12,13 +12,21 @@ import {
 } from './artifactProfiles';
 
 export type AiTurnAction =
+  | 'system_message'
   | 'answer_only'
   | 'ask_questions'
   | 'research_first'
   | 'draft_document'
   | 'revise_document'
   | 'validate_document'
-  | 'repair_document';
+  | 'repair_document'
+  | 'preview_change'
+  | 'execute_confirmed_change'
+  | 'cancel_pending_change'
+  | 'pending_operation_missing'
+  | 'update_selected_text'
+  | 'memory_action'
+  | 'workflow_action';
 
 export type AiQuestionType = 'none' | 'critical_only' | 'domain_discovery';
 
@@ -47,6 +55,11 @@ export interface AiTurnDecision {
     forceDocumentGeneration: boolean;
     visibleSections: Array<'businessAnalysis' | 'review'>;
   };
+  executionPolicy: {
+    operation: DocumentOperation;
+    targetSection: DocumentSectionKey | null;
+    requiresConfirmation: boolean;
+  };
   qualityPolicy: {
     minimumAcceptableScore: number;
     blockOnContextLeakage: boolean;
@@ -70,6 +83,14 @@ export interface BuildAiTurnDecisionInput {
     newStandaloneRequest?: boolean;
     reason?: string;
   };
+  hasSelectedText?: boolean;
+  capabilities?: {
+    zeroTouchEnabled?: boolean;
+  };
+  pendingOperation?: {
+    id: string;
+  } | null;
+  pendingOperationLookupPerformed?: boolean;
 }
 
 const clamp = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
@@ -114,6 +135,16 @@ function assumptionConsent(text: string): boolean {
 function explicitRepairRequest(text: string): boolean {
   const normalized = normalize(text);
   return /\b(eksikleri tamamla|word format|sablon uyum|review.*kapat|acik konulari kapat|kalite.*duzelt|revizyon.*tamamla|onar|iyilestir|derinlestir|coverage.*tamamla|traceability.*tamamla)\b/.test(normalized);
+}
+
+function pendingConfirmation(text: string): boolean {
+  const normalized = normalize(text);
+  return /^(devam et|uygula|onayla|onayliyorum|evet uygula|degisikligi uygula)$/.test(normalized);
+}
+
+function pendingCancellation(text: string): boolean {
+  const normalized = normalize(text);
+  return /^(iptal|vazgec|vazgectim|islemi iptal et|degisikligi iptal et)$/.test(normalized);
 }
 
 function sourceSensitive(input: BuildAiTurnDecisionInput): boolean {
@@ -181,7 +212,28 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
   const officialRequired = officialSourceRequired(input);
   const repairRequest = explicitRepairRequest(input.userMessage);
 
+  if (input.pendingOperationLookupPerformed && pendingCancellation(input.userMessage)) {
+    return input.pendingOperation ? 'cancel_pending_change' : 'pending_operation_missing';
+  }
+  if (input.pendingOperationLookupPerformed && pendingConfirmation(input.userMessage)) {
+    return input.pendingOperation ? 'execute_confirmed_change' : 'pending_operation_missing';
+  }
   if (input.discoverySignals.greetingOnly) return 'answer_only';
+  if (input.classification.subIntent === 'zero_touch_requested' && !input.capabilities?.zeroTouchEnabled) return 'system_message';
+  if (['agent_debate_requested', 'unsupported_request', 'invalid_command'].includes(input.classification.subIntent)) return 'system_message';
+  if (
+    input.classification.subIntent === 'missing_selection'
+    || input.classification.documentImpact === 'updates_selected_text' && !input.hasSelectedText
+  ) return 'ask_questions';
+  if (input.classification.requiresClarification && !allowsAssumption) return 'ask_questions';
+  if (
+    input.classification.riskLevel === 'high'
+    || input.classification.documentImpact === 'requires_user_confirmation'
+    || input.classification.requiresPreview
+  ) return 'preview_change';
+  if (input.classification.primaryIntent === 'memory_decision' || input.classification.documentImpact === 'updates_memory_only') return 'memory_action';
+  if (input.classification.primaryIntent === 'workflow' || input.classification.documentImpact === 'workflow_action_only') return 'workflow_action';
+  if (input.classification.primaryIntent === 'selected_text_editing' || input.classification.documentImpact === 'updates_selected_text') return 'update_selected_text';
   if (hasDocument && repairRequest) return 'repair_document';
   if (input.classification.primaryIntent === 'quality_review') return input.classification.subIntent === 'score_document' ? 'validate_document' : 'validate_document';
   if (explicitResearchRequest(input.userMessage) && !explicitDoc) return 'research_first';
@@ -198,12 +250,13 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
 
 export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDecision {
   const action = selectAction(input);
-  const mode = action === 'answer_only' || action === 'ask_questions' || action === 'research_first'
+  const documentActions: AiTurnAction[] = ['draft_document', 'revise_document', 'validate_document', 'repair_document', 'execute_confirmed_change'];
+  const mode = !documentActions.includes(action)
     ? 'none'
     : resolveArtifactMode(input);
   const profile = action === 'ask_questions'
     ? ARTIFACT_PROFILES.discovery_brief
-    : action === 'answer_only' || action === 'research_first'
+    : !documentActions.includes(action)
       ? ARTIFACT_PROFILES.none
       : selectArtifactProfile({
         artifactMode: mode === 'none' ? undefined : mode,
@@ -218,7 +271,7 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
     || !!input.discoverySignals.mustGenerateNow
     || action === 'draft_document'
     || action === 'revise_document';
-  const shouldUpdateDocument = ['draft_document', 'revise_document', 'repair_document'].includes(action);
+  const shouldUpdateDocument = ['draft_document', 'revise_document', 'repair_document', 'execute_confirmed_change'].includes(action);
   const forceDocumentGeneration = ['draft_document', 'revise_document', 'repair_document'].includes(action);
   const allowAutoRepair = action === 'repair_document';
   const allowTemplateNormalization = shouldUpdateDocument && profile.id !== 'none' && profile.id !== 'discovery_brief';
@@ -267,6 +320,11 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
       forceDocumentGeneration,
       visibleSections: ['businessAnalysis', 'review'],
     },
+    executionPolicy: {
+      operation: input.classification.operation,
+      targetSection: input.classification.targetSection || null,
+      requiresConfirmation: action === 'preview_change',
+    },
     qualityPolicy: {
       minimumAcceptableScore: officialRequired ? 72 : 78,
       blockOnContextLeakage: true,
@@ -290,6 +348,9 @@ export function buildAiTurnDecisionInstruction(decision: AiTurnDecision): string
     `- Artifact modu: ${decision.artifactMode}`,
     `- Artifact profili: ${decision.artifactProfile.id}`,
     `- Dokuman guncelle: ${decision.documentPolicy.shouldUpdateDocument ? 'evet' : 'hayir'}`,
+    `- Islem: ${decision.executionPolicy.operation}`,
+    `- Hedef bolum: ${decision.executionPolicy.targetSection || 'yok'}`,
+    `- Onay gerekli: ${decision.executionPolicy.requiresConfirmation ? 'evet' : 'hayir'}`,
     `- Soru sor: ${decision.questionPolicy.shouldAsk ? 'evet' : 'hayir'} (${decision.questionPolicy.questionType})`,
     `- Varsayim kullan: ${decision.documentPolicy.allowAssumptions ? 'evet, etiketli' : 'hayir'}`,
     `- Resmi kaynak gerekli: ${decision.sourcePolicy.officialSourceRequired ? 'evet' : 'hayir'}`,
@@ -302,7 +363,7 @@ export function buildAiTurnDecisionInstruction(decision: AiTurnDecision): string
     'Uygulama:',
     '- Bu karar sozlesmesi ust karar olarak kabul edilir; alt promptlar buna ters davranamaz.',
     '- action=ask_questions ise document alani uretme.',
-    '- action=answer_only veya research_first ise dokumani guncelledim iddiasi kurma.',
+    '- action=answer_only, research_first, validate_document, memory_action, workflow_action, preview_change, pending_operation_missing veya cancel_pending_change ise dokumani guncelledim iddiasi kurma.',
     '- action=draft_document/revise_document ise document.businessAnalysis ve review alanlarini secili profile gore uret.',
     '- Kaynak gerektiren konularda arastirma/grounding yoksa DOGRULANDI yerine VARSAYIM veya ACIK KONU kullan.',
   ].join('\n');

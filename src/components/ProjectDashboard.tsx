@@ -98,6 +98,7 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
           </div>
           <button
             onClick={onNewWorkspace}
+            data-testid="open-new-workspace"
             className="flex items-center gap-2 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg px-4 py-2 rounded-md text-sm font-semibold transition-colors shadow-sm"
           >
             <Plus size={16} />
