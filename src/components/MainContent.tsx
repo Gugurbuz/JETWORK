@@ -1,7 +1,8 @@
 import React from 'react';
 import { LayoutDashboard } from 'lucide-react';
 import { ProjectDashboard } from './ProjectDashboard';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
+import { useUIStore } from '../store/useUIStore';
 
 interface MainContentProps {
   children: React.ReactNode;
@@ -10,14 +11,14 @@ interface MainContentProps {
 export function MainContent({
   children
 }: MainContentProps) {
-  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
-  const currentProjectId = useStore(state => state.currentProjectId);
-  const projects = useStore(state => state.projects);
-  const setShowNewItemModal = useStore(state => state.setShowNewItemModal);
-  const setEditingWorkspace = useStore(state => state.setEditingWorkspace);
-  const setDeletingWorkspace = useStore(state => state.setDeletingWorkspace);
-  const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
-  const selectWorkspace = useStore(state => state.selectWorkspace);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const currentProjectId = useDataStore(state => state.currentProjectId);
+  const projects = useDataStore(state => state.projects);
+  const setShowNewItemModal = useUIStore(state => state.setShowNewItemModal);
+  const setEditingWorkspace = useUIStore(state => state.setEditingWorkspace);
+  const setDeletingWorkspace = useUIStore(state => state.setDeletingWorkspace);
+  const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
+  const selectWorkspace = useDataStore(state => state.selectWorkspace);
 
   return (
     <main className="flex-1 flex relative z-10">

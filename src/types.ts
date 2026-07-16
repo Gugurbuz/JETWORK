@@ -89,6 +89,43 @@ export interface SectionData {
   flags: string[];
 }
 
+export type DocumentQualityFindingSeverity = 'info' | 'warning' | 'error';
+
+export interface DocumentQualityFinding {
+  id: string;
+  category: 'content' | 'template' | 'source' | 'traceability' | 'coverage' | 'consistency';
+  severity: DocumentQualityFindingSeverity;
+  message: string;
+  recommendedAction?: string;
+}
+
+export interface DocumentQualityAssessment {
+  evaluatedAt: string;
+  score: number;
+  canPublish: boolean;
+  summary: string;
+  findings: DocumentQualityFinding[];
+  sourceConfidence?: number;
+  templateCoverage?: {
+    passed: number;
+    total: number;
+    missing: string[];
+  };
+}
+
+export type EvidenceClaimStatus = 'VERIFIED' | 'INFERRED' | 'ASSUMPTION' | 'OPEN' | 'CONFLICTING';
+
+export interface EvidenceClaim {
+  claimId: string;
+  claim: string;
+  status: EvidenceClaimStatus;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  retrievedAt?: string;
+  evidenceExcerpt?: string;
+  confidence: number;
+}
+
 export interface DocumentData {
   /** Ana ve şimdilik tek üretim bölümü: kavramsal tasarım / BA analiz raporu. */
   businessAnalysis: SectionData;
@@ -103,6 +140,10 @@ export interface DocumentData {
   suggestions?: string[];
   score?: number;
   scoreExplanation?: string;
+  /** Read-only quality output. It must never be used to rewrite document sections. */
+  qualityAssessment?: DocumentQualityAssessment;
+  /** Structured claim ledger. VERIFIED claims require URL, title, retrieval time and excerpt. */
+  evidenceClaims?: EvidenceClaim[];
 }
 
 export interface ActiveUser {

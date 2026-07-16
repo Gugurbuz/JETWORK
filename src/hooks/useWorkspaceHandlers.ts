@@ -1,7 +1,9 @@
 import { supabase } from '../supabase';
 import { Workspace, Message } from '../types';
 import { User } from './useAuth';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
+import { useDocumentStore } from '../store/useDocumentStore';
+import { useUIStore } from '../store/useUIStore';
 import { toast } from 'sonner';
 import { nowIso } from '../lib/mapping';
 
@@ -10,24 +12,24 @@ export function useWorkspaceHandlers(
   currentWorkspace: Workspace | undefined,
   messages: Message[]
 ) {
-  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
-  const setCurrentWorkspaceId = useStore(state => state.setCurrentWorkspaceId);
-  const currentProjectId = useStore(state => state.currentProjectId);
-  const setCurrentProjectId = useStore(state => state.setCurrentProjectId);
-  const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
-  const setShowNewItemModal = useStore(state => state.setShowNewItemModal);
-  const setEditingProject = useStore(state => state.setEditingProject);
-  const setEditingWorkspace = useStore(state => state.setEditingWorkspace);
-  const deletingProject = useStore(state => state.deletingProject);
-  const setDeletingProject = useStore(state => state.setDeletingProject);
-  const deletingWorkspace = useStore(state => state.deletingWorkspace);
-  const setDeletingWorkspace = useStore(state => state.setDeletingWorkspace);
-  const setShowManageParticipantsModal = useStore(state => state.setShowManageParticipantsModal);
-  const setDocumentContent = useStore(state => state.setDocumentContent);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
+  const currentProjectId = useDataStore(state => state.currentProjectId);
+  const setCurrentProjectId = useDataStore(state => state.setCurrentProjectId);
+  const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
+  const setShowNewItemModal = useUIStore(state => state.setShowNewItemModal);
+  const setEditingProject = useUIStore(state => state.setEditingProject);
+  const setEditingWorkspace = useUIStore(state => state.setEditingWorkspace);
+  const deletingProject = useUIStore(state => state.deletingProject);
+  const setDeletingProject = useUIStore(state => state.setDeletingProject);
+  const deletingWorkspace = useUIStore(state => state.deletingWorkspace);
+  const setDeletingWorkspace = useUIStore(state => state.setDeletingWorkspace);
+  const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
+  const setDocumentContent = useDocumentStore(state => state.setDocumentContent);
 
   const handleNewProject = async (data: { name: string; description: string }) => {
     if (!user) return;
-    const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+    const newId = crypto.randomUUID();
 
     try {
       const { error } = await supabase.from('projects').insert({
@@ -50,7 +52,7 @@ export function useWorkspaceHandlers(
 
   const handleNewWorkspace = async (data: { projectId: string; itemNumber: string; title: string; team: { id: string; name: string; role: string; email: string }[] }) => {
     if (!user) return;
-    const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+    const newId = crypto.randomUUID();
 
     const ownerCollab = {
       id: user.uid,
@@ -171,14 +173,18 @@ export function useWorkspaceHandlers(
       return;
     }
 
-    let newId = Math.random().toString(36).substring(2, 9);
+    let newId = '';
     try {
       const { data: userMatch } = await supabase
         .from('users')
         .select('uid')
         .eq('email', email)
         .maybeSingle();
-      if (userMatch?.uid) newId = userMatch.uid;
+      if (!userMatch?.uid) {
+        toast.error('Bu e-posta adresiyle kayıtlı bir JetWork kullanıcısı bulunamadı.');
+        return;
+      }
+      newId = userMatch.uid;
     } catch (err) {
       console.error('Failed to fetch users for participant ID:', err);
     }
@@ -195,7 +201,7 @@ export function useWorkspaceHandlers(
       const nextCollaborators = [...(currentWorkspace.collaborators || []), newCollaborator];
       await updateCollaborators(currentWorkspaceId, nextCollaborators);
 
-      const systemMessageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
+      const systemMessageId = crypto.randomUUID();
       const { error: msgErr } = await supabase.from('messages').insert({
         id: systemMessageId,
         workspace_id: currentWorkspaceId,
@@ -203,6 +209,7 @@ export function useWorkspaceHandlers(
         sender_role: 'System',
         text: `**${name}** çalışma alanına eklendi.`,
         role: 'system',
+        owner_id: user.uid,
         created_at: nowIso(),
       });
       if (msgErr) throw msgErr;

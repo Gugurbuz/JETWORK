@@ -1,10 +1,8 @@
-import { Type } from "@google/genai";
 import { parse as parsePartialJson } from 'partial-json';
 import { callGemini } from './geminiService';
 import { chatResponseJsonSchema } from '../schemas';
 import { hybridSearch } from './contextManager';
 import { DocumentData, KnowledgeItem, Question, SectionData } from '../types';
-import { buildActionIntentContext, detectAiActionIntent } from '../modules/ai-actions/actionIntentRouter';
 import {
   buildDeepBaActInstructions,
   buildDeepBaResearchPlan,
@@ -16,6 +14,9 @@ import {
   buildAiTurnDecisionInstruction,
   type AiTurnDecision,
 } from './ai/aiTurnDecision';
+import { sanitizeEvidenceClaims } from './evidenceClaims';
+import { evaluateDocumentQualityGate } from './documentQualityGate';
+import { CONCEPTUAL_TEMPLATE_PROMPT } from './conceptualTemplate';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
@@ -31,6 +32,7 @@ export interface AgentLoopInput {
   onActStream: (text: string, thinking: string | undefined, questions: Question[] | undefined, actionSummary: string | undefined, tokenCount: number) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
   turnDecision?: AiTurnDecision;
+  signal?: AbortSignal;
 }
 
 export interface AgentLoopOutput {
@@ -63,60 +65,6 @@ interface ReflectOutput {
   reasoning: string;
 }
 
-const planSchema = {
-  type: Type.OBJECT,
-  properties: {
-    plan: { type: Type.STRING, description: "Bu talebe yanıt vermek için 2-4 adımdan oluşan stratejik plan." },
-    assumptions: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Yaptığın varsayımlar." },
-    needsWebSearch: { type: Type.BOOLEAN, description: "Sektörel standart, güncel bilgi veya teknoloji detayı için internet araması gerekli mi?" },
-    searchQueries: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Internet/knowledge base için 0-3 kısa sorgu." },
-    documentGapsToCheck: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Dokümanda kontrol edilecek bölüm/konular." },
-    clarificationsNeeded: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Kullanıcıya sorulması gereken kritik belirsizlikler (en fazla 3)." }
-  },
-  required: ["plan", "needsWebSearch", "searchQueries"]
-};
-
-const reflectSchema = {
-  type: Type.OBJECT,
-  properties: {
-    gapsFound: { type: Type.ARRAY, items: { type: Type.STRING } },
-    flagsToRaise: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          section: { type: Type.STRING },
-          reason: { type: Type.STRING }
-        },
-        required: ["section", "reason"]
-      }
-    },
-    criticalQuestionsForUser: { type: Type.ARRAY, items: { type: Type.STRING } },
-    readyToAct: { type: Type.BOOLEAN },
-    reasoning: { type: Type.STRING }
-  },
-  required: ["gapsFound", "readyToAct", "reasoning"]
-};
-
-const extractJson = (raw: string): any | null => {
-  if (!raw) return null;
-  const trimmed = raw.trim().replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const firstBrace = trimmed.indexOf('{');
-    const lastBrace = trimmed.lastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try {
-        return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-};
-
 const sanitizeSection = (s: any): SectionData | undefined => {
   if (!s || typeof s !== 'object') return undefined;
   const content = typeof s.content === 'string' ? s.content : '';
@@ -134,6 +82,7 @@ const sanitizeDocument = (d: any): DocumentData | undefined => {
   return {
     businessAnalysis: ba || { content: '', status: 'DRAFT', flags: [] },
     ...(review ? { review } : {}),
+    evidenceClaims: sanitizeEvidenceClaims(d.evidenceClaims),
   };
 };
 
@@ -175,100 +124,40 @@ const briefDocumentSummary = (doc: DocumentData | null): string => {
   return sections.length > 0 ? sections.join('\n\n') : "(Doküman bölümleri boş.)";
 };
 
-const CONCEPTUAL_DESIGN_DEPTH_STANDARD = `
-[6] KAVRAMSAL TASARIM / WORD SABLONU DERINLIK STANDARDI
-Bu bolum JetWork AI'in ana dokuman standardidir. Ayrı bir pipeline calistirma; ayni sohbet orkestrasyonu icinde document.businessAnalysis ve document.review alanlarini uret/guncelle.
+const documentRevisionContext = (doc: DocumentData | null): string => {
+  if (!doc) return '(Mevcut dokuman yok.)';
+  return JSON.stringify({
+    businessAnalysis: doc.businessAnalysis?.content?.slice(0, 16_000) || '',
+    review: doc.review?.content?.slice(0, 6_000) || '',
+    evidenceClaims: doc.evidenceClaims || [],
+  }, null, 2);
+};
 
-A) businessAnalysis.content zorunlu Word yapisi:
-1. KAVRAMSAL TASARIM RAPORU
-2. PROJE KIMLIK KARTI
-   - Proje Ismi, Musteri Ismi, Proje Yoneticisi, Kapsam Yoneticisi, Is Uygulamalari Sorumlusu, IT Sorumlusu, Cozum Mimari.
-3. Amac
-4. Dokuman Tarihcesi
-   - Katilimcilar tablosu en az 6 rol: Proje Yoneticisi, Kapsam Yoneticisi, Is Uygulamalari, Veri Yonetimi, IT, Danisman/Cozum Mimari.
-   - Revize tarih tablosu: Tarih, Versiyon, Dokuman Revizyon Aciklamasi, Yazan.
-   - Kontrol EDEN VE ONAYLAYAN tablosu en az 6 satir: isim bilinmiyorsa [ACIK KONU].
-5. ICINDEKILER
-   - SUREC TASARIMI
-   - Her surec icin: SUREC MODELI - N "<surec adi>"
-   - EK A
-6. SUREC TASARIMI
-   - Projenin is kapsami, hedef sistemler, kanallar, aktorler, ana varsayimlar, kapsam disi ve kritik kararlar.
-7. SUREC MODELI bloklari
-   - Once kaynak talep dokumanindaki acik surec numaralarini, basliklari, gorevleri, belge listelerini ve tetikleyicileri ayikla.
-   - Kaynakta P0-P9, Surec 0-9 veya benzeri acik surec omurgasi varsa surec modeli bloklari bu sirayi korur; genel "Ana is sureci" veya "Kaynak Sistemden Hedef Sisteme Veri Aktarimi" gibi kalip basliklara dusmez.
-   - Entegrasyon, CRM, SAP, IYS, dokuman yonetimi veya dijital sozlesme projelerinde en az 3 surec modeli uret; ancak kaynakta daha fazla surec varsa kaynak sayisi esastir.
-   - Genel kavramsal tasarimlarda kaynakta acik surec yoksa en az 2 surec modeli uret.
-   - SAP CRM - IYS gibi bilinen ornek adaylari sadece o domain netse hizlandirici olarak kullan; baska talep dokumanina tasima.
-8. EK A
-   - ILGILI / REFERANS DOKUMANLAR tablosu.
-   - EKLENTI tablosu.
-
-B) Her SUREC MODELI blogunda ayni sira korunur:
-- SUREC MODELI - N "<surec adi>"
-- Surec Modeli - N
-- Bu proje ile birlikte;
-- Ust Duzey Surec Aciklamasi
-- Surec degisiklikleri
-- Is Gerekleri ve KPIs
-- Detayli Surec Akisi / Akis Diyagrami
-- Detayli Surec Akisi
-- Akis Diyagrami
-- Ilgili Surecler
-- Ust Duzey Musteri Gelistirmesi
-- Onemli Uyarlamalar ve Amaclari
-- Degisim Yonetimi
-
-C) Dolu uretim kurallari:
-- Is Gerekleri ve KPIs tablosu toplam en az 10 satir hedefler. Kod aileleri birlikte kullanilir: BR, FR, INT, NFR, UI, RPT, SEC, KPI, TEST, OPS.
-- Her gereksinimde kod, aciklama, oncelik, kabul kriteri, ilgili surec/ekran, veri kaynagi veya entegrasyon etkisi yaz.
-- KPI satirlari en az 5 olmalidir: basari orani, gecikme, hata orani, mutabakat farki, manuel is yuku, raporlama SLA gibi olcumler.
-- Ust Duzey Musteri Gelistirmesi tablosu en az 4 satir olmalidir: Arayuz, Program/Servis, Rapor, Is Akisi, Userexit/BAdI veya Entegrasyon.
-- Onemli Uyarlamalar bolumunde parametre tablolari, validasyonlar, yetki, loglama, retry, raporlama, bildirim ve operasyonel izleme amaclari yazilir.
-- Degisim Yonetimi bolumunde egitim, UAT, pilot/canli gecis, operasyon devri, rollback ve iletisim plani bulunur.
-- Belirsiz veri varsa bolum atlanmaz; deger [VARSAYIM] veya [ACIK KONU] olarak yazilir.
-
-D) Gorunur dokuman ilkesi:
-- Teknik analiz, test, surec akisi ve entegrasyon detaylari ayri gizli sekmelere zorlanmaz; businessAnalysis.content icinde ilgili Word bloklarina yedirilir.
-- review.content kalite raporudur: riskler, acik konular, varsayimlar, kaynak/dogrulama notu, kalite kapisi ve sonraki aksiyonlari yazar.
-- Chat mesaji kisa ozet olur; asil detay document alanindadir.
-- Kullanici sadece "dokuman hazirla / FDD hazirla / kavramsal tasarim yaz" dediyse bunu hedef cikti niyeti say; kritik baglam eksikse kesif katmani once soru sorabilir.
-- Bu BA loop'a gelindiyse karar verilmis kabul et; "varsayimlarla ilerle", "bu bilgilerle", "soru sorma", "hizli taslak", "sen yap", "devam et" sinyallerinde yeni soru sormadan taslak uret.
-`.trim();
-
-function buildFallbackPlan(userMessage: string): PlanOutput {
+const CONCEPTUAL_DESIGN_DEPTH_STANDARD = CONCEPTUAL_TEMPLATE_PROMPT;
+function buildFallbackPlan(userMessage: string, turnDecision?: AiTurnDecision): PlanOutput {
+  const profileSections = turnDecision?.artifactProfile.requiredSections || [];
   return {
     plan: `Kullanıcının talebini ana sohbet hattında analiz et, gerekiyorsa doküman üret/güncelle: ${userMessage.slice(0, 160)}`,
     assumptions: [],
     needsWebSearch: false,
     searchQueries: [],
-    documentGapsToCheck: ['Word şablonu', 'Süreç modeli blokları', 'İş Gerekleri ve KPIs', 'Uyarlamalar', 'Değişim yönetimi', 'Onay tabloları', 'EK A'],
+    documentGapsToCheck: profileSections,
     clarificationsNeeded: [],
   };
 }
 
-const ACT_PHASE_TIMEOUT_MS = 90000;
-
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
+const ACT_PHASE_TIMEOUT_MS = 60_000;
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
-  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision } = input;
+  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, signal } = input;
 
   let totalTokens = 0;
-  const actionIntent = detectAiActionIntent(userMessage, []);
-  const actionIntentContext = buildActionIntentContext(actionIntent);
+  const phaseTokens = new Map<string, number>();
+  const recordPhaseTokens = (phase: string, tokenCount?: number): void => {
+    if (!tokenCount) return;
+    phaseTokens.set(phase, Math.max(phaseTokens.get(phase) || 0, tokenCount));
+    totalTokens = [...phaseTokens.values()].reduce((sum, value) => sum + value, 0);
+  };
   const recentConversationText = history.slice(-6).map(h => h.parts[0]?.text || '').join('\n');
   const deepBaSubject = [recentConversationText, userMessage].filter(Boolean).join('\n');
   const deepBaPlan = buildDeepBaResearchPlan(deepBaSubject);
@@ -281,67 +170,23 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
 
   // ============ PHASE 1: PLAN ============
   onPhase('PLAN', 'Strateji belirleniyor...');
-  const planSystem = `
-Sen kıdemli bir İş Analistisin. Göreve başlamadan önce bir plan yapıyorsun.
-KURALLAR:
-- Önce problemi anla, sonra strateji kur.
-- Varsayımlarını açıkça yaz.
-- Kullanıcı doküman/tasarım/analiz istiyorsa planını doküman bölümlerine göre kur.
-- Emin olmadığın konularda "needsWebSearch: true" yap.
-- Belirsizlikte en kritik 1-3 soruyu netleştirmek için "clarificationsNeeded" listele.
-- Kullanıcı sadece "doküman hazırla / FDD hazırla / kavramsal tasarım yaz" diyorsa bunu hedef çıktı niyeti say; kritik bağlam eksikse keşif katmanı soru sorabilir.
-- Ancak kullanıcı "varsayımlarla ilerle", "bu bilgilerle", "soru sorma", "hızlı taslak", "sen yap", "devam et" diyorsa soru sormayı değil, varsayımları işaretleyerek taslak üretmeyi tercih et.
-- Ust AI Turn Decision varsa onu ana karar kabul et; plan sadece o kararı nasıl uygulayacağını tarif eder.
-Çıktı JSON olacak.
-`.trim();
-
   const docSummary = briefDocumentSummary(documentContent);
-  const planPrompt = `
-[KULLANICI TALEBİ]
-${userMessage}
-
-[OTONOM NİYET SİNYALİ]
-${actionIntentContext || 'Özel aksiyon sinyali yok.'}
-
-[AI TURN DECISION]
-${turnDecisionInstruction || 'Ust karar sozlesmesi yok; mevcut agent loop politikasi uygulanacak.'}
-
-[MEVCUT DOKÜMAN DURUMU]
-${docSummary}
-
-[SON KONUŞMA ÖZETİ]
-${history.slice(-6).map(h => h.parts[0].text).join('\n').slice(0, 2200)}
-
-Yukarıdaki talebe en kaliteli yanıtı vermek için stratejik planını JSON formatında çıkar.
-`.trim();
-
-  let plan: PlanOutput = buildFallbackPlan(userMessage);
-  try {
-    const planResponse = await callGemini({
-      model,
-      systemInstruction: planSystem,
-      contents: [{ role: 'user', parts: [{ text: planPrompt }] }],
-      responseSchema: planSchema,
-      onChunk: (_text, thinking, tokenCount) => {
-        if (thinking) onThinking(thinking);
-        if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-      }
-    });
-    plan = extractJson(planResponse.text) || plan;
-  } catch (e) {
-    console.warn('Plan phase failed, using fallback plan:', e);
-  }
+  let plan: PlanOutput = buildFallbackPlan(userMessage, turnDecision);
+  onThinking(`Deterministik plan hazırlandı: ${plan.plan}`);
 
   if (deepBaPlan.enabled || useDeepBaMode) {
+    const profileGaps = (turnDecision?.artifactProfile.requiredSections || [])
+      .map(section => `Artifact profile zorunlu basligi: ${section}`);
     plan = {
       ...plan,
-      needsWebSearch: true,
+      needsWebSearch: turnDecision?.sourcePolicy.requiresExternalResearch ?? deepBaPlan.enabled,
       searchQueries: Array.from(new Set([...(deepBaPlan.searchQueries || []), ...(plan.searchQueries || [])])).slice(0, 4),
       assumptions: Array.from(new Set([...(plan.assumptions || []), ...deepBaPlan.assumptions])),
       documentGapsToCheck: Array.from(new Set([
         ...(plan.documentGapsToCheck || []),
         ...deepBaPlan.documentGapsToCheck,
-        ...(sourcePolicy.requiresSourceSeparation ? ['Kaynak ve dogrulama matrisi', 'Dogrulandi / varsayim / acik konu ayrimi'] : []),
+        ...profileGaps,
+        ...(sourcePolicy.requiresSourceSeparation ? ['EvidenceClaim yapisal kanit gecerliligi'] : []),
       ])),
       plan: `${plan.plan}\nDeep BA Assistant v2: ${deepBaPlan.reason}`,
     };
@@ -397,9 +242,11 @@ Kurallar:
         model,
         systemInstruction: 'Sen kaynak dogrulama odakli bir arastirma asistanisin. Resmi kaynak, guvenilir referans, varsayim ve acik konuyu net ayirirsin.',
         contents: [{ role: 'user', parts: [{ text: researchPrompt }] }],
+        timeoutMs: 45_000,
+        signal,
         onChunk: (_text, thinking, tokenCount) => {
           if (thinking) onThinking(thinking);
-          if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
+          recordPhaseTokens('research', tokenCount);
         },
         onGrounding: (urls) => {
           groundingUrls = urls;
@@ -433,53 +280,22 @@ Kurallar:
 
   if (shouldReflect) {
     onPhase('REFLECT', hasDocument ? 'Doküman gözden geçiriliyor...' : 'Bulgular değerlendiriliyor...');
-    const reflectSystem = `
-Sen kıdemli bir İş Analistisin. Mevcut dokümanı ve plan/araştırma bulgularını eleştirel gözle inceliyorsun.
-KURALLAR:
-- Eksik, çelişkili veya belirsiz noktaları tespit et.
-- Hangi bölümlere "NEEDS_REVISION" flag'i gerekiyor söyle.
-- Kullanıcıya sorulması kesin gereken en kritik 0-3 soruyu belirle.
-- Elinde yeterli bilgi varsa "readyToAct: true" dön.
-Çıktı JSON olacak.
-`.trim();
-
-    const reflectPrompt = `
-[PLAN]
-${plan.plan}
-Varsayımlar: ${(plan.assumptions || []).join('; ') || '-'}
-Dokümanda kontrol edilecekler: ${(plan.documentGapsToCheck || []).join('; ') || '-'}
-
-[ARAŞTIRMA BULGULARI]
-${researchContext}
-
-[MEVCUT DOKÜMAN]
-${docSummary}
-
-[KULLANICI TALEBİ]
-${userMessage}
-
-Yukarıdaki bağlama göre reflection çıkar.
-`.trim();
-
-    try {
-      const reflectResponse = await Promise.race([
-        callGemini({
-          model,
-          systemInstruction: reflectSystem,
-          contents: [{ role: 'user', parts: [{ text: reflectPrompt }] }],
-          responseSchema: reflectSchema,
-          onChunk: (_text, thinking, tokenCount) => {
-            if (thinking) onThinking(thinking);
-            if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
-          }
-        }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('reflect timeout')), 30000))
-      ]);
-      const parsedReflection = extractJson(reflectResponse.text);
-      if (parsedReflection) reflection = parsedReflection;
-    } catch (e) {
-      console.warn('Reflect phase skipped:', e);
-    }
+    const gate = hasDocument && documentContent
+      ? evaluateDocumentQualityGate(documentContent, {
+        artifactProfile: turnDecision?.artifactProfile,
+        sourceSensitive: turnDecision?.sourcePolicy.sourceSensitive,
+      })
+      : null;
+    reflection = {
+      gapsFound: gate?.missingSections || plan.documentGapsToCheck || [],
+      flagsToRaise: gate?.warnings.slice(0, 6).map(reason => ({ section: 'review', reason })) || [],
+      criticalQuestionsForUser: plan.clarificationsNeeded || [],
+      readyToAct: true,
+      reasoning: gate
+        ? `Deterministik kalite değerlendirmesi: ${gate.score}/100.`
+        : 'Yeni doküman üretimi için plan ve kaynak kapsamı deterministik olarak değerlendirildi.',
+    };
+    onThinking(reflection.reasoning);
   }
 
   // ============ PHASE 4: ACT ============
@@ -489,7 +305,7 @@ Yukarıdaki bağlama göre reflection çıkar.
 [AJAN ÇALIŞMA DOSYASI]
 
 [1] OTONOM NİYET SİNYALİ
-${actionIntentContext || '- Genel sohbet/analiz.'}
+${turnDecisionInstruction || '- Ana karar sözleşmesi sağlanmadı.'}
 
 [2] STRATEJİK PLAN
 ${plan.plan}
@@ -543,22 +359,25 @@ ${buildDeepBaActInstructions(deepBaSubject)}
 - "document" alanı KURAL: Sadece AI Turn Decision doküman üretme/güncelleme kararı verdiyse doldur. Talep tanımı tek başına doküman üretme zorunluluğu değildir.
 - "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.
 
-${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
+[6B] YAPISAL KANIT SOZLESMESI
+- Kritik iddialari document.evidenceClaims alaninda kaydet.
+- Her kayit claimId, claim, status ve 0-1 confidence icermelidir.
+- status=VERIFIED yalniz sourceUrl (https), sourceTitle, retrievedAt ve evidenceExcerpt birlikte varsa kullanilabilir.
+- Kullanici talebinde yazan fakat dis kaynaktan dogrulanmayan maddeleri INFERRED veya ASSUMPTION olarak ayir.
+- Kaynagi olmayan mevzuat, API, limit, sure ve urun davranisini VERIFIED yapma; OPEN olarak tut.
+
+${turnDecision?.artifactProfile.id.startsWith('conceptual_design') ? CONCEPTUAL_DESIGN_DEPTH_STANDARD : ''}
 `.trim();
 
   const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
 
+  const currentTurnText = documentContent
+    ? `[MEVCUT DOKUMAN - BU TURUN REVIZYON BAGLAMI]\n${documentRevisionContext(documentContent)}\n\n[KULLANICI TALEBI]\n${userMessage}`
+    : userMessage;
   const contents = [
     ...history,
-    { role: 'user' as const, parts: [{ text: userMessage }] }
+    { role: 'user' as const, parts: [{ text: currentTurnText }] },
   ];
-
-  if (documentContent) {
-    const firstPart = contents[0]?.parts?.[0];
-    if (firstPart && 'text' in firstPart) {
-      firstPart.text = `Mevcut Doküman:\n${JSON.stringify(documentContent, null, 2)}\n\n${firstPart.text}`;
-    }
-  }
 
   let finalText = '';
   let finalThinking = '';
@@ -575,6 +394,7 @@ ${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
       contents,
       ...(useSchema ? { responseSchema: chatResponseJsonSchema } : {}),
       timeoutMs: ACT_PHASE_TIMEOUT_MS,
+      signal,
       onChunk: (text, thinking, tokenCount) => {
         const parts = extractActParts(text);
         const mergedThinking = parts.thinking || thinking;
@@ -583,7 +403,7 @@ ${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
         finalQuestions = parts.questions;
         finalActionSummary = parts.actionSummary;
         if (parts.document) finalDocument = parts.document;
-        if (tokenCount) totalTokens = Math.max(totalTokens, tokenCount);
+        recordPhaseTokens(useSchema ? 'act' : 'act_fallback', tokenCount);
         onActStream(parts.message, mergedThinking, parts.questions, parts.actionSummary, totalTokens);
       }
     });
@@ -592,9 +412,9 @@ ${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
   let actResponse: Awaited<ReturnType<typeof callGemini>> | undefined;
   let actTimedOut = false;
   try {
-    actResponse = await withTimeout(runActCall(fullSystemInstruction, true), ACT_PHASE_TIMEOUT_MS, 'ACT phase');
+    actResponse = await runActCall(fullSystemInstruction, true);
   } catch (err) {
-    actTimedOut = String((err as Error)?.message || err).includes('ACT phase timeout');
+    actTimedOut = /abort|timeout|timed out/i.test(`${(err as Error)?.name || ''} ${(err as Error)?.message || err}`);
     console.warn('ACT phase failed with schema/full context:', err);
     if (!actTimedOut) {
       console.warn('Retrying ACT phase without schema.');
@@ -604,7 +424,7 @@ ${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
     finalActionSummary = undefined;
     finalDocument = undefined;
     const fallbackSystem = `${systemInstruction}\n\n${actContext}\n\n[NOT] Önceki şemalı çağrı başarısız oldu. Aynı JSON yapısını düz metin olarak döndür; markdown kod bloğu kullanma.`;
-    actResponse = await withTimeout(runActCall(fallbackSystem, false), ACT_PHASE_TIMEOUT_MS, 'ACT fallback phase');
+    actResponse = await runActCall(fallbackSystem, false);
     }
   }
 
@@ -618,8 +438,8 @@ ${CONCEPTUAL_DESIGN_DEPTH_STANDARD}
     finalActionSummary = finalParts.actionSummary || finalActionSummary;
     if (finalParts.document) finalDocument = finalParts.document;
   } else if (actTimedOut) {
-    finalText = finalText || 'Taslak uretim cagrisi zaman asimina ugradigi icin eldeki analizle sag panel icin guvenli bir taslak hazirliyorum.';
-    finalActionSummary = finalActionSummary || 'AI uretim cagrisi zaman asimina ugradi; eldeki cevap guvenli taslak olarak islenecek.';
+    finalText = finalText || 'Dokuman uretim cagrisi zaman asimina ugradi; bu cagridan gecerli bir document alani alinmadi.';
+    finalActionSummary = finalActionSummary || 'AI uretim cagrisi zaman asimina ugradi; dokuman uygulanmadi.';
   }
 
   if (!shouldProduceDocument) {

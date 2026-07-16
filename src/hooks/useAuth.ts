@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, onAuthStateChanged } from '../supabase';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
 
 export interface User {
   uid: string;
@@ -16,10 +16,10 @@ export interface User {
 }
 
 export function useAuth() {
-  const user = useStore((state) => state.user);
-  const setUser = useStore((state) => state.setUser);
-  const isAuthReady = useStore((state) => state.isAuthReady);
-  const setIsAuthReady = useStore((state) => state.setIsAuthReady);
+  const user = useDataStore((state) => state.user);
+  const setUser = useDataStore((state) => state.setUser);
+  const isAuthReady = useDataStore((state) => state.isAuthReady);
+  const setIsAuthReady = useDataStore((state) => state.setIsAuthReady);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const retryAuth = useCallback(() => {
@@ -31,7 +31,7 @@ export function useAuth() {
   useEffect(() => {
     let isMounted = true;
     const timeoutId = window.setTimeout(() => {
-      if (!isMounted || useStore.getState().isAuthReady) return;
+      if (!isMounted || useDataStore.getState().isAuthReady) return;
       setAuthError('Oturum bilgileri alınırken beklenenden uzun sürdü. Bağlantınızı kontrol edip tekrar deneyin.');
     }, 10000);
 

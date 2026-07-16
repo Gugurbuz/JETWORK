@@ -1,7 +1,8 @@
 {
-  "name": "react-example",
+  "name": "jetwork-ai",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +10,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "verify:ai-ba-engine": "tsx scripts/verify-ai-ba-engine.ts",
     "verify:ai-turn-decision": "tsx scripts/verify-ai-turn-decision.ts",
     "verify:deep-ba-assistant": "tsx scripts/verify-deep-ba-assistant.ts",
@@ -36,6 +40,7 @@
     "bpmn-js": "^18.13.1",
     "clsx": "^2.1.1",
     "diff": "^8.0.3",
+    "dompurify": "^3.4.12",
     "lucide-react": "^0.546.0",
     "mammoth": "^1.12.0",
     "marked": "^17.0.4",
@@ -56,6 +61,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@playwright/test": "1.58.0",
     "@types/diff": "^7.0.2",
     "@types/node": "^22.14.0",
     "@types/uuid": "^10.0.0",
@@ -63,7 +69,8 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^3.2.4"
   },
   "overrides": {
     "node-domexception": "npm:@nolyfill/domexception@^1.0.28"

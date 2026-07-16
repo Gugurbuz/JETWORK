@@ -20,13 +20,13 @@ import {
   buildBaMindsetQuestions,
 } from '../src/services/ai/baMindset';
 import { buildBaCognitiveFrame } from '../src/services/ai/baCognitiveFrame';
+import { buildAiTurnDecision } from '../src/services/ai/aiTurnDecision';
 import {
   buildCopilotCognitiveInstruction,
   buildCopilotCognitiveTrace,
   buildCopilotReviewMarkdown,
 } from '../src/services/ai/copilotCognitiveArchitecture';
 import {
-  attachCopilotRuntimeToDocument,
   buildCopilotRuntimeInstruction,
   buildCopilotRuntimeReviewMarkdown,
   buildCopilotRuntimeSnapshot,
@@ -80,8 +80,9 @@ assert(researchPlan.searchQueries.some((query) => /site:ahsdocs\.iys\.org\.tr/i.
 assert(researchPlan.searchQueries.some((query) => /site:ticaret\.gov\.tr/i.test(query)), 'Research queries should prefer official Ministry IYS sources');
 assert(researchPlan.searchQueries.some((query) => /3 is gunu/i.test(query)), 'Research queries should cover the 3 business day rule');
 assert(researchPlan.searchQueries.some((query) => /recipientType/i.test(query)), 'Research queries should cover IYS API fields');
-assert(researchPlan.documentGapsToCheck.some((gap) => /BR\/FR\/NFR\/INT/i.test(gap)), 'Document gaps should include coded requirements');
-assert(researchPlan.documentGapsToCheck.some((gap) => /dogrulama matrisi/i.test(gap)), 'Document gaps should include source verification matrix');
+assert(researchPlan.documentGapsToCheck.some((gap) => /artifact modu.*profil/i.test(gap)), 'Research planning should validate artifact profile alignment');
+assert(researchPlan.documentGapsToCheck.some((gap) => /DOGRULANDI.*VARSAYIM.*ACIK KONU/i.test(gap)), 'Research planning should validate evidence status separation');
+assert(!researchPlan.documentGapsToCheck.some((gap) => /BR\/FR\/NFR\/INT|dogrulama matrisi/i.test(gap)), 'Research planning must not impose a parallel document template');
 
 const crmAiSalesResearchPlan = buildDeepBaResearchPlan(sapCrmAiSalesBotRequest);
 assert(crmAiSalesResearchPlan.enabled, 'SAP CRM AI sales bot research plan should be enabled');
@@ -161,22 +162,16 @@ assert(newD2dSignals.newStandaloneRequest, 'A fresh D2D project request after pe
 assert(!newD2dSignals.mustGenerateNow, 'A fresh D2D project request must not be treated as an answer to old discovery questions');
 
 const actInstructions = buildDeepBaActInstructions(sapIysRequest);
-assertIncludes(actInstructions, 'document.businessAnalysis', 'Deep instructions should target the visible BA document');
-assertIncludes(actInstructions, 'document.review', 'Deep instructions should target the visible review document');
-assertIncludes(actInstructions, '3 is gunu', 'Deep instructions should carry SAP IYS regulation focus');
-assertIncludes(actInstructions, 'MESAJ', 'Deep instructions should include IYS channel concepts');
-assertIncludes(actInstructions, 'EPOSTA', 'Deep instructions should include e-mail consent channel');
-assertIncludes(actInstructions, 'ARAMA', 'Deep instructions should include call consent channel');
-assertIncludes(actInstructions, 'recipient', 'Deep instructions should include API recipient concept');
-assertIncludes(actInstructions, 'Kaynak ve Dogrulama Matrisi', 'Deep instructions should require source verification matrix');
+assertIncludes(actInstructions, 'AiTurnDecision icindeki artifact profile tek yapisal otoritedir', 'Deep instructions must defer document structure to the central decision contract');
+assertIncludes(actInstructions, 'Profilde olmayan teknik analiz', 'Deep instructions must prevent cross-profile section injection');
+assert(!/businessAnalysis\.content su omurgayi|1\. Calisma ozeti|BR\/FR\/NFR\/INT\/RPT\/SEC kodlu gereksinimler/i.test(actInstructions), 'Deep instructions must not impose a parallel generic BA template');
+assert(!/3 is gunu|\bMESAJ\b|\bEPOSTA\b|\bARAMA\b|\brecipient\b/i.test(actInstructions), 'Act instructions must not inject unverified IYS facts before research');
 assertIncludes(actInstructions, 'DOGRULANDI', 'Deep instructions should separate verified claims');
 assertIncludes(actInstructions, 'VARSAYIM', 'Deep instructions should separate assumptions');
 assertIncludes(actInstructions, 'ACIK KONU', 'Deep instructions should separate open topics');
 const crmAiSalesActInstructions = buildDeepBaActInstructions(sapCrmAiSalesBotRequest);
-assertIncludes(crmAiSalesActInstructions, 'lead yakalama', 'CRM AI sales instructions should include lead capture');
-assertIncludes(crmAiSalesActInstructions, 'opportunity', 'CRM AI sales instructions should include opportunity handling');
-assertIncludes(crmAiSalesActInstructions, 'temsilciye devir', 'CRM AI sales instructions should include human handoff');
-assertIncludes(crmAiSalesActInstructions, 'AI davranis kurallarini', 'CRM AI sales instructions should include AI behavior rules');
+assert(!/lead yakalama|opportunity olusturma|temsilciye devir/i.test(crmAiSalesActInstructions), 'Act instructions must not inject a ready-made CRM sales process');
+assertIncludes(crmAiSalesActInstructions, 'DOGRULANDI', 'CRM AI instructions should enforce evidence status separation');
 
 const sapDomainQuestions = buildDomainQuestions('sap_crm_iys');
 assert(sapDomainQuestions.length >= 4, 'SAP IYS behavior profile should expose at least 4 domain questions');
@@ -432,11 +427,11 @@ assert(!contextFollowUpClassification.requiresClarification, 'Short context foll
 assert(!contextFollowUpClassification.shouldRunBaAgentLoop, 'Short context follow-up should not run BA loop directly');
 
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'KAVRAMSAL TASARIM RAPORU', 'Corporate prompt should require the report title');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KİMLİK KARTI', 'Corporate prompt should require project identity card');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Doküman Tarihçesi', 'Corporate prompt should require document history');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'SÜREÇ MODELİ', 'Corporate prompt should require process model blocks');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'en az 3 adet', 'Corporate prompt should require automatic process multiplication for integrations');
-assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Üst Düzey Müşteri Geliştirmesi', 'Corporate prompt should require development tables');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'PROJE KIMLIK KARTI', 'Corporate prompt should require project identity card');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Dokuman Tarihcesi', 'Corporate prompt should require document history');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'SUREC MODELI', 'Corporate prompt should require process model blocks');
+assert(!/en az\s+\d+\s+adet/i.test(CONCEPTUAL_TEMPLATE_PROMPT), 'Corporate prompt must not impose a fixed process count');
+assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'Ust Duzey Musteri Gelistirmesi', 'Corporate prompt should require development tables');
 assertIncludes(CONCEPTUAL_TEMPLATE_PROMPT, 'EK A', 'Corporate prompt should require appendix A');
 
 const legacyBaDraft = {
@@ -455,6 +450,7 @@ const legacyBaDraft = {
 assert(!isConceptualTemplateCompliant(legacyBaDraft.businessAnalysis.content), 'Legacy BA draft should not pass corporate conceptual template');
 const templatedDocument = ensureConceptualTemplateStructure(legacyBaDraft);
 const templatedContent = templatedDocument.businessAnalysis.content;
+/* Legacy assertions retained for historical context. Automatic repair is intentionally disabled.
 assert(isConceptualTemplateCompliant(templatedContent), 'Post processor fallback should produce a compliant conceptual template');
 assertIncludes(templatedContent, 'KAVRAMSAL TASARIM RAPORU', 'Fallback should start from conceptual report title');
 assertIncludes(templatedContent, 'PROJE KİMLİK KARTI', 'Fallback should include project identity card');
@@ -469,14 +465,16 @@ assert(processModelCount >= 3, 'SAP IYS fallback should create at least 3 proces
 assert((templatedDocument.businessAnalysis.flags || []).includes('CONCEPTUAL_TEMPLATE_APPLIED'), 'Fallback should mark conceptual template application');
 const coverage = conceptualTemplateCoverage(templatedContent);
 assert(coverage.passed >= coverage.total - 2, 'Fallback template should cover almost all required headings');
+*/
+assert(templatedContent === legacyBaDraft.businessAnalysis.content, 'Template compatibility boundary must not mutate document prose');
+assert(!isConceptualTemplateCompliant(templatedContent), 'A weak draft must remain visibly non-compliant until an explicit repair action');
 const postProcessedLegacy = postProcessDocumentData(legacyBaDraft as any, null).document;
-assertIncludes(postProcessedLegacy.businessAnalysis.content, 'KAVRAMSAL TASARIM RAPORU', 'Post processor should enforce conceptual template fallback');
-assertIncludes(postProcessedLegacy.review?.content || '', 'Kaynak ve Dogrulama Matrisi', 'Post processor should add source verification matrix to review');
-assertIncludes(postProcessedLegacy.review?.content || '', 'Resmi Kaynak Guard', 'Post processor should flag official source validation when sensitive docs lack sources');
-assert((postProcessedLegacy.review?.flags || []).includes('OFFICIAL_SOURCE_VERIFICATION_REQUIRED'), 'Official source guard should add review flag');
-assert((postProcessedLegacy.suggestions || []).some(item => /Tamamlanacak alanları kapat/i.test(item)), 'Post processor should expose actionable quick actions');
-assertIncludes(postProcessedLegacy.review?.content || '', 'Word Template Conformance Guard', 'Post processor should add Word template conformance guard to review');
-assert((postProcessedLegacy.review?.flags || []).includes('WORD_TEMPLATE_CONFORMANCE_GUARD'), 'Word template guard should add a review flag');
+assertIncludes(postProcessedLegacy.businessAnalysis.content, 'Amaç ve İş Değeri', 'Post processor should preserve model-provided business content');
+assert(!/KAVRAMSAL TASARIM RAPORU/i.test(postProcessedLegacy.businessAnalysis.content), 'Post processor must not enforce a conceptual template');
+assert(!/Kaynak ve Dogrulama Matrisi|Resmi Kaynak Guard|Word Template Conformance Guard/i.test(postProcessedLegacy.review?.content || ''), 'Post processor must not inject Review prose');
+assert((postProcessedLegacy.review?.flags || []).length === 0, 'Post processor must not inject Review flags');
+assert(!(postProcessedLegacy.suggestions || []).some(item => /Tamamlanacak alanları kapat/i.test(item)), 'Post processor must not inject quick actions');
+assert((postProcessedLegacy.qualityAssessment?.findings || []).length > 0, 'Post processor should expose structured findings');
 
 const sapC4cIysShortDocument = postProcessDocumentData({
   businessAnalysis: {
@@ -494,9 +492,10 @@ const sapC4cIysShortDocument = postProcessDocumentData({
   workspaceTitle: '',
 }).document;
 const sapC4cIysContent = sapC4cIysShortDocument.businessAnalysis?.content || '';
-assert(/SAP CRM/i.test(sapC4cIysContent) && /(IYS|Ä°YS|İYS)/i.test(sapC4cIysContent), 'SAP C4C IYS short request should stay in SAP/IYS context');
-assert(/Delta|Mutabakat|Retry|Operasyon/i.test(sapC4cIysContent), 'SAP C4C IYS short request should include integration reconciliation and operational process coverage');
+assert(!/SAP CRM|IYS|İYS/i.test(sapC4cIysContent), 'Quality assessment must not copy source context into the document');
+assert(!/Delta|Mutabakat|Retry|Operasyon/i.test(sapC4cIysContent), 'Quality assessment must not invent integration coverage');
 assert(!/D2D Saha|Offline-First|Dijital Imza|OTP/i.test(sapC4cIysContent), 'SAP C4C IYS short request should not be contaminated by D2D or digital contract content');
+assert((sapC4cIysShortDocument.qualityAssessment?.findings || []).some(item => item.category === 'source'), 'Missing source fidelity should be a structured finding');
 
 const aiSalesFallback = ensureConceptualTemplateStructure({
   businessAnalysis: {
@@ -512,7 +511,7 @@ const aiSalesFallback = ensureConceptualTemplateStructure({
 });
 const aiSalesFallbackContent = aiSalesFallback.businessAnalysis.content;
 assert(/sap crm ai satis botu projesi/i.test(aiSalesFallbackContent), 'AI sales bot fallback should preserve the source project phrase');
-assert(/SUREC MODELI|SÜREÇ MODELİ|SÃœREÃ‡ MODELÄ°/i.test(aiSalesFallbackContent), 'AI sales bot fallback should create source-driven process blocks');
+assert(!/SUREC MODELI|SÜREÇ MODELİ/i.test(aiSalesFallbackContent), 'Read-only template boundary must not invent AI sales process blocks');
 assert(/lead|satis|bot|gereksinim|kabul kriter/i.test(aiSalesFallbackContent), 'AI sales bot fallback should keep source signals in the document');
 const sourceDrivenD2dFallback = ensureConceptualTemplateStructure({
   businessAnalysis: {
@@ -528,7 +527,7 @@ const sourceDrivenD2dFallback = ensureConceptualTemplateStructure({
 });
 const sourceDrivenD2dContent = sourceDrivenD2dFallback.businessAnalysis.content;
 assert(/SAHA SATIS UYGULAMAMIZ D2D/i.test(sourceDrivenD2dContent), 'D2D fallback should preserve the source project phrase');
-assert(/SUREC MODELI|SÜREÇ MODELİ|SÃœREÃ‡ MODELÄ°/i.test(sourceDrivenD2dContent), 'D2D fallback should create source-driven process blocks');
+assert(!/SUREC MODELI|SÜREÇ MODELİ/i.test(sourceDrivenD2dContent), 'Read-only template boundary must not invent D2D process blocks');
 assert(!/SAP CRM'den|Dijital Imza|OTP|Kaynak Sistemden Hedef Sisteme Veri Aktar/i.test(sourceDrivenD2dContent), 'D2D fallback should not be contaminated by unrelated fixed-domain content');
 /*
 assertIncludes(aiSalesFallbackContent, 'SAP CRM AI Satış Botu Projesi', 'SAP CRM AI sales bot fallback should infer the real project name');
@@ -688,6 +687,21 @@ const productMindFrame = buildBaCognitiveFrame({
   sourceReport: pempSourceReport,
   behaviorDecision: productMindBehavior,
 });
+const productMindTurnDecision = buildAiTurnDecision({
+  userMessage: pempRequest,
+  document: null,
+  classification: productMindClassification,
+  behaviorDecision: productMindBehavior,
+  cognitiveFrame: productMindFrame,
+  sourceReport: pempSourceReport,
+  discoverySignals: {
+    mustGenerateNow: false,
+    greetingOnly: false,
+    newStandaloneRequest: true,
+    reason: 'test_product_mind',
+  },
+  hasSelectedText: false,
+});
 const productMindTrace = buildCopilotCognitiveTrace({
   userMessage: pempRequest,
   messages: [],
@@ -698,6 +712,7 @@ const productMindTrace = buildCopilotCognitiveTrace({
   behaviorDecision: productMindBehavior,
   sourceReport: pempSourceReport,
   cognitiveFrame: productMindFrame,
+  turnDecision: productMindTurnDecision,
   discoverySignals: {
     mustGenerateNow: false,
     greetingOnly: false,
@@ -728,7 +743,8 @@ assert(productMindTrace.evidenceLedger.length >= 3, 'Copilot trace should carry 
 assert(productMindTrace.evidenceLedger.some(item => item.status === 'DOGRULANDI' || item.status === 'CIKARIM'), 'Evidence ledger should separate verified/inferred claims');
 assert(productMindTrace.taskPlan.some(item => item.agent === 'quality'), 'Copilot task plan should include quality agent work');
 assert(productMindTrace.toolExecutionPlan.some(item => item.tool === 'project_memory' && item.availability === 'available_now'), 'Copilot trace should mark project memory as available');
-assert(productMindTrace.artifactContract.mustInclude.some(item => /ProblemFrame/i.test(item)), 'Artifact contract should require ProblemFrame coverage');
+assert(productMindTrace.artifactContract.mustInclude[0] === productMindTurnDecision.artifactProfile.requiredSections[0], 'Artifact contract must inherit required sections from AiTurnDecision profile');
+assert(!productMindTrace.artifactContract.mustInclude.some(item => /ProblemFrame/i.test(item)), 'Internal ProblemFrame must not become a forced user-document section');
 assert(productMindTrace.traceabilityMatrix.length >= 3, 'Copilot trace should include traceability rows');
 assert(productMindTrace.validationLoop.length >= 4, 'Copilot trace should include a validation and repair loop');
 assertIncludes(productMindInstruction, 'Evidence ledger', 'Copilot instruction should expose evidence ledger');
@@ -765,7 +781,7 @@ assertIncludes(productMindRuntimeReview, 'Working Memory', 'Runtime review shoul
 assertIncludes(productMindRuntimeReview, 'Tool Execution Truth', 'Runtime review should expose tool truth');
 assertIncludes(productMindRuntimeReview, 'Human Approval Points', 'Runtime review should expose approval points');
 assertIncludes(productMindRuntimeReview, 'Completion Evidence', 'Runtime review should expose completion evidence');
-const runtimeAttachedDocument = attachCopilotRuntimeToDocument({
+const userFacingDocument = {
   businessAnalysis: {
     content: '# KAVRAMSAL TASARIM RAPORU\n\nREQ-01 PEMP surec gereksinimi.',
     status: 'DRAFT' as const,
@@ -776,12 +792,11 @@ const runtimeAttachedDocument = attachCopilotRuntimeToDocument({
     status: 'DRAFT' as const,
     flags: [],
   },
-}, productMindRuntime);
-assertIncludes(runtimeAttachedDocument?.review?.content || '', 'Copilot Runtime State Machine', 'Runtime attach should append the runtime review block');
-assertIncludes(runtimeAttachedDocument?.review?.content || '', '| DONE-ARTIFACT | artifact | met |', 'Runtime attach should mark generated artifact evidence as met');
-assert((runtimeAttachedDocument?.review?.flags || []).includes('COPILOT_RUNTIME_STATE'), 'Runtime attach should flag the review document');
-const runtimeAttachedGate = evaluateDocumentQualityGate(runtimeAttachedDocument as any);
-assert(!runtimeAttachedGate.missingSections.some(item => /Runtime state machine/i.test(item)), 'Quality gate should accept attached runtime state machine evidence');
+};
+assert(!(userFacingDocument.review.content || '').includes('Copilot Runtime State Machine'), 'Runtime telemetry must not pollute the user review document');
+assert(!(userFacingDocument.review.flags || []).includes('COPILOT_RUNTIME_STATE'), 'Runtime telemetry must not add internal flags to the user document');
+const runtimeAttachedGate = evaluateDocumentQualityGate(userFacingDocument as any);
+assert(!runtimeAttachedGate.missingSections.some(item => /Runtime state machine/i.test(item)), 'Quality gate must not require internal runtime telemetry');
 
 const memoryUpdates = extractProjectMemoryUpdates({
   userMessage: 'Bundan sonra dokumanlar derin, karar verilebilir ve Word kavramsal tasarim formatina uygun olsun. Kural olarak kaynakli iddialari varsayimdan ayir. Runtime state machine, tool honesty ve insan onayi izlenmeli.',
@@ -803,8 +818,8 @@ assert(!!memoryUpdates['preference.analysis_depth'], 'Project memory should extr
 assert(!!memoryUpdates['preference.document_format'], 'Project memory should extract document format preference');
 assert(!!memoryUpdates['preference.evidence_policy'], 'Project memory should extract evidence policy preference');
 assert(!!memoryUpdates['preference.runtime_policy'], 'Project memory should extract runtime/tool honesty preference');
-assert(!!memoryUpdates['system.copilot_trace_enabled'], 'Project memory should extract system trace capability from document');
-assert(!!memoryUpdates['system.runtime_state_enabled'], 'Project memory should extract runtime state capability from document');
+assert(!memoryUpdates['system.copilot_trace_enabled'], 'User document content must not enable internal cognitive trace capabilities');
+assert(!memoryUpdates['system.runtime_state_enabled'], 'User document content must not enable internal runtime capabilities');
 const mergedMemory = mergeProjectMemory({ 'decision.old': 'Eski karar' }, memoryUpdates);
 assert(mergedMemory['decision.old'] === 'Eski karar', 'Project memory merge should preserve existing decisions');
 assert(!!mergedMemory['preference.analysis_depth'], 'Project memory merge should include new updates');
@@ -974,36 +989,16 @@ const genericOpsBadDocument = postProcessDocumentData({
   sourceText: genericOpsRequest,
   workspaceTitle: '',
 }).document;
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Kaynak Uyum Onarimi', 'Post processor should append a source fidelity repair body to weak drafts');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Finans onayi ve odeme', 'Source fidelity repair should preserve source process names');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Odeme Servisi webhook', 'Source fidelity repair should preserve source integration names');
-assertIncludes(genericOpsBadDocument.review?.content || '', 'Source Fidelity Guard', 'Post processor should flag documents that do not reflect the source request');
-assert((genericOpsBadDocument.businessAnalysis?.flags || []).includes('SOURCE_FIDELITY_REPAIRED'), 'Source fidelity repair should flag the BA document as repaired');
-assert((genericOpsBadDocument.review?.flags || []).includes('SOURCE_FIDELITY_REPAIR_REQUIRED'), 'Source fidelity guard should add a repair flag');
-assert((genericOpsBadDocument.suggestions || []).some(item => /Kaynak talep izlerini/i.test(item)), 'Source fidelity guard should expose a source repair quick action');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Izlenebilirlik ve Testlenebilirlik Matrisi', 'Post processor should append a traceability repair matrix to weak drafts');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'REQ-01', 'Traceability repair should create requirement ids');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'BR-01-01', 'Traceability repair should connect business rules');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'AC-01-01', 'Traceability repair should connect acceptance criteria');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'TC-01-01', 'Traceability repair should connect test cases');
-assertIncludes(genericOpsBadDocument.review?.content || '', 'Traceability Guard', 'Post processor should flag missing traceability in review');
-assert((genericOpsBadDocument.businessAnalysis?.flags || []).includes('TRACEABILITY_REPAIRED'), 'Traceability repair should flag the BA document as repaired');
-assert((genericOpsBadDocument.review?.flags || []).includes('TRACEABILITY_REPAIR_REQUIRED'), 'Traceability guard should add a review flag');
-assert((genericOpsBadDocument.suggestions || []).some(item => /Traceability matrisini/i.test(item)), 'Traceability guard should expose a traceability quick action');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Analysis Coverage Matrix', 'Post processor should append a systematic analysis coverage matrix');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Alternatif akislar', 'Coverage repair should include alternate flows');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Istisna / negatif senaryolar', 'Coverage repair should include exception and negative flows');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Validasyon ve kullanici mesajlari', 'Coverage repair should include validations and messages');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Yetki / rol bazli kontrol', 'Coverage repair should include permissions');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'NFR / operasyonel kalite', 'Coverage repair should include NFR coverage');
-assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Audit / izlenebilirlik', 'Coverage repair should include auditability');
-assertIncludes(genericOpsBadDocument.review?.content || '', 'Analysis Coverage Guard', 'Post processor should flag missing analysis coverage in review');
-assert((genericOpsBadDocument.businessAnalysis?.flags || []).includes('ANALYSIS_COVERAGE_REPAIRED'), 'Analysis coverage repair should flag the BA document as repaired');
-assert((genericOpsBadDocument.review?.flags || []).includes('ANALYSIS_COVERAGE_REPAIR_REQUIRED'), 'Analysis coverage guard should add a review flag');
-assert((genericOpsBadDocument.suggestions || []).some(item => /Coverage matrisini/i.test(item)), 'Analysis coverage guard should expose a coverage quick action');
-const genericOpsGateAfterRepair = evaluateDocumentQualityGate(genericOpsBadDocument);
-assert(!genericOpsGateAfterRepair.missingSections.some(item => /REQ-BR-AC-TC/i.test(item)), 'Quality gate should accept repaired REQ-BR-AC-TC traceability');
-assert(!genericOpsGateAfterRepair.missingSections.some(item => /Analysis coverage/i.test(item)), 'Quality gate should accept repaired analysis coverage');
+assertIncludes(genericOpsBadDocument.businessAnalysis?.content || '', 'Genel operasyon platformu icin taslak', 'Post processor should preserve weak model output for transparent review');
+assert(!/Kaynak Uyum Onarimi|Finans onayi ve odeme|Odeme Servisi webhook|Izlenebilirlik ve Testlenebilirlik Matrisi|Analysis Coverage Matrix/i.test(genericOpsBadDocument.businessAnalysis?.content || ''), 'Post processor must not inject source, traceability, or coverage prose');
+assert(!/Source Fidelity Guard|Traceability Guard|Analysis Coverage Guard/i.test(genericOpsBadDocument.review?.content || ''), 'Post processor must not inject quality guards into Review');
+assert((genericOpsBadDocument.businessAnalysis?.flags || []).length === 0, 'Post processor must not mutate BA flags');
+assert((genericOpsBadDocument.review?.flags || []).length === 0, 'Post processor must not mutate Review flags');
+assert(!(genericOpsBadDocument.suggestions || []).some(item => /Kaynak talep izlerini|Traceability matrisini|Coverage matrisini/i.test(item)), 'Post processor must not inject quick actions');
+assert((genericOpsBadDocument.qualityAssessment?.findings || []).some(item => item.category === 'source'), 'Source fidelity gaps should be structured findings');
+assert((genericOpsBadDocument.qualityAssessment?.findings || []).some(item => item.category === 'coverage'), 'Coverage gaps should be structured findings');
+const genericOpsGateAfterAssessment = evaluateDocumentQualityGate(genericOpsBadDocument);
+assert(genericOpsGateAfterAssessment.missingSections.length > 0, 'Assessment must preserve quality gaps instead of repairing them');
 
 const pempDocument = ensureConceptualTemplateStructure({
   businessAnalysis: {
@@ -1019,7 +1014,8 @@ const pempDocument = ensureConceptualTemplateStructure({
 });
 const pempContent = pempDocument.businessAnalysis.content;
 assertIncludes(pempContent, 'MUSTERI COZUMLERI PROJE YONETIM SISTEMI', 'PEMP fallback should preserve the source project tracking context');
-assert(/SUREC MODELI|SÜREÇ MODELİ|SÃœREÃ‡ MODELÄ°/i.test(pempContent) && /Bakim Islemleri/i.test(pempContent), 'PEMP fallback should preserve the maintenance process block');
+assert(!/SUREC MODELI|SÜREÇ MODELİ/i.test(pempContent), 'Read-only template boundary must not synthesize PEMP process blocks');
+assert(/Bakim Islemleri/i.test(pempContent), 'Read-only template boundary must preserve source process text');
 /*
 assertIncludes(pempContent, 'Müşteri Çözümleri Proje Yönetim Sistemi', 'PEMP fallback should infer the real project tracking context');
 assert(/S(Ü|Ãœ)RE(Ç|Ã‡) MODEL(İ|Ä°)\s*-\s*9\s+"Bakım İşlemleri"/i.test(pempContent), 'PEMP fallback should create the ninth maintenance process block');
@@ -1039,9 +1035,11 @@ const contaminatedPempGate = evaluateDocumentQualityGate({
     status: 'DRAFT' as const,
     flags: [],
   },
+}, {
+  sourceProcessTitles: pempSourceReport.processes.map(process => process.title),
 });
 assert(!contaminatedPempGate.canPublishToPanel, 'Quality gate should block contaminated PEMP documents');
-assert(contaminatedPempGate.missingSections.some(item => /Yanlis baglam|P0-P8/i.test(item)), 'Quality gate should explain wrong context or missing P0-P8 coverage');
+assert(contaminatedPempGate.missingSections.some(item => /Kaynak surec kapsami/i.test(item)), 'Quality gate should explain missing source process coverage without domain hardcodes');
 
 const generated = normalizeBaClassifierOutput(
   { userMessage: assumptionFollowUp, document: null, model: 'test-model' },

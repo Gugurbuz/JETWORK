@@ -115,6 +115,7 @@ export function LandingPage({}: LandingPageProps) {
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-muted" />
                   <input
                     type="text"
+                    data-testid="login-identity"
                     placeholder="E-posta veya Kullanıcı Adı"
                     value={emailOrUsername}
                     onChange={(e) => setEmailOrUsername(e.target.value)}
@@ -127,6 +128,7 @@ export function LandingPage({}: LandingPageProps) {
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-text-muted" />
                   <input
                     type="password"
+                    data-testid="login-password"
                     placeholder="Şifre"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -137,6 +139,7 @@ export function LandingPage({}: LandingPageProps) {
               
               <button
                 type="submit"
+                data-testid="login-submit"
                 disabled={isLoggingIn}
                 className="w-full flex items-center justify-center bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-medium px-6 py-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm"
               >

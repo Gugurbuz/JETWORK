@@ -82,28 +82,6 @@ function processDocument(sourceText: string, incomingBusinessAnalysis = 'Kisa ve
   }).document;
 }
 
-function assertDocumentCarriesGenericOpsSource(document: DocumentData): void {
-  const content = allContent(document);
-  [
-    'Abonelik Iptal ve Iade Operasyon Platformu',
-    'Iptal talebinin alinmasi',
-    'Hak edis ve iade kontrolu',
-    'Finans onayi ve odeme',
-    'Musteri temsilcisi',
-    'Operasyon lideri',
-    'Finans onaycisi',
-    'Musteri Portali',
-    'ERP',
-    'Odeme Servisi webhook',
-    'Talep kayit formu',
-    'iade durum ekrani',
-    'operasyon is listesi',
-    'Iade tamamlanma suresi',
-    'hata orani',
-    'manuel is yuku azalimi',
-  ].forEach((expected) => assertIncludes(content, expected, 'Generic operations source signal should be present'));
-}
-
 const genericOpsRequest = `
 Proje Adi: Abonelik Iptal ve Iade Operasyon Platformu
 Roller: Musteri temsilcisi, Operasyon lideri, Finans onaycisi
@@ -132,36 +110,25 @@ assert(genericOpsReport.uiNeeds.some(item => /iade durum/i.test(item)), 'Source 
 assert(genericOpsReport.kpis.some(item => /hata orani/i.test(item)), 'Source intelligence should extract KPI details');
 
 const genericOpsDocument = processDocument(genericOpsRequest);
-assertDocumentCarriesGenericOpsSource(genericOpsDocument);
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'KAVRAMSAL TASARIM RAPORU', 'Processed document should use the conceptual design title');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'PROJE KIMLIK KARTI', 'Processed document should include the identity card');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'SUREC TASARIMI', 'Processed document should include process design');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'SUREC MODELI', 'Processed document should include process model blocks');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'Izlenebilirlik ve Testlenebilirlik Matrisi', 'Processed document should include traceability matrix');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'REQ-01', 'Traceability should include REQ ids');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'BR-01-01', 'Traceability should include BR ids');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'AC-01-01', 'Traceability should include AC ids');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'TC-01-01', 'Traceability should include TC ids');
-assertIncludes(genericOpsDocument.businessAnalysis.content, 'Analysis Coverage Matrix', 'Processed document should include coverage matrix');
-assertIncludes(genericOpsDocument.review?.content || '', 'Source Fidelity Guard', 'Review should include source fidelity guard');
-assertIncludes(genericOpsDocument.review?.content || '', 'Word Template Conformance Guard', 'Review should include Word template guard');
-assertIncludes(genericOpsDocument.review?.content || '', 'Kaynak Talep', 'Review should include source intelligence');
-assert((genericOpsDocument.suggestions || []).some(item => /Word format|Kaynak|Coverage|Traceability|Review/i.test(item)), 'Document should expose content quality quick actions');
+assertIncludes(genericOpsDocument.businessAnalysis.content, 'Kisa ve genel taslak', 'Postprocessor should preserve the model-provided business content');
+assert(!normalize(allContent(genericOpsDocument)).includes(normalize('Abonelik Iptal ve Iade Operasyon Platformu')), 'Source context must not be copied into the document by the quality layer');
+assertNotMatches(genericOpsDocument.businessAnalysis.content, /KAVRAMSAL TASARIM RAPORU|PROJE KIMLIK KARTI|Izlenebilirlik ve Testlenebilirlik Matrisi|Analysis Coverage Matrix/, 'Read-only postprocessor must not generate template content');
+assertNotMatches(genericOpsDocument.review?.content || '', /Source Fidelity Guard|Word Template Conformance Guard|Kaynak Talep/, 'Read-only postprocessor must not generate Review prose');
+assert(!(genericOpsDocument.suggestions || []).some(item => /Word format|Kaynak|Coverage|Traceability|Review/i.test(item)), 'Read-only postprocessor must not inject quick actions');
 assertNotMatches(genericOpsDocument.businessAnalysis.content, /dijital imza|otp|dijital sozlesme|d2d saha|iys izin|sap crmden/, 'Generic operations document should not be contaminated by unrelated fixed domains');
 
 const genericOpsTemplateCoverage = conceptualTemplateCoverage(genericOpsDocument.businessAnalysis.content);
-assert(genericOpsTemplateCoverage.passed >= genericOpsTemplateCoverage.total - 3, 'Processed document should be close to the Word conceptual template');
+assert(genericOpsTemplateCoverage.missing.length > 0, 'Missing template coverage should remain observable');
 const genericOpsGate = evaluateDocumentQualityGate(genericOpsDocument);
-assert(genericOpsGate.score >= 60, `Quality gate score should be product-testable after repairs, got ${genericOpsGate.score}`);
-assert(genericOpsDocument.score !== undefined && genericOpsDocument.score >= 60, 'Document score should be present and explainable');
+assert(genericOpsGate.score < 60, `A weak source-free draft should not be inflated by post-processing, got ${genericOpsGate.score}`);
+assert(genericOpsDocument.score !== undefined, 'Document score should be present and explainable');
 assert(!!genericOpsDocument.scoreExplanation, 'Document should carry score explanation');
+assert((genericOpsDocument.qualityAssessment?.findings || []).length > 0, 'Quality findings should be stored separately from business content');
 
 const crmAiSalesBotProfileRequest = 'sap crm ai satis botu projesi';
 assert(getPrimaryDomainProfile(crmAiSalesBotProfileRequest)?.id === 'sap_crm_ai_sales_bot', 'SAP CRM AI sales bot should be detected by the central domain profile');
 const crmAiSalesBotProcesses = processTitlesFromProfile(crmAiSalesBotProfileRequest);
-assert(crmAiSalesBotProcesses.length >= 3, 'SAP CRM AI sales bot profile should provide process candidates');
-assert(crmAiSalesBotProcesses.some(item => /lead/i.test(item)), 'SAP CRM AI sales bot process profile should include lead qualification');
-assert(!crmAiSalesBotProcesses.some(item => /iys|teminat|bakim/i.test(normalize(item))), 'SAP CRM AI sales bot profile should not leak IYS or PEMP process titles');
+assert(crmAiSalesBotProcesses.length === 0, 'Domain profiles must not provide project process candidates');
 
 const kkbFindeksRequest = 'sap crm musteri verisi ile KKB Findeks API entegrasyonu kavramsal dokuman hazirla';
 assert(getPrimaryDomainProfile(kkbFindeksRequest)?.id === 'integration_project', 'KKB/Findeks integration should stay in the integration profile, not a CRM AI sales bot profile');
@@ -172,10 +139,10 @@ const mismatchedDocument = processDocument(
   genericOpsRequest,
   '# KAVRAMSAL TASARIM RAPORU\n\nSAP CRM IYS entegrasyonu icin genel taslak. IYS izin aktarimi ve SAP mutabakati anlatilir.',
 );
-assertDocumentCarriesGenericOpsSource(mismatchedDocument);
-assertIncludes(mismatchedDocument.businessAnalysis.content, 'Kaynak Uyum Onarimi', 'Mismatched weak draft should be repaired against the real source');
-assertIncludes(mismatchedDocument.review?.content || '', 'Source Fidelity Guard', 'Mismatched weak draft should keep a review guard');
-assertNotMatches(mismatchedDocument.businessAnalysis.content, /iys izin aktarimi.*sap mutabakati.*ana kapsam/, 'Wrong incoming context should not dominate the repaired document');
+assertIncludes(mismatchedDocument.businessAnalysis.content, 'SAP CRM IYS entegrasyonu', 'Postprocessor should preserve mismatched model output for transparent review');
+assert(!normalize(allContent(mismatchedDocument)).includes(normalize('Abonelik Iptal ve Iade Operasyon Platformu')), 'Postprocessor must not silently replace mismatched content with source-derived prose');
+assertNotMatches(mismatchedDocument.review?.content || '', /Source Fidelity Guard|Kaynak Uyum Onarimi/, 'Mismatch findings must stay out of Review prose');
+assert((mismatchedDocument.qualityAssessment?.findings || []).some(item => item.category === 'source'), 'Source mismatch should be reported as a structured finding');
 
 const pempRequest = `
 Talep Dokumani
@@ -232,8 +199,10 @@ assertNotMatches(pempContent, /dijital imza|otp|dijital sozlesme|d2d saha|iys iz
 const sparseIdea = 'sap crm ai satis botu projesi';
 const sparseIdeaDocument = processDocument(sparseIdea);
 const sparseIdeaContent = allContent(sparseIdeaDocument);
-assertIncludes(sparseIdeaContent, 'sap crm ai satis botu', 'Sparse idea document should preserve the user phrase when forced through post-processing');
-assertIncludes(sparseIdeaDocument.businessAnalysis.content, 'KAVRAMSAL TASARIM RAPORU', 'Sparse idea document should still keep the Word conceptual structure');
+assertIncludes(sparseIdeaContent, 'Kisa ve genel taslak', 'Sparse model output should remain unchanged');
+assert(!normalize(sparseIdeaContent).includes(normalize(sparseIdea)), 'Source request must not be inserted into a sparse document by post-processing');
+assertNotMatches(sparseIdeaDocument.businessAnalysis.content, /KAVRAMSAL TASARIM RAPORU/, 'Sparse documents must not receive an automatic template');
+assert((sparseIdeaDocument.qualityAssessment?.findings || []).length > 0, 'Sparse documents should expose structured quality findings');
 assertNotMatches(sparseIdeaContent, /iys izin aktarimi|d2d saha|dijital imza|otp|bakim islemleri|teminat mektubu/, 'Sparse idea should not inherit unrelated fixed project content');
 
 console.log('Document content quality verification passed.');

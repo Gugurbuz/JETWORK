@@ -6,7 +6,6 @@ import { applyNodeUpdate, ANALYST_WEB_SYSTEM_PROMPT } from './intentRouter';
 import { hybridSearch } from './contextManager';
 import { supabase } from '../supabase';
 import { classifyIntent } from './ai/intentClassifier';
-import { decideAction } from './ai/decisionPolicy';
 import {
   IntentClassification,
   DocumentSectionKey,
@@ -20,36 +19,41 @@ import { buildDeepBaActInstructions, parseClassifierQuestion } from '../modules/
 import {
   applyBehaviorDecisionToClassification,
   buildBehaviorDecision,
-  shouldPauseForBehaviorDiscovery,
   type BehaviorDecision,
 } from './ai/behaviorDecision';
 import { buildBaMindsetInstruction } from './ai/baMindset';
-import { buildDiscoveryAnswerMappingInstruction } from './ai/baDiscoveryProfiles';
 import {
   analyzeSourceIntelligence,
   buildSourceCorpus,
   buildSourceIntelligencePrompt,
   type SourceIntelligenceReport,
 } from './sourceIntelligence';
-import { deriveProcessCandidates } from './sourceDrivenInference';
 import { buildBaCognitiveFrame, buildBaCognitiveInstruction, buildBaCognitiveQuestionItems, buildBaCognitiveQuestions } from './ai/baCognitiveFrame';
 import {
-  attachCopilotTraceToDocument,
   buildCopilotCognitiveInstruction,
   buildCopilotCognitiveTrace,
   buildCopilotThinkingSummary,
 } from './ai/copilotCognitiveArchitecture';
 import {
-  attachCopilotRuntimeToDocument,
   buildCopilotRuntimeInstruction,
   buildCopilotRuntimeSnapshot,
 } from './ai/copilotRuntimeState';
-import type { ProjectMemory } from './ai/projectMemoryEngine';
+import { extractProjectMemoryUpdates, type ProjectMemory } from './ai/projectMemoryEngine';
 import {
   buildAiTurnDecision,
   buildAiTurnDecisionInstruction,
   type AiTurnDecision,
 } from './ai/aiTurnDecision';
+import { saveProjectMemory } from './projectMemoryRepository';
+import {
+  cancelPendingOperation,
+  confirmPendingOperation,
+  createPendingOperation,
+  documentsMatch,
+  failPendingOperation,
+  getLatestPendingOperation,
+  type PendingOperation,
+} from './pendingOperationRepository';
 
 // Strip any partial/complete JSON the model may emit before the UI sees it.
 const extractParts = (
@@ -100,7 +104,9 @@ export interface SingleChatInput {
   selectedSection?: DocumentSectionKey | null;
   messageHistory?: Message[];
   workspaceTitle?: string;
+  workspaceId?: string;
   projectMemory?: ProjectMemory;
+  signal?: AbortSignal;
   onPhase: (phase: AgentPhase | 'INTENT', label: string) => void;
   onThinking: (text: string) => void;
   onStream: (
@@ -123,6 +129,7 @@ export interface SingleChatResult {
   intent: SingleChatIntent;
   classification?: IntentClassification;
   turnDecision?: AiTurnDecision;
+  pendingOperationId?: string;
   tokenCount: number;
 }
 
@@ -141,84 +148,47 @@ function buildBehaviorOrchestratorInstruction(
   decision: BehaviorDecision,
   sourceReport?: SourceIntelligenceReport,
 ): string {
-  const mindsetHint = buildBaMindsetInstruction({
-    mode: decision.mode,
-    domain: decision.domain,
-    depth: decision.depth,
-  });
-  const humanProfileHint = `
-[INSANSI BA KARAR PROFILI]
-- Kullanici niyeti: ${decision.humanProfile.userIntent}
-- Proje/domain: ${decision.humanProfile.projectDomain}
-- Soru stratejisi: ${decision.humanProfile.questionStrategy}
-- Dokuman aksiyonu: ${decision.humanProfile.documentAction}
-- Varsayim politikasi: ${decision.humanProfile.assumptionPolicy}
-- Kritik eksikler: ${decision.humanProfile.missingCriticalInfo.length ? decision.humanProfile.missingCriticalInfo.join(', ') : 'yok'}
-- Soru gerekceleri: ${decision.humanProfile.questionRationale.length ? decision.humanProfile.questionRationale.join(' | ') : 'yok'}
-- Cevaplari dokumana isleme kurali: ${buildDiscoveryAnswerMappingInstruction(decision.domain)}
-- Onerilen sonraki aksiyon: ${decision.humanProfile.recommendedNextAction}
-- Cevap tutumu: ${decision.humanProfile.responseStance}
-`.trim();
-
-  if (decision.requiredTemplate === 'none') {
-    return `[DAVRANIS KARARI]\n- Mod: ${decision.mode}\n- Domain: ${decision.domain}\n- Dokuman guncelleme: hayir\n\n${humanProfileHint}\n\n${mindsetHint}`;
-  }
-
-  const sourceProcessTitles = sourceReport?.processes?.map(process => process.title).filter(Boolean) || [];
-  const domainProcesses = sourceProcessTitles.length >= 2
-    ? sourceProcessTitles
-    : deriveProcessCandidates({
-      processes: sourceProcessTitles,
-      roles: sourceReport?.roles,
-      systems: sourceReport?.systems,
-      integrations: sourceReport?.integrations,
-      documentRules: sourceReport?.documentRules,
-      dashboardNeeds: sourceReport?.dashboardNeeds,
-      uiNeeds: sourceReport?.uiNeeds,
-      kpis: sourceReport?.kpis,
-      openTopics: sourceReport?.openTopics,
-      minCount: (sourceReport?.systems?.length || sourceReport?.integrations?.length) ? 3 : 2,
-      maxCount: 6,
-    });
-  const processCount = Math.max(2, domainProcesses.length);
-  const sourceTruthInstruction = sourceProcessTitles.length
-    ? `- KAYNAK ONCELIGI: Kullanici/talep dokumaninda acik surecler bulundu. Surec modeli adlarini ve sirasini bunlardan al: ${sourceProcessTitles.map((item, index) => `${index + 1}) ${item}`).join('; ')}. Bunlar yerine "Ana is sureci", "Kaynak Sistemden Hedef Sisteme Veri Aktarimi" gibi genel kalip basliklar kullanma.`
-    : '- KAYNAK ONCELIGI: Kaynakta acik surec listesi yoksa surecleri talepteki roller, ekranlar, gorevler, belgeler, karar noktalar ve raporlardan cikar; genel kalip basliklari son care olarak bile kullanma.';
-  const projectNameInstruction = sourceReport?.inferredProjectName
-    ? `- Proje adi kaynak izinden geldi: "${sourceReport.inferredProjectName}". Baska konu basligiyle degistirme.`
-    : '- Proje adi net degilse uydurma; talepteki en guclu isim izini kullan veya [ACIK KONU] olarak isaretle.';
-
-  return `
-[DAVRANIS KARARI - ANA YONLENDIRICI]
-- Mod: ${decision.mode}
-- Domain: ${decision.domain}
-- Derinlik: ${decision.depth}
-- Sablon: ${decision.requiredTemplate}
-- Soru sorma: ${decision.shouldAskQuestions ? 'evet' : 'hayir'}
-- Varsayim kullan: ${decision.shouldUseAssumptions ? 'evet, eksikleri [VARSAYIM] ve [ACIK KONU] olarak isaretle' : 'hayir'}
-- Dokuman guncelle: ${decision.shouldUpdateDocument ? 'evet' : 'hayir'}
-
-${humanProfileHint}
-
-[WORD SABLONU VE DOKUMAN DERINLIGI - ZORUNLU]
-- businessAnalysis.content ana basligi "KAVRAMSAL TASARIM RAPORU" olmalidir.
-- "BA Analiz Raporu" veya eski genel BRD kapagi ile baslama.
-- En az ${processCount} adet "SÜREÇ MODELİ - N" blogu uret.
-- Bu domain icin surec modeli adaylari: ${domainProcesses.map((item, index) => `${index + 1}) ${item}`).join('; ')}.
-- Talep dokumani uzun ve detayliysa once onu analiz et: surec numaralari, zorunlu alanlar, gorevler, belgeler, roller, bildirimler, entegrasyonlar, dashboardlar, KPI ve blokaj kosullari ayiklanmadan dokuman yazma.
-${sourceTruthInstruction}
-${projectNameInstruction}
-- Kaynakta olmayan mikroservis, teknoloji, ekran veya sistem adlarini kesin karar gibi yazma. Gerekirse [VARSAYIM] veya [ACIK KONU] olarak ayir.
-- Her surec modelinde ayni blok sirasi korunur: Süreç Modeli - N, Bu proje ile birlikte;, Üst Düzey Süreç Açıklaması, Süreç değişiklikleri, İş Gerekleri ve KPIs, Detaylı Süreç Akışı / Akış Diyagramı, Detaylı Süreç Akışı, Akış Diyagramı, İlgili Süreçler, Üst Düzey Müşteri Geliştirmesi, Önemli Uyarlamalar ve Amaçları, Değişim Yönetimi.
-- İş Gerekleri ve KPIs tablosu dolu olmalidir: BR, FR, INT, NFR, RPT, SEC ve KPI satirlari birlikte yazilir; toplam en az 10 satir hedeflenir.
-- Üst Düzey Müşteri Geliştirmesi tablosunda en az 4 satir yaz: arayuz, program/servis, rapor, is akisi veya entegrasyon gelistirmeleri.
-- Doküman Tarihçesi altinda Katılımcılar, Revize tarih, Kontrol EDEN VE ONAYLAYAN tablolari bos birakilmaz; bilinmeyen degerler [ACIK KONU] olur.
-- EK A altinda İLGİLİ / REFERANS DOKÜMANLAR ve EKLENTİ tablolari yer alir.
-
-${mindsetHint}
-`.trim();
+  const sourceProcesses = sourceReport?.processes?.map(process => process.title).filter(Boolean) || [];
+  return [
+    '[DAVRANIS BAGLAMI - KARAR VERMEZ]',
+    `- Insansi BA tutumu: ${decision.humanProfile.responseStance}`,
+    `- Soru gerekcesi: ${decision.humanProfile.questionRationale.join(' | ') || 'yok'}`,
+    `- Kaynakta acikca bulunan surecler: ${sourceProcesses.join(' | ') || 'yok'}`,
+    '- Bu blok yalniz aciklayici baglamdir. Eylem, soru, dokuman ve profil kararini AiTurnDecision verir.',
+    '- Kaynakta bulunmayan surec, rol, sistem, KPI veya teknik karar ekleme.',
+  ].join('\n');
 }
 
+function buildDocumentGenerationDirective(decision: AiTurnDecision, retry = false): string {
+  const profile = decision.artifactProfile;
+  return [
+    `[DOKUMAN URETIM UYGULAMASI${retry ? ' - KONTROLLU IKINCI DENEME' : ''}]`,
+    '- Bu turda document alani zorunludur; businessAnalysis ve review gorunur yuzeylerini dondur.',
+    '- questions alanini bos birak ve yeni soru sorma.',
+    `- Yalniz artifact profile "${profile.id}" yapisini uygula.`,
+    `- Zorunlu basliklar: ${profile.requiredSections.join(' | ') || 'profilde zorunlu baslik yok'}.`,
+    `- Opsiyonel basliklar: ${profile.optionalSections.join(' | ') || 'yok'}.`,
+    `- Eklenmemesi gereken kaliplar: ${profile.forbiddenSections.join(' | ') || 'yok'}.`,
+    '- Baska bir genel BA, teknik analiz, test veya entegrasyon sablonunu bu profile ekleme.',
+    '- Kaynakta olmayan gercekleri uydurma; gerekli belirsizligi VARSAYIM veya ACIK KONU olarak ayir.',
+    '- Review yalniz kanit durumunu, riskleri, celiskileri, varsayimlari ve acik kararlari raporlar.',
+    '- Chat mesaji en fazla 3 cumlelik somut bir "ne yaptim" ozeti olsun.',
+    ...profile.promptRules.map(rule => `- ${rule}`),
+  ].join('\n');
+}
+
+function compactDocumentRevisionContext(document: DocumentData): string {
+  const compact = {
+    businessAnalysis: document.businessAnalysis
+      ? { ...document.businessAnalysis, content: (document.businessAnalysis.content || '').slice(0, 24_000) }
+      : undefined,
+    review: document.review
+      ? { ...document.review, content: (document.review.content || '').slice(0, 12_000) }
+      : undefined,
+    evidenceClaims: document.evidenceClaims,
+  };
+  return JSON.stringify(compact);
+}
 async function runChatOnly(input: SingleChatInput, classification: IntentClassification): Promise<SingleChatResult> {
   input.onPhase('ACT', 'Yanıt hazırlanıyor...');
   let raw = '';
@@ -241,6 +211,7 @@ Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
   await callAiWithRetry(() =>
     callGemini({
       model: input.model,
+      signal: input.signal,
       systemInstruction: sys,
       contents: [
         ...input.history,
@@ -344,6 +315,7 @@ async function runAskClarifyingQuestions(
   await callAiWithRetry(() =>
     callGemini({
       model: input.model,
+      signal: input.signal,
       systemInstruction: `${sys}
 
 ${buildBaMindsetInstruction({ mode: 'ask_clarifying_questions', domain: classification.baAgentFocus || 'generic_ba', depth: 'standard' })}
@@ -395,6 +367,7 @@ ${input.selectedNodeContent || ''}`;
   await callAiWithRetry(() =>
     callGemini({
       model: input.model,
+      signal: input.signal,
       systemInstruction: editSystem,
       contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
       onChunk: (t, think, tk) => {
@@ -463,6 +436,7 @@ async function runResearchWeb(
   await callAiWithRetry(() =>
     callGemini({
       model: input.model,
+      signal: input.signal,
       systemInstruction: ANALYST_WEB_SYSTEM_PROMPT,
       contents: [{ role: 'user', parts: [{ text: input.userMessage }] }],
       onChunk: (t, _th, tk) => {
@@ -531,6 +505,7 @@ async function runBaLoop(
     documentContent: input.documentContent,
     knowledgeBase: input.knowledgeBase,
     model: input.model,
+    signal: input.signal,
     systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}${behaviorHint}${decisionHint}${sourceHint}`,
     turnDecision: opts.turnDecision,
     onPhase: (phase, label) => input.onPhase(phase, label),
@@ -559,14 +534,8 @@ ${DRAFT_FIRST_SYSTEM_RULE}
 ${behaviorHint}
 ${sourceHint}
 
-[ZORUNLU DERIN BA DOKUMAN URETIMI - SON CAGRI]
-Onceki adimda \`document\` alani dolmadi. Simdi SADECE dokumani uretmen gerekiyor.
-- \`questions\` alanı BOŞ olmalı.
-- \`document\` alani zorunlu: businessAnalysis ve review bolumlerini doldur.
-- Teknik analiz, test ve surec akisini businessAnalysis icinde alt baslik olarak yaz; code/test/bpmn alanlarini zorunlu uretme.
-- Eksik bilgileri "[VARSAYIM]" etiketi ile dokuman icinde isaretle.
-- Belirsizlikleri review.content icinde "## Acik Sorular" basligi altinda listele.
-- Mesaj 2-3 cumleyi gecmesin; detaylar dokumana yazilsin.
+${opts.turnDecision ? buildAiTurnDecisionInstruction(opts.turnDecision) : ''}
+${opts.turnDecision ? buildDocumentGenerationDirective(opts.turnDecision, true) : ''}
 
 ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
 
@@ -574,18 +543,19 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
         ...input.history,
         {
           role: 'user',
-          parts: [{ text: `Kullanıcı talebi ve konuşma geçmişindeki kararlara dayanarak ŞİMDİ dokümanı üret. Son kullanıcı mesajı: "${input.userMessage}"` }],
+          parts: [{ text: [
+            input.documentContent
+              ? `[MEVCUT DOKUMAN - REVIZYON BAGLAMI]\n${compactDocumentRevisionContext(input.documentContent)}`
+              : '',
+            `[KULLANICI TALEBI]\n${input.userMessage}`,
+            'Ilk uretim document alani dondurmedi. Ayni karari yeniden yorumlamadan secili artifact profile gore document alanini uret.',
+          ].filter(Boolean).join('\n\n') }],
         },
       ];
-      if (input.documentContent) {
-        const first = fallbackContents[0]?.parts?.[0];
-        if (first && 'text' in first) {
-          first.text = `Mevcut Doküman (varsa genişlet):\n${JSON.stringify(input.documentContent, null, 2)}\n\n${first.text}`;
-        }
-      }
 
       const fallback = await callGemini({
         model: input.model,
+        signal: input.signal,
         systemInstruction: fallbackSystem,
         contents: fallbackContents,
         responseSchema: chatResponseJsonSchema,
@@ -609,49 +579,11 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
     }
   }
 
-  // Last-resort synthesis: document-producing turns must not leave the right
-  // panel empty. Even if the model times out or forgets the `document` field,
-  // create a seed BA document and let the post-processor/quality gate deepen it.
-  if (!finalDocument && forceDraftAllowed) {
-    const base = input.documentContent || ({} as DocumentData);
-    const safeText = (finalText || '').trim();
-    const seedContent = safeText.length > 120
-      ? safeText
-      : [
-        '# KAVRAMSAL TASARIM RAPORU',
-        '',
-        '## 1. Talep Ozeti',
-        input.userMessage,
-        '',
-        '## 2. Baslangic Analiz Notu',
-        'AI uretim cagrisi tam dokuman alani dondurmedigi icin bu taslak talep uzerinden baslatildi. Kalite kapisi; problem modeli, surec modeli bloklari, is gerekleri, KPI, kaynak/varsayim/acik konu ayrimi, test/UAT ve degisim yonetimi bolumlerini otomatik tamamlayacaktir.',
-      ].join('\n');
-    finalDocument = {
-      ...(base as any),
-      businessAnalysis: {
-        content: seedContent,
-        status: 'DRAFT',
-        flags: ['FORCE_DRAFT_SEED'],
-      },
-      review: {
-        content: [
-          '## Review',
-          '',
-          '- [VARSAYIM] Model tam document alani dondurmedigi icin seed taslak olusturuldu.',
-          '- [ACIK KONU] Is birimi tarafindan kritik kararlar ve kapsam dogrulanmali.',
-          '- [KALITE] Post-processor ve kalite kapisi dokumani derinlestirecek.',
-        ].join('\n'),
-        status: 'NEEDS_REVISION',
-        flags: ['FORCE_DRAFT_SEED_REVIEW'],
-      },
-    } as DocumentData;
-  }
-
   // Honesty guard: if the assistant text claims document was updated but no
   // document was actually produced, rewrite it to be truthful.
   const claimsUpdate = /(doküman|sağ panel).{0,40}(güncellen|oluşturul|işlendi|eklen|aktarıl)/i.test(finalText || '');
-  if (claimsUpdate && !finalDocument) {
-    finalText = 'Şu an doküman güncellemesi üretemedim. Lütfen talebi biraz daha netleştirin veya "Varsayımlarla ilerle" aksiyonunu seçin; eksik alanları varsayımla dolduracağım.';
+  if (!finalDocument && forceDraftAllowed && (claimsUpdate || !finalText.trim())) {
+    finalText = 'Doküman üretimi iki kontrollü denemede de geçerli bir document alanı döndürmedi; sağ panel değiştirilmedi. Talep ve mevcut içerik korundu, yeniden deneyebilirsin.';
   }
 
   return {
@@ -714,36 +646,177 @@ function runWorkflowStub(
   };
 }
 
-function runMemoryStub(
+async function runMemoryAction(
   input: SingleChatInput,
   classification: IntentClassification
-): SingleChatResult {
-  const msg = 'Bu bilgiyi proje hafızasına not ettim. Dokümanın Review bölümünde hatırlatacağım.';
+): Promise<SingleChatResult> {
+  if (!input.workspaceId) {
+    const msg = 'Hafıza isteğini algıladım; aktif çalışma alanı olmadığı için kalıcı kayıt yapılmadı.';
+    input.onStream(msg, '', undefined, `memory_failed:${classification.subIntent}`, 0);
+    return {
+      text: msg,
+      thinking: '',
+      actionSummary: `memory_failed:${classification.subIntent}`,
+      intent: 'memory_action',
+      classification,
+      tokenCount: 0,
+    };
+  }
+
+  const updates = extractProjectMemoryUpdates({
+    userMessage: input.userMessage,
+    document: input.documentContent,
+  });
+  if (Object.keys(updates).length === 0) {
+    const prefixByIntent: Partial<Record<SubIntent, string>> = {
+      save_decision: 'decision',
+      save_requirement: 'requirement',
+      save_constraint: 'constraint',
+      save_assumption: 'assumption',
+      save_business_rule: 'business_rule',
+      save_term: 'term',
+    };
+    const prefix = prefixByIntent[classification.subIntent] || 'fact';
+    updates[`${prefix}.${Date.now()}`] = input.userMessage.trim();
+  }
+
+  const write = await saveProjectMemory(input.workspaceId, updates);
+  const msg = write.ok
+    ? `${write.savedCount} bilgi proje hafızasına kalıcı olarak kaydedildi.`
+    : `Proje hafızasına kayıt yapılamadı: ${write.error || 'bilinmeyen hata'}`;
   input.onStream(msg, '', undefined, `memory:${classification.subIntent}`, 0);
   return {
     text: msg,
     thinking: '',
-    actionSummary: `memory:${classification.subIntent}`,
+    actionSummary: `${write.ok ? 'memory_saved' : 'memory_failed'}:${classification.subIntent}`,
     intent: 'memory_action',
     classification,
     tokenCount: 0,
   };
 }
 
-function runPreviewRequired(
+async function runPreviewRequired(
   input: SingleChatInput,
-  classification: IntentClassification
-): SingleChatResult {
-  const msg = `Bu işlem yüksek riskli (${classification.subIntent}). Uygulamadan önce onayını istiyorum.
+  classification: IntentClassification,
+  turnDecision: AiTurnDecision,
+  behaviorInstruction: string,
+): Promise<SingleChatResult> {
+  if (!input.workspaceId || !input.documentContent) {
+    const msg = 'Bu değişiklik için önizleme oluşturulamadı: aktif çalışma alanı veya temel doküman bulunmuyor. Hiçbir değişiklik uygulanmadı.';
+    input.onStream(msg, '', undefined, `preview_failed:${classification.subIntent}`, 0);
+    return { text: msg, thinking: '', actionSummary: `preview_failed:${classification.subIntent}`, intent: 'preview_required', classification, turnDecision, tokenCount: 0 };
+  }
 
-İstediğin değişikliği bir sonraki mesajında "devam et" veya "uygula" diyerek onaylarsan, değişiklik sağ panelde diff olarak gösterilecek ve versiyon olarak kaydedilecek. Vazgeçmek istersen "iptal" yazabilirsin.`;
-  input.onStream(msg, '', undefined, `preview_required:${classification.subIntent}`, 0);
+  try {
+    const previewClassification: IntentClassification = {
+      ...classification,
+      documentImpact: 'updates_document',
+      riskLevel: 'medium',
+      requiresPreview: false,
+      requiresClarification: false,
+      shouldRunBaAgentLoop: true,
+    };
+    const previewDecision: AiTurnDecision = {
+      ...turnDecision,
+      action: 'revise_document',
+      documentPolicy: {
+        ...turnDecision.documentPolicy,
+        shouldUpdateDocument: true,
+        forceDocumentGeneration: true,
+      },
+      executionPolicy: {
+        ...turnDecision.executionPolicy,
+        requiresConfirmation: false,
+      },
+    };
+    const proposed = await runBaLoop(input, previewClassification, {
+      forceDraft: true,
+      behaviorInstruction,
+      turnDecision: previewDecision,
+    });
+
+    if (!proposed.document) throw new Error('AI did not produce a proposed document.');
+
+    const pending = await createPendingOperation({
+      workspaceId: input.workspaceId,
+      action: turnDecision.action,
+      operation: turnDecision.executionPolicy.operation,
+      targetSection: turnDecision.executionPolicy.targetSection,
+      baseDocument: input.documentContent,
+      proposedDocument: proposed.document,
+      requestText: input.userMessage,
+    });
+    const changed = pending.diff.changedSections.join(', ') || 'belge içeriği';
+    const msg = `Önizleme oluşturuldu; değişiklik henüz uygulanmadı. İşlem: ${pending.id}. Değişecek alanlar: ${changed}. Aynı çalışma alanında "uygula" yazarak bu işlem kimliğine bağlı öneriyi onaylayabilir veya "iptal" diyebilirsin.`;
+    input.onStream(msg, proposed.thinking, undefined, `preview_created:${pending.id}`, proposed.tokenCount);
+    return {
+      text: msg,
+      thinking: proposed.thinking,
+      actionSummary: `preview_created:${pending.id}`,
+      intent: 'preview_required',
+      classification,
+      turnDecision,
+      pendingOperationId: pending.id,
+      tokenCount: proposed.tokenCount,
+    };
+  } catch (error: any) {
+    const msg = `Önizleme kaydedilemedi; değişiklik uygulanmadı. ${error?.message || 'Bilinmeyen hata.'}`;
+    input.onStream(msg, '', undefined, `preview_failed:${classification.subIntent}`, 0);
+    return { text: msg, thinking: '', actionSummary: `preview_failed:${classification.subIntent}`, intent: 'preview_required', classification, turnDecision, tokenCount: 0 };
+  }
+}
+
+function runPendingOperationMissing(input: SingleChatInput, classification: IntentClassification, turnDecision: AiTurnDecision): SingleChatResult {
+  const msg = 'Bu çalışma alanında onay bekleyen geçerli bir değişiklik bulunmuyor. Hiçbir doküman değişikliği uygulanmadı.';
+  input.onStream(msg, '', undefined, 'pending_operation_missing', 0);
+  return { text: msg, thinking: '', actionSummary: 'pending_operation_missing', intent: 'preview_required', classification, turnDecision, tokenCount: 0 };
+}
+
+async function runCancelPendingOperation(
+  input: SingleChatInput,
+  classification: IntentClassification,
+  turnDecision: AiTurnDecision,
+  pending: PendingOperation,
+): Promise<SingleChatResult> {
+  const cancelled = await cancelPendingOperation(pending.id);
+  const msg = cancelled
+    ? `Bekleyen işlem ${pending.id} iptal edildi. Doküman değiştirilmedi.`
+    : `Bekleyen işlem ${pending.id} iptal edilemedi. Doküman değiştirilmedi.`;
+  input.onStream(msg, '', undefined, cancelled ? `pending_cancelled:${pending.id}` : `pending_cancel_failed:${pending.id}`, 0);
+  return { text: msg, thinking: '', actionSummary: cancelled ? `pending_cancelled:${pending.id}` : `pending_cancel_failed:${pending.id}`, intent: 'preview_required', classification, turnDecision, pendingOperationId: pending.id, tokenCount: 0 };
+}
+
+async function runExecutePendingOperation(
+  input: SingleChatInput,
+  classification: IntentClassification,
+  turnDecision: AiTurnDecision,
+  pending: PendingOperation,
+): Promise<SingleChatResult> {
+  if (!documentsMatch(input.documentContent, pending.baseDocument)) {
+    await failPendingOperation(pending.id, 'Base document changed before confirmation.');
+    const msg = `Bekleyen işlem ${pending.id} uygulanmadı; temel doküman önizlemeden sonra değişmiş. Yeni bir önizleme oluşturulması gerekiyor.`;
+    input.onStream(msg, '', undefined, `pending_stale:${pending.id}`, 0);
+    return { text: msg, thinking: '', actionSummary: `pending_stale:${pending.id}`, intent: 'preview_required', classification, turnDecision, pendingOperationId: pending.id, tokenCount: 0 };
+  }
+
+  const confirmed = await confirmPendingOperation(pending.id);
+  if (!confirmed) {
+    const msg = `Bekleyen işlem ${pending.id} onay kaydıyla eşleştirilemedi; doküman değiştirilmedi.`;
+    input.onStream(msg, '', undefined, `pending_confirm_failed:${pending.id}`, 0);
+    return { text: msg, thinking: '', actionSummary: `pending_confirm_failed:${pending.id}`, intent: 'preview_required', classification, turnDecision, pendingOperationId: pending.id, tokenCount: 0 };
+  }
+
+  const msg = `Onay, bekleyen işlem ${pending.id} ile eşleştirildi. Kaydedilmiş öneri dokümana uygulanıyor.`;
+  input.onStream(msg, '', undefined, `pending_confirmed:${pending.id}`, 0);
   return {
     text: msg,
     thinking: '',
-    actionSummary: `preview_required:${classification.subIntent}`,
-    intent: 'preview_required',
+    actionSummary: `pending_confirmed:${pending.id}`,
+    document: pending.proposedDocument,
+    intent: 'revise_section',
     classification,
+    turnDecision,
+    pendingOperationId: pending.id,
     tokenCount: 0,
   };
 }
@@ -751,6 +824,16 @@ function runPreviewRequired(
 // ---------------------------------------------------------------------------
 // Public entry
 // ---------------------------------------------------------------------------
+
+function isPendingOperationControlMessage(value: string): boolean {
+  const normalized = value
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /^(devam et|uygula|onayla|onayliyorum|evet uygula|degisikligi uygula|iptal|vazgec|vazgectim|islemi iptal et|degisikligi iptal et)$/.test(normalized);
+}
 
 const runSingleChatOrchestratorInner = async (
   input: SingleChatInput
@@ -762,7 +845,8 @@ const runSingleChatOrchestratorInner = async (
     input.messageHistory || [],
     input.documentContent,
   );
-  const turnInput: SingleChatInput = signals.newStandaloneRequest
+  const pendingOperationLookupPerformed = !!input.workspaceId && isPendingOperationControlMessage(input.userMessage);
+  const turnInput: SingleChatInput = signals.newStandaloneRequest && !pendingOperationLookupPerformed
     ? {
       ...input,
       history: [],
@@ -770,6 +854,14 @@ const runSingleChatOrchestratorInner = async (
       documentContent: null,
     }
     : input;
+  let pendingOperation: PendingOperation | null = null;
+  if (pendingOperationLookupPerformed && input.workspaceId) {
+    try {
+      pendingOperation = await getLatestPendingOperation(input.workspaceId);
+    } catch (error: any) {
+      input.onThinking(`Bekleyen işlem kaydı okunamadı: ${error?.message || 'bilinmeyen hata'}`);
+    }
+  }
 
   // Short-circuit 1: pure greeting / small talk. Deterministic, no LLM call,
   // no questions, no document change. Prevents the model from drifting the
@@ -847,6 +939,12 @@ const runSingleChatOrchestratorInner = async (
     cognitiveFrame,
     sourceReport: turnSourceReport,
     discoverySignals: aiDiscoverySignals,
+    hasSelectedText: !!turnInput.selectedNodeContent,
+    capabilities: {
+      zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH,
+    },
+    pendingOperation: pendingOperation ? { id: pendingOperation.id } : null,
+    pendingOperationLookupPerformed,
   });
   const copilotTrace = buildCopilotCognitiveTrace({
     userMessage: turnInput.userMessage,
@@ -882,37 +980,64 @@ const runSingleChatOrchestratorInner = async (
     `AI akli kuruldu: karar=${aiTurnDecision.action}, profil=${aiTurnDecision.artifactProfile.id}, mod=${cognitiveFrame.artifactMode}, kaynak=${cognitiveFrame.sourceRichness}, runtime=${runtimeSnapshot.currentState}/${runtimeSnapshot.completionStatus}, coverage=${cognitiveFrame.coverageSummary.score}/100, guven=${cognitiveFrame.confidence}/100. ${buildCopilotThinkingSummary(copilotTrace)}`
   );
 
-  // Runtime snapshot is the product-level decision contract. The trace still
-  // explains the reasoning, but routing below follows runtime state/status so
-  // "ask / draft / execute" is decided by the same model that Review exposes.
+  // Cognitive/runtime snapshots explain the decision. AiTurnDecision alone
+  // controls execution so no downstream layer can reinterpret the same turn.
   const copilotFinalAction = runtimeSnapshot.finalAction;
-  const runtimeShouldAsk = (
-    runtimeSnapshot.currentState === 'ask_questions'
-    || runtimeSnapshot.completionStatus === 'awaiting_user' && copilotFinalAction === 'ask_blocking_questions'
-  ) && !signals.mustGenerateNow;
-  const runtimeShouldDraft = (
-    ['draft_with_assumptions', 'generate_source_grounded_draft', 'revise_existing_artifact', 'repair_artifact'].includes(copilotFinalAction)
-    || ['generate_artifact', 'validate_artifact', 'repair_artifact', 'complete'].includes(runtimeSnapshot.currentState)
-  ) && runtimeSnapshot.completionStatus !== 'awaiting_user';
-  const cognitiveShouldAsk = (
-    runtimeShouldAsk
-    || copilotFinalAction === 'ask_blocking_questions'
-    || ['ask_first', 'block_until_source'].includes(cognitiveFrame.action)
-  ) && !signals.mustGenerateNow;
-  const cognitiveShouldDraft = [
-    'draft_source_grounded',
-    'draft_with_assumptions',
-    'revise_existing',
-  ].includes(cognitiveFrame.action)
-    || [
-      'draft_with_assumptions',
-      'generate_source_grounded_draft',
-      'revise_existing_artifact',
-      'repair_artifact',
-    ].includes(copilotFinalAction)
-    || runtimeShouldDraft;
+
+  if (aiTurnDecision.action === 'system_message') {
+    const code = classification.subIntent === 'zero_touch_requested'
+      ? 'ZERO_TOUCH_DISABLED'
+      : classification.subIntent === 'agent_debate_requested'
+        ? 'AGENT_DEBATE_DISABLED'
+        : 'UNSUPPORTED';
+    return runSystemMessage(turnInput, classification, code);
+  }
+
+  if (aiTurnDecision.action === 'memory_action') {
+    return runMemoryAction(turnInput, classification);
+  }
+
+  if (aiTurnDecision.action === 'workflow_action') {
+    return runWorkflowStub(turnInput, classification);
+  }
+
+  if (aiTurnDecision.action === 'pending_operation_missing') {
+    return runPendingOperationMissing(turnInput, classification, aiTurnDecision);
+  }
+
+  if (aiTurnDecision.action === 'cancel_pending_change' && pendingOperation) {
+    return runCancelPendingOperation(turnInput, classification, aiTurnDecision, pendingOperation);
+  }
+
+  if (aiTurnDecision.action === 'execute_confirmed_change' && pendingOperation) {
+    return runExecutePendingOperation(turnInput, classification, aiTurnDecision, pendingOperation);
+  }
+
+  if (aiTurnDecision.action === 'preview_change') {
+    return runPreviewRequired(turnInput, classification, aiTurnDecision, behaviorInstruction);
+  }
+
+  if (aiTurnDecision.action === 'update_selected_text') {
+    return runUpdateSelectedText(turnInput, classification);
+  }
+
+  if (aiTurnDecision.action === 'validate_document') {
+    return runChatOnly({
+      ...turnInput,
+      systemInstruction: `${turnInput.systemInstruction}\n\n[READ-ONLY QUALITY REVIEW]\nMevcut dokumani degerlendir; belge bolumlerini degistirme veya yeni icerik ekleme. Bulgulari kanit, etki ve onerilen aksiyon ile sohbette raporla.`,
+    }, classification);
+  }
+
+  if (aiTurnDecision.action === 'answer_only') {
+    return runChatOnly(turnInput, classification);
+  }
 
   if (aiTurnDecision.action === 'research_first') {
+    const internalResearch = classification.researchType === 'internal'
+      || classification.researchType === 'workspace_history'
+      || classification.subIntent === 'research_internal_knowledge'
+      || classification.subIntent === 'research_workspace_history';
+    if (internalResearch) return runResearchInternal(turnInput, classification);
     return runResearchWeb(
       turnInput,
       {
@@ -939,10 +1064,6 @@ const runSingleChatOrchestratorInner = async (
       reason: `${classification.reason}; ai_turn_decision:${aiTurnDecision.reason}; copilot:${copilotFinalAction}; cognitive:ask_first:${cognitiveFrame.action}:${cognitiveFrame.artifactMode}:${cognitiveFrame.sourceRichness}`,
     };
     return runAskClarifyingQuestions(turnInput, classification, undefined, behaviorDecision, gapQuestions);
-  }
-
-  if (shouldPauseForBehaviorDiscovery(behaviorDecision) && aiTurnDecision.questionPolicy.shouldAsk) {
-    return runAskClarifyingQuestions(turnInput, classification, undefined, behaviorDecision);
   }
 
   // Short-circuit 2: behavior engine or discovery guard decided the turn must
@@ -972,7 +1093,7 @@ const runSingleChatOrchestratorInner = async (
     const result = await runBaLoop(
       {
         ...turnInput,
-        systemInstruction: `${turnInput.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n${behaviorInstruction}\n\n[ZORUNLU DERIN BA DOKUMAN URETIMI]\nKullanici "${signals.reason || behaviorDecision.reason}" sinyali verdi. YENI SORU SORMA. Cevabin chatResponse JSON semasinda olmali ve \`document\` alani ZORUNLU olarak gorunur urun yuzeyindeki bolumleri icermelidir:\n- businessAnalysis: BA Analiz / kavramsal tasarim icerigi. Amac, kapsam, paydaslar, As-Is/To-Be, surecler, BR/FR/NFR/INT/RPT/SEC gereksinimler, veri modeli, entegrasyon mimarisi, ekran/validasyon/bildirim, hata yonetimi, UAT ve kabul kriterleri ayni bolumde karar verilebilir seviyede yazilir.\n- review: kaynak/dogrulama ozeti, riskler, acik sorular, varsayimlar, kalite kapisi ve sonraki aksiyonlar.\n- code/test/bpmn alanlarini zorunlu uretme; teknik, test ve akis detaylarini businessAnalysis icinde alt baslik olarak yaz.\nEksik bilgileri dokuman icinde "[VARSAYIM]" olarak isaretle ve Review > Acik Sorular bolumune ekle. \`questions\` alanini BOS birak.\n\n${buildDeepBaActInstructions(buildRecentSubject(turnInput))}`,
+        systemInstruction: `${turnInput.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n${behaviorInstruction}\n\n${buildDocumentGenerationDirective(aiTurnDecision)}\n\n${buildDeepBaActInstructions(buildRecentSubject(turnInput))}`,
       },
       classification,
       {
@@ -984,70 +1105,13 @@ const runSingleChatOrchestratorInner = async (
     return {
       ...result,
       turnDecision: aiTurnDecision,
-      document: attachCopilotRuntimeToDocument(
-        attachCopilotTraceToDocument(result.document, copilotTrace),
-        runtimeSnapshot,
-      ),
+      document: result.document,
     };
   }
 
-  const action = decideAction(classification, {
-    hasSelectedText: !!turnInput.selectedNodeContent,
-    zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH,
-  });
-
-  switch (action.type) {
-    case 'SYSTEM_MESSAGE':
-      return runSystemMessage(turnInput, classification, action.code || 'UNSUPPORTED');
-    case 'ASK_CLARIFYING_QUESTIONS':
-      return runAskClarifyingQuestions(turnInput, classification, action.code, behaviorDecision);
-    case 'PREVIEW_DOCUMENT_CHANGE':
-      return runPreviewRequired(turnInput, classification);
-    case 'CHAT_ONLY':
-      return runChatOnly(turnInput, classification);
-    case 'UPDATE_SELECTED_TEXT':
-      return runUpdateSelectedText(turnInput, classification);
-    case 'RUN_RESEARCH': {
-      const rt = classification.researchType;
-      if (rt === 'internal' || rt === 'workspace_history' || classification.subIntent === 'research_internal_knowledge' || classification.subIntent === 'research_workspace_history') {
-        return runResearchInternal(turnInput, classification);
-      }
-      return runResearchWeb(turnInput, classification);
-    }
-    case 'SUGGEST_DOCUMENT_UPDATE':
-      // Suggest-only flow: produce an answer without touching the document,
-      // but include a CTA for the user to apply it. Same path as chat_only
-      // but seed the prompt with a "suggest, don't apply" hint.
-      return runChatOnly(
-        { ...turnInput, systemInstruction: `${turnInput.systemInstruction}\n\n[MOD] Öneri modu: dokümana yazmadan ne ekleyebileceğini özetle ve sonunda "Dokümana işleyeyim mi?" diye sor.` },
-        classification,
-      );
-    case 'MEMORY_ACTION':
-      return runMemoryStub(turnInput, classification);
-    case 'WORKFLOW_ACTION':
-      return runWorkflowStub(turnInput, classification);
-    case 'RUN_BA_AGENT_LOOP':
-    case 'UPDATE_DOCUMENT_SECTION':
-    default:
-      // Analysis / document-update paths must ALWAYS end up with a document
-      // patch. forceDraft makes a second narrower call if the first attempt
-      // returns no `document` field.
-      {
-        const result = await runBaLoop(turnInput, classification, {
-          forceDraft: aiTurnDecision.documentPolicy.forceDocumentGeneration,
-          behaviorInstruction,
-          turnDecision: aiTurnDecision,
-        });
-        return {
-          ...result,
-          turnDecision: aiTurnDecision,
-          document: attachCopilotRuntimeToDocument(
-            attachCopilotTraceToDocument(result.document, copilotTrace),
-            runtimeSnapshot,
-          ),
-        };
-      }
-  }
+  // Every action is handled above. This defensive fallback is read-only and
+  // intentionally cannot mutate the document.
+  return runChatOnly(turnInput, classification);
 };
 
 export const runSingleChatOrchestrator = async (

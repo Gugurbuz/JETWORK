@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useStore } from '../store/useStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useUIStore } from '../store/useUIStore';
 import { X, Save, RefreshCw, History, RotateCcw } from 'lucide-react';
 import { supabase } from '../supabase';
 import { nowIso } from '../lib/mapping';
@@ -8,7 +9,10 @@ import { PromptSettings, PromptVersion } from '../types';
 import { toast } from 'sonner';
 
 export const AISettingsModal: React.FC = () => {
-  const { showAISettingsModal, setShowAISettingsModal, promptSettings, setPromptSettings } = useStore();
+  const showAISettingsModal = useUIStore(state => state.showAISettingsModal);
+  const setShowAISettingsModal = useUIStore(state => state.setShowAISettingsModal);
+  const promptSettings = useSettingsStore(state => state.promptSettings);
+  const setPromptSettings = useSettingsStore(state => state.setPromptSettings);
   const [localSettings, setLocalSettings] = useState<PromptSettings | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'personas' | 'fewshot' | 'memory' | 'versions'>('general');
   const [isSaving, setIsSaving] = useState(false);

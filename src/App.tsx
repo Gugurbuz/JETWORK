@@ -7,17 +7,16 @@ import { MainContent } from './components/MainContent';
 import { LandingPage } from './components/LandingPage';
 import { OnboardingPage } from './components/OnboardingPage';
 import { ProjectDashboard } from './components/ProjectDashboard';
-import { Message, Project, Workspace, Collaborator, DocumentData, ActiveUser, TypingUser, Question } from './types';
+import { DocumentData } from './types';
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
-import { marked } from 'marked';
-import { parse as parsePartialJson } from 'partial-json';
-import { GoogleGenAI } from "@google/genai";
 import { nowIso } from './lib/mapping';
 import { useMessageStore } from './store/useMessageStore';
-import { useStore } from './store/useStore';
+import { useDataStore } from './store/useDataStore';
+import { useDocumentStore } from './store/useDocumentStore';
+import { useSettingsStore } from './store/useSettingsStore';
+import { useUIStore } from './store/useUIStore';
 import { supabase, logOut } from './supabase';
-import { saveDocumentAndVersion, saveRawResponse, parseBusinessAnalysis } from './utils/documentUtils';
-import { MOCK_COLLABORATORS, ZERO_TOUCH_AGENTS, SYSTEM_INSTRUCTION } from './constants';
+import { saveDocumentAndVersion } from './utils/documentUtils';
 import { useMessages } from './hooks/useMessages';
 import { useAuth } from './hooks/useAuth';
 import { useProjects } from './hooks/useProjects';
@@ -53,43 +52,40 @@ function AuthLoadingState({ error, onRetry }: { error: string | null; onRetry: (
 }
 
 export default function App() {
-  // NOTE: This application uses a hybrid architecture:
-  // - Database: Real-time collaborative database (workspaces, messages, projects)
-  // - Supabase: Authentication and AI Edge Functions (Gemini agent)
-  // - SQLite: Local persistence for shared analyses and memory
+  // Supabase owns authentication, persistence, realtime collaboration, and AI gateway access.
   const { user, setUser, isAuthReady, authError, retryAuth } = useAuth();
 
-  const showNewItemModal = useStore(state => state.showNewItemModal);
-  const setShowNewItemModal = useStore(state => state.setShowNewItemModal);
-  const showNewProjectModal = useStore(state => state.showNewProjectModal);
-  const setShowNewProjectModal = useStore(state => state.setShowNewProjectModal);
-  const showSettingsModal = useStore(state => state.showSettingsModal);
-  const setShowSettingsModal = useStore(state => state.setShowSettingsModal);
-  const showManageParticipantsModal = useStore(state => state.showManageParticipantsModal);
-  const setShowManageParticipantsModal = useStore(state => state.setShowManageParticipantsModal);
-  const editingProject = useStore(state => state.editingProject);
-  const setEditingProject = useStore(state => state.setEditingProject);
-  const editingWorkspace = useStore(state => state.editingWorkspace);
-  const setEditingWorkspace = useStore(state => state.setEditingWorkspace);
-  const deletingProject = useStore(state => state.deletingProject);
-  const setDeletingProject = useStore(state => state.setDeletingProject);
-  const deletingWorkspace = useStore(state => state.deletingWorkspace);
-  const setDeletingWorkspace = useStore(state => state.setDeletingWorkspace);
+  const showNewItemModal = useUIStore(state => state.showNewItemModal);
+  const setShowNewItemModal = useUIStore(state => state.setShowNewItemModal);
+  const showNewProjectModal = useUIStore(state => state.showNewProjectModal);
+  const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
+  const showSettingsModal = useUIStore(state => state.showSettingsModal);
+  const setShowSettingsModal = useUIStore(state => state.setShowSettingsModal);
+  const showManageParticipantsModal = useUIStore(state => state.showManageParticipantsModal);
+  const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
+  const editingProject = useUIStore(state => state.editingProject);
+  const setEditingProject = useUIStore(state => state.setEditingProject);
+  const editingWorkspace = useUIStore(state => state.editingWorkspace);
+  const setEditingWorkspace = useUIStore(state => state.setEditingWorkspace);
+  const deletingProject = useUIStore(state => state.deletingProject);
+  const setDeletingProject = useUIStore(state => state.setDeletingProject);
+  const deletingWorkspace = useUIStore(state => state.deletingWorkspace);
+  const setDeletingWorkspace = useUIStore(state => state.setDeletingWorkspace);
 
   const { projects, setProjects } = useProjects(user, isAuthReady);
-  const projectMemory = useStore(state => state.projectMemory);
+  const projectMemory = useDocumentStore(state => state.projectMemory);
   
-  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
-  const setCurrentWorkspaceId = useStore(state => state.setCurrentWorkspaceId);
-  const currentProjectId = useStore(state => state.currentProjectId);
-  const setCurrentProjectId = useStore(state => state.setCurrentProjectId);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
+  const currentProjectId = useDataStore(state => state.currentProjectId);
+  const setCurrentProjectId = useDataStore(state => state.setCurrentProjectId);
   
-  const isAiActive = useStore(state => state.isAiActive);
-  const setIsAiActive = useStore(state => state.setIsAiActive);
-  const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
-  const setIsZeroTouchMode = useStore(state => state.setIsZeroTouchMode);
-  const activeZeroTouchRoles = useStore(state => state.activeZeroTouchRoles);
-  const setActiveZeroTouchRoles = useStore(state => state.setActiveZeroTouchRoles);
+  const isAiActive = useDocumentStore(state => state.isAiActive);
+  const setIsAiActive = useDocumentStore(state => state.setIsAiActive);
+  const isZeroTouchMode = useDocumentStore(state => state.isZeroTouchMode);
+  const setIsZeroTouchMode = useDocumentStore(state => state.setIsZeroTouchMode);
+  const activeZeroTouchRoles = useDocumentStore(state => state.activeZeroTouchRoles);
+  const setActiveZeroTouchRoles = useDocumentStore(state => state.setActiveZeroTouchRoles);
   
   const {
     activeUsers,
@@ -98,21 +94,20 @@ export default function App() {
     documentContent,
     setDocumentContent,
     channelRef,
-    messages,
-    setMessages
+    messages
   } = useWorkspaceSync(
     currentWorkspaceId,
     setCurrentWorkspaceId,
     user,
     isAuthReady
   );
-  const selectedDocumentText = useStore(state => state.selectedDocumentText);
-  const setSelectedDocumentText = useStore(state => state.setSelectedDocumentText);
-  const selectedModel = useStore(state => state.selectedModel);
-  const setSelectedModel = useStore(state => state.setSelectedModel);
-  const theme = useStore(state => state.theme) as ThemeType;
-  const setTheme = useStore(state => state.setTheme);
-  const sessionId = useRef(Math.random().toString(36).substring(7));
+  const selectedDocumentText = useDocumentStore(state => state.selectedDocumentText);
+  const setSelectedDocumentText = useDocumentStore(state => state.setSelectedDocumentText);
+  const selectedModel = useSettingsStore(state => state.selectedModel);
+  const setSelectedModel = useSettingsStore(state => state.setSelectedModel);
+  const theme = useSettingsStore(state => state.theme) as ThemeType;
+  const setTheme = useSettingsStore(state => state.setTheme);
+  const sessionId = useRef(crypto.randomUUID());
 
   // Apply theme to document
   useEffect(() => {
@@ -135,97 +130,6 @@ export default function App() {
     }
   }, [currentProjectId]);
 
-  // Save messages to cache
-  useEffect(() => {
-    if (currentWorkspaceId && messages.length > 0) {
-      localStorage.setItem(`jetwork_messages_${currentWorkspaceId}`, JSON.stringify(messages));
-    }
-  }, [messages, currentWorkspaceId]);
-
-  // Save document to cache
-  useEffect(() => {
-    if (currentWorkspaceId && documentContent) {
-      localStorage.setItem(`jetwork_document_${currentWorkspaceId}`, JSON.stringify(documentContent));
-    }
-  }, [documentContent, currentWorkspaceId]);
-
-  // Restore active workspace state on mount
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const shareId = urlParams.get('shareId');
-
-    if (shareId && user) {
-      // Fetch shared workspace
-      const fetchShared = async () => {
-        try {
-          const { data: share, error } = await supabase
-            .from('shared_analyses')
-            .select('*')
-            .eq('id', shareId)
-            .maybeSingle();
-          if (error) throw error;
-          if (!share) return;
-
-          const newId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
-
-          const { data: defaultProject } = await supabase
-            .from('projects')
-            .select('id')
-            .eq('id', 'default-project')
-            .maybeSingle();
-
-          if (!defaultProject) {
-            await supabase.from('projects').insert({
-              id: 'default-project',
-              name: 'Varsayılan Proje',
-              description: '',
-              owner_id: user.uid,
-              created_at: nowIso(),
-              last_updated: nowIso(),
-            });
-          }
-
-          await supabase.from('workspaces').insert({
-            id: newId,
-            project_id: 'default-project',
-            issue_key: generateItemCode(),
-            title: 'Paylaşılan Çalışma Alanı',
-            type: 'Development',
-            status: 'Draft',
-            owner_id: user.uid,
-            collaborators: MOCK_COLLABORATORS,
-            created_at: nowIso(),
-            last_updated: nowIso(),
-          });
-
-          if (share.data) {
-            await saveDocumentAndVersion(newId, 'initial', share.data);
-          }
-
-          setCurrentWorkspaceId(newId);
-          setDocumentContent(share.data);
-
-          window.history.replaceState({}, document.title, window.location.pathname);
-        } catch (err) {
-          console.error("Failed to load shared workspace:", err);
-        }
-      };
-      fetchShared();
-      return;
-    }
-
-    if (currentWorkspaceId && projects.length > 0) {
-      const workspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
-      if (workspace) {
-        // We now fetch messages from the server in the other useEffect
-        // setMessages(workspace.messages || []);
-        // setDocumentContent(workspace.document || null);
-      }
-    }
-  }, []);
-
-  const generateItemCode = () => `JET-${Math.floor(Math.random() * 900) + 100}`;
-
   const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
 
   const {
@@ -245,15 +149,15 @@ export default function App() {
     messages
   );
 
-  const selectWorkspace = useStore(state => state.selectWorkspace);
-  const selectProject = useStore(state => state.selectProject);
+  const selectWorkspace = useDataStore(state => state.selectWorkspace);
+  const selectProject = useDataStore(state => state.selectProject);
 
-  const isGenerating = useStore(state => state.isGenerating);
-  const isDiscussing = useStore(state => state.isDiscussing);
-  const aiHandRaised = useStore(state => state.aiHandRaised);
-  const setAiHandRaised = useStore(state => state.setAiHandRaised);
-  const activeTab = useStore(state => state.activeTab);
-  const setActiveTab = useStore(state => state.setActiveTab);
+  const isGenerating = useDocumentStore(state => state.isGenerating);
+  const isDiscussing = useDocumentStore(state => state.isDiscussing);
+  const aiHandRaised = useDocumentStore(state => state.aiHandRaised);
+  const setAiHandRaised = useDocumentStore(state => state.setAiHandRaised);
+  const activeTab = useDocumentStore(state => state.activeTab);
+  const setActiveTab = useDocumentStore(state => state.setActiveTab);
 
   const {
     handleSendMessage,
@@ -315,7 +219,7 @@ export default function App() {
   const latestScore = latestScoreMessage?.score;
   const latestScoreExplanation = latestScoreMessage?.scoreExplanation;
 
-  const setPromptSettings = useStore(state => state.setPromptSettings);
+  const setPromptSettings = useSettingsStore(state => state.setPromptSettings);
 
   useEffect(() => {
     const loadPromptSettings = async () => {

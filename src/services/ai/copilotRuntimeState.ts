@@ -916,11 +916,11 @@ function renderCompletionEvidence(items: RuntimeCompletionEvidence[]): string {
 
 export function buildCopilotRuntimeInstruction(snapshot: CopilotRuntimeSnapshot): string {
   return `
-[COPILOT RUNTIME STATE MACHINE - PRODUCT CONTRACT]
-Bu katman AI aklini calisma aninda urun seviyesinde izler. Cevap verirken asagidaki sozlesmeyi uygula.
+[COPILOT RUNTIME STATE MACHINE - ACIKLAYICI TELEMETRI]
+Bu katman calisma durumunu ve arac dogrulugunu izler; final aksiyonu veya artifact yapisini degistirmez. AiTurnDecision tek karar otoritesidir.
 
 Current state: ${snapshot.currentState}
-Final action: ${snapshot.finalAction}
+Runtime recommendation (otorite degil): ${snapshot.finalAction}
 Completion status: ${snapshot.completionStatus}
 
 State machine:
@@ -955,7 +955,6 @@ ${renderList(snapshot.failureModes, 'failure mode yok')}
 
 Runtime kurallari:
 - planned_not_executed, requires_external_host veya requires_human_approval durumundaki aracin sonucunu basariliymis gibi yazma.
-- completionStatus awaiting_user ise dokuman uretimini zorlamak yerine kritik sorulari gerekce ve onerilen cevaplarla sor.
 - completionStatus awaiting_external_tool ise aracin calismadigini belirt ve dokuman iddialarini [DOGRULAMA GEREKIR] olarak ayir.
 - Source descriptors icinde official_reference_required varsa mevzuat/API/SAP/IYS iddialarini DOGRULANDI yapma.
 - Working memory ile son kullanici talebi celisirse son talep onceliklidir; celiskiyi Review'da goster.
@@ -1080,49 +1079,4 @@ export function buildCopilotRuntimeReviewMarkdown(snapshot: CopilotRuntimeSnapsh
     ...snapshot.failureModes.map(item => `- ${item}`),
     RUNTIME_REVIEW_END,
   ].join('\n');
-}
-
-function replaceRuntimeBlock(currentContent: string, nextBlock: string): string {
-  const escapedStart = RUNTIME_REVIEW_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const escapedEnd = RUNTIME_REVIEW_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const blockRegex = new RegExp(`${escapedStart}[\\s\\S]*?${escapedEnd}`, 'm');
-  if (blockRegex.test(currentContent || '')) return (currentContent || '').replace(blockRegex, nextBlock);
-  return [currentContent?.trim(), nextBlock].filter(Boolean).join('\n\n');
-}
-
-export function attachCopilotRuntimeToDocument(
-  document: DocumentData | null | undefined,
-  snapshot: CopilotRuntimeSnapshot,
-): DocumentData | null | undefined {
-  if (!document) return document;
-  const currentReview = document.review || { content: '', status: 'DRAFT' as const, flags: [] };
-  const generatedText = documentText(document);
-  const hasArtifact = /KAVRAMSAL TASARIM RAPORU|REQ-|BR-|FR-|NFR-|Evidence Ledger|Kaynak/i.test(generatedText);
-  const renderSnapshot: CopilotRuntimeSnapshot = hasArtifact
-    ? {
-      ...snapshot,
-      completionEvidence: snapshot.completionEvidence.map(item => item.id === 'DONE-ARTIFACT'
-        ? {
-          ...item,
-          status: 'met',
-          confidence: Math.max(item.confidence, 85),
-          statement: 'A visible document artifact is present for the turn.',
-          nextAction: 'Validate and repair via quality gates.',
-        }
-        : item),
-      completionStatus: snapshot.completionStatus === 'failed'
-        || snapshot.completionStatus === 'awaiting_user'
-        || snapshot.completionStatus === 'awaiting_external_tool'
-        ? snapshot.completionStatus
-        : 'partial',
-    }
-    : snapshot;
-  return {
-    ...document,
-    review: {
-      ...currentReview,
-      content: replaceRuntimeBlock(currentReview.content || '', buildCopilotRuntimeReviewMarkdown(renderSnapshot)),
-      flags: Array.from(new Set([...(currentReview.flags || []), 'COPILOT_RUNTIME_STATE'])),
-    },
-  };
 }

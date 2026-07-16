@@ -5,11 +5,6 @@ import {
 } from './sourceDrivenInference';
 import {
   domainHintsForSource,
-  getPrimaryDomainProfile,
-  inferredProjectNameFromProfile,
-  PEMP_PROCESS_TITLES,
-  processTitlesFromProfile,
-  profileSignalsForSource,
 } from './domainProfiles';
 
 export interface SourceProcess {
@@ -75,8 +70,6 @@ const hasAny = (text: string, patterns: RegExp[]): boolean => patterns.some(patt
 function formatList(items: string[], fallback: string): string {
   return items.length ? items.join(', ') : fallback;
 }
-
-const PEMP_TITLES = PEMP_PROCESS_TITLES;
 
 function cleanCandidate(value = ''): string {
   return value
@@ -161,40 +154,12 @@ function extractHeadlineProjectName(source = ''): string | undefined {
 }
 
 function extractProcesses(source = ''): SourceProcess[] {
-  const genericProcesses = extractNumberedProcessTitlesFromText(source).map((title, index) => ({
+  const explicitProcesses = extractNumberedProcessTitlesFromText(source).map((title, index) => ({
     id: `process-${index + 1}`,
     sourceNumber: index + 1,
     title,
   }));
-  if (genericProcesses.length) return genericProcesses.slice(0, 18);
-
-  const normalized = normalizeSourceText(source);
-  const numbers = Array.from(normalized.matchAll(/surec\s*([0-9]+)/gi))
-    .map(match => Number(match[1]))
-    .filter(number => Number.isInteger(number) && number >= 0 && number <= 30);
-  const uniqueNumbers = Array.from(new Set(numbers)).sort((a, b) => a - b);
-  const primaryProfile = getPrimaryDomainProfile(source);
-  const profileProcessTitles = processTitlesFromProfile(source);
-
-  if (primaryProfile?.id === 'project_tracking_pemp' && uniqueNumbers.length >= 4) {
-    return uniqueNumbers
-      .filter(number => number >= 0 && number < PEMP_TITLES.length)
-      .map(number => ({
-        id: `process-${number}`,
-        sourceNumber: number,
-        title: PEMP_TITLES[number],
-      }));
-  }
-
-  if (profileProcessTitles.length) {
-    return profileProcessTitles.slice(0, 18).map((title, index) => ({
-      id: `process-${index + 1}`,
-      sourceNumber: index + 1,
-      title,
-    }));
-  }
-
-  return extractGenericProcesses(source);
+  return explicitProcesses.length ? explicitProcesses.slice(0, 18) : extractGenericProcesses(source);
 }
 
 function inferProjectName(source = ''): string | undefined {
@@ -203,9 +168,6 @@ function inferProjectName(source = ''): string | undefined {
 
   const sourceDrivenName = deriveProjectNameFromText(source);
   if (sourceDrivenName) return sourceDrivenName;
-
-  const profileProjectName = inferredProjectNameFromProfile(source);
-  if (profileProjectName) return profileProjectName;
 
   return extractHeadlineProjectName(source);
 }
@@ -304,28 +266,17 @@ function extractGenericKpis(source = ''): string[] {
 }
 
 function buildMismatchWarnings(workspaceTitle = '', source = ''): string[] {
-  if (!workspaceTitle.trim()) return [];
-  const title = normalizeSourceText(workspaceTitle);
-  const sourceText = normalizeSourceText(source);
-  const warnings: string[] = [];
-
-  const titleLooksSapIys = hasAny(title, [/sap/]) && hasAny(title, [/iys/, /ileti yonetim sistemi/]);
-  const sourceLooksPemp = hasAny(sourceText, [/pemp-?\d+/, /musteri cozumleri proje yonetim sistemi/, /ges kabul/, /proje bazli dashboard/]);
-  const titleLooksPemp = hasAny(title, [/pemp-?\d+/, /proje takip/, /proje yonetim/]);
-  const sourceLooksSapIys = hasAny(sourceText, [/sap/]) && hasAny(sourceText, [/iys/, /ileti yonetim sistemi/]);
-
-  if (titleLooksSapIys && sourceLooksPemp) {
-    warnings.push('Workspace başlığı SAP CRM - İYS gibi görünüyor, ancak kaynak doküman PEMP/proje takip sistemi talebini anlatıyor. Kaynak doküman ana gerçeklik olarak kullanılmalı.');
-  }
-  if (titleLooksPemp && sourceLooksSapIys) {
-    warnings.push('Workspace başlığı proje takip gibi görünüyor, ancak kaynak içerik SAP CRM - İYS entegrasyonu anlatıyor. Üretimden önce bağlam doğrulanmalı.');
-  }
-  return warnings;
+  if (!workspaceTitle.trim() || !source.trim()) return [];
+  const titleDomains = domainHintsForSource(workspaceTitle);
+  const sourceDomains = domainHintsForSource(source);
+  if (!titleDomains.length || !sourceDomains.length) return [];
+  const overlaps = titleDomains.some(domain => sourceDomains.includes(domain));
+  return overlaps
+    ? []
+    : ['Workspace basligi ile guncel kaynak farkli domain sinyalleri tasiyor. Kaynak icerik ana gerceklik olarak alinmali ve baglam kullaniciyla dogrulanmali.'];
 }
-
 function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredProjectName' | 'processes' | 'mismatchWarnings' | 'quickActions' | 'confidence'> {
   const text = normalizeSourceText(source);
-  const profileSignals = profileSignalsForSource(source);
   return {
     domainHints: uniq([
       ...domainHintsForSource(source),
@@ -337,7 +288,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
     ]),
     roles: uniq([
       ...extractGenericRoles(source),
-      ...(profileSignals.roles || []),
       hasAny(text, [/satis/]) ? 'Satış' : '',
       hasAny(text, [/vergi/]) ? 'Vergi' : '',
       hasAny(text, [/muhasebe/]) ? 'Muhasebe' : '',
@@ -349,7 +299,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
     ]),
     systems: uniq([
       ...extractGenericSystems(source),
-      ...(profileSignals.systems || []),
       hasAny(text, [/sap/]) ? 'SAP' : '',
       hasAny(text, [/eba/]) ? 'EBA' : '',
       hasAny(text, [/filenet/]) ? 'FileNet' : '',
@@ -358,7 +307,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
     ]),
     integrations: uniq([
       ...extractGenericIntegrations(source),
-      ...(profileSignals.integrations || []),
       hasAny(text, [/sap/]) ? 'SAP bilgi/belge ve finansal durum akışı' : '',
       hasAny(text, [/eba/]) ? 'EBA onay/görev akışı' : '',
       hasAny(text, [/mail|e-posta|eposta/]) ? 'E-posta/bildirim servisi' : '',
@@ -367,7 +315,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
     ]),
     documentRules: uniq([
       ...extractGenericDocumentRules(source),
-      ...(profileSignals.documentRules || []),
       hasAny(text, [/zorunlu evrak|zorunlu dokuman|belge yukleme|dokuman yukleme/]) ? 'Zorunlu evrak ve belge yükleme kontrolü' : '',
       hasAny(text, [/sozlesme/]) ? 'Sözleşme dokümanı ve imza/onay tarihçesi' : '',
       hasAny(text, [/teminat/]) ? 'Teminat mektubu ve geçerlilik tarihi kontrolü' : '',
@@ -376,7 +323,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
       hasAny(text, [/hukuk|hukuki|dava|ihtilaf|ihtarname/]) ? 'Hukuki evrak, ihtarname ve dava dokümanları' : '',
     ]),
     dashboardNeeds: uniq([
-      ...(profileSignals.dashboardNeeds || []),
       ...extractLabelValues(source, [
         /(?:dashboard|raporlar|rapor|reports|reporting|panolar|pano)\s*[:\-]\s*(.+)$/i,
       ]),
@@ -388,7 +334,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
     ]),
     uiNeeds: uniq([
       ...extractGenericUiNeeds(source),
-      ...(profileSignals.uiNeeds || []),
       hasAny(text, [/proje kayd/]) ? 'Proje kayıt ekranı' : '',
       hasAny(text, [/dashboard/]) ? 'Dashboard filtreleri ve drill-down' : '',
       hasAny(text, [/belge|evrak|dokuman/]) ? 'Belge yükleme ve tamamlanmamış evrak uyarısı' : '',
@@ -397,7 +342,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
     ]),
     kpis: uniq([
       ...extractGenericKpis(source),
-      ...(profileSignals.kpis || []),
       hasAny(text, [/deadline|gecikme/]) ? 'Deadline uyum oranı' : '',
       hasAny(text, [/gorev|acik gorev/]) ? 'Açık görev kapanma süresi' : '',
       hasAny(text, [/evrak|belge|dokuman/]) ? 'Tamamlanmamış evrak oranı' : '',
@@ -409,7 +353,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
       ...extractLabelValues(source, [
         /(?:riskler|risk|varsayimlar|assumptions|dependencies|bagimliliklar)\s*[:\-]\s*(.+)$/i,
       ]),
-      ...(profileSignals.risks || []),
       hasAny(text, [/sap/]) ? 'SAP veri akışı ve belge eşleşmesi netleşmezse finansal kapanış kırılabilir.' : '',
       hasAny(text, [/zorunlu evrak|belge|dokuman/]) ? 'Zorunlu evrak listesi netleşmezse süreçler hatalı tamamlanabilir.' : '',
       hasAny(text, [/dashboard/]) ? 'Dashboard metrik tanımları netleşmezse kullanıcı güveni düşer.' : '',
@@ -420,7 +363,6 @@ function extractSignals(source = ''): Omit<SourceIntelligenceReport, 'inferredPr
       ...extractLabelValues(source, [
         /(?:acik konular|acik konu|open topics|open questions|sorular|karar bekleyenler)\s*[:\-]\s*(.+)$/i,
       ]),
-      ...(profileSignals.openTopics || []),
       hasAny(text, [/sap/]) ? 'SAP’den hangi belge ve statülerin hangi sıklıkla alınacağı netleştirilmeli.' : '',
       hasAny(text, [/eba/]) ? 'EBA süreç kodları, onay rolleri ve dönüş statüleri doğrulanmalı.' : '',
       hasAny(text, [/filenet|dokuman|belge|evrak/]) ? 'Doküman saklama sistemi, dosya tipleri ve zorunlu evrak matrisi netleştirilmeli.' : '',

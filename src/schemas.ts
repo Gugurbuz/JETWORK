@@ -24,7 +24,19 @@ export const SectionDataSchema = z.object({
   flags: z.array(z.string()).describe("Bu bölüme ait kalite, eksik bilgi veya revizyon notları."),
 });
 
+export const EvidenceClaimSchema = z.object({
+  claimId: z.string().min(1),
+  claim: z.string().min(1),
+  status: z.enum(['VERIFIED', 'INFERRED', 'ASSUMPTION', 'OPEN', 'CONFLICTING']),
+  sourceUrl: z.string().url().optional(),
+  sourceTitle: z.string().optional(),
+  retrievedAt: z.string().optional(),
+  evidenceExcerpt: z.string().optional(),
+  confidence: z.number().min(0).max(1),
+});
+
 export const DocumentDataSchema = z.object({
+  evidenceClaims: z.array(EvidenceClaimSchema).optional(),
   businessAnalysis: SectionDataSchema.describe("Ana kavramsal tasarım / BA analiz raporu."),
   review: SectionDataSchema.optional().describe("Kalite değerlendirmesi, açık sorular ve revizyon notları."),
   code: SectionDataSchema.optional().describe("Geriye dönük uyumluluk alanı. Yeni üretimde kullanılmaz."),
@@ -67,38 +79,6 @@ export const ChatResponseSchema = z.object({
   document: DocumentDataSchema.optional().describe("Sağ panel dokümanı. Şimdilik sadece businessAnalysis ve opsiyonel review üretilmelidir."),
 });
 
-export const applyMicroEditTool = {
-  functionDeclarations: [
-    {
-      name: "apply_micro_edit",
-      description: "Dokümanın BA Analiz veya Review bölümündeki mevcut bir metni yenisiyle değiştirir.",
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          section: {
-            type: Type.STRING,
-            description: "Güncellenecek doküman sekmesi",
-            enum: ["businessAnalysis", "review"],
-          },
-          targetText: {
-            type: Type.STRING,
-            description: "Değiştirilecek cümlenin veya paragrafın dokümandaki birebir mevcut hali.",
-          },
-          replacementText: {
-            type: Type.STRING,
-            description: "Hedef metnin yerine geçecek yeni metin.",
-          },
-          explanation: {
-            type: Type.STRING,
-            description: "Chat ekranında kullanıcıya gösterilecek kısa özet.",
-          },
-        },
-        required: ["section", "targetText", "replacementText", "explanation"],
-      },
-    },
-  ],
-};
-
 const sectionDataJsonType = {
   type: Type.OBJECT,
   properties: {
@@ -106,6 +86,21 @@ const sectionDataJsonType = {
     status: { type: Type.STRING },
     flags: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
+};
+
+const evidenceClaimJsonType = {
+  type: Type.OBJECT,
+  properties: {
+    claimId: { type: Type.STRING },
+    claim: { type: Type.STRING },
+    status: { type: Type.STRING, enum: ['VERIFIED', 'INFERRED', 'ASSUMPTION', 'OPEN', 'CONFLICTING'] },
+    sourceUrl: { type: Type.STRING },
+    sourceTitle: { type: Type.STRING },
+    retrievedAt: { type: Type.STRING },
+    evidenceExcerpt: { type: Type.STRING },
+    confidence: { type: Type.NUMBER },
+  },
+  required: ['claimId', 'claim', 'status', 'confidence'],
 };
 
 export const chatResponseJsonSchema = {
@@ -161,6 +156,10 @@ export const chatResponseJsonSchema = {
       type: Type.OBJECT,
       description: "Sağ paneldeki Çalışma Dokümanı. Şimdilik sadece BA Analiz ve opsiyonel Review üret.",
       properties: {
+        evidenceClaims: {
+          type: Type.ARRAY,
+          items: evidenceClaimJsonType,
+        },
         businessAnalysis: sectionDataJsonType,
         review: sectionDataJsonType,
       },
@@ -170,37 +169,3 @@ export const chatResponseJsonSchema = {
 };
 
 export type ZodChatResponse = z.infer<typeof ChatResponseSchema>;
-
-export const agentTools: any[] = [
-  {
-    functionDeclarations: [
-      {
-        name: "apply_micro_edit",
-        description: "Dokümanın BA Analiz veya Review bölümündeki mevcut bir metni yenisiyle değiştirir.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            section: {
-              type: Type.STRING,
-              description: "Güncellenecek doküman sekmesi",
-              enum: ["businessAnalysis", "review"],
-            },
-            targetText: {
-              type: Type.STRING,
-              description: "Değiştirilecek cümlenin veya paragrafın dokümandaki birebir mevcut hali.",
-            },
-            replacementText: {
-              type: Type.STRING,
-              description: "Hedef metnin yerine geçecek yeni metin.",
-            },
-            explanation: {
-              type: Type.STRING,
-              description: "Chat ekranında kullanıcıya gösterilecek kısa özet.",
-            },
-          },
-          required: ["section", "targetText", "replacementText", "explanation"],
-        },
-      },
-    ],
-  },
-];

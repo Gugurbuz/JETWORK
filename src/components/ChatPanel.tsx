@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
 import { ZERO_TOUCH_AGENTS } from '../constants';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 const contextualQuestionOptions = (question: Question): string[] => {
@@ -322,7 +322,7 @@ const MessageItem = memo(({
     );
   }
 
-  const storeUser = useStore(state => state.user);
+  const storeUser = useDataStore(state => state.user);
   const userColor = msg.role === 'user' 
     ? (msg.senderColor || (msg.senderName === storeUser?.name && storeUser?.color ? storeUser.color : (msg.senderName ? stringToColor(msg.senderName) : null)))
     : null;
@@ -383,6 +383,8 @@ const MessageItem = memo(({
         </div>
         
         <div 
+          data-testid="chat-message"
+          data-message-role={msg.role}
           className={cn(
             "text-sm text-theme-text leading-relaxed p-3 rounded-2xl shadow-sm border",
             msg.role === 'user' 
@@ -604,7 +606,7 @@ export function ChatPanel({
   isLoadingWorkspace,
   onManageParticipants
 }: ChatPanelProps) {
-  const setCurrentWorkspaceId = useStore(state => state.setCurrentWorkspaceId);
+  const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
   const [input, setInput] = useState('');
   const [selectedAttachments, setSelectedAttachments] = useState<{ url: string; data: string; mimeType: string; name?: string; file?: File }[]>([]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
@@ -1107,7 +1109,7 @@ export function ChatPanel({
                   <div className="w-10 h-10 rounded-full bg-theme-border/50 shrink-0" />
                   <div className={`space-y-2 max-w-[70%] ${i % 2 !== 0 ? 'items-end' : 'items-start'} flex flex-col`}>
                     <div className="h-4 w-24 bg-theme-border/50 rounded" />
-                    <div className={`h-20 w-full bg-theme-border/30 rounded-2xl ${i % 2 !== 0 ? 'rounded-tr-sm' : 'rounded-tl-sm'}`} style={{ width: `${Math.max(40, Math.random() * 100)}%` }} />
+                    <div className={`h-20 w-full bg-theme-border/30 rounded-2xl ${i % 2 !== 0 ? 'rounded-tr-sm' : 'rounded-tl-sm'}`} style={{ width: `${[72, 58, 84, 66][i]}%` }} />
                   </div>
                 </div>
               ))}
@@ -1414,6 +1416,7 @@ export function ChatPanel({
                 </div>
               )}
               <textarea
+                data-testid="chat-input"
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
@@ -1458,6 +1461,8 @@ export function ChatPanel({
 
                 <button 
                   type="submit" 
+                  data-testid="chat-send"
+                  aria-label="Mesaj gonder"
                   disabled={(!input.trim() && selectedAttachments.length === 0) || isGenerating}
                   className="w-8 h-8 flex items-center justify-center rounded-full border border-theme-border text-theme-text-muted hover:text-theme-text hover:bg-theme-surface disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >

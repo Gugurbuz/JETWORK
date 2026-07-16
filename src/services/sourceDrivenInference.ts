@@ -13,7 +13,6 @@ export interface ProcessCandidateInput {
   maxCount?: number;
 }
 
-const DEFAULT_MIN_PROCESS_COUNT = 2;
 const DEFAULT_MAX_PROCESS_COUNT = 8;
 
 export function stripMarkup(value = ''): string {
@@ -111,55 +110,17 @@ export function extractNumberedProcessTitlesFromText(source = ''): string[] {
   return uniq(titles);
 }
 
-function fromSignals(items: string[], suffix: string, limit: number): string[] {
-  return uniq(items)
-    .slice(0, limit)
-    .map(item => `${item} ${suffix}`);
-}
-
 export function expectedProcessCountFromSignals(input: ProcessCandidateInput): number {
-  const explicitCount = uniq([
+  return uniq([
     ...(input.processes || []),
     ...extractNumberedProcessTitlesFromText(input.sourceText || ''),
   ]).length;
-  if (explicitCount >= 2) return explicitCount;
-
-  const signalWeight = [
-    input.integrations?.length || 0,
-    input.systems?.length || 0,
-    input.documentRules?.length || 0,
-    input.uiNeeds?.length || 0,
-    input.dashboardNeeds?.length || 0,
-    input.kpis?.length || 0,
-  ].filter(count => count > 0).length;
-
-  return Math.max(input.minCount || DEFAULT_MIN_PROCESS_COUNT, signalWeight >= 2 ? 3 : DEFAULT_MIN_PROCESS_COUNT);
 }
 
 export function deriveProcessCandidates(input: ProcessCandidateInput): string[] {
-  const minCount = Math.max(input.minCount || DEFAULT_MIN_PROCESS_COUNT, expectedProcessCountFromSignals(input));
   const maxCount = input.maxCount || DEFAULT_MAX_PROCESS_COUNT;
-  const explicit = uniq([
+  return uniq([
     ...(input.processes || []),
     ...extractNumberedProcessTitlesFromText(input.sourceText || ''),
-  ]);
-
-  const derived = uniq([
-    ...explicit,
-    ...fromSignals(input.uiNeeds || [], 'ekran, aksiyon ve validasyon tasarimi', 2),
-    ...fromSignals(input.documentRules || [], 'kontrol, belge ve kapanis kurallari', 2),
-    ...fromSignals([...(input.systems || []), ...(input.integrations || [])], 'veri akisi, entegrasyon ve hata yonetimi', 3),
-    ...fromSignals(input.roles || [], 'gorev, onay ve sorumluluk akisi', 2),
-    ...fromSignals([...(input.dashboardNeeds || []), ...(input.kpis || [])], 'izleme, KPI ve raporlama tasarimi', 2),
-    ...fromSignals(input.openTopics || [], 'karar ve dogrulama akisi', 2),
   ]).slice(0, maxCount);
-
-  if (derived.length >= minCount) return derived.slice(0, Math.max(minCount, explicit.length));
-
-  return uniq([
-    ...derived,
-    '[VARSAYIM] Talep alma, kapsamlandirma ve karar noktalarinin netlestirilmesi',
-    '[VARSAYIM] Hedef surec, gereksinim ve kabul kriteri tasarimi',
-    '[VARSAYIM] Operasyonel izleme, hata yonetimi ve raporlama',
-  ]).slice(0, Math.max(minCount, derived.length));
 }

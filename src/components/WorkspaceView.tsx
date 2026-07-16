@@ -3,7 +3,9 @@ import { ChatPanel } from './ChatPanel';
 import { DocumentPanel } from './DocumentPanel';
 import { Message, DocumentData } from '../types';
 import { User } from '../hooks/useAuth';
-import { useStore } from '../store/useStore';
+import { useDataStore } from '../store/useDataStore';
+import { useDocumentStore } from '../store/useDocumentStore';
+import { useUIStore } from '../store/useUIStore';
 
 interface WorkspaceViewProps {
   messages: Message[];
@@ -42,24 +44,24 @@ export function WorkspaceView({
   onGenerateDocument,
   onUpdateDocument
 }: WorkspaceViewProps) {
-  const currentWorkspaceId = useStore(state => state.currentWorkspaceId);
-  const projects = useStore(state => state.projects);
-  const documentContent = useStore(state => state.documentContent);
-  const activeUsers = useStore(state => state.activeUsers);
-  const typingUsers = useStore(state => state.typingUsers);
-  const isGenerating = useStore(state => state.isGenerating);
-  const isDiscussing = useStore(state => state.isDiscussing);
-  const isAiActive = useStore(state => state.isAiActive);
-  const isZeroTouchMode = useStore(state => state.isZeroTouchMode);
-  const activeZeroTouchRoles = useStore(state => state.activeZeroTouchRoles);
-  const setActiveZeroTouchRoles = useStore(state => state.setActiveZeroTouchRoles);
-  const aiHandRaised = useStore(state => state.aiHandRaised);
-  const activeTab = useStore(state => state.activeTab);
-  const setActiveTab = useStore(state => state.setActiveTab);
-  const selectedDocumentText = useStore(state => state.selectedDocumentText);
-  const setSelectedDocumentText = useStore(state => state.setSelectedDocumentText);
-  const isLoadingWorkspace = useStore(state => state.isLoadingWorkspace);
-  const setShowManageParticipantsModal = useStore(state => state.setShowManageParticipantsModal);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const projects = useDataStore(state => state.projects);
+  const documentContent = useDocumentStore(state => state.documentContent);
+  const activeUsers = useDataStore(state => state.activeUsers);
+  const typingUsers = useDataStore(state => state.typingUsers);
+  const isGenerating = useDocumentStore(state => state.isGenerating);
+  const isDiscussing = useDocumentStore(state => state.isDiscussing);
+  const isAiActive = useDocumentStore(state => state.isAiActive);
+  const isZeroTouchMode = useDocumentStore(state => state.isZeroTouchMode);
+  const activeZeroTouchRoles = useDocumentStore(state => state.activeZeroTouchRoles);
+  const setActiveZeroTouchRoles = useDocumentStore(state => state.setActiveZeroTouchRoles);
+  const aiHandRaised = useDocumentStore(state => state.aiHandRaised);
+  const activeTab = useDocumentStore(state => state.activeTab);
+  const setActiveTab = useDocumentStore(state => state.setActiveTab);
+  const selectedDocumentText = useDocumentStore(state => state.selectedDocumentText);
+  const setSelectedDocumentText = useDocumentStore(state => state.setSelectedDocumentText);
+  const isLoadingWorkspace = useDataStore(state => state.isLoadingWorkspace);
+  const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
 
   const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
 
