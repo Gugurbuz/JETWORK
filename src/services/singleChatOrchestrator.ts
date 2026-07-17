@@ -528,11 +528,12 @@ async function runBaLoop(
     && opts.turnDecision?.action !== 'ask_questions'
     && opts.turnDecision?.action !== 'answer_only'
     && opts.turnDecision?.action !== 'research_first';
+  const generationTimedOut = /zaman asimina ugradi|timed out/i.test(finalText || '');
 
   // Force-draft fallback: BA loop finished without a document even though
   // the caller required one. Make a second, narrower call that MUST return
   // the document field per schema.
-  if (forceDraftAllowed && !finalDocument) {
+  if (forceDraftAllowed && !finalDocument && !generationTimedOut) {
     input.onPhase('ACT', 'Taslak zorla üretiliyor...');
     try {
       const structuredConceptualArtifact = !!opts.turnDecision?.artifactProfile.id.startsWith('conceptual_design');
@@ -599,8 +600,10 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
   // Honesty guard: if the assistant text claims document was updated but no
   // document was actually produced, rewrite it to be truthful.
   const claimsUpdate = /(doküman|sağ panel).{0,40}(güncellen|oluşturul|işlendi|eklen|aktarıl)/i.test(finalText || '');
-  if (!finalDocument && forceDraftAllowed && (claimsUpdate || !finalText.trim())) {
-    finalText = 'Doküman üretimi iki kontrollü denemede de geçerli bir document alanı döndürmedi; sağ panel değiştirilmedi. Talep ve mevcut içerik korundu, yeniden deneyebilirsin.';
+  if (!finalDocument && forceDraftAllowed && (generationTimedOut || claimsUpdate || !finalText.trim())) {
+    finalText = generationTimedOut
+      ? 'Kavramsal doküman üretimi zaman aşımına uğradı; yarım veya doğrulanmamış içerik sağ panele uygulanmadı.'
+      : 'Doküman üretimi iki kontrollü denemede de geçerli bir artifact döndürmedi; sağ panel değiştirilmedi. Talep ve mevcut içerik korundu.';
   }
 
   return {

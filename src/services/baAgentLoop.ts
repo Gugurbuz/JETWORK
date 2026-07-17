@@ -159,7 +159,8 @@ function buildFallbackPlan(userMessage: string, turnDecision?: AiTurnDecision): 
   };
 }
 
-const ACT_PHASE_TIMEOUT_MS = 60_000;
+const DEFAULT_ACT_PHASE_TIMEOUT_MS = 60_000;
+const STRUCTURED_CONCEPTUAL_TIMEOUT_MS = 120_000;
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
   const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, sourceProcessTitles = [], signal } = input;
@@ -418,7 +419,9 @@ ${structuredConceptualArtifact ? `[KAYNAKTA BELIRLENEN ANA SURECLER]\n${sourcePr
           ? conceptualArtifactResponseJsonSchema
           : chatResponseJsonSchema,
       } : {}),
-      timeoutMs: ACT_PHASE_TIMEOUT_MS,
+      timeoutMs: structuredConceptualArtifact
+        ? STRUCTURED_CONCEPTUAL_TIMEOUT_MS
+        : DEFAULT_ACT_PHASE_TIMEOUT_MS,
       signal,
       onChunk: (text, thinking, tokenCount) => {
         const parts = extractActParts(text, structuredConceptualArtifact);
@@ -463,8 +466,9 @@ ${structuredConceptualArtifact ? `[KAYNAKTA BELIRLENEN ANA SURECLER]\n${sourcePr
     finalActionSummary = finalParts.actionSummary || finalActionSummary;
     if (finalParts.document) finalDocument = finalParts.document;
   } else if (actTimedOut) {
-    finalText = finalText || 'Dokuman uretim cagrisi zaman asimina ugradi; bu cagridan gecerli bir document alani alinmadi.';
-    finalActionSummary = finalActionSummary || 'AI uretim cagrisi zaman asimina ugradi; dokuman uygulanmadi.';
+    finalText = 'Dokuman uretim cagrisi zaman asimina ugradi; bu cagridan gecerli bir artifact alinmadi.';
+    finalActionSummary = 'AI uretim cagrisi zaman asimina ugradi; yarim artifact uygulanmadi.';
+    finalDocument = undefined;
   }
 
   if (!shouldProduceDocument) {

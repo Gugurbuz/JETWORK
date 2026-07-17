@@ -38,6 +38,7 @@ test.describe('authenticated product flow', () => {
   test.skip(!username || !password, 'E2E_USERNAME and E2E_PASSWORD are required.');
 
   test('generates a source-faithful canonical document without behavior hints', async ({ page }) => {
+    test.setTimeout(180_000);
     const { workspaceName } = await createWorkspace(page, 'Conceptual');
 
     await page.evaluate(() => { (window as any).__jetworkXss = false; });
@@ -59,7 +60,7 @@ test.describe('authenticated product flow', () => {
     await sendMessage(page, request);
 
     const panel = page.getByTestId('document-panel-content');
-    await expect(panel).toBeVisible({ timeout: 100_000 });
+    await expect(panel).toBeVisible({ timeout: 160_000 });
     await expect(panel).toContainText(/KAVRAMSAL TASARIM RAPORU/i);
     await expect(panel).toContainText(/PROJE K.ML.K KARTI/i);
     await expect(panel).toContainText(/DOK.MAN TAR.H.ES./i);

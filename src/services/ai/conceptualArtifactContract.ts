@@ -243,7 +243,7 @@ export const CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT = `
 - Kullanici mesaji ve saglanan kaynakta acikca bulunan bilgiye SOURCE, dis kaynakla eksiksiz dogrulanana VERIFIED, mantiksal cikarima INFERRED, varsayima ASSUMPTION, kararsiz veya eksik bilgiye OPEN, celiskiye CONFLICTING durumu ver.
 - Kaynakta tanimlanan her ana surec icin tam bir process nesnesi uret. Surec sayisini sabitlestirme ve kaynakta olmayan surec adi ekleme.
 - Her sureci aktor, tetikleyici, on kosul, degisiklik, gereksinim/KPI, is kurali, validasyon, alternatif akis, istisna, veri, ekran, entegrasyon, akis adimlari, cikti, ilgili surec, uyarlama ve degisim yonetimi boyutlarinda analiz et.
-- Bir boyut icin bilgi yoksa diziyi bos birakma; gercek uydurmadan OPEN durumlu tek bir maddeyle hangi kararin eksik oldugunu yaz.
+- Bir boyut icin kaynak veya guvenilir cikarim yoksa ilgili diziyi bos birak. Renderer bu boslugu gorunur bir OPEN maddesine cevirecek; ayni acik konuyu JSON icinde tekrar ederek ciktiyi sisirme.
 - KPI metrigi kaynakta varsa koru; sayisal hedef veya sahip verilmediyse bunlari OPEN olarak ayir.
 - flowSteps ana ve karar akislarini sira ile tasir. actor ve systemBehavior alanlarinda kaynak yoksa [ACIK KONU] anlamina gelen OPEN durumlu ifade kullan.
 - revisionDate, katilimci, onayci, referans dokuman veya eklenti verilmediyse hayali tarih/kisi/dokuman yazma; OPEN kullan.
