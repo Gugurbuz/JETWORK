@@ -63,15 +63,23 @@ test.describe('authenticated product flow', () => {
     await expect(panel).toContainText(/KAVRAMSAL TASARIM RAPORU/i);
     await expect(panel).toContainText(/PROJE K.ML.K KARTI/i);
     await expect(panel).toContainText(/DOK.MAN TAR.H.ES./i);
+    await expect(panel).toContainText(/NDEK.LER/i);
     await expect(panel).toContainText(/S.RE. MODEL./i);
-    await expect(panel).toContainText(/ptal talebinin al.nmas./i);
+    await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/);
     await expect(panel).toContainText(/Uygunluk kontrol. ve onay/i);
     await expect(panel).toContainText(/ade sonucu ve kapan./i);
     await expect(panel).toContainText(/M.steri temsilcisi/i);
     await expect(panel).toContainText(/Tamamlanma s.resi/i);
+    await expect(panel).toContainText(/AKI. D.YAGRAMI/i);
+    await expect(panel).toContainText(/ST D.ZEY M.STER. GEL.T.RMES./i);
+    await expect(panel).toContainText(/DE.{1,6}M Y.NET.M./i);
+    await expect(panel).toContainText(/EKLENT./i);
     await expect(panel).not.toContainText(/SAP|IYS|Findeks|KKB|D2D/i);
     await expect(page.getByTestId('interactive-questions')).toHaveCount(0);
     await expect(page.getByTestId('chat-message').filter({ hasText: /ne yapt/i }).last()).toBeVisible();
+    const qualityScoreText = await page.getByTestId('document-quality-score').textContent();
+    const qualityScore = Number(qualityScoreText?.match(/\d+/)?.[0] || 0);
+    expect(qualityScore).toBeGreaterThanOrEqual(90);
     expect(await page.evaluate(() => (window as any).__jetworkXss)).toBe(false);
 
     const shareDialog = page.waitForEvent('dialog');
