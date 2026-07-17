@@ -55,3 +55,43 @@ describe('AiTurnDecision pending operation routing', () => {
     expect(decision.documentPolicy.shouldUpdateDocument).toBe(false);
   });
 });
+
+describe('AiTurnDecision artifact precedence', () => {
+  it('keeps an explicit conceptual request in the corporate profile even if upstream focus drifted to review', () => {
+    const decision = buildAiTurnDecision({
+      ...baseInput,
+      userMessage: [
+        'Problem: Talepler farkli kanallarda izlenemiyor.',
+        'KPI: Tamamlanma suresi olculecek; hedef deger acik konu.',
+        'Kurumsal yapida kavramsal tasarim dokumani hazirla.',
+      ].join('\n'),
+      document: null,
+      classification: {
+        ...baseInput.classification,
+        primaryIntent: 'quality_review',
+        subIntent: 'generate_review_report',
+        documentImpact: 'updates_document',
+        operation: 'replace_or_create_section',
+        baAgentFocus: 'review',
+      },
+      behaviorDecision: {
+        ...baseInput.behaviorDecision,
+        mode: 'draft_with_assumptions',
+        shouldUpdateDocument: true,
+      },
+      cognitiveFrame: {
+        ...baseInput.cognitiveFrame,
+        action: 'draft_now',
+        artifactMode: 'conceptual_analysis',
+      },
+      sourceReport: {
+        ...baseInput.sourceReport,
+        processes: ['Talebin alinmasi', 'Uygunluk kontrolu'],
+      },
+    });
+
+    expect(decision.action).toBe('draft_document');
+    expect(decision.artifactMode).toBe('conceptual_analysis');
+    expect(decision.artifactProfile.id).toBe('conceptual_design_process_heavy');
+  });
+});

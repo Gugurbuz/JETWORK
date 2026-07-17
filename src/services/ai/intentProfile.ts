@@ -98,6 +98,12 @@ function workflowProfile(
   };
 }
 
+function requestsNewConceptualArtifact(text: string): boolean {
+  const namesArtifact = /\b(ba analiz|is analiz|kavramsal tasarim|brd|fdd|gereksinim dokumani|proje dokumani)\b/.test(text);
+  const asksCreation = /\b(hazirla|olustur|uret|yaz|yazalim|taslakla|cikar)\b/.test(text);
+  return namesArtifact && asksCreation;
+}
+
 export function detectDeterministicIntentProfile(input: IntentProfileInput): DeterministicIntentProfile | null {
   const text = normalizeIntentText(input.userMessage);
   if (!text) return null;
@@ -157,6 +163,16 @@ export function detectDeterministicIntentProfile(input: IntentProfileInput): Det
       operation: 'patch_section',
       baAgentFocus: 'business_analysis',
       targetSection: 'businessAnalysis',
+    });
+  }
+
+  if (requestsNewConceptualArtifact(text)) {
+    return updatesDocumentProfile('document_generation', 'generate_business_analysis', 'deterministic:explicit_conceptual_generation', {
+      operation: input.hasDocument ? 'patch_section' : 'replace_or_create_section',
+      baAgentFocus: 'business_analysis',
+      targetSection: 'businessAnalysis',
+      confidence: 0.96,
+      bypassModel: true,
     });
   }
 
