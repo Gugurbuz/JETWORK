@@ -16,7 +16,12 @@ import {
 } from './ai/aiTurnDecision';
 import { sanitizeEvidenceClaims } from './evidenceClaims';
 import { evaluateDocumentQualityGate } from './documentQualityGate';
-import { CONCEPTUAL_TEMPLATE_PROMPT } from './conceptualTemplate';
+import {
+  CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT,
+  conceptualArtifactResponseJsonSchema,
+  parseConceptualArtifact,
+  renderConceptualArtifact,
+} from './ai/conceptualArtifactContract';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
@@ -32,6 +37,7 @@ export interface AgentLoopInput {
   onActStream: (text: string, thinking: string | undefined, questions: Question[] | undefined, actionSummary: string | undefined, tokenCount: number) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
   turnDecision?: AiTurnDecision;
+  sourceProcessTitles?: string[];
   signal?: AbortSignal;
 }
 
@@ -86,7 +92,10 @@ const sanitizeDocument = (d: any): DocumentData | undefined => {
   };
 };
 
-const extractActParts = (raw: string): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string; document?: DocumentData } => {
+const extractActParts = (
+  raw: string,
+  structuredConceptualArtifact = false,
+): { message: string; thinking?: string; questions?: Question[]; actionSummary?: string; document?: DocumentData } => {
   if (!raw) return { message: '' };
   let trimmed = raw.trim();
   const fenceMatch = trimmed.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
@@ -95,12 +104,17 @@ const extractActParts = (raw: string): { message: string; thinking?: string; que
   try {
     const parsed: any = parsePartialJson(trimmed);
     if (parsed && typeof parsed === 'object') {
+      const conceptualArtifact = structuredConceptualArtifact
+        ? parseConceptualArtifact(parsed.conceptualArtifact)
+        : null;
       return {
         message: typeof parsed.message === 'string' ? parsed.message : '',
         thinking: typeof parsed.thinking === 'string' ? parsed.thinking : undefined,
         questions: Array.isArray(parsed.questions) ? parsed.questions : undefined,
         actionSummary: typeof parsed.actionSummary === 'string' ? parsed.actionSummary : undefined,
-        document: sanitizeDocument(parsed.document),
+        document: conceptualArtifact
+          ? renderConceptualArtifact(conceptualArtifact)
+          : sanitizeDocument(parsed.document),
       };
     }
   } catch {
@@ -133,7 +147,6 @@ const documentRevisionContext = (doc: DocumentData | null): string => {
   }, null, 2);
 };
 
-const CONCEPTUAL_DESIGN_DEPTH_STANDARD = CONCEPTUAL_TEMPLATE_PROMPT;
 function buildFallbackPlan(userMessage: string, turnDecision?: AiTurnDecision): PlanOutput {
   const profileSections = turnDecision?.artifactProfile.requiredSections || [];
   return {
@@ -149,7 +162,7 @@ function buildFallbackPlan(userMessage: string, turnDecision?: AiTurnDecision): 
 const ACT_PHASE_TIMEOUT_MS = 60_000;
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
-  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, signal } = input;
+  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, sourceProcessTitles = [], signal } = input;
 
   let totalTokens = 0;
   const phaseTokens = new Map<string, number>();
@@ -167,6 +180,7 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   const shouldProduceDocument = turnDecision?.documentPolicy.shouldUpdateDocument ?? true;
   const forceDocumentGeneration = turnDecision?.documentPolicy.forceDocumentGeneration ?? false;
   const askOnlyMode = turnDecision?.action === 'ask_questions';
+  const structuredConceptualArtifact = !!turnDecision?.artifactProfile.id.startsWith('conceptual_design');
 
   // ============ PHASE 1: PLAN ============
   onPhase('PLAN', 'Strateji belirleniyor...');
@@ -336,20 +350,23 @@ ${turnDecisionInstruction || '- Ust karar sozlesmesi yok; mevcut BA agent davran
 
 [5] AKSİYON TALİMATLARI
 - Yukarıdaki araştırma ve reflection bulgularını yanıtına doğal şekilde entegre et.
-- action=ask_questions ise document alanı üretme; sadece questions alanını ve kısa chat mesajını doldur.
+- action=ask_questions ise document veya conceptualArtifact alanı üretme; sadece questions alanını ve kısa chat mesajını doldur.
 - action=answer_only veya action=research_first ise dokümanı güncelledim/oluşturdum iddiası kurma.
-- action=draft_document/revise_document/repair_document ise document alanını seçili artifact profile ve kaynak/varsayım ayrımına göre doldur.
+- action=draft_document/revise_document/repair_document ise ${structuredConceptualArtifact ? 'conceptualArtifact' : 'document'} alanını seçili artifact profile ve kaynak/varsayım ayrımına göre doldur.
 - ZORUNLU: Yukarıdaki "Sorulması gereken kritik sorular" listesinde bir madde varsa VEYA kullanıcıya soracağını ima ediyorsan, "questions" alanını MUTLAKA doldur.
 - Her soru: { id: "q1", text: "...", options: ["seçenek 1", "seçenek 2", "seçenek 3"] } formatında, 2-4 seçenekli olmalı.
 - Mesaj metninde "birkaç sorum olacak" / "şunu netleştirelim" gibi ifade kullandıysan questions alanını doldurmadan yanıt verme.
-- Cevabın kullanıcıya gösterilecek chat mesajı kısa ve net olmalı; detayları ancak document üretme kararı varsa document alanına yaz.
+- Cevabın kullanıcıya gösterilecek chat mesajı kısa ve net olmalı; detayları yalnız ${structuredConceptualArtifact ? 'conceptualArtifact' : 'document'} alanına yaz.
 - "thinking" alanında kısa çalışma özetini yaz. Özel zincir düşünce veya gizli akıl yürütme yazma.
 - "actionSummary" alaninda kullanicinin gorecegi sekilde "Ne yaptim?" ozetini 1-2 cumle yaz: hangi bolumleri guncelledin, kaynakli bilgi/varsayim/acik konu ayrimini nasil isledin, sonraki hizli aksiyon ne?
 
 ${buildDeepBaActInstructions(deepBaSubject)}
 
 [6] DOKÜMAN YAZMA KURALI
-- Üst karar shouldUpdateDocument=HAYIR ise "document" alanı üretme. Bu durumda yalnızca cevap/questions/actionSummary üret.
+${structuredConceptualArtifact ? `- Üst karar shouldUpdateDocument=EVET ise conceptualArtifact alanını doldur; document alanı üretme.
+- Markdown başlıklarını ve tabloları doğrudan yazma. Kavramsal analiz verisini yapısal alanlara yerleştir; renderer görünür businessAnalysis ve review yüzeylerini kuracak.
+- Mevcut doküman varsa (${hasDocument ? 'EVET' : 'HAYIR'}), kaynakta korunması gereken kararları conceptualArtifact alanlarına eksiksiz taşı.
+- Dokümanı güncellediğini yalnız conceptualArtifact alanını eksiksiz döndürdüysen söyle.` : `- Üst karar shouldUpdateDocument=HAYIR ise "document" alanı üretme. Bu durumda yalnızca cevap/questions/actionSummary üret.
 - Üst karar shouldUpdateDocument=EVET ise yanıtınla birlikte "document" alanını doldur. Bu alan sağ paneldeki Çalışma Dokümanı'na yazılır.
 - "document" alanı görünür ürün yüzeyinde yalnızca businessAnalysis (BA Analiz) ve opsiyonel review bölümlerini içerir.
 - Teknik analiz, test ve süreç akışını ayrı code/test/bpmn alanlarına zorlama; bunları businessAnalysis içinde alt başlık olarak yaz.
@@ -357,16 +374,20 @@ ${buildDeepBaActInstructions(deepBaSubject)}
 - Mevcut doküman varsa (${hasDocument ? 'EVET' : 'HAYIR'}): mevcut içerikleri KORU, üstüne ekleme/güncelleme yap; boşalttığın bölüm olmasın.
 - Bölümleri zengin Markdown ile yaz: numaralı başlıklar (## 1., ### 1.1.), tablolar (| Kolon | ... |), madde işaretleri, kod blokları.
 - "document" alanı KURAL: Sadece AI Turn Decision doküman üretme/güncelleme kararı verdiyse doldur. Talep tanımı tek başına doküman üretme zorunluluğu değildir.
-- "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.
+- "Dokümana aktardım / güncelledim" gibi ifadeler ancak "document" alanını doldurduysan kullanılabilir; aksi halde böyle iddia ETME.`}
 
 [6B] YAPISAL KANIT SOZLESMESI
-- Kritik iddialari document.evidenceClaims alaninda kaydet.
+- Kritik iddialari ${structuredConceptualArtifact ? 'conceptualArtifact.evidenceClaims' : 'document.evidenceClaims'} alaninda kaydet.
 - Her kayit claimId, claim, status ve 0-1 confidence icermelidir.
 - status=VERIFIED yalniz sourceUrl (https), sourceTitle, retrievedAt ve evidenceExcerpt birlikte varsa kullanilabilir.
 - Kullanici talebinde yazan fakat dis kaynaktan dogrulanmayan maddeleri INFERRED veya ASSUMPTION olarak ayir.
 - Kaynagi olmayan mevzuat, API, limit, sure ve urun davranisini VERIFIED yapma; OPEN olarak tut.
 
-${turnDecision?.artifactProfile.id.startsWith('conceptual_design') ? CONCEPTUAL_DESIGN_DEPTH_STANDARD : ''}
+${structuredConceptualArtifact ? CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT : ''}
+
+${structuredConceptualArtifact ? `[KAYNAKTA BELIRLENEN ANA SURECLER]\n${sourceProcessTitles.length > 0
+    ? sourceProcessTitles.map((title, index) => `${index + 1}. ${title}`).join('\n')
+    : '- Kaynakta acik bir surec adi bulunamadi; yeni surec adi uydurma.'}` : ''}
 `.trim();
 
   const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
@@ -392,11 +413,15 @@ ${turnDecision?.artifactProfile.id.startsWith('conceptual_design') ? CONCEPTUAL_
       model,
       systemInstruction: sysInstruction,
       contents,
-      ...(useSchema ? { responseSchema: chatResponseJsonSchema } : {}),
+      ...(useSchema ? {
+        responseSchema: structuredConceptualArtifact
+          ? conceptualArtifactResponseJsonSchema
+          : chatResponseJsonSchema,
+      } : {}),
       timeoutMs: ACT_PHASE_TIMEOUT_MS,
       signal,
       onChunk: (text, thinking, tokenCount) => {
-        const parts = extractActParts(text);
+        const parts = extractActParts(text, structuredConceptualArtifact);
         const mergedThinking = parts.thinking || thinking;
         finalText = parts.message;
         finalThinking = mergedThinking || '';
@@ -429,7 +454,7 @@ ${turnDecision?.artifactProfile.id.startsWith('conceptual_design') ? CONCEPTUAL_
   }
 
   if (actResponse) {
-    const finalParts = extractActParts(actResponse.text);
+    const finalParts = extractActParts(actResponse.text, structuredConceptualArtifact);
     const rawTrimmed = (actResponse.text || '').trim();
     const rawLooksLikeJson = rawTrimmed.startsWith('{') || rawTrimmed.startsWith('```');
     finalText = finalParts.message || (rawLooksLikeJson ? (finalText || '') : actResponse.text);

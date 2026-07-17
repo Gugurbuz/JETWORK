@@ -13,6 +13,12 @@ import {
 } from './ai/intentTypes';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { chatResponseJsonSchema } from '../schemas';
+import {
+  CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT,
+  conceptualArtifactResponseJsonSchema,
+  parseConceptualArtifact,
+  renderConceptualArtifact,
+} from './ai/conceptualArtifactContract';
 import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE, containsBlockedQuestionDomain } from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
 import { buildDeepBaActInstructions, parseClassifierQuestion } from '../modules/deep-ba-assistant';
@@ -508,6 +514,7 @@ async function runBaLoop(
     signal: input.signal,
     systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}${behaviorHint}${decisionHint}${sourceHint}`,
     turnDecision: opts.turnDecision,
+    sourceProcessTitles: sourceReport.processes.map(process => process.title),
     onPhase: (phase, label) => input.onPhase(phase, label),
     onThinking: input.onThinking,
     onActStream: input.onStream,
@@ -528,6 +535,7 @@ async function runBaLoop(
   if (forceDraftAllowed && !finalDocument) {
     input.onPhase('ACT', 'Taslak zorla üretiliyor...');
     try {
+      const structuredConceptualArtifact = !!opts.turnDecision?.artifactProfile.id.startsWith('conceptual_design');
       const fallbackSystem = `${input.systemInstruction}
 
 ${DRAFT_FIRST_SYSTEM_RULE}
@@ -536,6 +544,7 @@ ${sourceHint}
 
 ${opts.turnDecision ? buildAiTurnDecisionInstruction(opts.turnDecision) : ''}
 ${opts.turnDecision ? buildDocumentGenerationDirective(opts.turnDecision, true) : ''}
+${structuredConceptualArtifact ? CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT : ''}
 
 ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
 
@@ -558,14 +567,22 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
         signal: input.signal,
         systemInstruction: fallbackSystem,
         contents: fallbackContents,
-        responseSchema: chatResponseJsonSchema,
+        responseSchema: structuredConceptualArtifact
+          ? conceptualArtifactResponseJsonSchema
+          : chatResponseJsonSchema,
         onChunk: () => {},
       });
 
       try {
         const parsed = JSON.parse((fallback.text || '').trim());
-        if (parsed && typeof parsed === 'object' && parsed.document) {
-          finalDocument = parsed.document;
+        const conceptualArtifact = structuredConceptualArtifact
+          ? parseConceptualArtifact(parsed?.conceptualArtifact)
+          : null;
+        const generatedDocument = conceptualArtifact
+          ? renderConceptualArtifact(conceptualArtifact)
+          : parsed?.document;
+        if (parsed && typeof parsed === 'object' && generatedDocument) {
+          finalDocument = generatedDocument;
           if (typeof parsed.message === 'string' && parsed.message.trim()) {
             finalText = parsed.message.trim();
           }
