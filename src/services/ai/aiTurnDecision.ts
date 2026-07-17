@@ -192,8 +192,21 @@ function wantsCorporateTemplate(input: BuildAiTurnDecisionInput): boolean {
   return /\b(kavramsal|word|tasarim dokumani|fdd|brd|surec modeli|onay tablosu|dokuman tarihcesi)\b/.test(text);
 }
 
+function explicitFocusedArtifactRequest(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(test senaryo|test case|uat|negatif test|api kontrat|api contract|endpoint|teknik analiz|review raporu|kalite raporu)\b/.test(normalized);
+}
+
+function explicitCorporateGeneration(input: BuildAiTurnDecisionInput): boolean {
+  return wantsCorporateTemplate(input)
+    && explicitDocumentGeneration(input.userMessage)
+    && !explicitFocusedArtifactRequest(input.userMessage)
+    && !explicitRepairRequest(input.userMessage);
+}
+
 function resolveArtifactMode(input: BuildAiTurnDecisionInput): ArtifactMode | 'none' {
   if (input.classification.baAgentFocus === 'test') return 'test_scenario';
+  if (explicitCorporateGeneration(input)) return 'conceptual_analysis';
   if (input.classification.baAgentFocus === 'technical_analysis') return 'technical_analysis';
   if (input.classification.baAgentFocus === 'flow') return 'process_design';
   if (input.classification.subIntent === 'generate_api_contract') return 'api_specification';
@@ -211,6 +224,7 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
   const sensitive = sourceSensitive(input);
   const officialRequired = officialSourceRequired(input);
   const repairRequest = explicitRepairRequest(input.userMessage);
+  const corporateGeneration = explicitCorporateGeneration(input);
 
   if (input.pendingOperationLookupPerformed && pendingCancellation(input.userMessage)) {
     return input.pendingOperation ? 'cancel_pending_change' : 'pending_operation_missing';
@@ -235,7 +249,7 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
   if (input.classification.primaryIntent === 'workflow' || input.classification.documentImpact === 'workflow_action_only') return 'workflow_action';
   if (input.classification.primaryIntent === 'selected_text_editing' || input.classification.documentImpact === 'updates_selected_text') return 'update_selected_text';
   if (hasDocument && repairRequest) return 'repair_document';
-  if (input.classification.primaryIntent === 'quality_review') return input.classification.subIntent === 'score_document' ? 'validate_document' : 'validate_document';
+  if (input.classification.primaryIntent === 'quality_review' && !corporateGeneration) return 'validate_document';
   if (explicitResearchRequest(input.userMessage) && !explicitDoc) return 'research_first';
   if (sparseHighImpactBrief(input) && !allowsAssumption) return 'ask_questions';
   if ((input.cognitiveFrame.action === 'block_until_source' || input.cognitiveFrame.action === 'ask_first') && !allowsAssumption) return 'ask_questions';
@@ -254,14 +268,15 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
   const mode = !documentActions.includes(action)
     ? 'none'
     : resolveArtifactMode(input);
+  const corporateGeneration = explicitCorporateGeneration(input);
   const profile = action === 'ask_questions'
     ? ARTIFACT_PROFILES.discovery_brief
     : !documentActions.includes(action)
       ? ARTIFACT_PROFILES.none
       : selectArtifactProfile({
         artifactMode: mode === 'none' ? undefined : mode,
-        focus: input.classification.baAgentFocus,
-        wantsCorporateTemplate: wantsCorporateTemplate(input),
+        focus: corporateGeneration ? 'business_analysis' : input.classification.baAgentFocus,
+        wantsCorporateTemplate: corporateGeneration || wantsCorporateTemplate(input),
         sourceHasProcesses: input.sourceReport.processes.length > 0,
       });
 
