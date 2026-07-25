@@ -208,6 +208,12 @@ async function runChatOnly(input: SingleChatInput, classification: IntentClassif
   let thinking = '';
   let tokens = 0;
   let lastParts: { message: string; questions?: Question[]; actionSummary?: string } = { message: '' };
+  const allowQuestions = classification.requiresClarification;
+  const structuredBusinessBrief = [
+    /\bproblem\s*:/i,
+    /\bmevcut\s+durum\s*:/i,
+    /\bhedef\s+durum\s*:/i,
+  ].filter((pattern) => pattern.test(input.userMessage)).length >= 2;
   const sys = `${input.systemInstruction}
 
 ${DRAFT_FIRST_SYSTEM_RULE}
@@ -220,7 +226,10 @@ Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
   "actionSummary": "opsiyonel iç özet" }
 
 - Uzun doküman üretme; sadece konuşma cevabı ver.
-- Netleştirici soru soracaksan questions alanını doldur (2-4 seçenek).`;
+- questions alanını ${allowQuestions ? 'yalnız kritik bir karar eksikse doldur (2-4 seçenek)' : 'boş dizi olarak döndür'}.
+${structuredBusinessBrief
+    ? '- Kullanıcının yapılandırılmış iş problemindeki problem, mevcut durum ve hedef durumu 2-3 cümlede özetle. Doküman üretme. Son cümlede doğal dille hangi çıktıyla devam etmek istediğini sor; soru kartı üretme.'
+    : ''}`;
   await callAiWithRetry(() =>
     callGemini({
       model: input.model,
@@ -235,8 +244,11 @@ Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
         if (think) thinking = think;
         if (tk) tokens = tk;
         const parts = extractParts(raw);
-        lastParts = parts;
-        input.onStream(parts.message || '', thinking, parts.questions, parts.actionSummary, tokens);
+        lastParts = {
+          ...parts,
+          questions: allowQuestions ? parts.questions : undefined,
+        };
+        input.onStream(parts.message || '', thinking, allowQuestions ? parts.questions : undefined, undefined, tokens);
       },
     })
   );
@@ -245,8 +257,7 @@ Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
   return {
     text: finalMessage,
     thinking,
-    questions: finalParts.questions || lastParts.questions,
-    actionSummary: finalParts.actionSummary || lastParts.actionSummary,
+    questions: allowQuestions ? (finalParts.questions || lastParts.questions) : undefined,
     intent: 'chat_only',
     classification,
     tokenCount: tokens,
@@ -263,11 +274,11 @@ async function runAskClarifyingQuestions(
   input.onPhase('ACT', 'Netleştirici sorular hazırlanıyor...');
 
   if (preferredQuestions && preferredQuestions.length > 0) {
-    const questions = preferredQuestions.slice(0, 4);
+    const questions = preferredQuestions.slice(0, 3);
     const msg = code === 'MISSING_SELECTION'
       ? 'Seçili metin göremedim. Dokümandan ilgili kısmı seçip tekrar dener misin?'
-      : 'Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen "Varsayımlarla ilerle" diyerek etiketli taslağa geçebilirsin.';
-    input.onStream(msg, '', questions, 'ask_clarifying_questions_gap_matrix', 0);
+      : 'Yalnızca sonucu değiştiren kararları netleştirelim. İstersen "Varsayımlarla ilerle" diyerek etiketli taslağa geçebilirsin.';
+    input.onStream(msg, '', questions, undefined, 0);
     return {
       text: msg,
       thinking: '',
@@ -291,7 +302,7 @@ async function runAskClarifyingQuestions(
     const firstRationale = humanProfile?.questionRationale?.[0]
       ? ` Ilk soru onemli cunku ${humanProfile.questionRationale[0]}`
       : '';
-    const maxQuestions = domainDiscovery ? 4 : 3;
+    const maxQuestions = 3;
     const questions: Question[] = classification.clarificationQuestions
       .slice(0, maxQuestions)
       .map((text, i) => parseClassifierQuestion(text, i));
@@ -303,7 +314,7 @@ async function runAskClarifyingQuestions(
         : cognitiveAsk
           ? `Bu talep dokumani saglam kurmak icin biraz seyrek. Kor bir taslak uretmek yerine once dokumani yanlis kurdurabilecek kritik kararlari netlestirelim. Istersen "Varsayimlarla ilerle" diyerek isaretli varsayimlarla taslaga gecebilirim.`
         : 'Devam etmeden once su kritik noktalari netlestirmem gerekiyor.';
-    input.onStream(msg, '', questions, 'ask_clarifying_questions', 0);
+    input.onStream(msg, '', questions, undefined, 0);
     return {
       text: msg,
       thinking: '',
@@ -1090,10 +1101,15 @@ const runSingleChatOrchestratorInner = async (
   }
 
   if (aiTurnDecision.action === 'ask_questions') {
-    const gapQuestions = buildBaCognitiveQuestionItems(
-      cognitiveFrame,
-      aiTurnDecision.questionPolicy.maxQuestions || 3,
-    );
+    const domainQuestions = (classification.clarificationQuestions || [])
+      .slice(0, 3)
+      .map((text, index) => parseClassifierQuestion(text, index));
+    const gapQuestions = domainQuestions.length > 0
+      ? domainQuestions
+      : buildBaCognitiveQuestionItems(
+        cognitiveFrame,
+        aiTurnDecision.questionPolicy.maxQuestions || 3,
+      );
     classification = {
       ...classification,
       documentImpact: 'none',

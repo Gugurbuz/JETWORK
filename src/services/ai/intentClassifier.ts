@@ -270,7 +270,12 @@ export function normalizeBaClassifierOutput(input: ClassifyInput, classification
   });
   normalized = applyBehaviorDecisionToClassification(normalized, behaviorDecision, input.document);
 
-  if (behaviorDecision.mode === 'ask_clarifying_questions' || behaviorDecision.shouldUpdateDocument || behaviorDecision.mode === 'chat_only') {
+  if (
+    behaviorDecision.mode === 'ask_clarifying_questions'
+    || behaviorDecision.shouldUpdateDocument
+    || behaviorDecision.mode === 'chat_only'
+    || behaviorDecision.mode === 'suggest_next_step'
+  ) {
     return normalized;
   }
 

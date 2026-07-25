@@ -287,7 +287,7 @@ const gapDrivenQuestions = buildBaCognitiveQuestionItems({
 
 assert(gapDrivenQuestions.length === 2, 'Question engine should return the ranked gap questions');
 assert(gapDrivenQuestions.every(question => question.options.length >= 2 && question.options.length <= 4), 'Every gap question should expose 2-4 quick answer options');
-assert(/Karar etkisi/i.test(gapDrivenQuestions[0].text), 'Question text should explain decision impact');
+assert(/Neden önemli/i.test(gapDrivenQuestions[0].text), 'Question text should explain why the decision matters');
 assert(gapDrivenQuestions[0].options.some(option => /sistem|api|operasyon|varsayim/i.test(option)), 'Process gap should expose concrete answer options');
 assert(gapDrivenQuestions[1].options.some(option => /SLA|Hata|KPI/i.test(option)), 'KPI gap should expose metric-oriented options');
 

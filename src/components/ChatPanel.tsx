@@ -130,27 +130,13 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
         <Send className="w-4 h-4" />
         Cevapları Gönder
       </button>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+      <div className="pt-1">
         <button
-          onClick={() => onSubmit('Bu bilgilerle dokümanı oluştur. Yeni soru sorma, varsayımlarla ilerle; tamamlanacak kararları Review > Açık Sorular bölümüne yaz.')}
-          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
-          title="Mevcut bilgilerle taslak üret"
-        >
-          Bu bilgilerle dokümanı oluştur
-        </button>
-        <button
-          onClick={() => onSubmit('Varsayımlarla ilerle. Tamamlanacak bilgileri tahmini olarak doldur; sağ panelde taslağı üret.')}
-          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
-          title="Varsayımlarla taslak üret"
+          onClick={() => onSubmit('Varsayımlarla ilerle. Yeni soru sorma; mevcut bilgilerle BA Analiz ve Review taslağını oluştur. Tamamlanacak kararları Review > Açık Sorular bölümüne yaz.')}
+          className="w-full px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
+          title="Mevcut bilgiler ve işaretli varsayımlarla ilerle"
         >
           Varsayımlarla ilerle
-        </button>
-        <button
-          onClick={() => onSubmit('Daha fazla soru sorma. Mevcut bilgilerle ilerle ve sağ panelde dokümanı üret.')}
-          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
-          title="Soru turunu kapat"
-        >
-          Daha fazla soru sorma
         </button>
       </div>
     </div>
@@ -357,16 +343,10 @@ const MessageItem = memo(({
             className="text-sm font-semibold text-theme-text"
             style={{ color: userColor || undefined }}
           >
-            {msg.role === 'user' ? (msg.senderName || 'Siz') : 
-             msg.agentRole ? `${msg.agentRole} Agent` : 'JetWork AI'}
+            {msg.role === 'user' ? (msg.senderName || 'Siz') : 'JETWORK AI'}
           </span>
           <span className="text-[10px] font-medium text-theme-text-muted uppercase tracking-widest">
-            {msg.role === 'user' ? msg.senderRole : 
-             msg.agentRole === 'BA' ? 'İş Analisti' :
-             msg.agentRole === 'IT' ? 'Yazılım Mimarı' :
-             msg.agentRole === 'QA' ? 'Test Uzmanı' :
-             msg.agentRole === 'Orchestrator' ? 'Moderatör' :
-             'Sistem Asistanı'}
+            {msg.role === 'user' ? msg.senderRole : 'Kurumsal İş Analisti'}
           </span>
           {msg.score !== undefined && msg.score > 0 && (
             <span className={cn(

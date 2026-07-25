@@ -248,6 +248,17 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
     input.classification.subIntent === 'missing_selection'
     || input.classification.documentImpact === 'updates_selected_text' && !input.hasSelectedText
   ) return 'ask_questions';
+  const structuredBriefLabels = [
+    /\bproblem\s*:/i,
+    /\bmevcut\s+durum\s*:/i,
+    /\bhedef\s+durum\s*:/i,
+  ].filter((pattern) => pattern.test(input.userMessage)).length;
+  if (
+    !hasDocument
+    && !explicitDoc
+    && structuredBriefLabels >= 2
+    && input.behaviorDecision.mode === 'suggest_next_step'
+  ) return 'answer_only';
   if (input.classification.requiresClarification && !allowsAssumption) return 'ask_questions';
   if (
     input.classification.riskLevel === 'high'
@@ -330,7 +341,7 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
       reason: action === 'ask_questions'
         ? 'Yuksek etkili veya kaynak gerektiren kararlar netlesmeden tam dokuman uretimi yanlis yonlendirebilir.'
         : 'Bu turda soru sorma ana aksiyon degil.',
-      maxQuestions: action === 'ask_questions' ? Math.min(4, Math.max(2, input.behaviorDecision.questionBudget || 3)) : 0,
+      maxQuestions: action === 'ask_questions' ? Math.min(3, Math.max(2, input.behaviorDecision.questionBudget || 3)) : 0,
       questionType: action === 'ask_questions'
         ? input.behaviorDecision.domain !== 'generic_ba' ? 'domain_discovery' : 'critical_only'
         : 'none',

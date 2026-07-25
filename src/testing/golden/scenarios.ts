@@ -85,6 +85,14 @@ export const goldenScenarios: GoldenScenario[] = [
     expectedAction: 'answer_only',
   },
   {
+    id: 'CONV-005',
+    title: 'Yapılandırılmış iş problemi önce anlaşılır ve doküman üretilmez',
+    category: 'conversation',
+    userMessage: 'Problem: Abonelik iptal ve iade talepleri farklı kanallarda izlenemiyor. Mevcut durum: Çağrı merkezi ve operasyon ekipleri ayrı listeler kullanıyor. Hedef durum: Talepleri tek iş listesinde izlemek ve karar geçmişini kaydetmek.',
+    subIntent: 'start_new_requirement',
+    expectedAction: 'answer_only',
+  },
+  {
     id: 'DISC-001',
     title: 'Seyrek SAP CRM AI fikri önce keşif ister',
     category: 'discovery',

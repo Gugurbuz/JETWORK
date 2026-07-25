@@ -239,6 +239,12 @@ export const useMessages = (channelRef: any) => {
       if (application.applied && finalDocument) {
         useDocumentStore.getState().setDocumentContent(finalDocument);
       }
+      const visibleActionSummary =
+        application.applied
+        && finalActionSummary
+        && !/^[a-z0-9_.:-]+$/i.test(finalActionSummary.trim())
+          ? finalActionSummary
+          : undefined;
 
       if (memoryEnabled) {
         try {
@@ -264,7 +270,7 @@ export const useMessages = (channelRef: any) => {
         text: fullText,
         thinkingText: finalThinking,
         questions: finalQuestions,
-        actionSummary: finalActionSummary,
+        actionSummary: visibleActionSummary,
         groundingUrls: loopOutput.groundingUrls,
         tokenCount: loopOutput.tokenCount,
         phase: null,
@@ -272,7 +278,7 @@ export const useMessages = (channelRef: any) => {
         isTyping: false,
         senderName: targetAgentName || 'JetWork AI',
         senderRole: targetAgentName || 'Sistem Asistanı',
-        agentRole: targetAgentRole || loopOutput.turnDecision?.action || loopOutput.intent,
+        agentRole: targetAgentRole || undefined,
         createdAt: aiCreatedAt,
         score: qualityScore,
         scoreExplanation: qualityExplanation,
