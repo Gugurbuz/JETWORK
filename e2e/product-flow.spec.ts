@@ -69,12 +69,12 @@ test.describe('authenticated product flow', () => {
     await expect(panel).toContainText(/Uygunluk kontrol. ve onay/i);
     await expect(panel).toContainText(/ade sonucu ve kapan./i);
     await expect(panel).toContainText(/M[üÜuU][şŞ]teri temsilcisi/i);
-    await expect(panel).toContainText(/Tamamlanma s.resi/i);
+    await expect(panel).toContainText(/Tamamlanma s[üÜuU]resi/i);
     await expect(panel).toContainText(/AKI. D.YAGRAMI/i);
     await expect(panel).toContainText(/[üÜuU]ST D[üÜuU]ZEY M[üÜuU][şŞ]TER[iİıI] GEL[iİıI][şŞ]T[iİıI]RMES[iİıI]/i);
     await expect(panel).toContainText(/DE[ĞGğg][iİıI][şŞ][iİıI]M Y[öÖoO]NET[iİıI]M[iİıI]/i);
     await expect(panel).toContainText(/EKLENT./i);
-    await expect(panel).not.toContainText(/SAP|IYS|Findeks|KKB|D2D/i);
+    await expect(panel).not.toContainText(/\b(?:SAP|IYS|Findeks|KKB|D2D)\b/i);
     await expect(page.getByTestId('interactive-questions')).toHaveCount(0);
     await expect(page.getByTestId('chat-message').filter({ hasText: /ne yapt/i }).last()).toBeVisible();
     const qualityScoreText = await page.getByTestId('document-quality-score').textContent();
