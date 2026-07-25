@@ -133,6 +133,7 @@ export interface BaCognitiveFrame {
 
 export interface BuildBaCognitiveFrameInput {
   userMessage: string;
+  artifactIntentText?: string;
   recentConversation?: string;
   document: DocumentData | null;
   sourceReport: SourceIntelligenceReport;
@@ -815,7 +816,7 @@ function renderProblemFrame(problem: ProblemFrame): string {
 export function buildBaCognitiveFrame(input: BuildBaCognitiveFrameInput): BaCognitiveFrame {
   const sourceText = [input.userMessage, input.recentConversation || ''].filter(Boolean).join('\n\n');
   const richness = sourceRichness(input.sourceReport, sourceText);
-  const artifactMode = detectArtifactMode(sourceText, input.behaviorDecision);
+  const artifactMode = detectArtifactMode(input.artifactIntentText || input.userMessage, input.behaviorDecision);
   const problemFrame = buildProblemFrame(input.sourceReport, input.behaviorDecision, richness);
   const evidenceClaims = buildEvidenceClaims(input.sourceReport, richness, artifactMode);
   const informationGaps = buildInformationGaps(input.sourceReport, richness, input.behaviorDecision, artifactMode);

@@ -22,11 +22,18 @@ import {
   parseConceptualArtifact,
   renderConceptualArtifact,
 } from './ai/conceptualArtifactContract';
+import {
+  buildAdaptiveReasoningPlan,
+  buildAdaptiveReasoningSummary,
+  renderAdaptiveReasoningInstruction,
+  type AdaptiveReasoningPlan,
+} from './ai/adaptiveReasoningPolicy';
 
 export type AgentPhase = 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT';
 
 export interface AgentLoopInput {
   userMessage: string;
+  artifactIntentText?: string;
   history: { role: 'user' | 'model'; parts: { text: string }[] }[];
   documentContent: DocumentData | null;
   knowledgeBase: KnowledgeItem[];
@@ -50,6 +57,7 @@ export interface AgentLoopOutput {
   plan?: PlanOutput;
   research?: string;
   reflection?: ReflectOutput;
+  reasoningPlan?: AdaptiveReasoningPlan;
   document?: DocumentData | null;
   tokenCount: number;
 }
@@ -61,6 +69,7 @@ interface PlanOutput {
   searchQueries: string[];
   documentGapsToCheck: string[];
   clarificationsNeeded: string[];
+  reasoningPlan: AdaptiveReasoningPlan;
 }
 
 interface ReflectOutput {
@@ -147,22 +156,29 @@ const documentRevisionContext = (doc: DocumentData | null): string => {
   }, null, 2);
 };
 
-function buildFallbackPlan(userMessage: string, turnDecision?: AiTurnDecision): PlanOutput {
+function buildFallbackPlan(
+  userMessage: string,
+  reasoningPlan: AdaptiveReasoningPlan,
+  turnDecision?: AiTurnDecision,
+): PlanOutput {
   const profileSections = turnDecision?.artifactProfile.requiredSections || [];
   return {
-    plan: `Kullanıcının talebini ana sohbet hattında analiz et, gerekiyorsa doküman üret/güncelle: ${userMessage.slice(0, 160)}`,
+    plan: reasoningPlan.steps.length > 0
+      ? `Talebi ${reasoningPlan.steps.length} bağımlı muhakeme adımıyla incele; final eylem için AiTurnDecision sözleşmesine uy.`
+      : `Kullanıcının talebini ana sohbet hattında yanıtla: ${userMessage.slice(0, 160)}`,
     assumptions: [],
     needsWebSearch: false,
     searchQueries: [],
     documentGapsToCheck: profileSections,
     clarificationsNeeded: [],
+    reasoningPlan,
   };
 }
 
 const ACT_PHASE_TIMEOUT_MS = 60_000;
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
-  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, sourceProcessTitles = [], signal } = input;
+  const { userMessage, artifactIntentText, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, sourceProcessTitles = [], signal } = input;
 
   let totalTokens = 0;
   const phaseTokens = new Map<string, number>();
@@ -181,12 +197,23 @@ export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOu
   const forceDocumentGeneration = turnDecision?.documentPolicy.forceDocumentGeneration ?? false;
   const askOnlyMode = turnDecision?.action === 'ask_questions';
   const structuredConceptualArtifact = !!turnDecision?.artifactProfile.id.startsWith('conceptual_design');
+  const hasDocument = !!documentContent && Object.values(documentContent).some(
+    (s: any) => s && typeof s === 'object' && typeof s.content === 'string' && s.content.trim().length > 0
+  );
+  const reasoningPlan = buildAdaptiveReasoningPlan({
+    userMessage: artifactIntentText || userMessage,
+    recentConversation: recentConversationText,
+    hasDocument,
+    knowledgeSourceCount: knowledgeBase.length,
+    turnDecision,
+  });
 
   // ============ PHASE 1: PLAN ============
   onPhase('PLAN', 'Strateji belirleniyor...');
   const docSummary = briefDocumentSummary(documentContent);
-  let plan: PlanOutput = buildFallbackPlan(userMessage, turnDecision);
+  let plan: PlanOutput = buildFallbackPlan(userMessage, reasoningPlan, turnDecision);
   onThinking(`Deterministik plan hazırlandı: ${plan.plan}`);
+  onThinking(buildAdaptiveReasoningSummary(reasoningPlan));
 
   if (deepBaPlan.enabled || useDeepBaMode) {
     const profileGaps = (turnDecision?.artifactProfile.requiredSections || [])
@@ -279,9 +306,6 @@ Kurallar:
   ].filter(Boolean).join('\n\n') || '(Ilgili ek kaynak bulunamadi.)';
 
   // ============ PHASE 3: REFLECT ============
-  const hasDocument = !!documentContent && Object.values(documentContent).some(
-    (s: any) => s && typeof s === 'object' && typeof s.content === 'string' && s.content.trim().length > 0
-  );
   const shouldReflect = hasDocument || webResearch.length > 0 || (plan.documentGapsToCheck?.length || 0) > 0;
 
   let reflection: ReflectOutput = {
@@ -321,9 +345,17 @@ Kurallar:
 [1] OTONOM NİYET SİNYALİ
 ${turnDecisionInstruction || '- Ana karar sözleşmesi sağlanmadı.'}
 
+[1B] ARTIFACT NIYET SUREKLILIGI
+- Bu turun kullanici mesaji bir kesif cevabiysa artifact turunu yeniden siniflandirma.
+- Ilk talebin korunacak artifact niyeti:
+${artifactIntentText || userMessage}
+
 [2] STRATEJİK PLAN
 ${plan.plan}
 ${plan.assumptions?.length ? `Varsayımlar: ${plan.assumptions.join('; ')}` : ''}
+
+[2B] ADAPTIF MUHAKEME SOZLESMESI
+${renderAdaptiveReasoningInstruction(plan.reasoningPlan)}
 
 [3] ARAŞTIRMA BULGULARI
 ${researchContext}
@@ -483,6 +515,7 @@ ${structuredConceptualArtifact ? `[KAYNAKTA BELIRLENEN ANA SURECLER]\n${sourcePr
     plan,
     research: researchContext,
     reflection,
+    reasoningPlan: plan.reasoningPlan,
     document: finalDocument,
     tokenCount: totalTokens
   };

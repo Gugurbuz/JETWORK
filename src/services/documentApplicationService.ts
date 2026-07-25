@@ -64,6 +64,7 @@ export async function applyAiDocumentResult(input: {
       ].filter(Boolean).join('\n\n'),
       workspaceTitle: input.workspaceTitle,
       turnDecision: input.loopOutput.turnDecision,
+      reasoningPlan: input.loopOutput.reasoningPlan,
     });
     document = processed.document;
     changedSections = processed.changedSections;

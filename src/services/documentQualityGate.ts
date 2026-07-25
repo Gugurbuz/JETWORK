@@ -1,5 +1,7 @@
 import type { DocumentData, SectionData } from '../types';
 import type { ArtifactProfile } from './ai/artifactProfiles';
+import type { AdaptiveReasoningPlan } from './ai/adaptiveReasoningPolicy';
+import { evaluateAdaptiveReasoningCritique } from './ai/adaptiveReasoningCritic';
 import { conceptualTemplateCoverage } from './conceptualTemplate';
 import { hasValidEvidenceLedger, invalidEvidenceClaims } from './evidenceClaims';
 
@@ -15,6 +17,8 @@ export interface DocumentQualityGateContext {
   artifactProfile?: ArtifactProfile;
   sourceProcessTitles?: string[];
   sourceSensitive?: boolean;
+  reasoningPlan?: AdaptiveReasoningPlan;
+  sourceText?: string;
 }
 
 const stripHtml = (value = ''): string => value
@@ -142,13 +146,29 @@ export function evaluateDocumentQualityGate(
     fail('Kanitsiz VERIFIED iddiasi', 20);
   }
 
+  const adaptiveCritique = evaluateAdaptiveReasoningCritique({
+    document,
+    plan: context.reasoningPlan,
+    sourceText: context.sourceText,
+  });
+  adaptiveCritique.findings.forEach(finding => {
+    if (finding.severity === 'error') {
+      fail(`Adaptif muhakeme: ${finding.message}`, 6, finding.recommendedAction);
+    } else if (!warnings.includes(finding.message)) {
+      warnings.push(finding.message);
+      score -= 3;
+    }
+  });
+
   score = Math.max(0, Math.min(100, score));
-  const canPublishToPanel = score >= 72 && !missingSections.some(item => (
-    item.startsWith('Kurumsal Word sablonu')
-    || item.startsWith('Kaynak surec kapsami')
-    || item === 'Gecersiz EvidenceClaim'
-    || item === 'Kanitsiz VERIFIED iddiasi'
-  ));
+  const canPublishToPanel = score >= 72
+    && adaptiveCritique.passed
+    && !missingSections.some(item => (
+      item.startsWith('Kurumsal Word sablonu')
+      || item.startsWith('Kaynak surec kapsami')
+      || item === 'Gecersiz EvidenceClaim'
+      || item === 'Kanitsiz VERIFIED iddiasi'
+    ));
 
   return {
     canPublishToPanel,
