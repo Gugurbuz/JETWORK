@@ -17,6 +17,40 @@ export interface DiscoverySignals {
   reason: string;
 }
 
+export function resolveDiscoveryArtifactIntent(
+  userMessage: string,
+  messages: Message[],
+  signals: Pick<DiscoverySignals, 'isAnsweringDiscovery' | 'mustGenerateNow' | 'newStandaloneRequest'>,
+): string {
+  if (signals.newStandaloneRequest) return userMessage;
+  const continuesQuestionRound = signals.isAnsweringDiscovery
+    || (signals.mustGenerateNow && hasPendingQuestionRound(messages));
+  if (!continuesQuestionRound) return userMessage;
+
+  let lastQuestionIndex = -1;
+  messages.forEach((message, index) => {
+    const sender = getSender(message);
+    if (
+      (sender === 'ai' || sender === 'model')
+      && Array.isArray(message.questions)
+      && message.questions.length > 0
+    ) {
+      lastQuestionIndex = index;
+    }
+  });
+  if (lastQuestionIndex < 0) return userMessage;
+
+  for (let index = lastQuestionIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (getSender(message) !== 'user') continue;
+    const text = String(message.text || '').trim();
+    if (!text || isLikelyBaDiscoveryAnswer(text) || isGreetingLike(text)) continue;
+    return text;
+  }
+
+  return userMessage;
+}
+
 const FORCE_GENERATE_PATTERNS: RegExp[] = [
   /\b(tamam|ok|next)\b/i,
   /\bsonraki\s+ad[\u0131i]m(?:a)?\b/i,

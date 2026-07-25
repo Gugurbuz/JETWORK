@@ -19,7 +19,12 @@ import {
   parseConceptualArtifact,
   renderConceptualArtifact,
 } from './ai/conceptualArtifactContract';
-import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE, containsBlockedQuestionDomain } from './ai/discoveryPolicy';
+import {
+  computeDiscoverySignals,
+  DRAFT_FIRST_SYSTEM_RULE,
+  containsBlockedQuestionDomain,
+  resolveDiscoveryArtifactIntent,
+} from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
 import { buildDeepBaActInstructions, parseClassifierQuestion } from '../modules/deep-ba-assistant';
 import {
@@ -50,6 +55,7 @@ import {
   buildAiTurnDecisionInstruction,
   type AiTurnDecision,
 } from './ai/aiTurnDecision';
+import type { AdaptiveReasoningPlan } from './ai/adaptiveReasoningPolicy';
 import { saveProjectMemory } from './projectMemoryRepository';
 import {
   cancelPendingOperation,
@@ -135,6 +141,7 @@ export interface SingleChatResult {
   intent: SingleChatIntent;
   classification?: IntentClassification;
   turnDecision?: AiTurnDecision;
+  reasoningPlan?: AdaptiveReasoningPlan;
   pendingOperationId?: string;
   tokenCount: number;
 }
@@ -473,7 +480,12 @@ async function runResearchWeb(
 async function runBaLoop(
   input: SingleChatInput,
   classification: IntentClassification,
-  opts: { forceDraft?: boolean; behaviorInstruction?: string; turnDecision?: AiTurnDecision } = {}
+  opts: {
+    forceDraft?: boolean;
+    behaviorInstruction?: string;
+    turnDecision?: AiTurnDecision;
+    artifactIntentText?: string;
+  } = {}
 ): Promise<SingleChatResult> {
   const focus = classification.baAgentFocus;
   const target = classification.targetSection;
@@ -510,6 +522,7 @@ async function runBaLoop(
 
   const loopOutput = await runBaAgentLoop({
     userMessage: input.userMessage,
+    artifactIntentText: opts.artifactIntentText,
     history: input.history,
     documentContent: input.documentContent,
     knowledgeBase: input.knowledgeBase,
@@ -616,6 +629,7 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
     intent: intentOut,
     classification,
     turnDecision: opts.turnDecision,
+    reasoningPlan: loopOutput.reasoningPlan,
     tokenCount: loopOutput.tokenCount,
   };
 }
@@ -907,14 +921,19 @@ const runSingleChatOrchestratorInner = async (
     };
   }
 
+  const artifactIntentText = resolveDiscoveryArtifactIntent(
+    turnInput.userMessage,
+    turnInput.messageHistory || [],
+    signals,
+  );
   let classification = await classifyIntent({
     userMessage: turnInput.userMessage,
+    artifactIntentText,
     document: turnInput.documentContent,
     selectedText: turnInput.selectedNodeContent ?? null,
     selectedSection: (turnInput.selectedSection as DocumentSectionKey) ?? null,
     model: turnInput.model,
   });
-
   const behaviorDecision = buildBehaviorDecision({
     userMessage: turnInput.userMessage,
     document: turnInput.documentContent,
@@ -931,6 +950,7 @@ const runSingleChatOrchestratorInner = async (
   });
   const cognitiveFrame = buildBaCognitiveFrame({
     userMessage: turnInput.userMessage,
+    artifactIntentText,
     recentConversation: turnInput.history
       .slice(-6)
       .map(item => item.parts.map(part => part.text).join('\n'))
@@ -1120,6 +1140,7 @@ const runSingleChatOrchestratorInner = async (
         forceDraft: aiTurnDecision.documentPolicy.forceDocumentGeneration,
         behaviorInstruction,
         turnDecision: aiTurnDecision,
+        artifactIntentText,
       },
     );
     return {

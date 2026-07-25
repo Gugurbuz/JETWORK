@@ -204,7 +204,10 @@ function explicitCorporateGeneration(input: BuildAiTurnDecisionInput): boolean {
     && !explicitRepairRequest(input.userMessage);
 }
 
-function resolveArtifactMode(input: BuildAiTurnDecisionInput): ArtifactMode | 'none' {
+function resolveArtifactMode(
+  input: BuildAiTurnDecisionInput,
+  action: AiTurnAction,
+): ArtifactMode | 'none' {
   if (input.classification.baAgentFocus === 'test') return 'test_scenario';
   if (explicitCorporateGeneration(input)) return 'conceptual_analysis';
   if (input.classification.baAgentFocus === 'technical_analysis') return 'technical_analysis';
@@ -213,6 +216,12 @@ function resolveArtifactMode(input: BuildAiTurnDecisionInput): ArtifactMode | 'n
   if (input.classification.subIntent === 'generate_review_report' || input.classification.primaryIntent === 'quality_review') return 'conceptual_analysis';
   if (input.classification.documentImpact === 'updates_document' || explicitDocumentGeneration(input.userMessage)) {
     return input.cognitiveFrame.artifactMode || 'conceptual_analysis';
+  }
+  if (
+    ['draft_document', 'revise_document', 'repair_document', 'execute_confirmed_change'].includes(action)
+    && input.cognitiveFrame.artifactMode
+  ) {
+    return input.cognitiveFrame.artifactMode;
   }
   return input.cognitiveFrame.artifactMode === 'conceptual_analysis' ? 'none' : input.cognitiveFrame.artifactMode;
 }
@@ -267,7 +276,7 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
   const documentActions: AiTurnAction[] = ['draft_document', 'revise_document', 'validate_document', 'repair_document', 'execute_confirmed_change'];
   const mode = !documentActions.includes(action)
     ? 'none'
-    : resolveArtifactMode(input);
+    : resolveArtifactMode(input, action);
   const corporateGeneration = explicitCorporateGeneration(input);
   const profile = action === 'ask_questions'
     ? ARTIFACT_PROFILES.discovery_brief

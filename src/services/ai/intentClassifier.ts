@@ -168,6 +168,7 @@ export function buildClassification(
 
 export interface ClassifyInput {
   userMessage: string;
+  artifactIntentText?: string;
   document: DocumentData | null;
   selectedText?: string | null;
   selectedSection?: DocumentSectionKey | null;
@@ -213,10 +214,13 @@ export function normalizeBaClassifierOutput(input: ClassifyInput, classification
   const state = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
   const userForcesDraft = GENERATE_WITH_ASSUMPTIONS_RE.test(input.userMessage);
   const userIsAnswering = isLikelyBaDiscoveryAnswer(input.userMessage);
-  const externalKnowledgeNeeded = requiresExternalKnowledge(input.userMessage);
-  const deepBaMode = shouldUseDeepBaAssistant(input.userMessage);
+  const continuationSubject = userIsAnswering && input.artifactIntentText
+    ? input.artifactIntentText
+    : input.userMessage;
+  const externalKnowledgeNeeded = requiresExternalKnowledge(continuationSubject);
+  const deepBaMode = shouldUseDeepBaAssistant(continuationSubject);
   const intentProfile = detectDeterministicIntentProfile({
-    userMessage: input.userMessage,
+    userMessage: continuationSubject,
     hasDocument: !!input.document,
     hasSelectedText: !!input.selectedText,
   });
@@ -229,6 +233,32 @@ export function normalizeBaClassifierOutput(input: ClassifyInput, classification
     researchType: classification.researchType || (externalKnowledgeNeeded ? 'web' : undefined),
   };
   normalized = applyIntentProfileToClassification(normalized, intentProfile);
+
+  if (userIsAnswering) {
+    const nextSubIntent = intentProfile?.subIntent
+      && ['analysis_generation', 'requirement_intake', 'document_editing'].includes(PRIMARY_BY_SUB[intentProfile.subIntent])
+      ? intentProfile.subIntent
+      : preserveGenerationSubIntent(input, normalized, true);
+    const nextFocus = intentProfile?.baAgentFocus
+      || focusFromSubIntent(nextSubIntent)
+      || 'business_analysis';
+    return {
+      ...normalized,
+      primaryIntent: 'analysis_generation',
+      subIntent: nextSubIntent,
+      targetSection: visibleSectionForFocus(nextFocus, intentProfile?.targetSection || normalized.targetSection),
+      documentImpact: 'updates_document',
+      operation: input.document ? 'append_to_section' : 'replace_or_create_section',
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: nextFocus,
+      confidence: Math.max(normalized.confidence, 0.9),
+      requiresResearch: normalized.requiresResearch || deepBaMode,
+      researchType: normalized.researchType || (deepBaMode ? 'web' : undefined),
+      reason: `${normalized.reason}; ba_engine:discovery_intent_continuity; focus:${nextFocus}`,
+    };
+  }
 
   if (!shouldApplyBaDiscovery(normalized)) return normalized;
 
@@ -291,6 +321,15 @@ export function normalizeBaClassifierOutput(input: ClassifyInput, classification
 export async function classifyIntent(input: ClassifyInput): Promise<IntentClassification> {
   const slash = parseSlashCommand(input.userMessage);
   if (slash) return normalizeBaClassifierOutput(input, slash);
+  if (isLikelyBaDiscoveryAnswer(input.userMessage)) {
+    return normalizeBaClassifierOutput(
+      input,
+      buildClassification('answer_clarification', {
+        confidence: 0.95,
+        reason: 'deterministic:structured_discovery_answer',
+      }),
+    );
+  }
 
   const discoveryState = buildBaDiscoveryState({ userMessage: input.userMessage, document: input.document });
   const intentProfile = detectDeterministicIntentProfile({
