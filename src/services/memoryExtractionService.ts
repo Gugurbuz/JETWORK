@@ -1,5 +1,5 @@
 import type { DocumentData, KnowledgeItem } from '../types';
-import { extractKeyFacts } from './contextManager';
+import { extractKeyFacts, extractKeywords } from './contextManager';
 import { extractProjectMemoryUpdates, mergeProjectMemory } from './ai/projectMemoryEngine';
 import { saveProjectMemory } from './projectMemoryRepository';
 
@@ -7,13 +7,11 @@ export async function persistTurnMemory(input: {
   workspaceId: string;
   messageId: string;
   userMessage: string;
-  aiMessage: string;
   document: DocumentData | null;
   currentMemory: Record<string, string>;
 }): Promise<Record<string, string> | null> {
   const updates = extractProjectMemoryUpdates({
     userMessage: input.userMessage,
-    aiMessage: input.aiMessage,
     document: input.document,
   });
   if (!Object.keys(updates).length) return null;
@@ -33,7 +31,7 @@ export async function extractKnowledgeItems(
     .map(fact => ({
       id: crypto.randomUUID(),
       content: fact.fact,
-      keywords: fact.fact.toLowerCase().split(' ').slice(0, 5),
+      keywords: extractKeywords(fact.fact).slice(0, 12),
       importance: fact.importance,
       createdAt: Date.now(),
       projectId: workspaceId,

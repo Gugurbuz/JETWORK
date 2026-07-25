@@ -9,7 +9,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { useDataStore } from '../store/useDataStore';
+import { useDocumentStore } from '../store/useDocumentStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
+import { ContextDebugPanel } from './ContextDebugPanel';
 
 const contextualQuestionOptions = (question: Question): string[] => {
   const explicitOptions = (question.options || [])
@@ -608,6 +610,7 @@ export function ChatPanel({
   onManageParticipants
 }: ChatPanelProps) {
   const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
+  const contextDebug = useDocumentStore(state => state.contextDebug);
   const [input, setInput] = useState('');
   const [selectedAttachments, setSelectedAttachments] = useState<{ url: string; data: string; mimeType: string; name?: string; file?: File }[]>([]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
@@ -620,6 +623,7 @@ export function ChatPanel({
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showZeroTouchSettings, setShowZeroTouchSettings] = useState(false);
+  const [showContextDebug, setShowContextDebug] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1079,6 +1083,21 @@ export function ChatPanel({
 
           {/* AI Toggle Button */}
           <button
+            type="button"
+            onClick={() => setShowContextDebug(value => !value)}
+            className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border",
+              showContextDebug
+                ? "bg-theme-primary/10 text-theme-primary border-theme-primary/40"
+                : "bg-theme-surface text-theme-text-muted border-theme-border hover:border-theme-primary/50 hover:text-theme-primary"
+            )}
+            title="Project Brain bağlamını incele"
+            aria-pressed={showContextDebug}
+          >
+            <Brain size={16} />
+          </button>
+
+          <button
             onClick={onToggleAiActive}
             className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border",
@@ -1095,6 +1114,13 @@ export function ChatPanel({
           </button>
         </div>
       </header>
+
+      {showContextDebug && (
+        <ContextDebugPanel
+          snapshot={contextDebug}
+          onClose={() => setShowContextDebug(false)}
+        />
+      )}
 
       {/* Messages */}
       <div 

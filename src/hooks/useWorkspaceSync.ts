@@ -5,6 +5,7 @@ import { User } from './useAuth';
 import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { loadProjectMemory } from '../services/projectMemoryRepository';
+import { loadWorkspaceKnowledge } from '../services/workspaceKnowledgeRepository';
 import { importSharedAnalysis } from '../services/sharedAnalysisImportService';
 import {
   cacheWorkspaceDocument,
@@ -34,6 +35,8 @@ export function useWorkspaceSync(
   const documentContent = useDocumentStore(state => state.documentContent);
   const setDocumentContent = useDocumentStore(state => state.setDocumentContent);
   const setProjectMemory = useDocumentStore(state => state.setProjectMemory);
+  const setKnowledgeBase = useDocumentStore(state => state.setKnowledgeBase);
+  const setContextDebug = useDocumentStore(state => state.setContextDebug);
   const isZeroTouchMode = useDocumentStore(state => state.isZeroTouchMode);
   const setIsAiActive = useDocumentStore(state => state.setIsAiActive);
 
@@ -63,10 +66,13 @@ export function useWorkspaceSync(
     if (!currentWorkspaceId || !user || !isAuthReady) {
       setDocumentContent(null);
       setProjectMemory({});
+      setKnowledgeBase([]);
+      setContextDebug(null);
       return;
     }
 
     let memoryLoadCancelled = false;
+    let knowledgeLoadCancelled = false;
     const setWorkspaceMessages = (updater: Message[] | ((previous: Message[]) => Message[])): void => {
       useMessageStore.getState().setMessages(
         currentWorkspaceId,
@@ -85,6 +91,8 @@ export function useWorkspaceSync(
     }
     setDocumentContent(cache.document || null);
     setProjectMemory(cache.memory || {});
+    setKnowledgeBase([]);
+    setContextDebug(null);
 
     loadProjectMemory(currentWorkspaceId)
       .then(memory => {
@@ -94,6 +102,16 @@ export function useWorkspaceSync(
       })
       .catch(error => {
         console.error('Failed to load persistent project memory:', error);
+      });
+
+    loadWorkspaceKnowledge(currentWorkspaceId)
+      .then(items => {
+        if (knowledgeLoadCancelled || currentWorkspaceIdRef.current !== currentWorkspaceId) return;
+        setKnowledgeBase(items);
+      })
+      .catch(error => {
+        // The frontend can safely roll out before the Sprint 1 migration.
+        console.warn('Workspace knowledge is not available yet:', error);
       });
 
     if (!hasExistingMessages && !isAlreadyListening) {
@@ -159,6 +177,7 @@ export function useWorkspaceSync(
 
     return () => {
       memoryLoadCancelled = true;
+      knowledgeLoadCancelled = true;
       unsubscribeRealtime(channel);
       unsubscribeRealtime(documentChannel);
       channelRef.current = null;

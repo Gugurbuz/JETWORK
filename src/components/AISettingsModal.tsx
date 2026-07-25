@@ -47,6 +47,7 @@ export const AISettingsModal: React.FC = () => {
         rolePersonas: localSettings.rolePersonas,
         fewShotLibrary: localSettings.fewShotLibrary,
         contextWindowSize: localSettings.contextWindowSize ?? 10,
+        contextTokenBudget: localSettings.contextTokenBudget ?? 8000,
         memoryEnabled: localSettings.memoryEnabled ?? true
       };
 
@@ -236,18 +237,19 @@ export const AISettingsModal: React.FC = () => {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Aktif Bağlam Penceresi Boyutu (Mesaj Sayısı)
+          Canonical Context Token Bütçesi
         </label>
         <input
           type="number"
-          min="5"
-          max="50"
+          min="2000"
+          max="24000"
+          step="500"
           className="w-full p-2 border rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white text-sm"
-          value={localSettings.contextWindowSize ?? 10}
-          onChange={(e) => setLocalSettings({ ...localSettings, contextWindowSize: parseInt(e.target.value) || 10 })}
+          value={localSettings.contextTokenBudget ?? 8000}
+          onChange={(e) => setLocalSettings({ ...localSettings, contextTokenBudget: parseInt(e.target.value) || 8000 })}
         />
         <p className="text-xs text-gray-500 mt-1">
-          Yapay zekaya gönderilecek son mesaj sayısı. Bu sayıyı aştığında, eski mesajlar otomatik olarak özetlenip hafızaya (RAG) aktarılır.
+          Mesaj sayısı yerine toplam bağlam büyüklüğünü sınırlar. Bütçe dışındaki eski turlar ana AI çağrısından önce senkron özetlenir.
         </p>
       </div>
     </div>

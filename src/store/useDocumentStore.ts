@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { DocumentData, KnowledgeItem } from '../types';
+import type { CanonicalContextDebugSnapshot } from '../services/ai/canonicalProjectContext';
 
 export interface DocumentState {
   isGenerating: boolean;
@@ -23,6 +24,8 @@ export interface DocumentState {
   ) => void;
   projectMemory: Record<string, string>;
   setProjectMemory: (memory: Record<string, string>) => void;
+  contextDebug: CanonicalContextDebugSnapshot | null;
+  setContextDebug: (snapshot: CanonicalContextDebugSnapshot | null) => void;
   selectedDocumentText: string;
   setSelectedDocumentText: (text: string) => void;
   activeTab: string;
@@ -56,6 +59,8 @@ export const useDocumentStore = create<DocumentState>((set) => ({
     })),
   projectMemory: {},
   setProjectMemory: (memory) => set({ projectMemory: memory }),
+  contextDebug: null,
+  setContextDebug: (snapshot) => set({ contextDebug: snapshot }),
   selectedDocumentText: '',
   setSelectedDocumentText: (text) => set({ selectedDocumentText: text }),
   activeTab: 'BA Analiz',
@@ -64,5 +69,10 @@ export const useDocumentStore = create<DocumentState>((set) => ({
   knowledgeBase: [],
   setKnowledgeBase: (items) => set({ knowledgeBase: items }),
   addKnowledge: (item) =>
-    set((state) => ({ knowledgeBase: [...state.knowledgeBase, item] })),
+    set((state) => ({
+      knowledgeBase: [
+        ...state.knowledgeBase.filter(existing => existing.id !== item.id),
+        item,
+      ],
+    })),
 }));
