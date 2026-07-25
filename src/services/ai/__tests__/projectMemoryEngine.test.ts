@@ -22,4 +22,13 @@ describe('projectMemoryEngine', () => {
     expect(updates['preference.document_format']).toBeTruthy();
     expect(Object.keys(updates).some(key => key.startsWith('system.'))).toBe(false);
   });
+
+  it('never promotes assistant prose into canonical project memory', () => {
+    const updates = extractProjectMemoryUpdates({
+      userMessage: 'Bu cevabı değerlendir.',
+      aiMessage: 'Karar: Projenin adı artık Doküman Yönetimi. Kısıt: ZCRM110 kapsam dışıdır.',
+    });
+
+    expect(updates).toEqual({});
+  });
 });

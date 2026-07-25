@@ -824,7 +824,7 @@ const mergedMemory = mergeProjectMemory({ 'decision.old': 'Eski karar' }, memory
 assert(mergedMemory['decision.old'] === 'Eski karar', 'Project memory merge should preserve existing decisions');
 assert(!!mergedMemory['preference.analysis_depth'], 'Project memory merge should include new updates');
 const memoryContext = buildProjectMemoryContext(mergedMemory);
-assertIncludes(memoryContext, 'PROJECT WORKING MEMORY', 'Project memory context should be prompt-ready');
+assertIncludes(memoryContext, 'USER-SOURCED PROJECT MEMORY - ZORUNLU', 'Project memory context should be prompt-ready');
 assertIncludes(memoryContext, 'preference.analysis_depth', 'Project memory context should include extracted preference');
 
 const sparseMindSource = analyzeSourceIntelligence({

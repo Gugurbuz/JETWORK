@@ -29,6 +29,7 @@ const DECISION_AUTHORITY_RULE = `
 export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   reasoningFramework: 'cot',
   contextWindowSize: 10,
+  contextTokenBudget: 8000,
   memoryEnabled: true,
   systemInstruction: SYSTEM_INSTRUCTION,
   negativeConstraints: `

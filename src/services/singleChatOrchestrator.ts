@@ -4,7 +4,7 @@ import { callGemini, callAiWithRetry } from './geminiService';
 import { runBaAgentLoop, AgentPhase } from './baAgentLoop';
 import { applyNodeUpdate, ANALYST_WEB_SYSTEM_PROMPT } from './intentRouter';
 import { hybridSearch } from './contextManager';
-import { supabase } from '../supabase';
+import { searchWorkspaceKnowledge } from './workspaceKnowledgeRepository';
 import { classifyIntent } from './ai/intentClassifier';
 import {
   IntentClassification,
@@ -406,14 +406,17 @@ async function runResearchInternal(
   input.onPhase('RESEARCH', 'Kurumsal hafıza taranıyor...');
   const query = input.userMessage;
   let hits: { content: string }[] = [];
-  try {
-    const { data } = await supabase.rpc('match_knowledge_text', {
-      query_text: query,
-      match_count: 5,
-    });
-    hits = data || [];
-  } catch (e) {
-    console.warn('match_knowledge_text failed:', e);
+  if (input.workspaceId) {
+    try {
+      hits = await searchWorkspaceKnowledge(
+        input.workspaceId,
+        query,
+        input.knowledgeBase,
+        5,
+      );
+    } catch (error) {
+      console.warn('Workspace knowledge search failed:', error);
+    }
   }
   if (hits.length === 0) {
     hits = hybridSearch(query, input.knowledgeBase, 5).map((h) => ({ content: h.content }));

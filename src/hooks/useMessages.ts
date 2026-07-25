@@ -6,16 +6,23 @@ import { useUIStore } from '../store/useUIStore';
 import { Message } from '../types';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt } from '../services/promptEngine';
-import { hybridSearch, summarizeConversation } from '../services/contextManager';
+import { summarizeConversation } from '../services/contextManager';
 import { runSingleChatOrchestrator } from '../services/singleChatOrchestrator';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { useMessageStore } from '../store/useMessageStore';
-import { buildProjectMemoryContext } from '../services/ai/projectMemoryEngine';
 import { sanitizeAiDisplayText } from '../services/aiMessagePresentation';
 import { applyAiDocumentResult } from '../services/documentApplicationService';
 import { extractKnowledgeItems, persistTurnMemory } from '../services/memoryExtractionService';
 import { saveAiMessage, saveMessageReactions, saveUserMessage } from '../services/messageRepository';
 import { broadcastMessage, createAiStreamAdapter } from '../services/aiStreamAdapter';
+import {
+  buildCanonicalProjectContext,
+  DEFAULT_CONTEXT_TOKEN_BUDGET,
+} from '../services/ai/canonicalProjectContext';
+import {
+  saveWorkspaceKnowledgeItems,
+  searchWorkspaceKnowledge,
+} from '../services/workspaceKnowledgeRepository';
 
 export const useMessages = (channelRef: any) => {
   const generationAbortRef = useRef<AbortController | null>(null);
@@ -139,55 +146,50 @@ export const useMessages = (channelRef: any) => {
     const projectMemory = documentState.projectMemory || {};
     const addKnowledge = documentState.addKnowledge;
     const memoryEnabled = promptSettings?.memoryEnabled ?? true;
-    const contextWindowSize = promptSettings?.contextWindowSize ?? 10;
 
     try {
       const currentMessages = getCurrentMessages();
       const documentContent = documentState.documentContent;
-      
-      let retrievedContext = '';
-      if (memoryEnabled && knowledgeBase.length > 0) {
-        const relevantKnowledge = hybridSearch(messageText, knowledgeBase, 3);
-        if (relevantKnowledge.length > 0) {
-          retrievedContext = '\n\n[KURUMSAL HAFIZA / GEÇMİŞ BİLGİLER]\n' + 
-            relevantKnowledge.map(k => `- ${k.content} (Önem: ${k.importance}/10)`).join('\n');
-        }
-      }
-
-      const historyToSend = currentMessages.slice(-contextWindowSize);
-      
-      if (memoryEnabled && currentMessages.length > contextWindowSize + 5) {
-        const messagesToSummarize = currentMessages.slice(0, currentMessages.length - contextWindowSize);
-        summarizeConversation(messagesToSummarize).then(summary => {
-          if (summary) {
-            addKnowledge({
-              id: Date.now().toString(),
-              content: `Önceki Konuşma Özeti: ${summary}`,
-              keywords: ['özet', 'geçmiş', 'konuşma'],
-              importance: 9,
-              createdAt: Date.now(),
-              projectId: currentWorkspaceId
-            });
-          }
-        }).catch(console.error);
-      }
-
-      const history: { role: 'user' | 'model'; parts: { text: string }[] }[] = historyToSend.map(m => ({
-        role: (m.role === 'user' ? 'user' : 'model') as 'user' | 'model',
-        parts: [{ text: `[${m.senderName} - ${m.senderRole}]: ${m.text}` }]
-      }));
-
-      const projectMemoryContext = memoryEnabled ? buildProjectMemoryContext(projectMemory) : '';
-      const additionalContext = [projectMemoryContext, retrievedContext].filter(Boolean).join('\n\n');
-      let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext });
-      if (targetAgentRole) {
-        systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext });
-      }
-
-      const selectedNodeContent = useDocumentStore.getState().selectedDocumentText || null;
       const currentWorkspaceTitle = useDataStore.getState().projects
         .flatMap(project => project.workspaces)
         .find(workspace => workspace.id === currentWorkspaceId)?.title;
+      const canonicalContext = await buildCanonicalProjectContext({
+        workspaceId: currentWorkspaceId,
+        workspaceTitle: currentWorkspaceTitle,
+        currentUserMessageId: msgId,
+        currentAiMessageId: aiMsgId,
+        currentUserMessage: messageText,
+        currentAttachments: newMsg.attachments,
+        messages: currentMessages,
+        document: documentContent,
+        projectMemory,
+        knowledgeBase,
+        memoryEnabled,
+        tokenBudget: promptSettings?.contextTokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET,
+        summarizeMessages: summarizeConversation,
+        retrieveKnowledge: query => searchWorkspaceKnowledge(
+          currentWorkspaceId,
+          query,
+          knowledgeBase,
+          6,
+        ),
+      });
+      useDocumentStore.getState().setContextDebug(canonicalContext.debug);
+
+      let systemInstruction = buildSystemPrompt({
+        role: 'SYSTEM',
+        settings: promptSettings,
+        additionalContext: canonicalContext.promptContext,
+      });
+      if (targetAgentRole) {
+        systemInstruction = buildSystemPrompt({
+          role: targetAgentRole,
+          settings: promptSettings,
+          additionalContext: canonicalContext.promptContext,
+        });
+      }
+
+      const selectedNodeContent = useDocumentStore.getState().selectedDocumentText || null;
       const streamAdapter = createAiStreamAdapter({
         channelRef,
         messageId: aiMsgId,
@@ -198,13 +200,13 @@ export const useMessages = (channelRef: any) => {
       });
       const loopOutput = await runSingleChatOrchestrator({
         userMessage: messageText,
-        history,
-        messageHistory: currentMessages,
+        history: canonicalContext.history,
+        messageHistory: canonicalContext.messageHistory,
         documentContent,
         workspaceId: currentWorkspaceId,
         workspaceTitle: currentWorkspaceTitle,
         projectMemory,
-        knowledgeBase,
+        knowledgeBase: canonicalContext.workspaceKnowledge,
         model: selectedModel,
         systemInstruction,
         signal: generationController.signal,
@@ -224,7 +226,7 @@ export const useMessages = (channelRef: any) => {
         initialText: fullText,
         existingDocument: documentContent,
         userMessage: messageText,
-        recentMessages: currentMessages,
+        recentMessages: canonicalContext.messageHistory,
         workspaceTitle: currentWorkspaceTitle,
         workspaceId: currentWorkspaceId,
         messageId: aiMsgId,
@@ -242,9 +244,8 @@ export const useMessages = (channelRef: any) => {
         try {
           const nextMemory = await persistTurnMemory({
             workspaceId: currentWorkspaceId,
-            messageId: aiMsgId,
+            messageId: msgId,
             userMessage: messageText,
-            aiMessage: fullText,
             document: finalDocument,
             currentMemory: useDocumentStore.getState().projectMemory || {},
           });
@@ -292,9 +293,23 @@ export const useMessages = (channelRef: any) => {
       } : m));
     } finally {
       if (memoryEnabled) {
-        extractKnowledgeItems(currentWorkspaceId, messageText).then(items => {
-          items.forEach(addKnowledge);
-        }).catch(console.error);
+        extractKnowledgeItems(currentWorkspaceId, messageText)
+          .then(async items => {
+            const sourcedItems = items.map(item => ({
+              ...item,
+              sourceType: 'user_message' as const,
+              sourceMessageId: msgId,
+            }));
+            try {
+              await saveWorkspaceKnowledgeItems(currentWorkspaceId, msgId, sourcedItems);
+            } catch (error) {
+              console.warn('Workspace knowledge persistence failed:', error);
+            }
+            if (useDataStore.getState().currentWorkspaceId === currentWorkspaceId) {
+              sourcedItems.forEach(addKnowledge);
+            }
+          })
+          .catch(console.error);
       }
 
       if (generationAbortRef.current === generationController) {

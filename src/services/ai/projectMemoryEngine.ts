@@ -86,9 +86,10 @@ function extractExplicitMemory(text: string, out: ProjectMemory): void {
 
 export function extractProjectMemoryUpdates(input: ProjectMemoryExtractionInput): ProjectMemory {
   const out: ProjectMemory = {};
-  const combined = [input.userMessage, input.aiMessage || ''].filter(Boolean).join('\n');
-  extractPreferenceMemory(combined, out);
-  extractExplicitMemory(combined, out);
+  // Canonical memory is user-authored. Assistant prose may contain useful
+  // hypotheses, but it must never silently become a locked project fact.
+  extractPreferenceMemory(input.userMessage, out);
+  extractExplicitMemory(input.userMessage, out);
   return out;
 }
 
@@ -99,11 +100,27 @@ export function mergeProjectMemory(existing: ProjectMemory = {}, updates: Projec
 }
 
 export function buildProjectMemoryContext(memory: ProjectMemory = {}): string {
-  const entries = Object.entries(memory);
+  const priority: Record<string, number> = {
+    decision: 100,
+    constraint: 95,
+    requirement: 90,
+    business_rule: 90,
+    user_memory: 88,
+    preference: 80,
+    term: 70,
+    open_question: 60,
+    assumption: 30,
+  };
+  const entries = Object.entries(memory)
+    .sort(([left], [right]) => (
+      (priority[right.split('.')[0]] || 50) - (priority[left.split('.')[0]] || 50)
+    ));
   if (!entries.length) return '';
   return [
-    '[PROJECT WORKING MEMORY - ZORUNLU]',
-    'Bu bilgiler bu workspace icin kalici tercih/karar hafizasidir. Kullanici aksini soylemedikce uygula.',
-    ...entries.slice(-24).map(([key, value]) => `- ${key}: ${value}`),
+    '[USER-SOURCED PROJECT MEMORY - ZORUNLU]',
+    'Bu kayıtlar aktif workspace için kullanıcı mesajından türetilmiştir.',
+    'decision/constraint/requirement kayıtları AI çıkarımı ve varsayımdan daha üstündür.',
+    'Kullanıcı açıkça düzeltmedikçe kilitli kararları ve kapsamı değiştirme.',
+    ...entries.slice(0, 30).map(([key, value]) => `- ${key}: ${value}`),
   ].join('\n');
 }

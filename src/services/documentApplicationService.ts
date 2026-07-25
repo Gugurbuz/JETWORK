@@ -4,6 +4,7 @@ import { postProcessDocumentData } from './documentPostProcessor';
 import { ensureDocumentActionSummary, hasDocumentIntent } from './aiMessagePresentation';
 import { failPendingOperation, markPendingOperationApplied } from './pendingOperationRepository';
 import { saveDocumentAndVersion } from '../utils/documentUtils';
+import { evaluateRevisionInvariant } from './ai/revisionInvariant';
 
 export interface DocumentApplicationResult {
   text: string;
@@ -31,6 +32,31 @@ export async function applyAiDocumentResult(input: {
   let scoreExplanation = input.existingDocument?.scoreExplanation;
 
   if (input.loopOutput.document) {
+    const protectsExistingBackbone = !!input.existingDocument
+      && ['revise_document', 'repair_document', 'execute_confirmed_change']
+        .includes(input.loopOutput.turnDecision?.action || '');
+    if (protectsExistingBackbone && input.existingDocument) {
+      const invariant = evaluateRevisionInvariant({
+        existing: input.existingDocument,
+        candidate: input.loopOutput.document,
+        userMessage: input.userMessage,
+      });
+      if (!invariant.allowed) {
+        return {
+          text: [
+            'Revizyon uygulanmadı: öneri mevcut proje kimliği veya kilitli kapsam omurgasıyla çelişiyor.',
+            ...invariant.violations.map(violation => `- ${violation}`),
+            'Proje adı veya kapsamı gerçekten değişecekse bunu açıkça belirt.',
+          ].join('\n'),
+          document: input.existingDocument,
+          changedSections: [],
+          score: input.existingDocument.score,
+          scoreExplanation: input.existingDocument.scoreExplanation,
+          applied: false,
+        };
+      }
+    }
+
     const processed = postProcessDocumentData(input.loopOutput.document, input.existingDocument, {
       sourceText: [
         input.userMessage,
