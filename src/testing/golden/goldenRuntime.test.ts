@@ -8,9 +8,9 @@ import type { Sprint0Baseline } from './types';
 const baselinePath = resolve(process.cwd(), 'artifacts/sprint0/golden-baseline.json');
 
 describe('Sprint 0 golden runtime contract', () => {
-  it('contains exactly 30 uniquely named scenarios', () => {
-    expect(goldenScenarios).toHaveLength(30);
-    expect(new Set(goldenScenarios.map(scenario => scenario.id)).size).toBe(30);
+  it('contains exactly 31 uniquely named scenarios', () => {
+    expect(goldenScenarios).toHaveLength(31);
+    expect(new Set(goldenScenarios.map(scenario => scenario.id)).size).toBe(31);
   });
 
   it.each(goldenScenarios)('$id — $title', (scenario) => {

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "scenarioCount": 30,
+  "scenarioCount": 31,
   "categoryCounts": {
-    "conversation": 4,
+    "conversation": 5,
     "discovery": 6,
     "drafting": 6,
     "revision": 6,
@@ -127,6 +127,35 @@
       "discoveryReason": ""
     },
     {
+      "id": "CONV-005",
+      "title": "Yapılandırılmış iş problemi önce anlaşılır ve doküman üretilmez",
+      "category": "conversation",
+      "action": "answer_only",
+      "artifactMode": "none",
+      "artifactProfile": "none",
+      "documentImpact": "none",
+      "operation": "none",
+      "targetSection": "businessAnalysis",
+      "shouldAsk": false,
+      "maxQuestions": 0,
+      "shouldUpdateDocument": false,
+      "visibleSections": [
+        "businessAnalysis",
+        "review"
+      ],
+      "allowAssumptions": false,
+      "requiresExternalResearch": false,
+      "officialSourceRequired": false,
+      "canClaimVerified": true,
+      "sourceSensitive": false,
+      "behaviorMode": "suggest_next_step",
+      "behaviorDomain": "operations_platform",
+      "cognitiveAction": "chat_only",
+      "sourceConfidence": 33,
+      "decisionConfidence": 40,
+      "discoveryReason": ""
+    },
+    {
       "id": "DISC-001",
       "title": "Seyrek SAP CRM AI fikri önce keşif ister",
       "category": "discovery",
@@ -137,7 +166,7 @@
       "operation": "none",
       "targetSection": "businessAnalysis",
       "shouldAsk": true,
-      "maxQuestions": 4,
+      "maxQuestions": 3,
       "shouldUpdateDocument": false,
       "visibleSections": [
         "businessAnalysis",
@@ -166,7 +195,7 @@
       "operation": "none",
       "targetSection": "businessAnalysis",
       "shouldAsk": true,
-      "maxQuestions": 4,
+      "maxQuestions": 3,
       "shouldUpdateDocument": false,
       "visibleSections": [
         "businessAnalysis",
@@ -195,7 +224,7 @@
       "operation": "none",
       "targetSection": "businessAnalysis",
       "shouldAsk": true,
-      "maxQuestions": 4,
+      "maxQuestions": 3,
       "shouldUpdateDocument": false,
       "visibleSections": [
         "businessAnalysis",
@@ -340,7 +369,7 @@
       "operation": "none",
       "targetSection": "businessAnalysis",
       "shouldAsk": true,
-      "maxQuestions": 4,
+      "maxQuestions": 3,
       "shouldUpdateDocument": false,
       "visibleSections": [
         "businessAnalysis",
@@ -873,11 +902,11 @@
       "officialSourceRequired": false,
       "canClaimVerified": true,
       "sourceSensitive": false,
-      "behaviorMode": "ask_clarifying_questions",
+      "behaviorMode": "suggest_next_step",
       "behaviorDomain": "generic_ba",
-      "cognitiveAction": "ask_first",
+      "cognitiveAction": "chat_only",
       "sourceConfidence": 25,
-      "decisionConfidence": 37,
+      "decisionConfidence": 36,
       "discoveryReason": ""
     }
   ]

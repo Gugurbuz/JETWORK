@@ -210,7 +210,7 @@ assert(shortBehavior.domain === 'sap_crm_iys', 'Short SAP IYS request should det
 assert(shortBehavior.requiredTemplate === 'corporate_conceptual_design', 'Short SAP IYS request should still bind to corporate template');
 assert(!shortBehavior.shouldUpdateDocument, 'Short SAP IYS request should not update the document before discovery or force-draft signal');
 assert(shortBehavior.shouldAskQuestions, 'Short SAP IYS request should ask targeted questions when the need is not clear');
-assert(shortBehavior.questionBudget === 4, 'Short SAP IYS request should allow four domain discovery questions');
+assert(shortBehavior.questionBudget === 3, 'Short SAP IYS request should allow at most three domain discovery questions');
 assert(shortBehavior.clarificationQuestions.some((item) => /marka/i.test(item)), 'Short SAP IYS request should ask IYS-specific questions');
 assert(shortBehavior.humanProfile.userIntent === 'new_project_idea', 'Short SAP IYS request should be treated as a new project idea');
 assert(shortBehavior.humanProfile.questionStrategy === 'domain_discovery', 'Short SAP IYS request should use domain discovery strategy');
@@ -675,7 +675,7 @@ const productMindClassification = buildClassification('generate_business_analysi
   reason: 'product_mind_pemp_trace',
 });
 const productMindBehavior = buildBehaviorDecision({
-  userMessage: pempRequest,
+  userMessage: `${pempRequest}\nBA analiz dokümanını hazırla.`,
   document: null,
   discoveryReadiness: 80,
   classification: productMindClassification,
