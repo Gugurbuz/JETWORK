@@ -65,7 +65,7 @@ test.describe('authenticated product flow', () => {
     await expect(panel).toContainText(/DOK.MAN TAR.H.ES./i);
     await expect(panel).toContainText(/NDEK.LER/i);
     await expect(panel).toContainText(/S.RE. MODEL./i);
-    await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/);
+    await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/i);
     await expect(panel).toContainText(/Uygunluk kontrol. ve onay/i);
     await expect(panel).toContainText(/ade sonucu ve kapan./i);
     await expect(panel).toContainText(/M.steri temsilcisi/i);
