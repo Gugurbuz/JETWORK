@@ -68,11 +68,11 @@ test.describe('authenticated product flow', () => {
     await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/i);
     await expect(panel).toContainText(/Uygunluk kontrol. ve onay/i);
     await expect(panel).toContainText(/ade sonucu ve kapan./i);
-    await expect(panel).toContainText(/M.steri temsilcisi/i);
+    await expect(panel).toContainText(/M[üÜuU][şŞ]teri temsilcisi/i);
     await expect(panel).toContainText(/Tamamlanma s.resi/i);
     await expect(panel).toContainText(/AKI. D.YAGRAMI/i);
-    await expect(panel).toContainText(/ST D.ZEY M.STER. GEL.T.RMES./i);
-    await expect(panel).toContainText(/DE.{1,6}M Y.NET.M./i);
+    await expect(panel).toContainText(/[üÜuU]ST D[üÜuU]ZEY M[üÜuU][şŞ]TER[iİıI] GEL[iİıI][şŞ]T[iİıI]RMES[iİıI]/i);
+    await expect(panel).toContainText(/DE[ĞGğg][iİıI][şŞ][iİıI]M Y[öÖoO]NET[iİıI]M[iİıI]/i);
     await expect(panel).toContainText(/EKLENT./i);
     await expect(panel).not.toContainText(/SAP|IYS|Findeks|KKB|D2D/i);
     await expect(page.getByTestId('interactive-questions')).toHaveCount(0);
