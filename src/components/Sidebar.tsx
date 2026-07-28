@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
+import { getActiveMemoryItems } from '../services/ai/projectMemoryEngine';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
@@ -41,6 +42,11 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const currentProjectId = useDataStore(state => state.currentProjectId);
   const projectMemory = useDocumentStore(state => state.projectMemory);
+  const memoryItems = useDocumentStore(state => state.memoryItems);
+  const activeMemoryItems = React.useMemo(
+    () => getActiveMemoryItems(memoryItems).slice(-8),
+    [memoryItems],
+  );
   const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
 
   const visibleProjects = React.useMemo(() => {
@@ -293,17 +299,31 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
           </div>
 
           {/* Project Memory Section */}
-          {Object.keys(projectMemory).length > 0 && (
+          {(activeMemoryItems.length > 0 || Object.keys(projectMemory).length > 0) && (
             <div className="mt-auto mb-4">
               <div className="flex items-center gap-2 mb-3 px-2">
                 <BrainCircuit size={14} className="text-theme-primary" />
                 <h3 className="text-[11px] font-bold text-theme-text-muted uppercase tracking-wider">Proje Hafızası</h3>
               </div>
               <div className="bg-theme-surface/50 border border-theme-border rounded-lg p-3 space-y-2">
-                {Object.entries(projectMemory).map(([key, value]) => (
-                  <div key={key} className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-theme-text-muted font-medium">{key}</span>
-                    <span className="text-xs text-theme-text font-semibold">{value}</span>
+                {(activeMemoryItems.length
+                  ? activeMemoryItems.map(item => ({
+                    id: item.id,
+                    key: item.key,
+                    value: item.value,
+                    provenance: `${item.sourceType} · ${item.confirmationStatus} · ${Math.round(item.confidence * 100)}%`,
+                  }))
+                  : Object.entries(projectMemory).map(([key, value]) => ({
+                    id: `legacy:${key}`,
+                    key,
+                    value,
+                    provenance: 'LEGACY · PROPOSED · 50%',
+                  }))
+                ).map(item => (
+                  <div key={item.id} className="flex flex-col gap-0.5">
+                    <span className="text-[10px] text-theme-text-muted font-medium">{item.key}</span>
+                    <span className="text-xs text-theme-text font-semibold">{item.value}</span>
+                    <span className="text-[9px] text-theme-text-muted">{item.provenance}</span>
                   </div>
                 ))}
               </div>

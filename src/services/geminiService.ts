@@ -2,6 +2,11 @@ import { supabase } from '../supabase';
 import { consumeSseBuffer, type SseEvent } from './sseParser';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+const runtimeEnv = (): Record<string, string | undefined> => (
+  (import.meta as any).env
+  || (typeof process !== 'undefined' ? process.env : {})
+  || {}
+);
 
 export class AiHttpError extends Error {
   constructor(
@@ -34,9 +39,13 @@ export const callGemini = async (params: {
   onChunk: (text: string, thinking?: string, tokenCount?: number, functionCalls?: any[]) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
 }) => {
+  const env = runtimeEnv();
   const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const token = session?.access_token || env.GOLDEN_SUPABASE_ACCESS_TOKEN || env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = env.VITE_SUPABASE_URL;
+  if (!supabaseUrl || !token) {
+    throw new Error('VITE_SUPABASE_URL and an access/anon token are required for AI requests.');
+  }
   const abortController = new AbortController();
   const abortFromParent = () => abortController.abort(params.signal?.reason);
   if (params.signal?.aborted) abortFromParent();
@@ -53,7 +62,7 @@ export const callGemini = async (params: {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+        apikey: env.VITE_SUPABASE_ANON_KEY || '',
       },
       body: JSON.stringify({
         model: params.model,

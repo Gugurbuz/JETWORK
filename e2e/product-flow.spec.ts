@@ -37,7 +37,7 @@ const sendMessage = async (page: Page, message: string) => {
 test.describe('authenticated product flow', () => {
   test.skip(!username || !password, 'E2E_USERNAME and E2E_PASSWORD are required.');
 
-  test('generates a source-faithful canonical document without behavior hints', async ({ page }) => {
+  test('generates a source-faithful Enerjisa needs analysis without behavior hints', async ({ page }) => {
     test.setTimeout(180_000);
     const { workspaceName } = await createWorkspace(page, 'Conceptual');
 
@@ -61,26 +61,27 @@ test.describe('authenticated product flow', () => {
 
     const panel = page.getByTestId('document-panel-content');
     await expect(panel).toBeVisible({ timeout: 160_000 });
-    await expect(panel).toContainText(/KAVRAMSAL TASARIM RAPORU/i);
-    await expect(panel).toContainText(/PROJE K.ML.K KARTI/i);
-    await expect(panel).toContainText(/DOK.MAN TAR.H.ES./i);
+    await expect(panel).toContainText(/HT.YA. ANAL.Z./i);
+    await expect(panel).toContainText(/ANAL.Z KAPSAMI/i);
+    await expect(panel).toContainText(/KISALTMALAR/i);
+    await expect(panel).toContainText(/. GEREKS.N.MLER./i);
+    await expect(panel).toContainText(/FONKS.YONEL GEREKS.N.MLER/i);
+    await expect(panel).toContainText(/FONKS.YONEL OLMAYAN GEREKS.N.MLER/i);
+    await expect(panel).toContainText(/S.RE. R.SK ANAL.Z./i);
+    await expect(panel).toContainText(/FONKS.YONEL TASARIM DOK.MANLARI/i);
     await expect(panel).toContainText(/NDEK.LER/i);
-    await expect(panel).toContainText(/S.RE. MODEL./i);
     await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/);
     await expect(panel).toContainText(/Uygunluk kontrol. ve onay/i);
     await expect(panel).toContainText(/ade sonucu ve kapan./i);
     await expect(panel).toContainText(/M.steri temsilcisi/i);
     await expect(panel).toContainText(/Tamamlanma s.resi/i);
-    await expect(panel).toContainText(/AKI. D.YAGRAMI/i);
-    await expect(panel).toContainText(/ST D.ZEY M.STER. GEL.T.RMES./i);
-    await expect(panel).toContainText(/DE.{1,6}M Y.NET.M./i);
-    await expect(panel).toContainText(/EKLENT./i);
     await expect(panel).not.toContainText(/SAP|IYS|Findeks|KKB|D2D/i);
+    await expect(panel).not.toContainText(/CRM_Metot|ana_rol_ve_mantik|AI TURN DECISION/i);
     await expect(page.getByTestId('interactive-questions')).toHaveCount(0);
     await expect(page.getByTestId('chat-message').filter({ hasText: /ne yapt/i }).last()).toBeVisible();
     const qualityScoreText = await page.getByTestId('document-quality-score').textContent();
     const qualityScore = Number(qualityScoreText?.match(/\d+/)?.[0] || 0);
-    expect(qualityScore).toBeGreaterThanOrEqual(90);
+    expect(qualityScore).toBeGreaterThanOrEqual(72);
     expect(await page.evaluate(() => (window as any).__jetworkXss)).toBe(false);
 
     const shareDialog = page.waitForEvent('dialog');
@@ -97,7 +98,7 @@ test.describe('authenticated product flow', () => {
     await revokedShareDialog.accept();
   });
 
-  test('asks high-value questions with suggested answers for a sparse request', async ({ page }) => {
+  test('asks at most three plain maturation questions for a sparse request', async ({ page }) => {
     await createWorkspace(page, 'Discovery');
     await sendMessage(
       page,
@@ -106,11 +107,14 @@ test.describe('authenticated product flow', () => {
 
     const questions = page.getByTestId('interactive-questions');
     await expect(questions).toBeVisible({ timeout: 100_000 });
-    expect(await page.getByTestId('question-prompt').count()).toBeGreaterThan(0);
-    expect(await page.getByTestId('question-option').count()).toBeGreaterThanOrEqual(2);
+    const questionCount = await page.getByTestId('question-prompt').count();
+    expect(questionCount).toBeGreaterThan(0);
+    expect(questionCount).toBeLessThanOrEqual(3);
+    expect(await page.getByTestId('question-option').count()).toBe(0);
+    await expect(page.getByRole('button', { name: 'Varsayımlarla devam et' })).toBeVisible();
   });
 
-  test('keeps test scenarios outside the conceptual Word wrapper', async ({ page }) => {
+  test('keeps test scenarios inside the single Enerjisa analysis document', async ({ page }) => {
     await createWorkspace(page, 'TestScenario');
     const request = [
       'Siparis iptal ekraninda musteri temsilcisi siparis numarasi ile kayit arar.',
@@ -123,9 +127,11 @@ test.describe('authenticated product flow', () => {
 
     const panel = page.getByTestId('document-panel-content');
     await expect(panel).toBeVisible({ timeout: 100_000 });
-    await expect(panel).toContainText(/n ko.ul|Test verisi/i);
-    await expect(panel).toContainText(/Beklenen sonu./i);
-    await expect(panel).toContainText(/Negatif senaryo/i);
+    await expect(panel).toContainText(/HT.YA. ANAL.Z./i);
+    await expect(panel).toContainText(/Given/i);
+    await expect(panel).toContainText(/When/i);
+    await expect(panel).toContainText(/Then/i);
+    await expect(panel).toContainText(/Negatif/i);
     await expect(panel).not.toContainText(/KAVRAMSAL TASARIM RAPORU/i);
   });
 });

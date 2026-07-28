@@ -7,12 +7,14 @@ import { nowIso } from '../lib/mapping';
 import { DEFAULT_PROMPT_SETTINGS } from '../services/promptEngine';
 import { PromptSettings, PromptVersion } from '../types';
 import { toast } from 'sonner';
+import { useDocumentStore } from '../store/useDocumentStore';
 
 export const AISettingsModal: React.FC = () => {
   const showAISettingsModal = useUIStore(state => state.showAISettingsModal);
   const setShowAISettingsModal = useUIStore(state => state.setShowAISettingsModal);
   const promptSettings = useSettingsStore(state => state.promptSettings);
   const setPromptSettings = useSettingsStore(state => state.setPromptSettings);
+  const contextDebug = useDocumentStore(state => state.lastAnalystContextDebug);
   const [localSettings, setLocalSettings] = useState<PromptSettings | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'personas' | 'fewshot' | 'memory' | 'versions'>('general');
   const [isSaving, setIsSaving] = useState(false);
@@ -236,19 +238,52 @@ export const AISettingsModal: React.FC = () => {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Aktif Bağlam Penceresi Boyutu (Mesaj Sayısı)
+          Aktif Bağlam Bütçesi (Seviye)
         </label>
         <input
           type="number"
-          min="5"
-          max="50"
+          min="4"
+          max="20"
           className="w-full p-2 border rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white text-sm"
           value={localSettings.contextWindowSize ?? 10}
           onChange={(e) => setLocalSettings({ ...localSettings, contextWindowSize: parseInt(e.target.value) || 10 })}
         />
         <p className="text-xs text-gray-500 mt-1">
-          Yapay zekaya gönderilecek son mesaj sayısı. Bu sayıyı aştığında, eski mesajlar otomatik olarak özetlenip hafızaya (RAG) aktarılır.
+          Ham mesaj sayısı yerine yaklaşık token bütçesini belirler. Her seviye yaklaşık 600 token’dır; eski konuşmalar mevcut turdan önce özetlenir.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Son AI turu bağlam denetimi</h3>
+        {!contextDebug ? (
+          <p className="mt-2 text-xs text-gray-500">Bu oturumda henüz hazırlanmış bir AI bağlamı yok.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-600 dark:text-gray-300">
+            <div><span className="font-semibold">Yaklaşık token:</span> {contextDebug.approximateRecentTokens}</div>
+            <div><span className="font-semibold">Seçilen mesaj:</span> {contextDebug.selectedMessageIds.length}</div>
+            <div><span className="font-semibold">Özetlenen mesaj:</span> {contextDebug.summarizedMessageCount}</div>
+            <div><span className="font-semibold">Dışlanan kayıt:</span> {contextDebug.excludedMessageIds.length}</div>
+            <div><span className="font-semibold">RAG kaynağı:</span> {contextDebug.selectedKnowledgeIds.length}</div>
+            <div><span className="font-semibold">Hafıza kaydı:</span> {contextDebug.selectedMemoryIds.length}</div>
+            <div><span className="font-semibold">Yaşayan belge:</span> {contextDebug.artifactPresent ? 'Dahil' : 'Yok'}</div>
+            <div className="col-span-2 break-all">
+              <span className="font-semibold">Belge revizyonu:</span>{' '}
+              {contextDebug.artifactRevisionId || (contextDebug.artifactPresent ? 'Eski metadata yok' : 'Yok')}
+            </div>
+            <div className="col-span-2 break-all">
+              <span className="font-semibold">Mesaj kimlikleri:</span>{' '}
+              {contextDebug.selectedMessageIds.join(', ') || 'Yok'}
+            </div>
+            <div className="col-span-2 break-all">
+              <span className="font-semibold">Bilgi kaynağı kimlikleri:</span>{' '}
+              {contextDebug.selectedKnowledgeIds.join(', ') || 'Yok'}
+            </div>
+            <div className="col-span-2 break-all">
+              <span className="font-semibold">Hafıza kimlikleri:</span>{' '}
+              {contextDebug.selectedMemoryIds.join(', ') || 'Yok'}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,1474 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28T18:54:55.157Z",
+  "model": "gemini-3-flash-preview",
+  "summary": {
+    "scenarioCount": 30,
+    "averageScore": 79,
+    "actionAccuracy": 57,
+    "criterionScores": {
+      "contextPreservation": 80,
+      "avoidsUnnecessaryQuestions": 63,
+      "capturesCriticalGaps": 80,
+      "businessRuleQuality": 93,
+      "factAssumptionSeparation": 87,
+      "processDepth": 97,
+      "documentConsistency": 53,
+      "previousDecisionPreservation": 73
+    },
+    "failedScenarioIds": [
+      "aianalyst-01-sparse-discovery",
+      "aianalyst-04-answer-continues-discovery",
+      "aianalyst-06-selected-content",
+      "aianalyst-09-review-artifact",
+      "aianalyst-10-explain-only",
+      "aianalyst-11-conflicting-decision",
+      "aianalyst-12-sensitive-integration",
+      "aianalyst-13-preserve-approved-scope",
+      "aianalyst-14-question-cap",
+      "aianalyst-15-fact-assumption-separation",
+      "jetwork-01-current-turn-once",
+      "jetwork-02-empty-typing-ignored",
+      "jetwork-03-summary-preserves-decision",
+      "jetwork-04-retrieve-business-rule",
+      "jetwork-05-ai-output-not-fact",
+      "jetwork-06-supersede-decision",
+      "jetwork-07-conceptual-design",
+      "jetwork-08-review-only-patch",
+      "jetwork-09-explicit-web-research",
+      "jetwork-10-no-false-verification",
+      "jetwork-11-risky-delete-preview",
+      "jetwork-12-selected-node-update",
+      "jetwork-13-previous-decision",
+      "jetwork-14-new-standalone-topic"
+    ]
+  },
+  "results": [
+    {
+      "scenarioId": "aianalyst-01-sparse-discovery",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Belirsiz fikirde yalnız kritik keşif soruları",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-01-sparse-discovery",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 0,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 88,
+        "failures": [
+          "capturesCriticalGaps"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-02-detailed-first-draft",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Yeterli bağlamda doğrudan ilk analiz",
+      "actual": {
+        "action": "CREATE_ARTIFACT",
+        "text": "Müşteri temsilcisi portalı üzerinden başlayıp finans onayı ve ödeme servisi ile tamamlanan iade süreci için kavramsal analiz taslağını hazırladım. ERP entegrasyonu, finansal onay mekanizması ve hata durumunda operasyon kuyruğuna aktarım kurgusunu iş kuralı olarak yapılandırdım. Eksik kalan entegrasyon detayları ve kullanıcı rollerini varsayımlarla işaretledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | Müşteri İade Yönetim Sistemi |\n| İş Problemi | [ÇIKARIM] Müşteri iade taleplerinin manuel ve kopuk sistemler üzerinde takibi nedeniyle oluşan operasyonel yük ve hak ediş kontrolü hataları. |\n| Mevcut Durum | [VARSAYIM] İade taleplerinin yönetimi ve hak ediş kontrolü için entegre bir sistem yapısı bulunmamaktadır. |\n| Hedef Durum | [KAYNAKTA] Portal üzerinden açılan, ERP ile hak ediş kontrolü yapan, finans onaylı ve otomatik ödeme entegrasyonlu bir iade yönetim süreci. |\n| Kapsam Dahili | [KAYNAKTA] Müşteri temsilcisi portal iade giriş ekranı; [KAYNAKTA] ERP hak ediş kontrol entegrasyonu; [KAYNAKTA] Finans onay akışı; [KAYNAKTA] Ödeme servisi entegrasyonu; [KAYNAKTA] Operasyonel hata kuyruğu yönetimi |\n| Kapsam Dışı | [VARSAYIM] Müşteri tarafı iade talep giriş ekranı (B2C/Mobil); [VARSAYIM] Fiziksel ürün lojistik ve depo kabul süreçleri |\n| Kısıtlar | [ÇIKARIM] ERP sisteminin iade hak ediş sorgulama API desteği sağlaması gerekir.; [VARSAYIM] Ödeme servisi ile gerçek zamanlı mutabakat sağlanmalıdır. |\n| Başarı Metrikleri | [ÇIKARIM] İade talebi oluşturma süresi; [ÇIKARIM] Finans onay süresi; [ÇIKARIM] Ödeme hata oranı |\n\n## 2. AMAÇ\n\n[ÇIKARIM] İade süreçlerini dijitalleştirmek, finansal kayıpları önlemek ve ödeme hızını artırmak.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | Müşteri Temsilciliği Operasyon Lideri | VARSAYIM |\n| PART-02 | Finans Birim Yöneticisi | VARSAYIM |\n| PART-03 | Sistem Mimarı | VARSAYIM |\n\n### 3.2. REVİZE TARİH\n\n[ÇIKARIM] 24.05.2024\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | Operasyon Müdürü | AÇIK KONU |\n| APR-02 | Finans Direktörü | AÇIK KONU |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Müşteri İade Talebi ve Ödeme Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Müşteri İade Talebi ve Ödeme Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[KAYNAKTA] Portal üzerinden başlatılan iade talebinin ERP kontrolü, finans onayı ve otomatik ödeme adımlarıyla sonuçlandırılması sürecidir.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [KAYNAKTA] Müşteri Temsilcisi; [KAYNAKTA] ERP Sistemi; [KAYNAKTA] Finans Onaycısı; [KAYNAKTA] Ödeme Servisi; [KAYNAKTA] Operasyon Ekipleri |\n| Tetikleyici | [KAYNAKTA] Müşteri temsilcisinin portal üzerinden iade girişini yapması. |\n| Ön Koşullar | [ÇIKARIM] İadeye konu olan siparişin ERP üzerinde kayıtlı olması.; [VARSAYIM] Müşterinin ödeme bilgilerinin sistemde tanımlı olması. |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Manuel hak ediş kontrolleri yerine ERP entegrasyonu ile otomatik kontrol sağlanacak. | ÇIKARIM |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | Tüm iade talepleri için ERP'den hak ediş onayı alınmalıdır. | KAYNAKTA |\n| REQ-1-02 | Hatalı ödeme işlemleri en geç 5 dakika içinde operasyon kuyruğuna düşmelidir. | VARSAYIM |\n| REQ-1-03 | İade tutarı, ERP'den dönen hak ediş tutarını aşamaz. | ÇIKARIM |\n| REQ-1-04 | Yalnızca finans onayı tamamlanmış talepler ödeme servisine gönderilir. | KAYNAKTA |\n| REQ-1-05 | Ödeme servisi hata dönerse talep statüsü 'Operasyon Kuyruğunda' olarak güncellenir. | KAYNAKTA |\n| REQ-1-06 | ERP iade edilebilirlik kontrolü | KAYNAKTA |\n| REQ-1-07 | Tutar ve para birimi doğrulaması | ÇIKARIM |\n| REQ-1-08 | Müşteri ID, Sipariş ID, İade Tutarı, İade Nedeni, Ödeme Metodu | VARSAYIM |\n| REQ-1-09 | İade Talep Giriş Formu | ÇIKARIM |\n| REQ-1-10 | Finans Onay İş Listesi | ÇIKARIM |\n| REQ-1-11 | Operasyon Hata Takip Ekranı | ÇIKARIM |\n| REQ-1-12 | ERP Hak Ediş Sorgulama API | KAYNAKTA |\n| REQ-1-13 | Ödeme Servisi Tetikleme API | KAYNAKTA |\n| REQ-1-14 | İade Onay Dekontu / Bilgisi | VARSAYIM |\n| REQ-1-15 | Hata Kayıt Logu | ÇIKARIM |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Müşteri Temsilcisi | Müşteri temsilcisi portal üzerinden iade talebini girer. | Giriş ekranını sunar ve verileri toplar. | KAYNAKTA |\n| 2 | ERP Sistemi | Sistem ERP'ye hak ediş sorgusu gönderir. | Sipariş geçmişine göre iade edilebilir tutarı döner. | KAYNAKTA |\n| 3 | Finans Onaycısı | İade talebi finans onayına düşer. | Talebi onay listesine ekler. | KAYNAKTA |\n| 4 | Ödeme Servisi | Finans onayından sonra ödeme servisi tetiklenir. | Ödemeyi gerçekleştirir ve sonuç döner. | KAYNAKTA |\n| 5 | Operasyon Ekipleri | Hata durumunda talep operasyon kuyruğuna aktarılır. | Hatalı işlemi takip kuyruğuna taşır. | KAYNAKTA |\n\n**Alternatif Akışlar**\n\n- [ÇIKARIM] Hak ediş kontrolü başarısız ise temsilciye hata mesajı gösterilir ve talep açılmaz.\n\n**İstisnalar ve Hata Davranışları**\n\n- [KAYNAKTA] Entegrasyon hataları (ERP/Ödeme) operasyon kuyruğuna yönlendirilir.\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Müşteri temsilcisi portal üzerinden iade talebini girer.\"]\n  S2[\"Sistem ERP'ye hak ediş sorgusu gönderir.\"]\n  S3[\"İade talebi finans onayına düşer.\"]\n  S4[\"Finans onayından sonra ödeme servisi tetiklenir.\"]\n  S5[\"Hata durumunda talep operasyon kuyruğuna aktarılır.\"]\n  S1 --> S2\n  S2 --> S3\n  S3 --> S4\n  S4 --> S5\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [VARSAYIM] Müşteri İletişim Yönetimi\n- [VARSAYIM] Finansal Mutabakat Süreci\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Musteri veya kullanici deneyimi gelistirmeleri netlestirilmelidir. | AÇIK KONU |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Uyarlama ihtiyaclari netlestirilmelidir. | AÇIK KONU |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Müşteri temsilcilerine yeni portal ekranı eğitimi verilecek. | VARSAYIM |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [AÇIK KONU] Ilgili veya referans dokuman bildirilmedi.\n\n### 6.2. EKLENTİ\n\n- [AÇIK KONU] Eklenti bildirilmedi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Müşteri temsilcisi portalda iade talebi açacaktır. | INFERRED | Kaynak eklenmedi. | 1.00 |\n| ERP hak edişi kontrol edecektir. | INFERRED | Kaynak eklenmedi. | 1.00 |\n| Hata durumunda operasyon kuyruğuna düşecektir. | INFERRED | Kaynak eklenmedi. | 1.00 |\n\n## 2. RİSKLER\n\n- [ÇIKARIM] ERP sistemindeki veri gecikmeleri nedeniyle yanlış hak ediş hesaplanması.\n- [ÇIKARIM] Ödeme servisi kesintilerinde operasyon kuyruğunda yığılma yaşanması.\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Ödeme servisi olarak kurumsal bir banka veya ödeme kuruluşu API'si kullanılacaktır.\n- [VARSAYIM] Portal ve ERP arasındaki haberleşme senkron mimaride kurgulanacaktır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] Hangi durumlarda iadenin reddedileceği (iş kuralları listesi).\n- [AÇIK KONU] Operasyon kuyruğuna düşen kayıtlar için SLA süreleri.\n- [AÇIK KONU] Finans onayının tutar bazlı bir delegasyon yapısına sahip olup olmayacağı.\n\n## 5. ÇELİŞKİLER\n\n- [AÇIK KONU] Kaynaklarda belirgin bir celiski saptanmadi.\n\n## 6. HIZLI AKSİYONLAR\n\n- [ÇIKARIM] ERP entegrasyon dökümanlarının incelenmesi.\n- [ÇIKARIM] Ödeme servisi hata kodlarının listelenmesi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": [
+            {
+              "claimId": "cl1",
+              "claim": "Müşteri temsilcisi portalda iade talebi açacaktır.",
+              "status": "INFERRED",
+              "confidence": 1
+            },
+            {
+              "claimId": "cl2",
+              "claim": "ERP hak edişi kontrol edecektir.",
+              "status": "INFERRED",
+              "confidence": 1
+            },
+            {
+              "claimId": "cl3",
+              "claim": "Hata durumunda operasyon kuyruğuna düşecektir.",
+              "status": "INFERRED",
+              "confidence": 1
+            }
+          ]
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-02-detailed-first-draft",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      }
+    },
+    {
+      "scenarioId": "aianalyst-03-proceed-with-assumptions",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Varsayımlarla ilerle talebinde üretimi durdurmama",
+      "actual": {
+        "action": "CREATE_ARTIFACT",
+        "text": "Detayların henüz netleşmediği bilgisini aldım; bu nedenle sektör standartlarına dayalı varsayımlarla ilerleyerek ilk kavramsal tasarım taslağını oluşturdum. Mevcut durumda doküman, temel bir iş akışı ve genel gereksinimler çerçevesinde şekillendirilmiştir. Eksik kalan kısımları ve doğrulanması gereken noktaları 'Review' sekmesinde açık konular olarak işaretledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | Yeni Nesil İş Süreçleri Kavramsal Tasarımı |\n| İş Problemi | [VARSAYIM] Netleşmemiş proje gereksinimleri ve süreç belirsizlikleri nedeniyle operasyonel yol haritasının oluşturulamaması. |\n| Mevcut Durum | [VARSAYIM] Henüz tanımlanmamış manuel süreçler veya mevcut sistemlerdeki yapısal eksiklikler. |\n| Hedef Durum | [VARSAYIM] Standartlaştırılmış, dijitalleşmiş ve izlenebilir bir iş süreci altyapısının kurulması. |\n| Kapsam Dahili | [VARSAYIM] Temel süreç akışlarının tasarımı; [VARSAYIM] Sistem aktörlerinin ve rollerinin belirlenmesi |\n| Kapsam Dışı | [VARSAYIM] Detaylı teknik mimari çizimleri; [VARSAYIM] Yazılım geliştirme ve kodlama aşaması |\n| Kısıtlar | [AÇIK KONU] Proje takvimindeki belirsizlikler |\n| Başarı Metrikleri | [VARSAYIM] Kavramsal tasarımın paydaşlarca onaylanma oranı |\n\n## 2. AMAÇ\n\n[ÇIKARIM] Proje kapsamını netleştirmek ve teknik geliştirme öncesi kavramsal mutabakat sağlamak.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | JetWork AI (Principal Engineer / Solution Architect) | ÇIKARIM |\n\n### 3.2. REVİZE TARİH\n\n[ÇIKARIM] 2024-05-22\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | [Müşteri Proje Sorumlusu] | AÇIK KONU |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Temel İşlem Yönetimi Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Temel İşlem Yönetimi Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[VARSAYIM] Sisteme girişten sonuç çıktısına kadar olan ana işlem döngüsünü kapsar.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [VARSAYIM] Sistem Kullanıcısı; [VARSAYIM] Sistem Yöneticisi |\n| Tetikleyici | [VARSAYIM] Kullanıcının sisteme işlem talebi göndermesi |\n| Ön Koşullar | [VARSAYIM] Kullanıcının sisteme yetkili giriş yapmış olması |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Manuel takipten sistem tabanlı otomatik takibe geçiş | ÇIKARIM |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | İşlem süresinin minimize edilmesi | VARSAYIM |\n| REQ-1-02 | Eksik verili işlemler işleme alınmaz. | VARSAYIM |\n| REQ-1-03 | Veri formatı doğruluğu | VARSAYIM |\n| REQ-1-04 | Kullanıcı Kimlik Bilgileri | VARSAYIM |\n| REQ-1-05 | İşlem Kayıt Verileri | VARSAYIM |\n| REQ-1-06 | İşlem Durum İzleme Ekranı | VARSAYIM |\n| REQ-1-07 | Loglama servisi entegrasyonu | VARSAYIM |\n| REQ-1-08 | İşlem Onay Belgesi / Numarası | VARSAYIM |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Kullanıcı | Kullanıcı işlem formunu doldurur. | Form alanlarını valide eder. | VARSAYIM |\n| 2 | Sistem | Sistem işlemi kaydeder. | Veritabanına asenkron yazar. | VARSAYIM |\n\n**Alternatif Akışlar**\n\n- [VARSAYIM] Hatalı veri durumunda kullanıcıya geri bildirim verilmesi\n\n**İstisnalar ve Hata Davranışları**\n\n- [VARSAYIM] Bağlantı kopması durumunda işlemin askıya alınması\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Kullanıcı işlem formunu doldurur.\"]\n  S2[\"Sistem işlemi kaydeder.\"]\n  S1 --> S2\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [ÇIKARIM] Raporlama Süreci\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Kuruma özel dashboard tasarımları | AÇIK KONU |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Mevcut ERP entegrasyonu uyarlaması | AÇIK KONU |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Kullanıcı eğitim dokümanlarının hazırlanması | VARSAYIM |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [ÇIKARIM] İş İhtiyaç Dokümanı (Taslak)\n\n### 6.2. EKLENTİ\n\n- [AÇIK KONU] Süreç Akış Diyagramı v0.1",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Kullanıcı varsayımlarla ilerlenmesini talep etmiştir. | INFERRED | Kaynak eklenmedi. | 1.00 |\n\n## 2. RİSKLER\n\n- [VARSAYIM] Netleşmeyen gereksinimlerin ileride kapsam değişikliğine (scope creep) yol açma riski.\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Sistemin standart bir web/bulut altyapısında çalışacağı varsayılmıştır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] Entegre olunacak dış sistemlerin listesi ve API yetenekleri.\n- [AÇIK KONU] Projenin yasal/mevzuat kısıtları.\n\n## 5. ÇELİŞKİLER\n\n- [AÇIK KONU] Kaynaklarda belirgin bir celiski saptanmadi.\n\n## 6. HIZLI AKSİYONLAR\n\n- [ÇIKARIM] Ana paydaşlarla kapsam netleştirme toplantısı organize edilmeli.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": [
+            {
+              "claimId": "CL-001",
+              "claim": "Kullanıcı varsayımlarla ilerlenmesini talep etmiştir.",
+              "status": "INFERRED",
+              "confidence": 1
+            }
+          ]
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-03-proceed-with-assumptions",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      }
+    },
+    {
+      "scenarioId": "aianalyst-04-answer-continues-discovery",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Keşif yanıtını yeni konu saymama",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Kaynak sistem, hedef sistem ve ana veri sahibi hangi uygulamadir?\nKarar etkisi: Sistem sahipligi yanlis varsayilirsa entegrasyon ve veri modeli pahali sekilde yeniden tasarlanir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Uyum/risk azaltma",
+              "Gelir veya satis verimliligi",
+              "Operasyonel hiz ve kalite",
+              "Varsayimlarla ilerle"
+            ]
+          },
+          {
+            "id": "q3",
+            "text": "Entegrasyon senkron mu, asenkron mu, batch mi calismali; hata ve retry sorumlulugu kimde?\nKarar etkisi: Entegrasyon karari performans, UX, veri tutarliligi ve operasyon sorumlulugunu degistirir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Senkron API",
+              "Asenkron kuyruk/delta",
+              "Batch/dosya aktarimi",
+              "Karar acik konu kalsin"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-04-answer-continues-discovery",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 0,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 63,
+        "failures": [
+          "Eylem uyumsuz: ASK",
+          "avoidsUnnecessaryQuestions",
+          "businessRuleQuality",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-05-living-document",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Yaşayan dokümanı yeni bilgiyle güncelleme",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Mutabakat sürecine günlük otomatik kontrol mekanizması ve başarısızlık durumunda operasyonel uyarı kuralı eklendi. Taslağı inceleyebilirsin.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | Ödeme ve ERP Entegrasyon Yönetimi |\n| İş Problemi | [ÇIKARIM] Ödeme işlemleri sonrası ERP kayıtlarının manuel takibi veya gecikmeli kontrolü nedeniyle veri tutarsızlığı riski. |\n| Mevcut Durum | [KAYNAKTA] Ödeme tamamlanınca ERP kaydı oluşturulur ancak mutabakat ve hata bildirimi manuel/belirsizdir. |\n| Hedef Durum | [VARSAYIM] Ödeme sonrası ERP kaydı otomatik oluşturulur; günlük mutabakat kontrolü ile hatalar anında operasyona bildirilir. |\n| Kapsam Dahili | [KAYNAKTA] Günlük otomatik mutabakat kontrolü; [KAYNAKTA] Başarısız kayıtlar için operasyon uyarısı |\n| Kapsam Dışı | [VARSAYIM] ERP dışı muhasebe sistemleri |\n| Kısıtlar | [AÇIK KONU] ERP API erişim limitleri |\n| Başarı Metrikleri | [VARSAYIM] Hatalı mutabakatların operasyona bildirim süresi < 1 saat |\n\n## 2. AMAÇ\n\n[ÇIKARIM] Finansal verilerin doğruluğunu sağlamak ve operasyonel hatalara müdahale süresini kısaltmak.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | JetWork AI | KAYNAKTA |\n\n### 3.2. REVİZE TARİH\n\n[ÇIKARIM] 2024-05-22\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | Kontrol eden ve onaylayan roller netlestirilmelidir. | AÇIK KONU |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Ödeme ve ERP Mutabakat Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Ödeme ve ERP Mutabakat Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[ÇIKARIM] Ödemelerin ERP'ye doğru işlendiğinin günlük olarak denetlenmesi ve hata yönetimini kapsar.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [ÇIKARIM] Sistem (Scheduler); [KAYNAKTA] Operasyon Ekibi |\n| Tetikleyici | [KAYNAKTA] Günlük periyodik zamanlayıcı (Scheduler) |\n| Ön Koşullar | [VARSAYIM] Günlük ödeme işlemlerinin tamamlanmış olması |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Mutabakat adımı manuelden otomatik kontrol moduna geçirildi. | ÇIKARIM |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | Mutabakat kontrolü her gün belirlenen saatte (örn. 03:00) çalışmalıdır. | VARSAYIM |\n| REQ-1-02 | Sistem her gün otomatik olarak ödeme kayıtları ile ERP kayıtlarını karşılaştırır. | KAYNAKTA |\n| REQ-1-03 | Kayıt eşleşmezse veya hata alınırsa operasyon ekibine acil uyarı gönderilir. | KAYNAKTA |\n| REQ-1-04 | Ödeme ID ve tutar ERP'deki karşılığı ile birebir eşleşmelidir. | ÇIKARIM |\n| REQ-1-05 | Ödeme logları, ERP entegrasyon kayıtları | ÇIKARIM |\n| REQ-1-06 | Operasyon paneli üzerinde 'Başarısız Mutabakatlar' sekmesi | VARSAYIM |\n| REQ-1-07 | ERP Mutabakat Servisi / API | ÇIKARIM |\n| REQ-1-08 | Günlük Mutabakat Raporu, Operasyonel Uyarılar | ÇIKARIM |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Sistem | Sistem günlük kontrolü başlatır. | Periyodik görev tetiklenir. | ÇIKARIM |\n| 2 | Sistem | Ödeme ve ERP kayıtları karşılaştırılır. | Veritabanı ve ERP API sorgulaması yapılır. | KAYNAKTA |\n| 3 | Sistem | Hatalı veya eksik kayıt tespiti. | Eşleşmeyen kayıtlar listelenir. | ÇIKARIM |\n| 4 | Sistem | Operasyon ekibine uyarı gönderilir. | E-posta veya sistem içi bildirim üretilir. | KAYNAKTA |\n\n**Alternatif Akışlar**\n\n- [AÇIK KONU] Alternatif akislar netlestirilmelidir.\n\n**İstisnalar ve Hata Davranışları**\n\n- [VARSAYIM] ERP servisine erişilememesi durumunda kontrol 1 saat sonra tekrar denenir.\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Sistem günlük kontrolü başlatır.\"]\n  S2[\"Ödeme ve ERP kayıtları karşılaştırılır.\"]\n  S3[\"Hatalı veya eksik kayıt tespiti.\"]\n  S4[\"Operasyon ekibine uyarı gönderilir.\"]\n  S1 --> S2\n  S2 --> S3\n  S3 --> S4\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [KAYNAKTA] Ödeme Alma Süreci\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Musteri veya kullanici deneyimi gelistirmeleri netlestirilmelidir. | AÇIK KONU |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Uyarlama ihtiyaclari netlestirilmelidir. | AÇIK KONU |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Operasyon ekibine yeni uyarı mekanizması hakkında bilgilendirme yapılmalıdır. | VARSAYIM |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [AÇIK KONU] Ilgili veya referans dokuman bildirilmedi.\n\n### 6.2. EKLENTİ\n\n- [AÇIK KONU] Eklenti bildirilmedi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Mutabakat adımına günlük otomatik kontrol eklenmesi. | INFERRED | Kaynak eklenmedi. | 1.00 |\n| Başarısızlıkta operasyon uyarısı eklenmesi. | INFERRED | Kaynak eklenmedi. | 1.00 |\n\n## 2. RİSKLER\n\n- [VARSAYIM] ERP sisteminin cevap vermediği durumlarda uyarı kirliliği oluşabilir.\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Mutabakat kontrolünün her gece 03:00'te yapılacağı varsayılmıştır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] Operasyon uyarısının hangi kanal üzerinden (Mail, SMS, Slack vb.) yapılacağı netleşmelidir.\n\n## 5. ÇELİŞKİLER\n\n- [AÇIK KONU] Kaynaklarda belirgin bir celiski saptanmadi.\n\n## 6. HIZLI AKSİYONLAR\n\n- [ÇIKARIM] Bildirim kanallarının ve alıcı listesinin belirlenmesi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": [
+            {
+              "claimId": "c1",
+              "claim": "Mutabakat adımına günlük otomatik kontrol eklenmesi.",
+              "status": "INFERRED",
+              "confidence": 1
+            },
+            {
+              "claimId": "c2",
+              "claim": "Başarısızlıkta operasyon uyarısı eklenmesi.",
+              "status": "INFERRED",
+              "confidence": 1
+            }
+          ]
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-05-living-document",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      }
+    },
+    {
+      "scenarioId": "aianalyst-06-selected-content",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Seçili bölümü hedefli güncelleme",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Seçili metni \"businessAnalysis\" bölümünde güncelledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "Entegrasyon hatası (Hata Kodu: ERR-INT-01) alınması durumunda, işlem 5 dakika aralıklarla toplam 3 kez otomatik olarak tekrar denenir.",
+            "status": "DRAFT",
+            "flags": []
+          }
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-06-selected-content",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 0,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 0
+        },
+        "score": 75,
+        "failures": [
+          "contextPreservation",
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-07-process-diagram-in-analysis",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Akışı ayrı ürün yerine analiz içinde geliştirme",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Masraf onay sürecini; talep oluşturma, kontrol, yönetici onayı, ret mekanizması ve otomatik bildirim adımlarını içerecek şekilde 'Kavramsal Tasarım Raporu' standartlarında detaylandırdım. Süreçteki kritik kontrol noktalarını ve sistem davranışlarını analiz bölümlerine işledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | Masraf Onay Sistemi Geliştirmesi |\n| İş Problemi | [ÇIKARIM] Masraf taleplerinin manuel takibi, kontrol süreçlerindeki gecikmeler ve standart bir onay hiyerarşisinin eksikliği. |\n| Mevcut Durum | [VARSAYIM] Masraf talepleri mevcut durumda yapılandırılmamış kanallar üzerinden ilerlemekte, kontrol ve onay adımları izlenememektedir. |\n| Hedef Durum | [KAYNAKTA] Talepten bildirime kadar tüm adımların sistem üzerinde izlendiği, otomatik kontrol ve onay mekanizmalarına sahip dijital süreç. |\n| Kapsam Dahili | [VARSAYIM] Masraf talebi girişi ve doküman yükleme; [KAYNAKTA] Finansal kontrol ve uygunluk denetimi; [KAYNAKTA] Hiyerarşik onay ve ret süreçleri; [KAYNAKTA] Durum bazlı otomatik bilgilendirmeler |\n| Kapsam Dışı | [VARSAYIM] Muhasebe kayıtlarının ERP entegrasyonu (Faz 2); [VARSAYIM] Ödeme operasyonunun gerçekleştirilmesi |\n| Kısıtlar | [ÇIKARIM] Şirket harcama politikalarına tam uyum |\n| Başarı Metrikleri | [VARSAYIM] Ortalama onay süresinin %40 azaltılması |\n\n## 2. AMAÇ\n\n[ÇIKARIM] Masraf yönetim operasyonunu standardize etmek, onay sürelerini kısaltmak ve şeffaflığı artırmak.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | JetWork AI (Principal Engineer / BA) | KAYNAKTA |\n\n### 3.2. REVİZE TARİH\n\n[ÇIKARIM] 2024-05-22\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | [Müşteri Proje Sorumlusu] | AÇIK KONU |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Masraf Talep ve Onay Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Masraf Talep ve Onay Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[KAYNAKTA] Çalışan tarafından başlatılan masraf talebinin kontrol, onay ve bilgilendirme döngüsünü kapsayan uçtan uca süreçtir.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [KAYNAKTA] Talep Sahibi (Çalışan); [KAYNAKTA] Kontrolör (Finans/İK); [KAYNAKTA] Onaylayıcı (Yönetici); [KAYNAKTA] Sistem (Otomatik Bildirimler) |\n| Tetikleyici | [ÇIKARIM] Talep sahibinin yeni bir masraf formu doldurarak kaydetmesi. |\n| Ön Koşullar | [VARSAYIM] Kullanıcının sistemde tanımlı bir masraf limiti ve bağlı olduğu yöneticinin bulunması. |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Manuel e-posta onayları yerine sistem üzerinden aksiyon bazlı onay yapısına geçiş. | ÇIKARIM |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | Taleplerin en geç 2 iş günü içerisinde kontrol edilmesi. | VARSAYIM |\n| REQ-1-02 | Ret edilen talepler düzeltilerek tekrar gönderilebilir. | KAYNAKTA |\n| REQ-1-03 | Belirli bir tutarın üzerindeki masraflar için ek onay gereklidir. | VARSAYIM |\n| REQ-1-04 | Zorunlu alanların (tutar, tarih, kategori) doluluk kontrolü. | ÇIKARIM |\n| REQ-1-05 | Fiş/Fatura görselinin yüklenmiş olması. | VARSAYIM |\n| REQ-1-06 | Masraf Türü, Tutar, Para Birimi, Açıklama, Belge Tarihi, Ek Dosya. | ÇIKARIM |\n| REQ-1-07 | Talep sahibinin statüleri izleyebileceği 'Taleplerim' ekranı. | ÇIKARIM |\n| REQ-1-08 | LDAP/Personel listesi entegrasyonu (Yönetici hiyerarşisi için). | VARSAYIM |\n| REQ-1-09 | Onaylanmış veya Ret edilmiş masraf kaydı. | ÇIKARIM |\n| REQ-1-10 | Otomatik bilgilendirme mesajları. | KAYNAKTA |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Talep Sahibi | Talep Sahibi masraf verilerini girer ve gönderir. | Zorunlu alanları kontrol eder ve talebi 'Beklemede' statüsüne alır. | KAYNAKTA |\n| 2 | Kontrolör | Kontrolör talebin şirket politikasına uygunluğunu inceler. | Talep onaylanırsa 'Yönetici Onayı'na iletir, ret edilirse statüyü günceller. | KAYNAKTA |\n| 3 | Onaylayıcı | Yönetici talebi onaylar veya ret eder. | Karar sonrası bir sonraki aşamayı tetikler. | KAYNAKTA |\n| 4 | Sistem | Sistem ilgili taraflara durum bildirimini gönderir. | E-posta veya Push bildirim oluşturur. | KAYNAKTA |\n\n**Alternatif Akışlar**\n\n- [ÇIKARIM] Talebin kontrol aşamasında eksik bilgi nedeniyle revizyona gönderilmesi.\n\n**İstisnalar ve Hata Davranışları**\n\n- [AÇIK KONU] Onaycı yöneticinin sistemde aktif olmaması durumu (Vekalet yönetimi).\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Talep Sahibi masraf verilerini girer ve gönderir.\"]\n  S2[\"Kontrolör talebin şirket politikasına uygunluğunu inceler.\"]\n  S3[\"Yönetici talebi onaylar veya ret eder.\"]\n  S4[\"Sistem ilgili taraflara durum bildirimini gönderir.\"]\n  S1 --> S2\n  S2 --> S3\n  S3 --> S4\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [ÇIKARIM] Ödeme Süreci\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Musteri veya kullanici deneyimi gelistirmeleri netlestirilmelidir. | AÇIK KONU |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Uyarlama ihtiyaclari netlestirilmelidir. | AÇIK KONU |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Yöneticiler için mobil onay ekranı eğitimi. | VARSAYIM |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [AÇIK KONU] Şirket Harcama Politikası Kitapçığı\n\n### 6.2. EKLENTİ\n\n- [AÇIK KONU] Eklenti bildirilmedi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Süreç talep, kontrol, onay, ret ve bildirim adımlarını içerir. | INFERRED | Kaynak eklenmedi. | 1.00 |\n\n## 2. RİSKLER\n\n- [ÇIKARIM] Onay hiyerarşisinin güncel olmaması durumunda sürecin tıkanması.\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Tüm masrafların dijital kanıtının (fiş/fatura) sisteme yükleneceği varsayılmıştır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] Masraf limitleri sistem üzerinde mi tanımlanacak yoksa dış kaynaktan mı beslenecek?\n- [AÇIK KONU] Çok seviyeli onay (örneğin 10.000 TL üzeri Genel Müdür onayı) gerekli mi?\n\n## 5. ÇELİŞKİLER\n\n- [AÇIK KONU] Kaynaklarda belirgin bir celiski saptanmadi.\n\n## 6. HIZLI AKSİYONLAR\n\n- [ÇIKARIM] Yönetici hiyerarşi verisinin (Organizasyon Şeması) güncelliğini teyit et.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": [
+            {
+              "claimId": "C1",
+              "claim": "Süreç talep, kontrol, onay, ret ve bildirim adımlarını içerir.",
+              "status": "INFERRED",
+              "confidence": 1
+            }
+          ]
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-07-process-diagram-in-analysis",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      }
+    },
+    {
+      "scenarioId": "aianalyst-08-testability-in-analysis",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Kabul ölçütlerini yaşayan analize ekleme",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Limit aşımı ve onay mekanizmasıyla ilgili test edilebilir kabul kriterlerini, negatif senaryoları ve UAT kontrol listesini dokümana ekledim. Süreçlerin uçtan uca doğrulanabilmesi için gerekli test verilerini ve ön koşulları da yapılandırdım.\n\n**Ne yaptım?**\n- Mevcut iş kuralı için yapılandırılmış test senaryoları oluşturuldu.\n- Hata yönetimi için negatif senaryolar ve sınır değer analizleri eklendi.\n- İnceleme (Review) bölümünde test edilebilirliğe dair kalite notları paylaşıldı.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# İş Kuralları\n- Limit aşılırsa ikinci onay gerekir.\n\n## 1. Test Senaryoları\n\n### 1.1. Senaryo: Standart Limit Altı İşlem\n- **Ön Koşul:** Kullanıcının tanımlı bir işlem limiti olmalıdır.\n- **Test Verisi:** İşlem Tutarı < Kullanıcı Limiti (Örn: Limit 1000 TL, İşlem 500 TL).\n- **Adımlar:**\n  1. Kullanıcı sisteme giriş yapar.\n  2. Limit altındaki tutar ile işlem başlatır.\n  3. İşlemi onaylar.\n- **Beklenen Sonuç:** İşlem ikinci onaya düşmeden başarıyla tamamlanır.\n- **UAT Kabul:** İşlem statüsü 'Tamamlandı' olmalıdır.\n\n### 1.2. Senaryo: Limit Aşımı ve İkinci Onay Akışı\n- **Ön Koşul:** Limit aşımı durumunda 'İkinci Onaycı' rolünün sistemde aktif olması.\n- **Test Verisi:** İşlem Tutarı > Kullanıcı Limiti (Örn: Limit 1000 TL, İşlem 1500 TL).\n- **Adımlar:**\n  1. Kullanıcı limit üstü tutar ile işlem başlatır.\n  2. Sistem 'Limit Aşımı' uyarısı verir ve ikinci onay mekanizmasını tetikler.\n  3. İkinci onaycı iş listesine düşen talebi onaylar.\n- **Beklenen Sonuç:** İlk onaydan sonra işlem 'Beklemede' kalmalı, ikinci onaydan sonra 'Tamamlandı'ya geçmelidir.\n- **UAT Kabul:** İkinci onay tetiklenmeden işlem finansal olarak gerçekleşmemelidir.\n\n## 2. Negatif Senaryolar\n- **Yetki Testi:** İkinci onaycı yetkisi olmayan bir kullanıcının onay vermeye çalışması (Sistem hata dönmeli).\n- **Sınır Değer:** İşlem tutarının tam limit sınırında olması (Limit = 1000 TL, İşlem = 1000 TL - Onay gerekmemeli).\n- **Red Senaryosu:** İkinci onaycının talebi reddetmesi (İşlem iptal statüsüne geçmeli).\n\n## 3. UAT Kabul Kriterleri\n| ID | Kriter | Doğrulama Yöntemi |\n|---|---|---|\n| AC01 | Limit aşımı tespiti | Otomatik log kontrolü |\n| AC02 | İkinci onaycı bildirimi | E-posta / In-app bildirim testi |\n| AC03 | Statü Geçişleri | DB statü kontrolü (Beklemede -> Onaylandı) |",
+            "status": "DRAFT",
+            "flags": [
+              "TEST_SCENARIOS_ADDED",
+              "NEGATIVE_CASES_DEFINED"
+            ]
+          },
+          "review": {
+            "content": "### Kalite ve Test İncelemesi\n- **DOGRULANDI:** Limit aşımı kuralı temel iş kuralı olarak sisteme işlendi.\n- **VARSAYIM:** İkinci onaycının sistemsel olarak farklı bir rolde olduğu varsayılmıştır.\n- **ACIK KONU:** Limit tutarının dinamik mi yoksa kullanıcı bazlı sabit mi olduğu netleştirilmelidir.\n\n### Test Edilebilirlik Matrisi\n- Tüm ana senaryolar test edilebilir verilerle desteklendi.\n- Hata mesajlarının içeriği (UX) tasarım aşamasında netleştirilmelidir.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "REVIEW_COMPLETED"
+            ]
+          },
+          "evidenceClaims": []
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-08-testability-in-analysis",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      }
+    },
+    {
+      "scenarioId": "aianalyst-09-review-artifact",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Review içinde risk ve açık konu ayrımı",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Mevcut analizi gözden geçirdim. Kapsamın çok genel olması nedeniyle oluşabilecek operasyonel riskleri, entegrasyon belirsizliklerini ve kritik açık kararları Review bölümünde yapılandırdım.\n\n**Ne yaptım?**\nAnaliz dokümanını kalite, risk ve açık konular açısından değerlendirerek Review sekmesine detaylı bir rapor ekledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# Kapsam\nCRM ile dış servis entegre edilecek.",
+            "status": "NEEDS_REVISION",
+            "flags": []
+          },
+          "review": {
+            "content": "# 1. Kalite Puanı: 2/10\n**Gerekçe:** Mevcut analiz sadece tek bir cümleden ibarettir. İş kuralı, teknik detay, paydaş veya süreç tanımı içermediği için uygulanabilir bir doküman niteliği taşımamaktadır.\n\n# 2. Riskler\n- **Kapsam Belirsizliği Risk:** 'Dış servis' tanımı yapılmadığı için güvenlik, maliyet ve performans gereksinimleri öngörülememektedir.\n- **Veri Güvenliği Riski:** CRM verilerinin dış servis ile paylaşımında KVKK/GDPR uyum riskleri bulunmaktadır.\n- **Entegrasyon Maliyeti:** Servisin API yetenekleri bilinmediği için geliştirme eforu sapma gösterebilir.\n\n# 3. Açık Konular\n- Entegre edilecek dış servis hangisidir? (Örn: SAP, Salesforce, Yerel bir ERP?)\n- Entegrasyon yönü nedir? (Tek yönlü veri çekme / Çift yönlü senkronizasyon?)\n- Hangi veriler (Müşteri, Teklif, Fatura vb.) taşınacak?\n\n# 4. Varsayımlar\n- [VARSAYIM] CRM sisteminin standart REST/SOAP API desteği sunduğu varsayılmıştır.\n- [VARSAYIM] Dış servisin güncel bir dokümantasyona sahip olduğu kabul edilmiştir.\n\n# 5. Hızlı Aksiyonlar\n- Dış servis teknik dokümantasyonunun temin edilmesi.\n- Temel iş akışının (tetikleyici ve sonuç) tanımlanması.",
+            "status": "DRAFT",
+            "flags": [
+              "low_detail",
+              "integration_missing"
+            ]
+          },
+          "evidenceClaims": []
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-09-review-artifact",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 0,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 75,
+        "failures": [
+          "Eylem uyumsuz: UPDATE_ARTIFACT",
+          "factAssumptionSeparation",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-10-explain-only",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Açıklama isteğinde dokümana dokunmama",
+      "actual": {
+        "action": "ANSWER",
+        "text": "Harika bir soru. İş analizi ve sistem tasarımı süreçlerinde bu iki kavram sıkça karıştırılır ancak rolleri birbirinden çok farklıdır. Aralarındaki farkı bir **Kıdemli Analist** perspektifiyle şöyle özetleyebilirim:\n\n### 1. İş Kuralı (Business Rule)\nKuruluşun işleyişini belirleyen, değişmez politikalardır. Yazılımdan bağımsızdırlar ve genellikle şirket politikası, yasal mevzuat veya operasyonel kısıtlardan doğarlar.\n*   **Özellik:** Statiktir, kurumu bağlar.\n*   **Soru:** \"İş nasıl yürümeli?\"\n*   **Örnek:** \"Bir müşteri aynı anda en fazla 3 aktif kredi kartına sahip olabilir.\"\n\n### 2. Kabul Kriteri (Acceptance Criterion)\nBelirli bir kullanıcı hikayesinin (User Story) veya özelliğin \"tamamlandı\" sayılabilmesi için sağlanması gereken somut şartlardır. Yazılımın davranışını test edilebilir şekilde tanımlar.\n*   **Özellik:** Dinamiktir, geliştirilen özelliğe özeldir.\n*   **Soru:** \"Bu özelliğin çalıştığını nasıl anlarız?\"\n*   **Örnek:** \"Kullanıcı 4. kartı eklemeye çalıştığında 'Maksimum kart limitine ulaştınız' uyarısı gösterilmeli ve 'Ekle' butonu pasif olmalıdır.\"\n\n### Temel Farklar\n| Özellik | İş Kuralı | Kabul Kriteri |\n| :--- | :--- | :--- |\n| **Kapsam** | Geniş / Kurumsal | Dar / Özellik Bazlı |\n| **Süreklilik** | Uzun ömürlüdür | Geliştirme bitince 'Done' olur |\n| **Odak** | Politika ve Mantık | Fonksiyonellik ve Kullanıcı Deneyimi |\n\nKısacası; **İş Kuralı** anayasadır, **Kabul Kriteri** ise o anayasayı uygulayan trafik polisidir.",
+        "questions": [
+          {
+            "id": "q_apply_rule",
+            "text": "Üzerinde çalıştığın bir özellik için bu ayrımı birlikte netleştirelim mi?",
+            "options": [
+              "Evet, bir örnek üzerinden gidelim",
+              "Hayır, bu açıklama yeterli"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-10-explain-only",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 88,
+        "failures": [
+          "avoidsUnnecessaryQuestions"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-11-conflicting-decision",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Çelişkili kararın etkisini netleştirme",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Kavramsal tasarım dökümanını manuel veri değişikliği ve izlenebilirlik gereksinimlerini kapsayacak şekilde güncelledim. Mevzuat uyumu ve audit log zorunluluklarını dikkate alarak sürece manuel müdahale yetkisi ve kontrol mekanizmaları eklenmiştir.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | CRM Müşteri Tipi Entegrasyonu ve Manuel Müdahale Yönetimi |\n| İş Problemi | [ÇIKARIM] CRM sisteminden gelen müşteri tipi bilgisinin otomatik akışta hatalı olması veya özel durumlar nedeniyle manuel müdahale gerektirmesi, ancak bu işlemin izlenebilirliğinin olmaması. |\n| Mevcut Durum | [KAYNAKTA] Müşteri tipi yalnız CRM tarafından belirlenir; manuel değiştirilemez. Hatalı veriler için CRM tarafında düzeltme beklenmektedir. |\n| Hedef Durum | [ÇIKARIM] Yetkili kullanıcıların sistem üzerinden müşteri tipini manuel olarak güncelleyebilmesi, bu değişikliğin audit log kayıtlarında tutulması ve veri kaynağıyla (Source of Truth) senkronizasyonun yönetilmesi. |\n| Kapsam Dahili | [ÇIKARIM] Manuel müşteri tipi güncelleme ekranı/fonksiyonu; [DOĞRULANDI] Audit log (izleme kaydı) mekanizması; [ÇIKARIM] Kullanıcı yetkilendirme (Manuel müdahale rolü) |\n| Kapsam Dışı | [VARSAYIM] CRM tarafındaki kaynak verinin otomatik silinmesi |\n| Kısıtlar | [DOĞRULANDI] GDPR/KVKK gereği veri düzeltme hakkının izlenebilir şekilde sağlanması; [VARSAYIM] Mali mühürlü kayıtlarda doğrudan değişiklik yapılamaz kısıtı |\n| Başarı Metrikleri | [ÇIKARIM] Manuel müdahalelerin %100 oranında audit log ile eşleşmesi |\n\n## 2. AMAÇ\n\n[ÇIKARIM] Operasyonel esnekliği artırmak ve hatalı veri girişlerini hızlıca düzeltebilmek; aynı zamanda regülasyon uyumu için manuel müdahaleleri kayıt altına almak.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | JetWork AI | KAYNAKTA |\n| PART-02 | Proje Ekibi | KAYNAKTA |\n\n### 3.2. REVİZE TARİH\n\n[KAYNAKTA] 2024-05-22\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | IT Mimari Otoritesi | AÇIK KONU |\n| APR-02 | İş Birimi Yöneticisi | AÇIK KONU |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Müşteri Tipi Manuel Güncelleme Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Müşteri Tipi Manuel Güncelleme Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[ÇIKARIM] Yetkili bir kullanıcının, CRM'den gelen otomatik veriyi sistem arayüzü üzerinden manuel olarak değiştirmesi ve sistemin bu değişikliği gerekçesiyle kaydetmesi sürecidir.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [ÇIKARIM] Sistem Yöneticisi / Veri Editörü; [DOĞRULANDI] Audit Log Sistemi |\n| Tetikleyici | [ÇIKARIM] Hatalı müşteri tipi tespiti veya özel müşteri segmentasyon talebi |\n| Ön Koşullar | [ÇIKARIM] Kullanıcının 'Manuel Müdahale' yetkisine sahip olması; [ÇIKARIM] İlgili müşteri kaydının sistemde aktif olması |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Otomatik CRM senkronizasyonu üzerine manuel override (geçersiz kılma) katmanı eklendi. | ÇIKARIM |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | Her manuel değişiklik için 'Değişiklik Nedeni' girişi zorunlu olmalıdır. | DOĞRULANDI |\n| REQ-1-02 | Manuel değiştirilen veri, bir sonraki CRM senkronizasyonunda ezilmemelidir (is_manual_override bayrağı). | DOĞRULANDI |\n| REQ-1-03 | Müşteri tipi yalnız CRM tarafından belirlenir kuralı, 'Manuel Müdahale' yetkisi olanlar için istisna edilir. | KAYNAKTA |\n| REQ-1-04 | Değişiklik yapılmadan önce eski ve yeni değer karşılaştırmalı olarak gösterilmelidir. | ÇIKARIM |\n| REQ-1-05 | manual_change_reason (string) | DOĞRULANDI |\n| REQ-1-06 | is_manual_override (boolean) | DOĞRULANDI |\n| REQ-1-07 | previous_value, new_value, changed_by, timestamp (audit fields) | DOĞRULANDI |\n| REQ-1-08 | Müşteri kartı üzerinde 'Düzenle' butonu ve 'Değişiklik Gerekçesi' pop-up formu. | ÇIKARIM |\n| REQ-1-09 | PATCH metodu ile CRM veya lokal veritabanı kısmi güncelleme desteği. | DOĞRULANDI |\n| REQ-1-10 | Güncellenmiş müşteri tipi | ÇIKARIM |\n| REQ-1-11 | Audit log kaydı | DOĞRULANDI |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Sistem Yöneticisi | Kullanıcı müşteri kartını görüntüler. | Müşteri bilgilerini ve mevcut tipi gösterir. | ÇIKARIM |\n| 2 | Sistem Yöneticisi | Kullanıcı manuel güncelleme başlatır ve yeni tipi seçer. | Gerekçe giriş alanını zorunlu kılar. | ÇIKARIM |\n| 3 | OPEN | Sistem değişikliği kaydeder ve audit log üretir. | is_manual_override bayrağını true yapar ve audit log tablosuna yazar. | DOĞRULANDI |\n\n**Alternatif Akışlar**\n\n- [ÇIKARIM] CRM tarafında veri düzeltildiğinde, manuel müdahalenin iptal edilerek tekrar otomatiğe dönülmesi.\n\n**İstisnalar ve Hata Davranışları**\n\n- [VARSAYIM] Kilitli veya mali işlem görmüş kayıtlarda manuel değişikliğe izin verilmemesi.\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Kullanıcı müşteri kartını görüntüler.\"]\n  S2[\"Kullanıcı manuel güncelleme başlatır ve yeni tipi seçer.\"]\n  S3[\"Sistem değişikliği kaydeder ve audit log üretir.\"]\n  S1 --> S2\n  S2 --> S3\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [ÇIKARIM] CRM Veri Senkronizasyon Süreci\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Custom Audit Log Tablosu ve UI Override Fonksiyonu | ÇIKARIM |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Standart CRM entegrasyonuna manuel müdahale mantığının eklenmesi. | ÇIKARIM |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Kullanıcılara manuel müdahale yetkisinin kullanımı ve audit sorumluluğu eğitimi verilmelidir. | ÇIKARIM |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [DOĞRULANDI] KVKK Veri Düzeltme Rehberi\n\n### 6.2. EKLENTİ\n\n- [AÇIK KONU] Audit Log Veri Şeması Taslağı",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Mevzuat gereği hatalı verinin manuel düzeltilmesine izin verilmeli; ancak bu işlem audit_log tablosunda saklanmalıdır. | OPEN | Kaynak eklenmedi. | 0.50 |\n| Otomatik sistemlerin bir insan tarafından geçersiz kılınabilmesi zorunluluğu. | OPEN | Kaynak eklenmedi. | 0.50 |\n\n## 2. RİSKLER\n\n- [ÇIKARIM] Manuel değişikliklerin CRM kaynak sistemi ile tutarsızlık yaratma riski.\n- [VARSAYIM] Mali kayıtlarda mevzuata aykırı manuel müdahale yapılabilme ihtimali.\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Sistemin PATCH API metodunu desteklediği varsayılmaktadır.\n- [VARSAYIM] Manuel değişikliğin CRM'e geri yazılmayacağı, sadece lokalde kalacağı varsayılmaktadır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] Mali mühürlü belgelerde manuel değişikliğin yasal sınırı hukuk departmanına sorulmalıdır.\n- [AÇIK KONU] Manuel değişikliğin CRM sistemine back-propagate edilip edilmeyeceği netleştirilmelidir.\n\n## 5. ÇELİŞKİLER\n\n- [ÇELİŞKİ] 'Müşteri tipi yalnız CRM tarafından belirlenir' kuralı ile manuel müdahale talebi arasında yapısal bir çelişki bulunmaktadır.\n\n## 6. HIZLI AKSİYONLAR\n\n- [ÇIKARIM] Audit log tablo yapısının IT mimari ile onaylanması.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": [
+            {
+              "claimId": "c1",
+              "claim": "Mevzuat gereği hatalı verinin manuel düzeltilmesine izin verilmeli; ancak bu işlem audit_log tablosunda saklanmalıdır.",
+              "status": "OPEN",
+              "confidence": 0.5
+            },
+            {
+              "claimId": "c2",
+              "claim": "Otomatik sistemlerin bir insan tarafından geçersiz kılınabilmesi zorunluluğu.",
+              "status": "OPEN",
+              "confidence": 0.5
+            }
+          ]
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-11-conflicting-decision",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 88,
+        "failures": [
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-12-sensitive-integration",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Yüksek riskli entegrasyonda kanıt sınırı",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-12-sensitive-integration",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 0,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 0,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 75,
+        "failures": [
+          "capturesCriticalGaps",
+          "factAssumptionSeparation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-13-preserve-approved-scope",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Onaylı kapsamı revizyonda koruma",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Bildirim kanalları kapsamına Mobil Push seçeneğini ekleyerek kavramsal tasarım dokümanını güncelledim. SMS ve e-posta akışlarına ek olarak mobil uygulama üzerinden anlık bildirim gönderimi süreçlere yansıtılmıştır.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | Bildirim Yönetim Sistemi |\n| İş Problemi | [ÇIKARIM] Kullanıcıların sadece SMS ve e-posta kanallarıyla sınırlı kalması, anlık etkileşim hızını ve erişilebilirliği kısıtlamaktadır. |\n| Mevcut Durum | [KAYNAKTA] Mevcut sistemde bildirimler SMS ve e-posta kanalları üzerinden iletilmektedir. |\n| Hedef Durum | [KAYNAKTA] Bildirim kanallarına Mobil Push entegre edilerek çok kanallı (omnichannel) bir bildirim yapısı kurulacaktır. |\n| Kapsam Dahili | [KAYNAKTA] Mobil Push bildirim kanalının tanımlanması; [KAYNAKTA] SMS ve E-posta kanallarının korunması; [VARSAYIM] Mobil uygulama üzerinden bildirim izni kontrolü |\n| Kapsam Dışı | [KAYNAKTA] WhatsApp bildirimleri; [VARSAYIM] Masaüstü (Web) Push bildirimleri |\n| Kısıtlar | [VARSAYIM] Kullanıcının mobil uygulamaya sahip olması ve bildirim izni vermiş olması gerekliliği |\n| Başarı Metrikleri | [VARSAYIM] Bildirim iletim hızı (Mobil Push için hedef < 5 saniye); [VARSAYIM] Kanal bazlı bildirim açılma oranları |\n\n## 2. AMAÇ\n\n[ÇIKARIM] Kullanıcı etkileşimini artırmak ve bildirim maliyetlerini optimize etmek amacıyla Mobil Push seçeneğinin eklenmesi.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | Kapsam Ekibi | KAYNAKTA |\n\n### 3.2. REVİZE TARİH\n\n[VARSAYIM] 24.05.2024\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | Onaycı | KAYNAKTA |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Bildirim Gönderim Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Bildirim Gönderim Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[ÇIKARIM] Sistem tarafından tetiklenen bilgilerin belirlenen kanallar (SMS, E-posta, Mobil Push) üzerinden kullanıcıya iletilmesi.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [ÇIKARIM] Sistem; [ÇIKARIM] Mobil Uygulama Kullanıcısı |\n| Tetikleyici | [ÇIKARIM] Bir iş olayının (SAP bilgi/belge akışı, finansal durum değişikliği vb.) gerçekleşmesi |\n| Ön Koşullar | [ÇIKARIM] Kullanıcının iletişim bilgilerinin sistemde tanımlı olması; [VARSAYIM] Mobil Push için kullanıcının cihaz eşleşmesinin bulunması |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Bildirim kanalı seçim mantığına Mobil Push önceliği eklendi. | KAYNAKTA |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | Bildirimin tekilleştirilmesi (aynı mesajın tüm kanallardan aynı anda gitmemesi kuralı) | VARSAYIM |\n| REQ-1-02 | Kullanıcı mobil uygulamada oturum açmışsa ve izinliyse öncelik Mobil Push kanalındadır. | VARSAYIM |\n| REQ-1-03 | Cihaz token kontrolü | VARSAYIM |\n| REQ-1-04 | Cihaz Token (Firebase/APNS) | VARSAYIM |\n| REQ-1-05 | Mobil uygulama bildirim merkezi ekranı | VARSAYIM |\n| REQ-1-06 | Firebase Cloud Messaging (FCM) veya Apple Push Notification Service (APNS) entegrasyonu | VARSAYIM |\n| REQ-1-07 | İletildi/Okundu raporu | VARSAYIM |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Sistem | Bildirim tetikleyici olayın oluşması | Olay algılanır. | ÇIKARIM |\n| 2 | Sistem | Kanal tercihlerinin kontrol edilmesi | Aktif kanallar listelenir. | ÇIKARIM |\n| 3 | Sistem | Mobil Push gönderim emrinin oluşturulması | Mobil uygulama servisine istek atılır. | KAYNAKTA |\n| 4 | Mobil Uygulama Kullanıcısı | Bildirimin cihazda görüntülenmesi | Push mesajı render edilir. | ÇIKARIM |\n\n**Alternatif Akışlar**\n\n- [VARSAYIM] Mobil Push iletilemezse SMS kanalına düşüş (fallback) yapılması\n\n**İstisnalar ve Hata Davranışları**\n\n- [VARSAYIM] Kullanıcının bildirim izinlerini kapatmış olması\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Bildirim tetikleyici olayın oluşması\"]\n  S2[\"Kanal tercihlerinin kontrol edilmesi\"]\n  S3[\"Mobil Push gönderim emrinin oluşturulması\"]\n  S4[\"Bildirimin cihazda görüntülenmesi\"]\n  S1 --> S2\n  S2 --> S3\n  S3 --> S4\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [KAYNAKTA] SAP Finansal Bilgi Akışı\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Mobil uygulama tarafında push listener geliştirilmesi | VARSAYIM |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Bildirim şablonlarının mobil formata uygun şekilde güncellenmesi | VARSAYIM |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Kullanıcılara yeni bildirim kanalı hakkında bilgilendirme yapılması | ÇIKARIM |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [AÇIK KONU] Ilgili veya referans dokuman bildirilmedi.\n\n### 6.2. EKLENTİ\n\n- [AÇIK KONU] Eklenti bildirilmedi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Yapısal kanıt kaydı bulunmuyor. | AÇIK KONU | Kaynak eklenmedi. | 0.00 |\n\n## 2. RİSKLER\n\n- [VARSAYIM] Mobil Push servis sağlayıcılarındaki gecikmelerin operasyonel süreçleri etkilemesi\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Kullanıcıların çoğunluğunun mobil uygulamayı güncel sürümde kullandığı varsayılmıştır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] Hangi bildirim türlerinin 'kritik' işaretlenerek tüm kanallardan gideceği netleştirilmelidir.\n\n## 5. ÇELİŞKİLER\n\n- [AÇIK KONU] Kaynaklarda belirgin bir celiski saptanmadi.\n\n## 6. HIZLI AKSİYONLAR\n\n- [AÇIK KONU] Push Notification servis sağlayıcısı (FCM/OneSignal vb.) seçimi yapılmalıdır.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": []
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-13-preserve-approved-scope",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 0
+        },
+        "score": 88,
+        "failures": [
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-14-question-cap",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Soru sayısını üçle sınırlama",
+      "actual": {
+        "action": "ANSWER",
+        "text": "Memnuniyetle. Tedarikçi Yönetim Sistemi (SRM) projeleri; veri kalitesi, uyumluluk (compliance) ve operasyonel hız açısından kritik bir mimari gerektirir. Analizin ilk taslağını oluşturabilmem ve kapsamı daraltabilmem için en kritik 3 noktayı netleştirerek başlayalım:"
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-14-question-cap",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 0,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 75,
+        "failures": [
+          "Eylem uyumsuz: ANSWER",
+          "capturesCriticalGaps",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "aianalyst-15-fact-assumption-separation",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Verilen gerçek ile önerilen varsayımı ayırma",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-15-fact-assumption-separation",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 0,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 0,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 50,
+        "failures": [
+          "Eylem uyumsuz: ASK",
+          "contextPreservation",
+          "avoidsUnnecessaryQuestions",
+          "factAssumptionSeparation",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-01-current-turn-once",
+      "origin": "JETWORK",
+      "title": "Son kullanıcı mesajını tek kez işleme",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Entegrasyon senkron mu, asenkron mu, batch mi calismali; hata ve retry sorumlulugu kimde?\nKarar etkisi: Entegrasyon karari performans, UX, veri tutarliligi ve operasyon sorumlulugunu degistirir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Senkron API",
+              "Asenkron kuyruk/delta",
+              "Batch/dosya aktarimi",
+              "Karar acik konu kalsin"
+            ]
+          },
+          {
+            "id": "q3",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-01-current-turn-once",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 0,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 63,
+        "failures": [
+          "Eylem uyumsuz: ASK",
+          "avoidsUnnecessaryQuestions",
+          "businessRuleQuality",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-02-empty-typing-ignored",
+      "origin": "JETWORK",
+      "title": "Boş typing kaydının konuşmayı bölmemesi",
+      "actual": {
+        "action": "ANSWER",
+        "text": "İade sürecindeki finans onayı için 50.000 TL üst limit bilgisini not ettim. Bu kuralın işleyişini ve limit aşımı durumundaki davranışları netleştirmek süreci sağlamlaştıracaktır.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "50.000 TL üzerindeki iade talepleri için sistem nasıl bir yol izlemeli?",
+            "options": [
+              "Üst yönetici (Direktör/GM) onayına yönlendirilmeli",
+              "İşlem sistem tarafından otomatik olarak engellenmeli",
+              "Finans ekibi için ek bir manuel inceleme statüsüne alınmalı"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Bu limit kontrolü hangi kapsamda uygulanmalı?",
+            "options": [
+              "Tekil işlem (işlem başına) tutarı bazında",
+              "Müşteri bazlı günlük toplam iade tutarı bazında",
+              "Mağaza/Kanal bazlı periyodik limit bazında"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-02-empty-typing-ignored",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 0
+        },
+        "score": 63,
+        "failures": [
+          "Eylem uyumsuz: ANSWER",
+          "avoidsUnnecessaryQuestions",
+          "documentConsistency",
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-03-summary-preserves-decision",
+      "origin": "JETWORK",
+      "title": "Uzun konuşma özetinde kararı koruma",
+      "actual": {
+        "action": "ANSWER",
+        "text": "Ödeme retry (tekrar deneme) akışına bildirim katmanını ekleyelim. Kullanıcının süreci şeffaf bir şekilde takip edebilmesi ve aksiyon alabilmesi için bildirimlerin zamanlaması ve yöntemi kritik önem taşıyor. \n\nSüreci detaylandırmak için birkaç kısa tercihinizi alabilir miyim?",
+        "questions": [
+          {
+            "id": "notif_channel",
+            "text": "Kullanıcıya hangi kanallar üzerinden bilgilendirme yapılmalı?",
+            "options": [
+              "Sadece Uygulama İçi (Push) Bildirim",
+              "E-posta ve Push Bildirimi",
+              "SMS, E-posta ve Push Bildirimi"
+            ]
+          },
+          {
+            "id": "notif_frequency",
+            "text": "Bildirim hangi aşamalarda tetiklenmeli?",
+            "options": [
+              "Her başarısız denemede kullanıcı uyarılmalı",
+              "Sadece tüm denemeler (3 kez) başarısız olduğunda",
+              "İlk denemede hata bilgisi, son denemede başarısızlık özeti"
+            ]
+          },
+          {
+            "id": "success_notif",
+            "text": "Retry (tekrar deneme) sonucunda ödeme başarılı olursa bildirim gönderilsin mi?",
+            "options": [
+              "Evet, başarı onayı gönderilmeli",
+              "Hayır, ek bildirime gerek yok (akış devam eder)"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-03-summary-preserves-decision",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 0,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 0
+        },
+        "score": 50,
+        "failures": [
+          "Eylem uyumsuz: ANSWER",
+          "contextPreservation",
+          "avoidsUnnecessaryQuestions",
+          "documentConsistency",
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-04-retrieve-business-rule",
+      "origin": "JETWORK",
+      "title": "İlgili iş kuralını bağlama taşıma",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-04-retrieve-business-rule",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 0,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 75,
+        "failures": [
+          "avoidsUnnecessaryQuestions",
+          "capturesCriticalGaps"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-05-ai-output-not-fact",
+      "origin": "JETWORK",
+      "title": "AI önerisini kullanıcı gerçeği saymama",
+      "actual": {
+        "action": "REVIEW_ARTIFACT",
+        "text": "Tüm iadelerin otomatik onaylanması, kullanıcı deneyimini (CX) maksimize etse de ticari ve operasyonel açıdan yüksek riskli bir yaklaşımdır. Kıdemli bir sistem mimarı ve analist gözüyle bu kararın beraberinde getireceği temel riskleri şöyle özetleyebilirim:\n\n*   **Suistimal (Fraud) Riski:** Kötü niyetli kullanıcıların ürünü geri göndermeden veya sahte/farklı ürün göndererek para iadesi alması.\n*   **Finansal Kayıp:** Hem ürün maliyeti hem de lojistik (tersine lojistik) maliyetlerinin kontrolsüzce artması.\n*   **Stok ve Envanter Sapmaları:** Fiziksel kontrol yapılmadan stoğa geri alınan (veya imha edilen) ürünlerin muhasebe ve depo yönetim sistemlerinde (WMS) tutarsızlık yaratması.\n*   **Operasyonel Maliyet:** İade edilen ürünlerin kalite kontrol (QC) süreçlerinin atlanması sonucu, hasarlı ürünlerin tekrar satışa çıkma riski.\n\nBu riskleri minimize etmek için bazı kriterleri netleştirmemiz faydalı olacaktır.",
+        "questions": [
+          {
+            "id": "q_refund_limit",
+            "text": "Otomatik onay mekanizması için bir tutar üst sınırı (threshold) belirlenmeli mi?",
+            "options": [
+              "Evet, düşük tutarlı ürünler için geçerli olsun",
+              "Hayır, tüm tutarlar otomatik onaylansın",
+              "Sadece belirli kategorilerde (örn. sarf malzeme) uygulansın"
+            ]
+          },
+          {
+            "id": "q_returnless_refund",
+            "text": "Ürünün fiziksel olarak geri gelmesi şart mı, yoksa 'iade et ama sende kalsın' (returnless refund) modeli mi düşünülüyor?",
+            "options": [
+              "Ürün her durumda geri gelmeli",
+              "Düşük maliyetli ürünler müşteride kalabilir",
+              "Sadece hasarlı/kusurlu ürünlerde iade istenmesin"
+            ]
+          },
+          {
+            "id": "q_trust_score",
+            "text": "Kullanıcının geçmiş iade alışkanlıklarına dayalı bir 'Güven Skoru' algoritması devreye alınmalı mı?",
+            "options": [
+              "Evet, sadece güvenilir müşterilere otomatik onay verilsin",
+              "Hayır, herkese eşit uygulansın",
+              "Şüpheli hesaplar hariç herkese uygulansın"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-05-ai-output-not-fact",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 88,
+        "failures": [
+          "avoidsUnnecessaryQuestions"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-06-supersede-decision",
+      "origin": "JETWORK",
+      "title": "Yeni kullanıcı kararıyla eski kararı versiyonlama",
+      "actual": {
+        "action": "ANSWER",
+        "text": "Anlaşıldı, iade limitini **10.000 TL** olarak güncelledim. Bu limit artışının, mevcut onay hiyerarşisi veya risk parametreleri (fraud kontrolü vb.) üzerinde bir etkisi olacak mı?",
+        "questions": [
+          {
+            "id": "approval_logic",
+            "text": "Yeni limit için onay mekanizması nasıl yönetilmeli?",
+            "options": [
+              "Mevcut onay akışı aynen uygulansın",
+              "10.000 TL üzeri için ek bir üst yönetici onayı eklensin",
+              "Kategori bazlı farklı limitler tanımlansın"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-06-supersede-decision",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 75,
+        "failures": [
+          "Eylem uyumsuz: ANSWER",
+          "avoidsUnnecessaryQuestions",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-07-conceptual-design",
+      "origin": "JETWORK",
+      "title": "Kavramsal tasarımı ana artifact üzerinde üretme",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Kaynak sistem, hedef sistem ve ana veri sahibi hangi uygulamadir?\nKarar etkisi: Sistem sahipligi yanlis varsayilirsa entegrasyon ve veri modeli pahali sekilde yeniden tasarlanir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Uyum/risk azaltma",
+              "Gelir veya satis verimliligi",
+              "Operasyonel hiz ve kalite",
+              "Varsayimlarla ilerle"
+            ]
+          },
+          {
+            "id": "q3",
+            "text": "Entegrasyon senkron mu, asenkron mu, batch mi calismali; hata ve retry sorumlulugu kimde?\nKarar etkisi: Entegrasyon karari performans, UX, veri tutarliligi ve operasyon sorumlulugunu degistirir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Senkron API",
+              "Asenkron kuyruk/delta",
+              "Batch/dosya aktarimi",
+              "Karar acik konu kalsin"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-07-conceptual-design",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 0,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 0,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 50,
+        "failures": [
+          "Eylem uyumsuz: ASK",
+          "contextPreservation",
+          "avoidsUnnecessaryQuestions",
+          "processDepth",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-08-review-only-patch",
+      "origin": "JETWORK",
+      "title": "Review güncellemesinde BA kararlarını koruma",
+      "actual": {
+        "action": "ANSWER",
+        "text": "## Özet\n*   **Kaynak Riski:** SAP tarafındaki modül danışmanlarının (FI/MM/SD) kullanılabilirliği ve anahtar kullanıcı (SME) eforunun kısıtlı olması, UAT (Kullanıcı Kabul Testi) aşamasını geciktirme riski taşıyor.\n*   **Açık Konu 1 (Veri Haritalama):** Kaynak sistemdeki \"Özel Alanlar\"ın (Z-fields) SAP standart tablolarına mı yoksa ek geliştirme tablolarına mı aktarılacağı henüz netleşmedi.\n*   **Açık Konu 2 (Entegrasyon Metodu):** Veri transferinin gerçek zamanlı (Real-time API) mı yoksa günlük toplu işlem (Batch Job) olarak mı yapılacağı iş birimi onayını bekliyor.\n\n## Blueprint'e Etkisi\n*   **Riskler:** Belgeye \"Uzman Kaynak Bağımlılığı\" başlığı eklenecek ve projenin kritik yolunda (Critical Path) sapma ihtimali belirtilecek.\n*   **SAP Entegrasyon Gereksinimleri:** Teknik mimari bölümü, veri aktarım frekansı netleşene kadar \"Opsiyonel\" olarak işaretlenecek.\n*   **Kabul Kriterleri:** Veri doğruluğu testleri, haritalama (mapping) netleşmediği için spesifik senaryolar yerine genel kontrol maddeleriyle sınırlı kalacak.\n\n## Önerilen Sonraki Adımlar\n*   **Riskler** tablosuna kaynak eksikliğinin proje takvimine etkisini (gün/hafta bazlı) yansıtalım mı?\n*   **Açık konuları** çözüme kavuşturmak için ilgili departman liderleriyle 30 dakikalık bir karar toplantısı set edelim mi?\n*   **Kabul Kriterleri** altına \"Veri eşleşme onayı sonrası test senaryoları detaylandırılacaktır\" notunu ekleyeyim mi?\n*   **TO-BE** mimarisinde entegrasyon metodunu \"Seçenek A ve Seçenek B\" olarak iki alternatifli modelleyelim mi?\n\n## Netleştirme Soruları\n1. Kaynak riski kapsamında; SAP tarafındaki teknik danışmanların hangi tarihlerde müsait olmayacağı kesinleşti mi?\n2. Veri haritalama (mapping) konusundaki belirsizlik, yasal bir mevzuat zorunluluğundan mı yoksa sadece raporlama ihtiyacından mı kaynaklanıyor?\n3. Entegrasyon frekansı kararı için SAP S/4HANA versiyonunuzun (On-premise/Cloud) getirdiği teknik bir kısıt var mı?\n\nBu risk ve açık konuları Review bölümüne ekleyip güncel doküman taslağını oluşturmamı ister misiniz?"
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-08-review-only-patch",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 0
+        },
+        "score": 75,
+        "failures": [
+          "Eylem uyumsuz: ANSWER",
+          "documentConsistency",
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-09-explicit-web-research",
+      "origin": "JETWORK",
+      "title": "Güncel bilgi talebinde dış kaynak politikası",
+      "actual": {
+        "action": "ANSWER",
+        "text": "2024 yılındaki son yasal düzenlemeler (7518 sayılı Kanun ile yapılan değişiklikler) ve güncel KVKK uyum süreçleri odağında yaptığım analiz şöyledir:\n\n## Özet\n*   **Yurt Dışı Aktarım Kolaylığı:** 1 Haziran 2024 itibarıyla, yurt dışına veri aktarımı \"yeterlilik kararı\" veya \"standart sözleşme\" gibi mekanizmalarla GDPR ile uyumlu hale getirildi; açık rıza artık tek seçenek değil.\n*   **Özel Nitelikli Veri Esnekliği:** Sağlık ve cinsel hayata ilişkin veriler dahil, özel nitelikli verilerin işlenme şartları genişletildi; istihdam, iş sağlığı ve güvenliği gibi alanlarda açık rıza aranmaksızın işleme imkanı tanındı.\n*   **İdari Para Cezaları:** 2024 yeniden değerleme oranlarıyla en düşük ceza tutarları ciddi oranda arttı; veri güvenliği ihlalleri artık projelerin en büyük finansal riski.\n*   **VERBİS ve Süreklilik:** Veri sorumluları siciline (VERBİS) kayıt yükümlülüğünün ötesinde, sistemlerin \"Privacy by Design\" (Tasarım Gereği Gizlilik) ilkesine göre kurgulanması zorunlu hale geldi.\n\n## Blueprint'e Etkisi\n*   **TO-BE Süreçleri:** Veri toplama ve saklama adımlarına, yurt dışı aktarım mekanizmalarının (Standart Sözleşmelerin sistemsel onayı vb.) entegre edilmesi gerekir.\n*   **SAP Entegrasyon Gereksinimleri:** SAP sisteminden (özellikle HR veya CRM modülleri) yurt dışı cloud sunucularına veri akışı varsa, aktarımın hukuki dayanağının (Örn: Standart Sözleşme ilanı) teknik dokümanda belirtilmesi şarttır.\n*   **Kabul Kriterleri:** Verilerin anonimleştirilmesi, maskelenmesi veya silinmesi (RTBF - Unutulma Hakkı) süreçlerinin \"Definition of Done\" (Bitti Tanımı) içine girmesi gerekir.\n*   **Risk Analizi:** Mevcut AS-IS yapıda açık rıza ile yürütülen süreçlerin, yeni mevzuatla \"meşru menfaat\" veya \"kanunlarda öngörülme\" maddelerine taşınamaması durumunda oluşacak operasyonel duraksama riski eklenmelidir.\n\n## Önerilen Sonraki Adımlar\n*   **TO-BE dokümanına** \"Veri İmha Politikası\" ile uyumlu otomatik veri silme/maskeleme fonksiyonlarını içeren bir madde ekleyelim mi?\n*   **SAP Entegrasyon bölümünde**, verilerin yurt dışı sunucularda (HANA Cloud vb.) tutulup tutulmayacağını netleştirip uygun aktarım yöntemini tanımlayalım mı?\n*   **Kabul kriterlerine**, \"Kullanıcı kendi verisinin işlenme onayını panel üzerinden geri çekebilmeli\" şeklinde bir Given-When-Then senaryosu yazayım mı?\n*   **Veri Envanteri matrisini**, yeni mevzuattaki \"özel nitelikli veri\" istisnalarına göre güncelleyelim mi?\n\n## Netleştirme Soruları\n1. Proje kapsamında veriler yurt dışı merkezli bir bulut sisteminde (AWS, Azure, SAP BTP vb.) mi yoksa yerel sunucularda mı barındırılacak?\n2. Sistemde işlenecek \"Özel Nitelikli Kişisel Veri\" (sağlık verisi, biyometrik veri vb.) kategorileri hangileridir?\n3. Mevcut VERBİS kaydınızda bu proje ile gelecek yeni veri türleri için bir güncelleme planlandı mı?\n\nHukuki uyum tarafındaki riskleri minimize etmek adına öncelikle **veri barındırma lokasyonunu** netleştirip TO-BE mimarisini buna göre şekillendirmeyi öneririm; bu konuda bir tercihiniz var mı?"
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-09-explicit-web-research",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 0,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 88,
+        "failures": [
+          "contextPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-10-no-false-verification",
+      "origin": "JETWORK",
+      "title": "Kaynak yokken doğrulanmış iddia kurmama",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Ana surec hangi tetikleyiciyle baslar, hangi asamalardan gecer ve hangi kosulda kapanir?\nKarar etkisi: Surec omurgasi yanlis kurulursa gereksinim, ekran, test ve entegrasyon da yanlis sekillenir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          },
+          {
+            "id": "q2",
+            "text": "Kaynak sistem, hedef sistem ve ana veri sahibi hangi uygulamadir?\nKarar etkisi: Sistem sahipligi yanlis varsayilirsa entegrasyon ve veri modeli pahali sekilde yeniden tasarlanir. Etki=high, geri donus=expensive.",
+            "options": [
+              "Uyum/risk azaltma",
+              "Gelir veya satis verimliligi",
+              "Operasyonel hiz ve kalite",
+              "Varsayimlarla ilerle"
+            ]
+          },
+          {
+            "id": "q3",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-10-no-false-verification",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 0,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 0,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 75,
+        "failures": [
+          "capturesCriticalGaps",
+          "factAssumptionSeparation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-11-risky-delete-preview",
+      "origin": "JETWORK",
+      "title": "Yıkıcı doküman değişikliğinde onay",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Bu değişiklik için önizleme oluşturulamadı: aktif çalışma alanı veya temel doküman bulunmuyor. Hiçbir değişiklik uygulanmadı."
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-11-risky-delete-preview",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 0,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 0
+        },
+        "score": 63,
+        "failures": [
+          "Eylem uyumsuz: UPDATE_ARTIFACT",
+          "capturesCriticalGaps",
+          "documentConsistency",
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-12-selected-node-update",
+      "origin": "JETWORK",
+      "title": "Seçili metni tüm belgeyi üretmeden değiştirme",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Seçili metni \"businessAnalysis\" bölümünde güncelledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "Sistem kayıt işlemini gerçekleştirir ve bir hata oluşması durumunda kullanıcıyı bilgilendirir.",
+            "status": "DRAFT",
+            "flags": []
+          }
+        }
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-12-selected-node-update",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 0
+        },
+        "score": 88,
+        "failures": [
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-13-previous-decision",
+      "origin": "JETWORK",
+      "title": "Yeni süreç detayında önceki kararı kaybetmeme",
+      "actual": {
+        "action": "ASK",
+        "text": "Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen \"Varsayımlarla ilerle\" diyerek etiketli taslağa geçebilirsin.",
+        "questions": [
+          {
+            "id": "q1",
+            "text": "Hangi belge/evrak olmadan surec ilerleyemez veya kapanamaz?\nKarar etkisi: Belge kurali yanlis ise surec kapanisi, audit ve yasal izlenebilirlik bozulur. Etki=high, geri donus=expensive.",
+            "options": [
+              "Kullanici baslatir, sistem kontrollu ilerler",
+              "Sistem/API baslatir, operasyon izler",
+              "Manuel onayli operasyon akisi",
+              "Varsayimla surec omurgasi kur"
+            ]
+          }
+        ]
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-13-previous-decision",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 0,
+          "avoidsUnnecessaryQuestions": 0,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 0
+        },
+        "score": 50,
+        "failures": [
+          "Eylem uyumsuz: ASK",
+          "contextPreservation",
+          "avoidsUnnecessaryQuestions",
+          "documentConsistency",
+          "previousDecisionPreservation"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-14-new-standalone-topic",
+      "origin": "JETWORK",
+      "title": "Açık yeni konuyu eski belgeye yanlış bağlamama",
+      "actual": {
+        "action": "UPDATE_ARTIFACT",
+        "text": "Tedarikçi sözleşme yenileme süreci için kavramsal tasarım iskeletini hazırladım. Mevzuat (TBK, e-İmza Kanunu) ve teknik entegrasyon (SAP API, CLM standartları) araştırmalarını temel alarak; performans bazlı yenileme ve otomatik bildirim mekanizmalarını dokümana işledim. Süreçteki yetki matrisi ve sektörel regülasyonlar gibi kritik noktaları 'Açık Konular' olarak işaretledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# KAVRAMSAL TASARIM RAPORU\n\n## 1. PROJE KİMLİK KARTI\n\n| Parametre | Açıklama |\n|---|---|\n| Proje Adı | Tedarikçi Sözleşme Yenileme Süreci Analizi |\n| İş Problemi | [KAYNAKTA] Mevcut manuel sözleşme yenileme süreçlerindeki operasyonel risklerin ve takip eksikliklerinin giderilmesi ihtiyacı. |\n| Mevcut Durum | [ÇIKARIM] Sözleşme sürelerinin takibi ve yenileme onaylarının manuel e-posta veya fiziksel evrak üzerinden ilerlediği, merkezi bir takip mekanizmasının bulunmadığı yapı. |\n| Hedef Durum | [DOĞRULANDI] Dijital onay akışlı, performans skoruna dayalı karar destekli ve otomatik bildirim entegrasyonlu uçtan uca CLM (Sözleşme Yaşam Döngüsü) süreci. |\n| Kapsam Dahili | [DOĞRULANDI] Sözleşme bitiş takip ve bildirim sistemi; [DOĞRULANDI] Performans bazlı yenileme onay mekanizması; [DOĞRULANDI] Dijital imza (E-İmza/Mobil İmza) entegrasyonu |\n| Kapsam Dışı | [VARSAYIM] Yeni tedarikçi seçimi ve ihale süreci (Sourcing) |\n| Kısıtlar | [DOĞRULANDI] 6098 Sayılı Türk Borçlar Kanunu (Yenileme Maddeleri); [DOĞRULANDI] 5070 Sayılı Elektronik İmza Kanunu |\n| Başarı Metrikleri | [VARSAYIM] Sözleşme yenileme süresinin %30 azaltılması; [ÇIKARIM] Yenileme bildirimlerinde %100 zamanında gönderim |\n\n## 2. AMAÇ\n\n[KAYNAKTA] Tedarikçi sözleşmelerinin yasal mevzuata uygun, kurumsal yetki matrisiyle uyumlu ve verimlilik odaklı yenilenmesini sağlamak.\n\n## 3. DOKÜMAN TARİHÇESİ\n\n### 3.1. KATILIMCILAR\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| PART-01 | JetWork AI (Principal Engineer / System Architect) | KAYNAKTA |\n\n### 3.2. REVİZE TARİH\n\n[KAYNAKTA] 2024-05-22\n\n### 3.3. KONTROL EDEN VE ONAYLAYAN\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| APR-01 | Hukuk Birimi (Mevzuat Uyumluluk) | AÇIK KONU |\n| APR-02 | Satınalma Müdürü | AÇIK KONU |\n\n## 4. İÇİNDEKİLER\n\n1. Proje Kimlik Kartı\n2. Amaç\n3. Doküman Tarihçesi\n4. İçindekiler\n5. Süreç Tasarımı\n   - 1. Tedarikçi Sözleşme Yenileme ve Onay Süreci\n6. Ek A\n\n## 5. SÜREÇ TASARIMI\n\n### 5.1. SÜREÇ MODELİ: Tedarikçi Sözleşme Yenileme ve Onay Süreci\n\n#### 5.1.1. ÜST DÜZEY SÜREÇ AÇIKLAMASI\n\n[DOĞRULANDI] Mevcut sözleşmenin bitişinden önce başlayan, performans değerlendirmesi ve yasal bildirimleri içeren yenileme döngüsü.\n\n| Boyut | Analiz |\n|---|---|\n| Aktörler | [ÇIKARIM] Kategori Yöneticisi; [KAYNAKTA] Tedarikçi; [ÇIKARIM] Hukuk Birimi |\n| Tetikleyici | [DOĞRULANDI] Sözleşme bitiş tarihine 90 gün kalması (Sistem Alarmı) |\n| Ön Koşullar | [KAYNAKTA] Sözleşmenin sistemde aktif statüde olması; [DOĞRULANDI] Güncel tedarikçi performans skorunun mevcut olması |\n\n#### 5.1.2. SÜREÇ DEĞİŞİKLİKLERİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CHG-1-01 | Manuel takipten otomatik alarm sistemine geçiş | DOĞRULANDI |\n| CHG-1-02 | Islak imzadan dijital onay ve e-imza sürecine geçiş | DOĞRULANDI |\n\n#### 5.1.3. İŞ GEREKLERİ VE KPIs (KPI'LAR)\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| REQ-1-01 | Yenileme bildirimlerinin TBK'ya uygun sürede yapılması | DOĞRULANDI |\n| REQ-1-02 | Performans puanı 70 altındaki tedarikçiler için otomatik yenileme bloklanır. | VARSAYIM |\n| REQ-1-03 | Zımni yenileme maddesi olan sözleşmelerde sistem 30 gün kala otomatik onay üretir. | ÇIKARIM |\n| REQ-1-04 | E-imza sertifikasının geçerlilik kontrolü | DOĞRULANDI |\n| REQ-1-05 | Tedarikçi Master Verisi (SAP) | DOĞRULANDI |\n| REQ-1-06 | Sözleşme Bitiş Tarihi ve Endeks Bilgisi | DOĞRULANDI |\n| REQ-1-07 | Yenileme Bekleyenler Dashboard ekranı | ÇIKARIM |\n| REQ-1-08 | SAP Ariba / ERP Contract Management API Entegrasyonu | DOĞRULANDI |\n| REQ-1-09 | Notification Engine (Mail/SMS) Entegrasyonu | DOĞRULANDI |\n| REQ-1-10 | Ek Protokol veya Yeni Dönem Sözleşmesi (Dijital) | DOĞRULANDI |\n\n#### 5.1.4. DETAYLI SÜREÇ AKIŞI\n\n| Adım | Aktör | Kullanıcı / İş Adımı | Sistem Davranışı | Kanıt Durumu |\n|---|---|---|---|---|\n| 1 | Sistem | Sözleşme bitiş alarmı üretilir. | Bitiş tarihini kontrol eder ve tetikleyiciyi çalıştırır. | DOĞRULANDI |\n| 2 | Sistem | Performans skoru kontrol edilir. | Performans modülünden API ile güncel skoru çeker. | DOĞRULANDI |\n| 3 | Kategori Yöneticisi | Yenileme onayı talep edilir. | Onay iş akışını (Workflow) başlatır. | ÇIKARIM |\n\n**Alternatif Akışlar**\n\n- [ÇIKARIM] Şartlı Yenileme: Fiyat revizyonu talep edilen durumlar\n\n**İstisnalar ve Hata Davranışları**\n\n- [ÇIKARIM] Tedarikçinin kara listeye alınması durumu\n\n#### 5.1.5. AKIŞ DİYAGRAMI\n\n```mermaid\nflowchart TD\n  S1[\"Sözleşme bitiş alarmı üretilir.\"]\n  S2[\"Performans skoru kontrol edilir.\"]\n  S3[\"Yenileme onayı talep edilir.\"]\n  S1 --> S2\n  S2 --> S3\n```\n\n#### 5.1.6. İLGİLİ SÜREÇLER\n\n- [DOĞRULANDI] Tedarikçi Performans Yönetimi\n\n#### 5.1.7. ÜST DÜZEY MÜŞTERİ GELİŞTİRMESİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CUX-1-01 | Özel Fiyat Eskalasyon Formülü Uyarlaması | VARSAYIM |\n\n#### 5.1.8. ÖNEMLİ UYARLAMALAR VE AMAÇLARI\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| ADP-1-01 | Farklı para birimleri için kur farkı uyarlaması | ÇIKARIM |\n\n#### 5.1.9. DEĞİŞİM YÖNETİMİ\n\n| ID | Gereksinim / Karar | Kanıt Durumu |\n|---|---|---|\n| CM-1-01 | Tedarikçilerin dijital imza portalına oryantasyonu | DOĞRULANDI |\n\n## 6. EK A\n\n### 6.1. İLGİLİ / REFERANS DOKÜMANLAR\n\n- [DOĞRULANDI] 6098 Sayılı Türk Borçlar Kanunu\n- [AÇIK KONU] Kurumsal Satınalma Prosedürü\n\n### 6.2. EKLENTİ\n\n- [DOĞRULANDI] Sözleşme Yenileme API Spektleri",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "CONCEPTUAL_DESIGN",
+              "STRUCTURED_ARTIFACT"
+            ]
+          },
+          "review": {
+            "content": "# DEĞERLENDİRME RAPORU\n\n## 1. KAYNAK VE KANIT DURUMU\n\n| İddia | Durum | Kaynak / Kanıt | Güven |\n|---|---|---|---|\n| Sözleşme yenileme süreçleri Borçlar Kanunu'na uygun tasarlanmalıdır. | VERIFIED | Türk Borçlar Kanunu | 1.00 |\n| Dijital imza süreçleri 5070 sayılı kanunla uyumlu olmalıdır. | VERIFIED | 5070 Sayılı Elektronik İmza Kanunu | 1.00 |\n\n## 2. RİSKLER\n\n- [DOĞRULANDI] Sözleşme yenileme bildirim süresinin (Notice Period) kaçırılması sonucu hukuki tazminat riski.\n- [ÇIKARIM] E-imza entegrasyonunda teknik kesinti kaynaklı gecikmeler.\n\n## 3. VARSAYIMLAR\n\n- [VARSAYIM] Sözleşme yenilemelerinde yıllık bazda TÜFE/ÜFE endekslemesi yapılacağı varsayılmıştır.\n- [VARSAYIM] Tüm tedarikçilerin e-imza altyapısına sahip olduğu veya portal üzerinden onay verebileceği varsayılmıştır.\n\n## 4. AÇIK KONULAR\n\n- [AÇIK KONU] İmza yetki matrisinin (Delegation of Authority) güncel sirküler ile eşleştirilmesi.\n- [AÇIK KONU] Regülatöre tabi (BDDK/EPDK vb.) özel sözleşme usullerinin varlığı.\n\n## 5. ÇELİŞKİLER\n\n- [ÇIKARIM] Eski fiziksel sözleşmelerdeki manuel 'otomatik yenileme' maddeleri ile dijital sistemin çelişme riski.\n\n## 6. HIZLI AKSİYONLAR\n\n- [DOĞRULANDI] Hukuk biriminden güncel standart sözleşme yenileme maddelerinin alınması.\n- [DOĞRULANDI] BT ekibiyle ERP API erişim yetkilerinin konfirme edilmesi.",
+            "status": "NEEDS_REVISION",
+            "flags": [
+              "EVIDENCE_REVIEW",
+              "OPEN_TOPICS"
+            ]
+          },
+          "evidenceClaims": [
+            {
+              "claimId": "CL-001",
+              "claim": "Sözleşme yenileme süreçleri Borçlar Kanunu'na uygun tasarlanmalıdır.",
+              "status": "VERIFIED",
+              "sourceUrl": "https://www.mevzuat.gov.tr",
+              "sourceTitle": "Türk Borçlar Kanunu",
+              "retrievedAt": "2024-05-22",
+              "evidenceExcerpt": "6098 Sayılı TBK Madde 1-40 ve Madde 12 şekil serbestisi/geçerlilik koşulları.",
+              "confidence": 1
+            },
+            {
+              "claimId": "CL-002",
+              "claim": "Dijital imza süreçleri 5070 sayılı kanunla uyumlu olmalıdır.",
+              "status": "VERIFIED",
+              "sourceUrl": "https://www.resmigazete.gov.tr",
+              "sourceTitle": "5070 Sayılı Elektronik İmza Kanunu",
+              "retrievedAt": "2024-05-22",
+              "evidenceExcerpt": "Elektronik imzanın ıslak imza ile eşdeğer hukuki sonuçlar doğurması.",
+              "confidence": 1
+            }
+          ]
+        }
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-14-new-standalone-topic",
+        "actionMatched": false,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 0,
+          "previousDecisionPreservation": 1
+        },
+        "score": 88,
+        "failures": [
+          "Eylem uyumsuz: UPDATE_ARTIFACT",
+          "documentConsistency"
+        ]
+      }
+    },
+    {
+      "scenarioId": "jetwork-15-greeting",
+      "origin": "JETWORK",
+      "title": "Selamlaşmada iş akışı başlatmama",
+      "actual": {
+        "action": "ANSWER",
+        "text": "Merhaba, hazırım. Analiz etmek istediğin talebi yazabilir veya mevcut bir dokümanı paylaşabilirsin."
+      },
+      "evaluation": {
+        "scenarioId": "jetwork-15-greeting",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      }
+    }
+  ]
+}

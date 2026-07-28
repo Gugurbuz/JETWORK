@@ -1,10 +1,16 @@
 import type { ArtifactMode } from './baCognitiveFrame';
 import type { BaAgentFocus } from './intentTypes';
 import { CANONICAL_CONCEPTUAL_SECTIONS } from '../conceptualTemplate';
+import {
+  ENERJISA_BPMN_INSTRUCTION,
+  ENERJISA_DOCUMENT_TEMPLATE_INSTRUCTION,
+} from './enerjisaBaInstructions';
 
 export type ArtifactProfileId =
   | 'none'
   | 'discovery_brief'
+  | 'enerjisa_business_analysis'
+  | 'enerjisa_bpmn'
   | 'conceptual_design_standard'
   | 'conceptual_design_process_heavy'
   | 'technical_analysis'
@@ -54,6 +60,41 @@ export const ARTIFACT_PROFILES: Record<ArtifactProfileId, ArtifactProfile> = {
     promptRules: [
       'Tam dokuman uretme; once problem, mevcut durum, hedef, kritik karar ve kaynak ihtiyacini netlestir.',
       'Soru sayisini yuksek etkili ve geri donusu pahali kararlara indir.',
+    ],
+  },
+  enerjisa_business_analysis: {
+    id: 'enerjisa_business_analysis',
+    label: 'Enerjisa ihtiyaç analizi',
+    requiredSections: [
+      'Analiz Kapsamı',
+      'Kısaltmalar',
+      'İş Gereksinimleri',
+      'Fonksiyonel Gereksinimler (FR)',
+      'Fonksiyonel Olmayan Gereksinimler (NFR)',
+      'Süreç Risk Analizi',
+      'Onay',
+      'Fonksiyonel Tasarım Dokümanları',
+    ],
+    optionalSections: ['Test senaryoları', 'Süreç akışı', 'Veri modeli', 'Teknik gereksinimler'],
+    forbiddenSections: ['Kavramsal Tasarım Raporu genel şablonu', 'İç karar izi', 'Dosya adları ve bilgi kaynağı listesi'],
+    processModelPolicy: 'source_driven',
+    promptRules: [
+      ENERJISA_DOCUMENT_TEMPLATE_INSTRUCTION,
+      'Dokümanı yalnız businessAnalysis alanında tek ve bütün bir ihtiyaç analizi olarak üret.',
+      'Review alanı gerekiyorsa yalnız risk, varsayım ve açık konular için kullan; yeni iş gerçeği ekleme.',
+    ],
+  },
+  enerjisa_bpmn: {
+    id: 'enerjisa_bpmn',
+    label: 'Enerjisa BPMN',
+    requiredSections: ['Süreç özeti', 'BPMN 2.0 XML', 'BPMN DI koordinatları'],
+    optionalSections: ['Kroki diyagram bağlantısı'],
+    forbiddenSections: ['Eksik BPMN DI', 'Çıplak URL', 'Uydurma Kroki bağlantısı'],
+    processModelPolicy: 'required_for_profile',
+    promptRules: [
+      ENERJISA_BPMN_INSTRUCTION,
+      'Geçerli XML içeriğini businessAnalysis alanında xml kod bloğu içinde ver.',
+      'Süreç ayrıntısı eksikse XML üretmeden önce en fazla üç kritik soru sor.',
     ],
   },
   conceptual_design_standard: {

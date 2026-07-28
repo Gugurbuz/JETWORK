@@ -12,52 +12,9 @@ import { useDataStore } from '../store/useDataStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 const contextualQuestionOptions = (question: Question): string[] => {
-  const explicitOptions = (question.options || [])
+  return (question.options || [])
     .map(option => String(option || '').trim())
     .filter(Boolean);
-  if (explicitOptions.length >= 2) return explicitOptions;
-
-  const text = `${question.text} ${explicitOptions.join(' ')}`.toLocaleLowerCase('tr-TR');
-  if (/problem|ihtiyac|ama[cç]|hedef|deger|değer/.test(text)) {
-    return ['Ana problem ve is degeri net', 'Problem varsayimla modellensin', 'Acik konu olarak kalsin'];
-  }
-  if (/mevcut|as-is|bug[uü]n|su an|şu an|current state|legacy/.test(text)) {
-    return ['Manuel/kopuk takip var', 'Mevcut sistem var ama yetersiz', 'Acik konu olarak kalsin'];
-  }
-  if (/iys|izin|marka|sms|eposta|e-posta|arama|onay|ret/.test(text)) {
-    return ['SMS + e-posta + arama, tek marka', 'Coklu marka ve tum kanallar', 'Acik konu olarak kalsin'];
-  }
-  if (/lead|firsat|fırsat|opportunity|sales bot|satis bot|satış bot/.test(text)) {
-    return ['Lead + opportunity olustursun', 'Sadece lead nitelendirsin', 'Temsilci onayi zorunlu'];
-  }
-  if (/kanal|channel|web|mobil|mobile|whatsapp|cagri|çağrı|mail/.test(text)) {
-    return ['Web + mobil + cagri merkezi', 'Sadece web chat', 'Varsayimla cok kanal'];
-  }
-  if (/offline|senkron|sync|delta|mobil|mobile|saha|d2d/.test(text)) {
-    return ['Offline-first + delta sync', 'Online agirlikli', 'Acik konu olarak kalsin'];
-  }
-  if (/kaynak|hafiza|kanıt|kanit|evidence|memory|rag|context/.test(text)) {
-    return ['Kaynak zorunlu + varsayim ayrimi', 'Proje hafizasi oncelikli', 'Acik konu olarak kalsin'];
-  }
-  if (/arac|tool|aksiyon|yetki|onay|audit/.test(text)) {
-    return ['Riskli aksiyonlar onayli', 'Sadece analiz ve dokuman', 'Kod/test/dokuman kullanabilir'];
-  }
-  if (/entegrasyon|api|erp|crm|sap|odeme|webhook|middleware/.test(text)) {
-    return ['REST/API entegrasyonu', 'Batch/delta senkronizasyon', 'Acik konu olarak isaretle'];
-  }
-  if (/rol|aktor|paydas|onay|raci|temsilci|operasyon/.test(text)) {
-    return ['Is birimi + Operasyon + IT', 'Rol bazli onay modeli', 'Varsayimla RACI taslakla'];
-  }
-  if (/kpi|basari|olcum|sla|dashboard|rapor/.test(text)) {
-    return ['SLA + hata orani + hacim', 'Izlenebilirlik ve karar kalitesi', 'Varsayimla KPI seti'];
-  }
-  if (/kapsam|mvp|ilk surum|faz/.test(text)) {
-    return ['MVP kapsam', 'Uctan uca kapsam', 'Varsayimla kurumsal BA kapsami'];
-  }
-  if (/dokuman|doküman|belge|evrak|sozlesme|sözlesme|sözleşme|file/.test(text)) {
-    return ['Zorunlu belge matrisi olsun', 'Belge yukleme + onay akisli', 'Acik konu olarak kalsin'];
-  }
-  return ['Varsayimla ilerle', 'Acik konu kalsin', 'Ben netlestirecegim'];
 };
 
 const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], onSubmit: (answer: string) => void }) => {
@@ -128,29 +85,12 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
         <Send className="w-4 h-4" />
         Cevapları Gönder
       </button>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-        <button
-          onClick={() => onSubmit('Bu bilgilerle dokümanı oluştur. Yeni soru sorma, varsayımlarla ilerle; tamamlanacak kararları Review > Açık Sorular bölümüne yaz.')}
-          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
-          title="Mevcut bilgilerle taslak üret"
-        >
-          Bu bilgilerle dokümanı oluştur
-        </button>
-        <button
-          onClick={() => onSubmit('Varsayımlarla ilerle. Tamamlanacak bilgileri tahmini olarak doldur; sağ panelde taslağı üret.')}
-          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
-          title="Varsayımlarla taslak üret"
-        >
-          Varsayımlarla ilerle
-        </button>
-        <button
-          onClick={() => onSubmit('Daha fazla soru sorma. Mevcut bilgilerle ilerle ve sağ panelde dokümanı üret.')}
-          className="px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
-          title="Soru turunu kapat"
-        >
-          Daha fazla soru sorma
-        </button>
-      </div>
+      <button
+        onClick={() => onSubmit('Varsayımlarla devam et. Bilinmeyenleri açık konu olarak işaretle.')}
+        className="w-full px-3 py-2 text-xs rounded-lg border border-theme-border bg-theme-surface text-theme-text hover:border-theme-primary/60 transition-colors"
+      >
+        Varsayımlarla devam et
+      </button>
     </div>
   );
 };
@@ -627,26 +567,25 @@ export function ChatPanel({
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestionsScrollRef = useRef<HTMLDivElement>(null);
 
-  const dynamicSuggestions = selectedDocumentText 
+  const dynamicSuggestions = selectedDocumentText
     ? [
-        "Seçili mimariyi/kodu optimize et",
-        "Seçili bölümdeki güvenlik risklerini bul",
-        "Bu kısım için alternatif bir yaklaşım sun",
-        "Seçili metni daha teknik bir dille yaz"
+        'Seçili metni daha açık ve kurumsal bir dille güncelle.',
+        'Seçili metindeki eksik iş kuralı ve belirsizlikleri bul.',
       ]
     : hasDocument
       ? [
-          "Tamamlanacak alanları kapat. Kalite raporundaki zayıf alanları dokumana isle; yeni soru sorma, varsayimlari ve acik konulari Review'da ayir.",
-          "Word formatina duzelt. BA Analiz'i KAVRAMSAL TASARIM RAPORU sablonuna gore yeniden duzenle; surec modeli bloklarini otomatik cogalt.",
-          "Review'daki acik konulari kapat. Yanitlanabilir maddeleri varsayimlarla kapat; dogrulanamayanlari ACIK KONU olarak birak ve kaynak matrisini guncelle.",
-          "Traceability matrisini tamamla. Her REQ maddesini BR/FR, kabul kriteri ve UAT test senaryosuna bagla.",
-          "Coverage matrisini tamamla. Aktor, happy path, alternatif akis, istisna, validasyon, yetki, veri, entegrasyon, NFR, raporlama ve audit kapsamlarini kapat.",
-          "Bu mimariyi nasıl daha ölçeklenebilir (scalable) yaparız?",
-          "Sistemin zayıf noktaları (single point of failure) neler?",
-          "Bu entegrasyon icin BA icinde sequence/akis mantigini detaylandir",
-          "Surec akis diyagramini BA Analiz icinde Mermaid taslagi olarak ekle"
+          'Mevcut analizi değerlendir; dokümanı değiştirmeden eksikleri söyle.',
+          'Açık konuları ve riskleri kısa bir listede göster; dokümanı değiştirme.',
+          'Dokümanı Enerjisa ihtiyaç analizi şablonuna göre güncelle.',
         ]
       : [];
+
+  const starterPrompts = [
+    'Yeni bir iş analizi dokümanı başlatmak istiyorum. Talebi birlikte olgunlaştıralım.',
+    'Aşağıdaki ham notları yapısal bir dokümana dönüştürmeni istiyorum. Gerekirse sorular sor.',
+    'Mevcut analizimin olgunluk seviyesini değerlendirip eksik noktaları bulur musun?',
+    'Exper Modu’nu aktifleştir. Bu konuyu analizden teste kadar uçtan uca tamamla.',
+  ];
 
   const scrollSuggestions = () => {
     if (suggestionsScrollRef.current) {
@@ -1027,7 +966,7 @@ export function ChatPanel({
                 status === 'Completed' ? "bg-theme-primary" : "bg-theme-text-muted animate-pulse"
               )} />
               <span className="text-[10px] text-theme-text-muted font-medium uppercase tracking-widest truncate">
-                {projectName ? `${projectName}` : 'Aktif Dinleme Modu'}
+                {projectName ? `${projectName}` : 'Kıdemli İş Analisti'}
               </span>
             </div>
           </div>
@@ -1077,22 +1016,12 @@ export function ChatPanel({
             </button>
           )}
 
-          {/* AI Toggle Button */}
-          <button
-            onClick={onToggleAiActive}
-            className={cn(
-              "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border",
-              isAiActive 
-                ? "bg-theme-surface border-green-500 shadow-green-500/20" 
-                : "bg-theme-surface text-theme-text-muted border-theme-border hover:border-theme-primary/50 hover:text-theme-primary"
-            )}
-            title={isAiActive ? "Yapay Zeka Aktif Katılımda" : "Yapay Zeka Pasif Dinlemede"}
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center bg-theme-surface border border-theme-border shadow-sm"
+            title="Kıdemli İş Analisti"
           >
-            <JetWorkLogo 
-              className={cn("w-4 h-4", isAiActive && "animate-pulse")} 
-              innerColor={isAiActive ? "#22c55e" : undefined}
-            />
-          </button>
+            <JetWorkLogo className="w-4 h-4" />
+          </div>
         </div>
       </header>
 
@@ -1126,10 +1055,23 @@ export function ChatPanel({
                   <div className="w-12 h-12 bg-theme-surface flex items-center justify-center mb-6 border border-theme-border rounded-xl shadow-sm">
                     <JetWorkLogo className="w-6 h-6 text-theme-primary" />
                   </div>
-                  <h2 className="text-xl font-semibold text-theme-text mb-2 tracking-tight">Çalışma Alanına Hoş Geldiniz</h2>
-                  <p className="text-sm text-theme-text-muted mb-8 max-w-md leading-relaxed">
-                    Bu kanal proje ekibinizle iletişim kurmanız içindir. JetWork AI arka planda konuşmaları dinler ve gerektiğinde analiz, dokümantasyon veya teknik önerilerle sohbete proaktif olarak dahil olur.
+                  <h2 className="text-xl font-semibold text-theme-text mb-2 tracking-tight">İş analizi talebini birlikte netleştirelim</h2>
+                  <p className="text-sm text-theme-text-muted mb-6 max-w-xl leading-relaxed">
+                    Talebini yaz. Önce gerekli noktaları netleştiririm; yalnız istediğinde doküman oluştururum.
                   </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+                    {starterPrompts.map(prompt => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={() => onSendMessage(prompt, [])}
+                        className="p-4 text-left text-sm leading-relaxed rounded-xl border border-theme-border bg-theme-surface/60 text-theme-text hover:border-theme-primary/50 hover:bg-theme-surface transition-colors disabled:opacity-50"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </motion.div>
               ) : (
                 messages.map((msg, idx) => (
@@ -1286,7 +1228,7 @@ export function ChatPanel({
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-theme-border bg-theme-bg text-sm text-theme-text hover:bg-theme-surface-hover whitespace-nowrap shadow-sm shrink-0"
                   >
                     <Sparkles size={14} className="text-blue-500" />
-                    AI Features
+                    Yazım desteği
                   </button>
                   {dynamicSuggestions.map((suggestion, idx) => (
                     <button 
@@ -1422,7 +1364,7 @@ export function ChatPanel({
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
-                placeholder={isAiActive ? "AI aktif dinlemede... Ne yapmak istersiniz?" : "Değişiklik yapın, yeni özellikler ekleyin, herhangi bir şey sorun..."}
+                placeholder="Talebini, sorunu veya incelememi istediğin notları yaz..."
                 className="flex-1 max-h-48 min-h-[80px] bg-transparent border-none focus:ring-0 focus:outline-none focus-visible:outline-none resize-none p-4 text-base text-theme-text placeholder:text-theme-text-muted"
                 rows={1}
               />

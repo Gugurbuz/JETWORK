@@ -1,10 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { GoogleGenAI, ThinkingLevel } from "npm:@google/genai"
+import { GoogleGenAI, ThinkingLevel } from "npm:@google/genai@1.52.0"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+
+const allowedModels = new Set([
+  'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite-preview',
+])
 
 function hasUnsupportedSchemaReference(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
@@ -29,7 +35,53 @@ serve(async (req) => {
   }
 
   try {
-    const { model, systemInstruction, contents, responseSchema, tools, toolConfig } = await req.json()
+    const authorization = req.headers.get('Authorization')
+    if (!authorization) {
+      return new Response(JSON.stringify({ error: 'Authentication is required.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      })
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+    if (!supabaseUrl || !anonKey) {
+      throw new Error('Supabase authentication environment is unavailable')
+    }
+    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        Authorization: authorization,
+        apikey: anonKey,
+      },
+    })
+    if (!authResponse.ok) {
+      return new Response(JSON.stringify({ error: 'A valid user session is required.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      })
+    }
+    // Anonymous Supabase users are intentionally supported by the product's
+    // guest mode. The verified user session still prevents unauthenticated
+    // callers from consuming the paid model endpoint.
+    await authResponse.body?.cancel()
+
+    const contentLength = Number(req.headers.get('content-length') || 0)
+    if (contentLength > 2_000_000) {
+      return new Response(JSON.stringify({ error: 'Request payload is too large.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 413,
+      })
+    }
+
+    const {
+      model,
+      systemInstruction,
+      contents,
+      responseSchema,
+      tools,
+      toolConfig,
+    } = await req.json()
+    if (!allowedModels.has(model)) throw new Error('Requested model is not allowed.')
     const supportedResponseSchema = isSupportedGeminiSchema(responseSchema) ? responseSchema : null
     
     const apiKey = Deno.env.get('GEMINI_API_KEY')

@@ -6,16 +6,24 @@ import { useUIStore } from '../store/useUIStore';
 import { Message } from '../types';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt } from '../services/promptEngine';
-import { hybridSearch, summarizeConversation } from '../services/contextManager';
+import { summarizeConversation } from '../services/contextManager';
 import { runSingleChatOrchestrator } from '../services/singleChatOrchestrator';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { useMessageStore } from '../store/useMessageStore';
-import { buildProjectMemoryContext } from '../services/ai/projectMemoryEngine';
 import { sanitizeAiDisplayText } from '../services/aiMessagePresentation';
 import { applyAiDocumentResult } from '../services/documentApplicationService';
 import { extractKnowledgeItems, persistTurnMemory } from '../services/memoryExtractionService';
 import { saveAiMessage, saveMessageReactions, saveUserMessage } from '../services/messageRepository';
 import { broadcastMessage, createAiStreamAdapter } from '../services/aiStreamAdapter';
+import {
+  buildAnalystTurnContext,
+  renderAnalystTurnContext,
+  toModelHistory,
+} from '../services/analystContext';
+import {
+  retrieveRelevantKnowledge,
+  saveKnowledgeItems,
+} from '../services/semanticKnowledgeRepository';
 
 export const useMessages = (channelRef: any) => {
   const generationAbortRef = useRef<AbortController | null>(null);
@@ -137,54 +145,58 @@ export const useMessages = (channelRef: any) => {
     const promptSettings = useSettingsStore.getState().promptSettings;
     const knowledgeBase = documentState.knowledgeBase;
     const projectMemory = documentState.projectMemory || {};
+    const memoryItems = documentState.memoryItems || [];
     const addKnowledge = documentState.addKnowledge;
     const memoryEnabled = promptSettings?.memoryEnabled ?? true;
     const contextWindowSize = promptSettings?.contextWindowSize ?? 10;
 
+    if (memoryEnabled) {
+      try {
+        const nextMemory = await persistTurnMemory({
+          workspaceId: currentWorkspaceId,
+          messageId: msgId,
+          userMessage: messageText,
+          currentMemoryItems: memoryItems,
+        });
+        if (nextMemory) {
+          useDocumentStore.getState().setMemoryItems(nextMemory);
+        }
+      } catch (error) {
+        console.error('Project memory persistence failed:', error);
+      }
+    }
+
     try {
       const currentMessages = getCurrentMessages();
       const documentContent = documentState.documentContent;
-      
-      let retrievedContext = '';
-      if (memoryEnabled && knowledgeBase.length > 0) {
-        const relevantKnowledge = hybridSearch(messageText, knowledgeBase, 3);
-        if (relevantKnowledge.length > 0) {
-          retrievedContext = '\n\n[KURUMSAL HAFIZA / GEÇMİŞ BİLGİLER]\n' + 
-            relevantKnowledge.map(k => `- ${k.content} (Önem: ${k.importance}/10)`).join('\n');
-        }
-      }
-
-      const historyToSend = currentMessages.slice(-contextWindowSize);
-      
-      if (memoryEnabled && currentMessages.length > contextWindowSize + 5) {
-        const messagesToSummarize = currentMessages.slice(0, currentMessages.length - contextWindowSize);
-        summarizeConversation(messagesToSummarize).then(summary => {
-          if (summary) {
-            addKnowledge({
-              id: Date.now().toString(),
-              content: `Önceki Konuşma Özeti: ${summary}`,
-              keywords: ['özet', 'geçmiş', 'konuşma'],
-              importance: 9,
-              createdAt: Date.now(),
-              projectId: currentWorkspaceId
-            });
-          }
-        }).catch(console.error);
-      }
-
-      const history: { role: 'user' | 'model'; parts: { text: string }[] }[] = historyToSend.map(m => ({
-        role: (m.role === 'user' ? 'user' : 'model') as 'user' | 'model',
-        parts: [{ text: `[${m.senderName} - ${m.senderRole}]: ${m.text}` }]
-      }));
-
-      const projectMemoryContext = memoryEnabled ? buildProjectMemoryContext(projectMemory) : '';
-      const additionalContext = [projectMemoryContext, retrievedContext].filter(Boolean).join('\n\n');
+      const selectedNodeContent = useDocumentStore.getState().selectedDocumentText || null;
+      // Keep the existing setting as a compatibility input, but budget the
+      // conversation by approximate tokens instead of a raw message count.
+      const contextTokenBudget = Math.min(12_000, Math.max(2_400, contextWindowSize * 600));
+      const turnContext = await buildAnalystTurnContext({
+        userMessage: messageText,
+        currentUserMessageId: msgId,
+        messages: currentMessages,
+        projectMemory,
+        memoryItems,
+        knowledgeBase,
+        currentArtifact: documentContent,
+        selectedContent: selectedNodeContent,
+        tokenBudget: contextTokenBudget,
+        memoryEnabled,
+        summarize: messages => summarizeConversation(messages, generationController.signal),
+        retrieveKnowledge: (query, items) => (
+          retrieveRelevantKnowledge(query, items, currentWorkspaceId, 5)
+        ),
+      });
+      useDocumentStore.getState().setLastAnalystContextDebug(turnContext.debug);
+      const history = toModelHistory(turnContext.recentConversation);
+      const additionalContext = renderAnalystTurnContext(turnContext);
       let systemInstruction = buildSystemPrompt({ role: 'SYSTEM', settings: promptSettings, additionalContext });
       if (targetAgentRole) {
         systemInstruction = buildSystemPrompt({ role: targetAgentRole, settings: promptSettings, additionalContext });
       }
 
-      const selectedNodeContent = useDocumentStore.getState().selectedDocumentText || null;
       const currentWorkspaceTitle = useDataStore.getState().projects
         .flatMap(project => project.workspaces)
         .find(workspace => workspace.id === currentWorkspaceId)?.title;
@@ -199,12 +211,13 @@ export const useMessages = (channelRef: any) => {
       const loopOutput = await runSingleChatOrchestrator({
         userMessage: messageText,
         history,
-        messageHistory: currentMessages,
+        messageHistory: turnContext.recentConversation,
         documentContent,
         workspaceId: currentWorkspaceId,
         workspaceTitle: currentWorkspaceTitle,
         projectMemory,
-        knowledgeBase,
+        knowledgeBase: turnContext.retrievedSources,
+        analystContext: turnContext,
         model: selectedModel,
         systemInstruction,
         signal: generationController.signal,
@@ -224,7 +237,7 @@ export const useMessages = (channelRef: any) => {
         initialText: fullText,
         existingDocument: documentContent,
         userMessage: messageText,
-        recentMessages: currentMessages,
+        recentMessages: [...turnContext.recentConversation, newMsg],
         workspaceTitle: currentWorkspaceTitle,
         workspaceId: currentWorkspaceId,
         messageId: aiMsgId,
@@ -236,25 +249,6 @@ export const useMessages = (channelRef: any) => {
 
       if (application.applied && finalDocument) {
         useDocumentStore.getState().setDocumentContent(finalDocument);
-      }
-
-      if (memoryEnabled) {
-        try {
-          const nextMemory = await persistTurnMemory({
-            workspaceId: currentWorkspaceId,
-            messageId: aiMsgId,
-            userMessage: messageText,
-            aiMessage: fullText,
-            document: finalDocument,
-            currentMemory: useDocumentStore.getState().projectMemory || {},
-          });
-          if (nextMemory) {
-            useDocumentStore.getState().setProjectMemory(nextMemory);
-            localStorage.setItem(`jetwork_project_memory_${currentWorkspaceId}`, JSON.stringify(nextMemory));
-          }
-        } catch (error) {
-          console.error('Project memory persistence failed:', error);
-        }
       }
 
       const completedAiMessage: Message = {
@@ -275,6 +269,9 @@ export const useMessages = (channelRef: any) => {
         createdAt: aiCreatedAt,
         score: qualityScore,
         scoreExplanation: qualityExplanation,
+        documentSnapshot: application.applied && finalDocument ? finalDocument : undefined,
+        previousDocumentSnapshot: application.applied && documentContent ? documentContent : undefined,
+        documentActions: application.applied ? application.changedSections : undefined,
       };
 
       setMessages(prev => prev.map(m => m.id === aiMsgId ? completedAiMessage : m));
@@ -294,6 +291,7 @@ export const useMessages = (channelRef: any) => {
       if (memoryEnabled) {
         extractKnowledgeItems(currentWorkspaceId, messageText).then(items => {
           items.forEach(addKnowledge);
+          return saveKnowledgeItems(currentWorkspaceId, items, msgId);
         }).catch(console.error);
       }
 

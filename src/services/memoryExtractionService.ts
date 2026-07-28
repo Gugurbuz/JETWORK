@@ -1,26 +1,27 @@
-import type { DocumentData, KnowledgeItem } from '../types';
+import type { KnowledgeItem, ProjectMemoryItem } from '../types';
 import { extractKeyFacts } from './contextManager';
-import { extractProjectMemoryUpdates, mergeProjectMemory } from './ai/projectMemoryEngine';
-import { saveProjectMemory } from './projectMemoryRepository';
+import {
+  extractStructuredProjectMemory,
+  mergeStructuredProjectMemory,
+} from './ai/projectMemoryEngine';
+import { saveProjectMemoryItems } from './projectMemoryRepository';
 
 export async function persistTurnMemory(input: {
   workspaceId: string;
   messageId: string;
   userMessage: string;
-  aiMessage: string;
-  document: DocumentData | null;
-  currentMemory: Record<string, string>;
-}): Promise<Record<string, string> | null> {
-  const updates = extractProjectMemoryUpdates({
+  currentMemoryItems: ProjectMemoryItem[];
+}): Promise<ProjectMemoryItem[] | null> {
+  const updates = extractStructuredProjectMemory({
     userMessage: input.userMessage,
-    aiMessage: input.aiMessage,
-    document: input.document,
+    sourceId: input.messageId,
+    existing: input.currentMemoryItems,
   });
-  if (!Object.keys(updates).length) return null;
+  if (!updates.length) return null;
 
-  const result = await saveProjectMemory(input.workspaceId, updates, input.messageId);
+  const result = await saveProjectMemoryItems(input.workspaceId, updates);
   if (!result.ok) throw new Error(result.error || 'Project memory persistence failed.');
-  return mergeProjectMemory(input.currentMemory, updates);
+  return mergeStructuredProjectMemory(input.currentMemoryItems, updates);
 }
 
 export async function extractKnowledgeItems(

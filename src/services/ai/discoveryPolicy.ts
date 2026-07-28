@@ -1,6 +1,6 @@
 import { DocumentData, Message } from '../../types';
 import { buildBaDiscoveryState, isLikelyBaDiscoveryAnswer } from '../../modules/ai-ba-engine';
-import { BA_MINDSET_SYSTEM_INSTRUCTION } from './baMindset';
+import { ENERJISA_BA_SYSTEM_INSTRUCTION } from './enerjisaBaInstructions';
 
 export interface DiscoverySignals {
   forceGenerate: boolean;
@@ -30,10 +30,10 @@ const FORCE_GENERATE_PATTERNS: RegExp[] = [
   /\bhadi\b/i,
   /\b(h[\u0131i]zl[\u0131i]\s+taslak|ilk\s+tasla[\u011f]?[\u0131i]?\s*(c[\u0131i]kar|olu[\u015fs]tur|haz[\u0131i]rla|uret|\u00fcret|yaz)|kabaca\s+taslak|taslakla\s+ilerle)\b/i,
   /\bbu\s+bilgilerle\s+(ilerle|devam|oluştur|yaz|hazırla)/i,
-  /\bvarsayımlarla\s+(devam|ilerle|oluştur|hazırla)/i,
+  /\bvarsay[\u0131i]mla(?:rla)?\s+(devam|ilerle|olu[\u015fs]tur|haz[\u0131i]rla)/i,
   /\bmevcut\s+bilgilerle\b/i,
   /\btaslakla\s+(devam|ilerle)\b/i,
-  /\bvarsay[\u0131i]mlarla\b/i,
+  /\bvarsay[\u0131i]mla(?:rla)?\b/i,
   /\bbu\s+bilgilerle\b/i,
   /\bmevcut\s+bilgilerle\b/i,
   /\btamam[,\s!.?]*\s*(oluştur|yaz|hazırla|başla|başlayalım)/i,
@@ -43,8 +43,8 @@ const FORCE_GENERATE_PATTERNS: RegExp[] = [
 const STOP_QUESTION_PATTERNS: RegExp[] = [
   /\b(soru\s+sorma|soru\s+istemiyorum|sorular[\u0131i]\s+b[\u0131i]rak|sorulari\s+birak)\b/i,
   /\b(ben\s+mi\s+yap[\u0131i]cam|ben\s+mi\s+yapacagim|sen\s+yap)\b/i,
-  /\b(varsayi?mlarla|mevcut\s+bilgilerle|bu\s+bilgilerle)\b/i,
-  /\bvarsay[\u0131i]mlarla\b/i,
+  /\b(varsayi?mla(?:rla)?|mevcut\s+bilgilerle|bu\s+bilgilerle)\b/i,
+  /\bvarsay[\u0131i]mla(?:rla)?\b/i,
   /\byeter\s*(artık)?\b/i,
   /\bdaha\s*(fazla)?\s*soru\s*sorma\b/i,
   /\bsoru\s*(yeter|kes|durdur|sorma)\b/i,
@@ -113,7 +113,7 @@ function isSparseInitialDomainDocumentRequest(
   const looksLikeSapDomain = /sap\s*crm/.test(text)
     && /(ai|yapay zeka|bot|chatbot|asistan|satis|sales|iys|ileti yonetim sistemi)/.test(text);
   const asksForDocumentOutput = /(ba analiz|kavramsal|tasarim|dokuman|rapor|brd|fdd|hazirla|olustur|uret|yaz)/.test(text);
-  const explicitlyAllowsDraft = /(varsayimlarla|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap)/.test(text);
+  const explicitlyAllowsDraft = /(varsayimla(?:rla)?|soru sorma|bu bilgilerle|mevcut bilgilerle|hizli taslak|ilk taslagi|sen yap)/.test(text);
   return looksLikeSapDomain && asksForDocumentOutput && !explicitlyAllowsDraft && tokenCount <= 14;
 }
 
@@ -161,7 +161,9 @@ const getSender = (message: Message): string => String((message as any).sender |
 
 function countQuestionRounds(messages: Message[]): number {
   return messages.filter((m) => getSender(m) === 'ai' || getSender(m) === 'model')
-    .filter((m) => Array.isArray((m as any).questions) && (m as any).questions.length > 0)
+    .filter((m) => (
+      Array.isArray((m as any).questions) && (m as any).questions.length > 0
+    ) || /\?/.test(String(m.text || '')))
     .length;
 }
 
@@ -179,27 +181,30 @@ function countAnsweredQuestions(messages: Message[]): number {
 
 function hasPendingQuestionRound(messages: Message[]): boolean {
   let lastQuestionIndex = -1;
-  let lastStructuredAnswerIndex = -1;
+  let lastUserAnswerIndex = -1;
 
   messages.forEach((message, index) => {
     const sender = getSender(message);
-    if ((sender === 'ai' || sender === 'model') && Array.isArray((message as any).questions) && (message as any).questions.length > 0) {
+    const isQuestionMessage = (
+      Array.isArray((message as any).questions) && (message as any).questions.length > 0
+    ) || /\?/.test(String(message.text || ''));
+    if ((sender === 'ai' || sender === 'model') && isQuestionMessage) {
       lastQuestionIndex = index;
     }
-    if (sender === 'user' && /\*\*Soru\s+\d+:\*\*|\bCevap\s*:/i.test(String(message.text || ''))) {
-      lastStructuredAnswerIndex = index;
+    if (sender === 'user') {
+      lastUserAnswerIndex = index;
     }
   });
 
-  return lastQuestionIndex >= 0 && lastQuestionIndex > lastStructuredAnswerIndex;
+  return lastQuestionIndex >= 0 && lastQuestionIndex > lastUserAnswerIndex;
 }
 
 function isLikelyStandaloneProjectRequest(userMessage: string): boolean {
   const text = normalizeDiscoveryText(userMessage);
   if (!text || /\*\*soru\s+\d+:\*\*|\bcevap\s*:/.test(text)) return false;
   const tokenCount = text.split(/\s+/).filter(Boolean).length;
-  const hasProjectSignal = /(proje|uygulama|entegrasyon|refactoring|refaktoring|donusum|d2d|mobil|mobile|sap|crm|iys|saha satis|satis uygulamasi|kavramsal|dokuman|analiz|tasarim)/.test(text);
-  const hasActionSignal = /(yazalim|hazirla|olustur|uret|yaz|donusum|refactoring|refaktoring|entegrasyon|projesi|uygulamamiz)/.test(text);
+  const hasProjectSignal = /(proje|uygulama|sistem|surec|entegrasyon|refactoring|refaktoring|donusum|d2d|mobil|mobile|sap|crm|iys|saha satis|satis uygulamasi|kavramsal|dokuman|analiz|tasarim)/.test(text);
+  const hasActionSignal = /(analiz|incele|tasarla|tasarlayalim|yazalim|hazirla|olustur|uret|yaz|donusum|refactoring|refaktoring|entegrasyon|projesi|uygulamamiz)/.test(text);
   return tokenCount >= 4 && hasProjectSignal && hasActionSignal;
 }
 
@@ -227,8 +232,12 @@ export function computeDiscoverySignals(
   const questionRoundCount = countQuestionRounds(messages);
   const answeredQuestionCount = Math.max(countAnsweredQuestions(messages), discovery.answeredQuestionCount);
   const documentReadinessScore = scoreDocumentReadiness(document, messages);
-  const newStandaloneRequest = hasPendingQuestionRound(messages) && isLikelyStandaloneProjectRequest(userMessage);
-  const isAnsweringDiscovery = !newStandaloneRequest && isLikelyBaDiscoveryAnswer(userMessage);
+  const pendingQuestionRound = hasPendingQuestionRound(messages);
+  const explicitNewTopic = /^\s*yeni\s+(konu|proje)\s*:/i.test(userMessage);
+  const newStandaloneRequest = isLikelyStandaloneProjectRequest(userMessage)
+    && (pendingQuestionRound || explicitNewTopic);
+  const isAnsweringDiscovery = !newStandaloneRequest
+    && (pendingQuestionRound || isLikelyBaDiscoveryAnswer(userMessage));
   const shouldProtectInitialDiscovery = isSparseInitialDomainDocumentRequest(userMessage, messages, document);
 
   let reason = '';
@@ -242,7 +251,7 @@ export function computeDiscoverySignals(
   } else if (stopQuestions) {
     mustGenerateNow = true;
     reason = 'user_stop_questions';
-  } else if (isAnsweringDiscovery && (answeredQuestionCount >= 1 || questionRoundCount > 0)) {
+  } else if (isAnsweringDiscovery && (pendingQuestionRound || answeredQuestionCount >= 1 || questionRoundCount > 0)) {
     mustGenerateNow = true;
     reason = 'user_answered_discovery_questions';
   } else if (answeredQuestionCount >= 6) {
@@ -283,18 +292,11 @@ export const DOMAIN_LOCK_RULE = `ÜRÜN TANIMI (ZORUNLU):
 
 export const DRAFT_FIRST_SYSTEM_RULE = `${DOMAIN_LOCK_RULE}
 
-${BA_MINDSET_SYSTEM_INSTRUCTION}
+${ENERJISA_BA_SYSTEM_INSTRUCTION}
 
-AI BA ENGINE V1 ÇALIŞMA POLİTİKASI (zorunlu):
-- Önce niyeti belirle: sohbet, keşif sorusu, BA üretimi, revizyon, review/kalite veya araştırma.
-- Kullanıcı yalnızca net bir proje fikri yazdıysa (örneğin "sap crm ai satis botu projesi") bunu otomatik doküman komutu sayma; önce domain'e özel kritik keşif sorularını sor.
-- Soru soracaksan BA Mindset checklist'ine göre en kritik en fazla 3-4 soruyu sor: problem, iş değeri/KPI, kapsam, süreç, rol, sistem davranışı, veri/entegrasyon, kabul kriteri, risk.
-- Her soru hızlı cevaplanabilir olmalı ve 2-4 seçenek içermeli.
-- Bir talep için en fazla 2 soru turu yapabilirsin.
-- Kullanıcı 6'dan fazla soruya cevap verdiyse ARTIK YENİ SORU SORMA.
-- Kullanıcı sadece "doküman oluştur", "FDD hazırla", "kavramsal tasarım yaz" dediyse bunu hedef çıktı niyeti say; kritik kapsam/karar eksikleri varsa önce domain'e özel az sayıda soru sor.
-- Kullanıcı "bu bilgilerle ilerle", "varsayımlarla devam", "soru sorma", "hızlı taslak", "ilk taslağı çıkar", "sen yap", "uygula" dediyse soru sorma, dokümanı üret.
-- Kullanıcı soru kartlarına cevap verdiyse cevapları BA hafızası gibi ele al; dokümana gereksinim, varsayım, iş kuralı veya açık soru olarak işle.
-- Mükemmel bilgi bekleme. Eksik bilgileri [VARSAYIM] olarak doküman içinde açıkça işaretle, kalan belirsizlikleri Review > Açık Sorular bölümüne yaz.
-- Chat cevabın kısa olsun; uzun detaylar sağ paneldeki dokümana yazılır.
-- Selamlaşma veya küçük sohbete sorularla karşılık verme; kısa cevap dön.`;
+SADE ETKILESIM KURALI:
+- Talebin proje/support ayrimini sessizce yap.
+- Eksik kritik bilgi varsa en fazla uc soru sor.
+- Kullanici acikca istemedikce dokuman olusturma veya guncelleme.
+- Kullanici varsayimlarla ilerlemeyi acikca kabul ederse bilinmeyenleri etiketleyerek devam et.
+- Chat cevabini kisa ve profesyonel tut; ic karar mekanizmasini aciklama.`;

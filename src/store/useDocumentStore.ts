@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { DocumentData, KnowledgeItem } from '../types';
+import { DocumentData, KnowledgeItem, ProjectMemoryItem } from '../types';
+import type { AnalystContextDebug } from '../services/analystContext';
 
 export interface DocumentState {
   isGenerating: boolean;
@@ -23,6 +24,10 @@ export interface DocumentState {
   ) => void;
   projectMemory: Record<string, string>;
   setProjectMemory: (memory: Record<string, string>) => void;
+  memoryItems: ProjectMemoryItem[];
+  setMemoryItems: (items: ProjectMemoryItem[]) => void;
+  lastAnalystContextDebug: AnalystContextDebug | null;
+  setLastAnalystContextDebug: (debug: AnalystContextDebug | null) => void;
   selectedDocumentText: string;
   setSelectedDocumentText: (text: string) => void;
   activeTab: string;
@@ -56,6 +61,10 @@ export const useDocumentStore = create<DocumentState>((set) => ({
     })),
   projectMemory: {},
   setProjectMemory: (memory) => set({ projectMemory: memory }),
+  memoryItems: [],
+  setMemoryItems: (items) => set({ memoryItems: items }),
+  lastAnalystContextDebug: null,
+  setLastAnalystContextDebug: (debug) => set({ lastAnalystContextDebug: debug }),
   selectedDocumentText: '',
   setSelectedDocumentText: (text) => set({ selectedDocumentText: text }),
   activeTab: 'BA Analiz',

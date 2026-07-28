@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-28T20:43:52.636Z",
+  "model": "gemini-3-flash-preview",
+  "summary": {
+    "scenarioCount": 1,
+    "averageScore": 100,
+    "actionAccuracy": 100,
+    "criterionScores": {
+      "contextPreservation": 100,
+      "avoidsUnnecessaryQuestions": 100,
+      "capturesCriticalGaps": 100,
+      "businessRuleQuality": 100,
+      "factAssumptionSeparation": 100,
+      "processDepth": 100,
+      "documentConsistency": 100,
+      "previousDecisionPreservation": 100
+    },
+    "failedScenarioIds": []
+  },
+  "results": [
+    {
+      "scenarioId": "aianalyst-09-review-artifact",
+      "origin": "AIANALYST_REFERENCE",
+      "title": "Review içinde risk ve açık konu ayrımı",
+      "actual": {
+        "action": "REVIEW_ARTIFACT",
+        "text": "Mevcut CRM entegrasyonu analizini gözden geçirdim. Belirsiz kalan entegrasyon metotları, veri güvenliği ve hata yönetimi gibi kritik noktaları belirleyerek Review bölümüne raporladım.\n\n**Ne yaptım?**\nAnaliz dokümanını kalite, risk ve varsayımlar açısından inceledim; 'Review' sekmesine detaylı bir gözden geçirme raporu ekledim.",
+        "document": {
+          "businessAnalysis": {
+            "content": "# Kapsam\nCRM ile dış servis entegre edilecek.",
+            "status": "DRAFT",
+            "flags": []
+          },
+          "review": {
+            "content": "# Review Raporu\n\n## 1. Kalite Puanı: 30/100\n**Gerekçe:** Doküman şu an için sadece bir niyet beyanı seviyesindedir. Entegrasyonun tipi, veri kapsamı, güvenlik gereksinimleri ve hata senaryoları gibi temel analiz bileşenleri henüz tanımlanmamıştır.\n\n## 2. Riskler\n- **Teknik Belirsizlik Riski:** Entegrasyon metodunun (REST, SOAP, Webhook vb.) seçilmemiş olması mimari uyumsuzluk riski taşır.\n- **Veri Güvenliği Riski:** CRM verilerinin dış servis ile paylaşımı sırasında KVKK/GDPR uyumluluğu ve yetkilendirme katmanlarının eksikliği.\n- **Performans Riski:** Senkron veya asenkron işlem tipinin belirlenmemiş olması, CRM kullanıcı deneyimini (yavaşlama vb.) olumsuz etkileyebilir.\n\n## 3. Açık Konular\n- Dış servisin API dokümantasyonu sağlandı mı?\n- Entegrasyon tek yönlü mü (CRM -> Servis) yoksa çift yönlü mü olacak?\n- Hangi veri setleri (Müşteri, Fırsat, Ürün vb.) taşınacak?\n\n## 4. Varsayımlar\n- [VARSAYIM] Entegrasyonun modern RESTful API standartlarını desteklediği varsayılmıştır.\n- [VARSAYIM] CRM sisteminde gerekli API lisanslarının ve erişim yetkilerinin bulunduğu varsayılmıştır.\n\n## 5. Hızlı Aksiyonlar\n- Dış servis API dokümantasyonunun temin edilmesi.\n- Temel iş akışının (tetikleyici olay ve beklenen sonuç) tanımlanması.\n\n## Kanıt Sınıfları\n\n- DOĞRULANMIŞ GERÇEK · VARSAYIM · AÇIK KONU\n\n## Talep İzlenebilirliği\n\n- Kullanıcı talebi: Bu analizi gözden geçir; riskleri, varsayımları ve açık kararları Review bölümünde göster.",
+            "status": "NEEDS_REVISION",
+            "flags": []
+          },
+          "evidenceClaims": []
+        }
+      },
+      "evaluation": {
+        "scenarioId": "aianalyst-09-review-artifact",
+        "actionMatched": true,
+        "criteria": {
+          "contextPreservation": 1,
+          "avoidsUnnecessaryQuestions": 1,
+          "capturesCriticalGaps": 1,
+          "businessRuleQuality": 1,
+          "factAssumptionSeparation": 1,
+          "processDepth": 1,
+          "documentConsistency": 1,
+          "previousDecisionPreservation": 1
+        },
+        "score": 100,
+        "failures": []
+      },
+      "diagnostics": {
+        "intent": "analyze_request",
+        "classification": {
+          "primaryIntent": "quality_review",
+          "subIntent": "generate_review_report",
+          "targetSection": "review",
+          "secondaryTargetSection": "businessAnalysis",
+          "operation": "append_to_section",
+          "documentImpact": "updates_document",
+          "confidence": 1,
+          "riskLevel": "low",
+          "requiresResearch": false,
+          "researchType": "internal",
+          "requiresClarification": false,
+          "requiresPreview": false,
+          "shouldRunBaAgentLoop": true,
+          "baAgentFocus": "review",
+          "reason": "Kullanıcı analizin gözden geçirilmesini ve tespit edilen risk, varsayım ve açık kararların Review sekmesine yazılmasını talep etti.; behavior:document_request:generic_ba; template:corporate_conceptual_design; depth:standard; behavior:document_request:generic_ba; template:corporate_conceptual_design; depth:standard; analyst_action:review_artifact_write"
+        },
+        "turnDecision": {
+          "action": "revise_document",
+          "artifactMode": "conceptual_analysis",
+          "artifactProfile": {
+            "id": "review_report",
+            "label": "Review raporu",
+            "requiredSections": [
+              "Kalite puani",
+              "Riskler",
+              "Acik konular",
+              "Varsayimlar",
+              "Hizli aksiyonlar"
+            ],
+            "optionalSections": [
+              "Kaynak dogrulama",
+              "Traceability",
+              "Coverage"
+            ],
+            "forbiddenSections": [
+              "Ana dokumani gizlice yeniden yazma"
+            ],
+            "processModelPolicy": "none",
+            "promptRules": [
+              "Review modu ana dokumani degistirmez; bulgu, risk ve aksiyon uretir.",
+              "Puan gerekcesini kullanicinin anlayacagi sekilde acikla."
+            ]
+          },
+          "sourcePolicy": {
+            "requiresExternalResearch": false,
+            "officialSourceRequired": false,
+            "canClaimVerified": true,
+            "sourceSensitive": false
+          },
+          "questionPolicy": {
+            "shouldAsk": false,
+            "reason": "Bu turda soru sorma ana aksiyon degil.",
+            "maxQuestions": 0,
+            "questionType": "none"
+          },
+          "documentPolicy": {
+            "shouldUpdateDocument": true,
+            "templateProfile": "review_report",
+            "allowAssumptions": true,
+            "allowAutoRepair": false,
+            "allowTemplateNormalization": true,
+            "forceDocumentGeneration": true,
+            "visibleSections": [
+              "businessAnalysis",
+              "review"
+            ]
+          },
+          "executionPolicy": {
+            "operation": "generate_review_report",
+            "targetSection": "review",
+            "requiresConfirmation": false
+          },
+          "qualityPolicy": {
+            "minimumAcceptableScore": 78,
+            "blockOnContextLeakage": true,
+            "validationOnlyByDefault": true
+          },
+          "confidence": 53,
+          "reason": "action:revise_document; artifact:conceptual_analysis; profile:review_report; behavior:update_existing_document; cognitive:revise_existing; sourceSensitive:false; officialSourceRequired:false",
+          "trace": [
+            "action:revise_document",
+            "artifact:conceptual_analysis",
+            "profile:review_report",
+            "behavior:update_existing_document",
+            "cognitive:revise_existing",
+            "sourceSensitive:false",
+            "officialSourceRequired:false"
+          ]
+        }
+      }
+    }
+  ]
+}

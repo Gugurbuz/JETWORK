@@ -81,6 +81,7 @@ export interface BuildAiTurnDecisionInput {
     mustGenerateNow?: boolean;
     greetingOnly?: boolean;
     newStandaloneRequest?: boolean;
+    isAnsweringDiscovery?: boolean;
     reason?: string;
   };
   hasSelectedText?: boolean;
@@ -124,12 +125,39 @@ function explicitDocumentGeneration(text: string): boolean {
 
 function explicitResearchRequest(text: string): boolean {
   const normalized = normalize(text);
-  return /\b(arastir|kaynak|resmi kaynak|guncel|best practice|mevzuat|api dokuman|dogrula)\b/.test(normalized);
+  return /\b(arastir|resmi kaynak|guncel|best practice|mevzuat|api dokuman|dogrula|kaynak bul|kaynak tara|kaynaklardan)\b/.test(normalized);
+}
+
+function explicitSensitiveEvidenceNeed(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(kkb|findeks|kredi notu|kredi skoru|muvafakat|kvkk|kisisel veri|finansal veri|mevzuat|kanun|resmi kurum|resmi api|api alan)\b/.test(normalized);
+}
+
+function explicitDocumentRevision(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(ekle|guncelle|degistir|revize|ayrintilandir|detaylandir|duzelt|cevir|isle|genislet|kisalt|olsun|kaldir)\w*\b/.test(normalized);
+}
+
+function explicitDecisionStatement(text: string): boolean {
+  return /^\s*(karar|kural|gereksinim|kısıt|kisit)\s*:/i.test(text);
+}
+
+function explicitSelectedTextRevision(text: string): boolean {
+  const normalized = normalize(text);
+  return /\b(bu metni|bunu|sunu|secili metni|secimi)\b/.test(normalized)
+    && explicitDocumentRevision(text);
+}
+
+function explicitTargetSection(text: string): DocumentSectionKey | null {
+  const normalized = normalize(text);
+  if (/\breview\b|\bdegerlendirme\b/.test(normalized)) return 'review';
+  if (/\bba analiz\b|\bis analiz\b|\bbusiness analysis\b/.test(normalized)) return 'businessAnalysis';
+  return null;
 }
 
 function assumptionConsent(text: string): boolean {
   const normalized = normalize(text);
-  return /\b(varsayim|varsayimlarla|bu bilgilerle|mevcut bilgilerle|soru sorma|daha fazla soru sorma|hizli taslak|ilk taslak|sen yap|devam et|durma|uygula)\b/.test(normalized);
+  return /\b(varsayim|varsayimla|varsayimlarla|bu bilgilerle|mevcut bilgilerle|soru sorma|daha fazla soru sorma|hizli taslak|ilk taslak|sen yap|devam et|durma|uygula)\b/.test(normalized);
 }
 
 function explicitRepairRequest(text: string): boolean {
@@ -145,6 +173,19 @@ function pendingConfirmation(text: string): boolean {
 function pendingCancellation(text: string): boolean {
   const normalized = normalize(text);
   return /^(iptal|vazgec|vazgectim|islemi iptal et|degisikligi iptal et)$/.test(normalized);
+}
+
+function conflictsWithProtectedDecision(input: BuildAiTurnDecisionInput): boolean {
+  if (!documentHasContent(input.document)) return false;
+  const documentText = normalize(
+    Object.values(input.document as any)
+      .map((section: any) => section?.content || '')
+      .join(' '),
+  );
+  const message = normalize(input.userMessage);
+  const protectedManualRule = /\bmanuel.{0,40}(degistirilemez|yasak|izin verilmez)\b/.test(documentText);
+  const requestsManualOverride = /\bmanuel.{0,50}(yapilabilsin|izin ver|degistir|duzenle|mudahale)\b/.test(message);
+  return protectedManualRule && requestsManualOverride;
 }
 
 function sourceSensitive(input: BuildAiTurnDecisionInput): boolean {
@@ -225,6 +266,7 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
   const officialRequired = officialSourceRequired(input);
   const repairRequest = explicitRepairRequest(input.userMessage);
   const corporateGeneration = explicitCorporateGeneration(input);
+  const explicitRevision = explicitDocumentRevision(input.userMessage);
 
   if (input.pendingOperationLookupPerformed && pendingCancellation(input.userMessage)) {
     return input.pendingOperation ? 'cancel_pending_change' : 'pending_operation_missing';
@@ -239,26 +281,58 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
     input.classification.subIntent === 'missing_selection'
     || input.classification.documentImpact === 'updates_selected_text' && !input.hasSelectedText
   ) return 'ask_questions';
-  if (input.classification.requiresClarification && !allowsAssumption) return 'ask_questions';
+  if (conflictsWithProtectedDecision(input)) return 'ask_questions';
+  if (
+    officialRequired
+    && sensitive
+    && explicitSensitiveEvidenceNeed(input.userMessage)
+    && !hasOfficialEvidence(input)
+    && !explicitResearchRequest(input.userMessage)
+    && !allowsAssumption
+  ) return 'ask_questions';
   if (
     input.classification.riskLevel === 'high'
     || input.classification.documentImpact === 'requires_user_confirmation'
     || input.classification.requiresPreview
   ) return 'preview_change';
+  if (explicitDecisionStatement(input.userMessage)) {
+    return hasDocument ? 'revise_document' : 'draft_document';
+  }
   if (input.classification.primaryIntent === 'memory_decision' || input.classification.documentImpact === 'updates_memory_only') return 'memory_action';
   if (input.classification.primaryIntent === 'workflow' || input.classification.documentImpact === 'workflow_action_only') return 'workflow_action';
+  if (input.hasSelectedText && explicitSelectedTextRevision(input.userMessage)) return 'update_selected_text';
   if (input.classification.primaryIntent === 'selected_text_editing' || input.classification.documentImpact === 'updates_selected_text') return 'update_selected_text';
   if (hasDocument && repairRequest) return 'repair_document';
+  if (
+    input.classification.primaryIntent === 'quality_review'
+    && input.classification.documentImpact === 'updates_document'
+    && input.behaviorDecision.shouldUpdateDocument
+  ) return hasDocument ? 'revise_document' : 'draft_document';
   if (input.classification.primaryIntent === 'quality_review' && !corporateGeneration) return 'validate_document';
   if (explicitResearchRequest(input.userMessage) && !explicitDoc) return 'research_first';
+  if (hasDocument && explicitRevision) return 'revise_document';
+  if (
+    hasDocument
+    && (
+      input.classification.documentImpact === 'updates_document'
+      || input.behaviorDecision.shouldUpdateDocument
+      || explicitDoc
+      || allowsAssumption
+    )
+  ) return 'revise_document';
+  if (explicitDoc || allowsAssumption) return 'draft_document';
+  if (input.classification.requiresClarification) return 'ask_questions';
   if (sparseHighImpactBrief(input) && !allowsAssumption) return 'ask_questions';
-  if ((input.cognitiveFrame.action === 'block_until_source' || input.cognitiveFrame.action === 'ask_first') && !allowsAssumption) return 'ask_questions';
-  if (input.behaviorDecision.mode === 'ask_clarifying_questions' && !allowsAssumption) return 'ask_questions';
-  if (input.classification.documentImpact === 'updates_document' || input.behaviorDecision.shouldUpdateDocument || explicitDoc || allowsAssumption) {
+  if (
+    (input.cognitiveFrame.action === 'block_until_source' || input.cognitiveFrame.action === 'ask_first')
+    && !allowsAssumption
+    && !explicitDoc
+  ) return 'ask_questions';
+  if (input.behaviorDecision.mode === 'ask_clarifying_questions' && !allowsAssumption && !explicitDoc) return 'ask_questions';
+  if (input.classification.documentImpact === 'updates_document' || input.behaviorDecision.shouldUpdateDocument) {
     return hasDocument ? 'revise_document' : 'draft_document';
   }
   if (input.behaviorDecision.mode === 'chat_only') return 'answer_only';
-  if (officialRequired && sensitive && !explicitDoc) return 'ask_questions';
   return 'answer_only';
 }
 
@@ -294,6 +368,16 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
   const highImpactGaps = input.cognitiveFrame.informationGaps
     .filter(gap => gap.impact === 'blocking' || gap.impact === 'high')
     .length;
+  const deterministicTargetSection = explicitTargetSection(input.userMessage);
+  const operation: DocumentOperation = input.classification.operation !== 'none'
+    ? input.classification.operation
+    : action === 'update_selected_text'
+      ? 'patch_selected_node'
+      : action === 'revise_document'
+        ? 'patch_section'
+        : action === 'draft_document'
+          ? 'generate_new_artifact'
+          : 'none';
 
   const trace = [
     `action:${action}`,
@@ -336,8 +420,8 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
       visibleSections: ['businessAnalysis', 'review'],
     },
     executionPolicy: {
-      operation: input.classification.operation,
-      targetSection: input.classification.targetSection || null,
+      operation,
+      targetSection: input.classification.targetSection || deterministicTargetSection,
       requiresConfirmation: action === 'preview_change',
     },
     qualityPolicy: {

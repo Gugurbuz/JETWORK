@@ -20,7 +20,9 @@
     "verify:ai-turn-decision": "tsx scripts/verify-ai-turn-decision.ts",
     "verify:deep-ba-assistant": "tsx scripts/verify-deep-ba-assistant.ts",
     "verify:product-runtime": "tsx scripts/verify-product-runtime-scenarios.ts",
-    "verify:document-quality": "tsx scripts/verify-document-content-quality.ts"
+    "verify:document-quality": "tsx scripts/verify-document-content-quality.ts",
+    "verify:golden-contract": "vitest run src/evaluation/__tests__/goldenScenarios.test.ts",
+    "evaluate:golden": "tsx scripts/run-golden-evaluation.ts --confirm-live"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

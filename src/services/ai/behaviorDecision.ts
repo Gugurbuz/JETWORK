@@ -86,14 +86,16 @@ interface BehaviorDecisionInput {
   discoveryReadiness?: number;
 }
 
-const FORCE_DRAFT_RE = /\b(varsay[\u0131i]mlarla|bu bilgilerle|mevcut bilgilerle|h[\u0131i]zl[\u0131i] taslak|ilk tasla[\u011f]?[i\u0131]?\s*(c[\u0131i]kar|olu[\u015fs]tur|haz[\u0131i]rla|uret|\u00fcret|yaz)|kabaca taslak|taslakla ilerle|uygula|sen yap|ben mi yap[\u0131i]cam|ben mi yapacagim|devam et|durma|daha fazla soru sorma|soru sorma)\b/i;
-const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|sorular[\u0131i] b[\u0131i]rak|sorulari birak|varsay[\u0131i]mlarla|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur|ben mi yap[\u0131i]cam|ben mi yapacagim|sen yap)\b/i;
+const FORCE_DRAFT_RE = /\b(varsay[\u0131i]mla(?:rla)?|bu bilgilerle|mevcut bilgilerle|h[\u0131i]zl[\u0131i] taslak|ilk tasla[\u011f]?[i\u0131]?\s*(c[\u0131i]kar|olu[\u015fs]tur|haz[\u0131i]rla|uret|\u00fcret|yaz)|kabaca taslak|taslakla ilerle|uygula|sen yap|ben mi yap[\u0131i]cam|ben mi yapacagim|devam et|durma|daha fazla soru sorma|soru sorma)\b/i;
+const STOP_QUESTIONS_RE = /\b(daha fazla soru sorma|soru sorma|soru istemiyorum|sorular[\u0131i] b[\u0131i]rak|sorulari birak|varsay[\u0131i]mla(?:rla)?|mevcut bilgilerle|bu bilgilerle|direkt olu\u015ftur|direkt olustur|ben mi yap[\u0131i]cam|ben mi yapacagim|sen yap)\b/i;
 const DOCUMENT_REQUEST_RE = /\b(ba analiz|i\u015f analiz|is analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|fdd|brd|gereksinim|s[\u00fcu]re[\u00e7c]|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*)\b/i;
 const NORMALIZED_DOCUMENT_REQUEST_RE = /\b(ba analiz|is analiz|kavramsal|tasarim|dokuman|fdd|brd|gereksinim|surec|entegrasyon|api|test|kabul kriter|review|risk|proje\w*|project\w*|bot\w*|asistan\w*|assistant\w*|chatbot\w*|satis|sales)\b/i;
 const EXPLICIT_DOCUMENT_GENERATION_RE = /\b(ba analiz|is analiz|i\u015f analiz|kavramsal|tasar[\u0131i]m|dok[\u00fcu]man|rapor|fdd|brd|gereksinim dok[\u00fcu]man[\u0131i]|haz[\u0131i]rla|olu[\u015fs]tur|uret|\u00fcret|yaz|taslak|c[\u0131i]kar|word format)\b/i;
 const NORMALIZED_EXPLICIT_DOCUMENT_GENERATION_RE = /\b(ba analiz|is analiz|kavramsal|tasarim|dokuman|rapor|fdd|brd|gereksinim dokumani|hazirla|olustur|uret|yaz|taslak|cikar|word format)\b/i;
 const CONTEXT_FOLLOW_UP_RE = /\b(simdi|sirada|sonra ne|ne yapalim|ne yapacagiz|ne durumdayiz|next step|hangi adim|devami ne)\b/i;
 const GREETING_ONLY_RE = /^\s*(selam|selamlar|merhaba|merhabalar|mrb|slm|hey|hi|hello|naber|nas[\u0131i]ls[\u0131i]n)\s*[!.?]*\s*$/i;
+const EXISTING_DOCUMENT_REVISION_RE = /\b(ekle|guncelle|degistir|netlestir|detaylandir|ayrintilandir|dahil et|isle|olsun|artik|karar\s*:|kural\s*:|cikar|kaldir|sil)\b/i;
+const PROJECT_IDEA_RE = /\b(tasarla|tasarlayalim|kuralim|gelistirelim|analiz edelim|analiz etmek)\b/i;
 
 function normalizeDomainText(value: string): string {
   return (value || '')
@@ -346,6 +348,8 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
   const documentRequest =
     DOCUMENT_REQUEST_RE.test(message)
     || NORMALIZED_DOCUMENT_REQUEST_RE.test(normalizedMessage)
+    || PROJECT_IDEA_RE.test(normalizedMessage)
+    || (hasExistingDocument && EXISTING_DOCUMENT_REVISION_RE.test(normalizedMessage))
     || strongDomainRequest
     || input.classification.documentImpact === 'updates_document'
     || (hasExistingDocument && (forceDraft || stopQuestions));
@@ -373,7 +377,11 @@ export function buildBehaviorDecision(input: BehaviorDecisionInput): BehaviorDec
     && !hasExistingDocument
     && tokenCount <= 14
     && domainAnswerHintCount < 2;
-  const shouldAskOnlyIfCritical = shortDomainRequest && readiness < 35 && !strongDomainRequest && !focusedArtifactRequest;
+  const shouldAskOnlyIfCritical = shortDomainRequest
+    && readiness < 35
+    && !strongDomainRequest
+    && !focusedArtifactRequest
+    && !explicitDocumentGeneration;
   const shouldDiscoverDomainBeforeDraft =
     strongDomainRequest
     && documentRequest

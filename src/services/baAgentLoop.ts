@@ -38,6 +38,7 @@ export interface AgentLoopInput {
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
   turnDecision?: AiTurnDecision;
   sourceProcessTitles?: string[];
+  currentArtifactInSystemContext?: boolean;
   signal?: AbortSignal;
 }
 
@@ -163,7 +164,22 @@ const DEFAULT_ACT_PHASE_TIMEOUT_MS = 60_000;
 const STRUCTURED_CONCEPTUAL_TIMEOUT_MS = 120_000;
 
 export const runBaAgentLoop = async (input: AgentLoopInput): Promise<AgentLoopOutput> => {
-  const { userMessage, history, documentContent, knowledgeBase, model, systemInstruction, onPhase, onThinking, onActStream, onGrounding, turnDecision, sourceProcessTitles = [], signal } = input;
+  const {
+    userMessage,
+    history,
+    documentContent,
+    knowledgeBase,
+    model,
+    systemInstruction,
+    onPhase,
+    onThinking,
+    onActStream,
+    onGrounding,
+    turnDecision,
+    sourceProcessTitles = [],
+    currentArtifactInSystemContext = false,
+    signal,
+  } = input;
 
   let totalTokens = 0;
   const phaseTokens = new Map<string, number>();
@@ -393,7 +409,7 @@ ${structuredConceptualArtifact ? `[KAYNAKTA BELIRLENEN ANA SURECLER]\n${sourcePr
 
   const fullSystemInstruction = `${systemInstruction}\n\n${actContext}`;
 
-  const currentTurnText = documentContent
+  const currentTurnText = documentContent && !currentArtifactInSystemContext
     ? `[MEVCUT DOKUMAN - BU TURUN REVIZYON BAGLAMI]\n${documentRevisionContext(documentContent)}\n\n[KULLANICI TALEBI]\n${userMessage}`
     : userMessage;
   const contents = [

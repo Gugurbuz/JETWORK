@@ -4,7 +4,7 @@ import { Message } from '../types';
 import { User } from './useAuth';
 import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
-import { loadProjectMemory } from '../services/projectMemoryRepository';
+import { loadProjectMemory, loadProjectMemoryItems } from '../services/projectMemoryRepository';
 import { importSharedAnalysis } from '../services/sharedAnalysisImportService';
 import {
   cacheWorkspaceDocument,
@@ -34,6 +34,8 @@ export function useWorkspaceSync(
   const documentContent = useDocumentStore(state => state.documentContent);
   const setDocumentContent = useDocumentStore(state => state.setDocumentContent);
   const setProjectMemory = useDocumentStore(state => state.setProjectMemory);
+  const setMemoryItems = useDocumentStore(state => state.setMemoryItems);
+  const setLastAnalystContextDebug = useDocumentStore(state => state.setLastAnalystContextDebug);
   const isZeroTouchMode = useDocumentStore(state => state.isZeroTouchMode);
   const setIsAiActive = useDocumentStore(state => state.setIsAiActive);
 
@@ -63,6 +65,8 @@ export function useWorkspaceSync(
     if (!currentWorkspaceId || !user || !isAuthReady) {
       setDocumentContent(null);
       setProjectMemory({});
+      setMemoryItems([]);
+      setLastAnalystContextDebug(null);
       return;
     }
 
@@ -85,11 +89,17 @@ export function useWorkspaceSync(
     }
     setDocumentContent(cache.document || null);
     setProjectMemory(cache.memory || {});
+    setMemoryItems([]);
+    setLastAnalystContextDebug(null);
 
-    loadProjectMemory(currentWorkspaceId)
-      .then(memory => {
+    Promise.all([
+      loadProjectMemory(currentWorkspaceId),
+      loadProjectMemoryItems(currentWorkspaceId),
+    ])
+      .then(([memory, items]) => {
         if (memoryLoadCancelled || currentWorkspaceIdRef.current !== currentWorkspaceId) return;
         setProjectMemory(memory);
+        setMemoryItems(items);
         cacheWorkspaceMemory(currentWorkspaceId, memory);
       })
       .catch(error => {

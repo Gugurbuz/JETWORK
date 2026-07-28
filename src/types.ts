@@ -89,6 +89,34 @@ export interface SectionData {
   flags: string[];
 }
 
+export type ProjectMemoryItemType =
+  | 'FACT'
+  | 'DECISION'
+  | 'CONSTRAINT'
+  | 'ASSUMPTION'
+  | 'OPEN_QUESTION'
+  | 'PREFERENCE'
+  | 'REQUIREMENT'
+  | 'BUSINESS_RULE'
+  | 'TERM';
+
+export type ProjectMemorySourceType = 'USER' | 'DOCUMENT' | 'SYSTEM' | 'AI_INFERENCE' | 'LEGACY';
+export type ProjectMemoryConfirmationStatus = 'CONFIRMED' | 'PROPOSED' | 'REJECTED';
+
+export interface ProjectMemoryItem {
+  id: string;
+  key: string;
+  type: ProjectMemoryItemType;
+  value: string;
+  sourceType: ProjectMemorySourceType;
+  sourceId: string;
+  confirmationStatus: ProjectMemoryConfirmationStatus;
+  confidence: number;
+  validFrom: string;
+  version?: number;
+  supersedes?: string;
+}
+
 export type DocumentQualityFindingSeverity = 'info' | 'warning' | 'error';
 
 export interface DocumentQualityFinding {
@@ -126,6 +154,15 @@ export interface EvidenceClaim {
   confidence: number;
 }
 
+export interface ArtifactRevisionMetadata {
+  revisionId: string;
+  parentRevisionId?: string;
+  sourceMessageIds: string[];
+  changeSummary: string;
+  changedSections: string[];
+  updatedAt: string;
+}
+
 export interface DocumentData {
   /** Ana ve şimdilik tek üretim bölümü: kavramsal tasarım / BA analiz raporu. */
   businessAnalysis: SectionData;
@@ -144,6 +181,8 @@ export interface DocumentData {
   qualityAssessment?: DocumentQualityAssessment;
   /** Structured claim ledger. VERIFIED claims require URL, title, retrieval time and excerpt. */
   evidenceClaims?: EvidenceClaim[];
+  /** Provenance and patch lineage for the current living artifact revision. */
+  artifactMeta?: ArtifactRevisionMetadata;
 }
 
 export interface ActiveUser {
@@ -167,6 +206,7 @@ export interface Workspace {
   messages: Message[];
   document: DocumentData | null;
   projectMemory?: Record<string, string>;
+  memoryItems?: ProjectMemoryItem[];
   createdAt: number;
   lastUpdated: number;
   collaborators: Collaborator[];

@@ -4,6 +4,7 @@ import { postProcessDocumentData } from './documentPostProcessor';
 import { ensureDocumentActionSummary, hasDocumentIntent } from './aiMessagePresentation';
 import { failPendingOperation, markPendingOperationApplied } from './pendingOperationRepository';
 import { saveDocumentAndVersion } from '../utils/documentUtils';
+import { applyArtifactPatch, createArtifactPatch } from './artifactPatch';
 
 export interface DocumentApplicationResult {
   text: string;
@@ -39,10 +40,17 @@ export async function applyAiDocumentResult(input: {
       workspaceTitle: input.workspaceTitle,
       turnDecision: input.loopOutput.turnDecision,
     });
-    document = processed.document;
-    changedSections = processed.changedSections;
-    score = processed.document.score ?? processed.qualityGate.score;
-    scoreExplanation = processed.document.scoreExplanation || processed.qualityGate.reason;
+    const patch = createArtifactPatch(
+      input.existingDocument,
+      processed.document,
+      input.messageId,
+    );
+    document = patch.changes.length
+      ? applyArtifactPatch(input.existingDocument, patch)
+      : input.existingDocument;
+    changedSections = patch.changes.map(change => change.section);
+    score = document?.score ?? processed.qualityGate.score;
+    scoreExplanation = document?.scoreExplanation || processed.qualityGate.reason;
 
     if (!processed.qualityGate.canPublishToPanel && hasDocumentIntent(input.userMessage)) {
       text = [

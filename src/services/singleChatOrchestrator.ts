@@ -5,7 +5,6 @@ import { runBaAgentLoop, AgentPhase } from './baAgentLoop';
 import { applyNodeUpdate, ANALYST_WEB_SYSTEM_PROMPT } from './intentRouter';
 import { hybridSearch } from './contextManager';
 import { supabase } from '../supabase';
-import { classifyIntent } from './ai/intentClassifier';
 import {
   IntentClassification,
   DocumentSectionKey,
@@ -22,31 +21,14 @@ import {
 import { computeDiscoverySignals, DRAFT_FIRST_SYSTEM_RULE, containsBlockedQuestionDomain } from './ai/discoveryPolicy';
 import { buildClassification } from './ai/intentClassifier';
 import { buildDeepBaActInstructions, parseClassifierQuestion } from '../modules/deep-ba-assistant';
-import {
-  applyBehaviorDecisionToClassification,
-  buildBehaviorDecision,
-  type BehaviorDecision,
-} from './ai/behaviorDecision';
 import { buildBaMindsetInstruction } from './ai/baMindset';
 import {
   analyzeSourceIntelligence,
   buildSourceCorpus,
   buildSourceIntelligencePrompt,
-  type SourceIntelligenceReport,
 } from './sourceIntelligence';
-import { buildBaCognitiveFrame, buildBaCognitiveInstruction, buildBaCognitiveQuestionItems, buildBaCognitiveQuestions } from './ai/baCognitiveFrame';
-import {
-  buildCopilotCognitiveInstruction,
-  buildCopilotCognitiveTrace,
-  buildCopilotThinkingSummary,
-} from './ai/copilotCognitiveArchitecture';
-import {
-  buildCopilotRuntimeInstruction,
-  buildCopilotRuntimeSnapshot,
-} from './ai/copilotRuntimeState';
 import { extractProjectMemoryUpdates, type ProjectMemory } from './ai/projectMemoryEngine';
 import {
-  buildAiTurnDecision,
   buildAiTurnDecisionInstruction,
   type AiTurnDecision,
 } from './ai/aiTurnDecision';
@@ -60,6 +42,14 @@ import {
   getLatestPendingOperation,
   type PendingOperation,
 } from './pendingOperationRepository';
+import type { AnalystTurnContext } from './analystContext';
+import { planAnalystTurn, type AnalystDecision } from './ai/analystPlanner';
+import { preserveArtifactDecisions } from './artifactPreservation';
+import {
+  createKrokiBpmnMarkdownLink,
+  extractRenderableBpmnXml,
+  removeKrokiLinks,
+} from './ai/bpmnKroki';
 
 // Strip any partial/complete JSON the model may emit before the UI sees it.
 const extractParts = (
@@ -112,6 +102,7 @@ export interface SingleChatInput {
   workspaceTitle?: string;
   workspaceId?: string;
   projectMemory?: ProjectMemory;
+  analystContext?: AnalystTurnContext;
   signal?: AbortSignal;
   onPhase: (phase: AgentPhase | 'INTENT', label: string) => void;
   onThinking: (text: string) => void;
@@ -123,6 +114,7 @@ export interface SingleChatInput {
     tokenCount: number
   ) => void;
   onGrounding?: (urls: { uri: string; title: string }[]) => void;
+  onDecision?: (decision: AnalystDecision) => void;
 }
 
 export interface SingleChatResult {
@@ -148,21 +140,6 @@ function buildRecentSubject(input: SingleChatInput): string {
     input.history.slice(-6).map((item) => item.parts[0]?.text || '').join('\n'),
     input.userMessage,
   ].filter(Boolean).join('\n');
-}
-
-function buildBehaviorOrchestratorInstruction(
-  decision: BehaviorDecision,
-  sourceReport?: SourceIntelligenceReport,
-): string {
-  const sourceProcesses = sourceReport?.processes?.map(process => process.title).filter(Boolean) || [];
-  return [
-    '[DAVRANIS BAGLAMI - KARAR VERMEZ]',
-    `- Insansi BA tutumu: ${decision.humanProfile.responseStance}`,
-    `- Soru gerekcesi: ${decision.humanProfile.questionRationale.join(' | ') || 'yok'}`,
-    `- Kaynakta acikca bulunan surecler: ${sourceProcesses.join(' | ') || 'yok'}`,
-    '- Bu blok yalniz aciklayici baglamdir. Eylem, soru, dokuman ve profil kararini AiTurnDecision verir.',
-    '- Kaynakta bulunmayan surec, rol, sistem, KPI veya teknik karar ekleme.',
-  ].join('\n');
 }
 
 function buildDocumentGenerationDirective(decision: AiTurnDecision, retry = false): string {
@@ -213,7 +190,8 @@ Bu tur SADECE sohbet cevabı. Dokümanı değiştirme, uzun analiz üretme.
   "actionSummary": "opsiyonel iç özet" }
 
 - Uzun doküman üretme; sadece konuşma cevabı ver.
-- Netleştirici soru soracaksan questions alanını doldur (2-4 seçenek).`;
+- Bu tur questions alanını boş bırak; kullanıcıdan yeni bilgi isteme.
+- Proje/support sınıflandırmasını, kaynak dosyalarını ve iç çalışma yöntemini açıklama.`;
   await callAiWithRetry(() =>
     callGemini({
       model: input.model,
@@ -250,16 +228,15 @@ async function runAskClarifyingQuestions(
   input: SingleChatInput,
   classification: IntentClassification,
   code?: string,
-  behaviorDecision?: BehaviorDecision,
   preferredQuestions?: Question[],
 ): Promise<SingleChatResult> {
   input.onPhase('ACT', 'Netleştirici sorular hazırlanıyor...');
 
   if (preferredQuestions && preferredQuestions.length > 0) {
-    const questions = preferredQuestions.slice(0, 4);
+    const questions = preferredQuestions.slice(0, 3);
     const msg = code === 'MISSING_SELECTION'
       ? 'Seçili metin göremedim. Dokümandan ilgili kısmı seçip tekrar dener misin?'
-      : 'Bu turda doküman üretmeden önce sonucu değiştirecek kararları netleştirmem gerekiyor. Sorular etki ve geri dönüş maliyetine göre seçildi; istersen "Varsayımlarla ilerle" diyerek etiketli taslağa geçebilirsin.';
+      : 'Talebi doğru çerçevelemek için şu noktaları netleştirelim.';
     input.onStream(msg, '', questions, 'ask_clarifying_questions_gap_matrix', 0);
     return {
       text: msg,
@@ -273,29 +250,13 @@ async function runAskClarifyingQuestions(
 
   // If the classifier already provided good questions, use them directly.
   if (classification.clarificationQuestions && classification.clarificationQuestions.length > 0) {
-    const domainDiscovery = /behavior:domain_discovery_before_draft:([^;]+)/.exec(classification.reason || '');
-    const domainLabel = domainDiscovery?.[1]
-      ? domainDiscovery[1].replace(/_/g, ' ')
-      : '';
-    const humanProfile = behaviorDecision?.humanProfile;
-    const criticalInfo = humanProfile?.missingCriticalInfo?.length
-      ? ` Ozellikle ${humanProfile.missingCriticalInfo.join(', ')} kararlarini netlestirmem gerekiyor.`
-      : '';
-    const firstRationale = humanProfile?.questionRationale?.[0]
-      ? ` Ilk soru onemli cunku ${humanProfile.questionRationale[0]}`
-      : '';
-    const maxQuestions = domainDiscovery ? 4 : 3;
+    const maxQuestions = 3;
     const questions: Question[] = classification.clarificationQuestions
       .slice(0, maxQuestions)
       .map((text, i) => parseClassifierQuestion(text, i));
-    const cognitiveAsk = /cognitive:ask_first/.test(classification.reason || '');
     const msg = code === 'MISSING_SELECTION'
       ? 'Seçili metin göremedim. Dokümandan ilgili kısmı seçip tekrar dener misin?'
-      : domainDiscovery
-        ? `Talebi ${domainLabel || humanProfile?.projectDomain || 'is analizi'} konusu olarak algiladim. Insan is analisti gibi ilerlemek icin once kritik karar noktalarini netlestirelim.${criticalInfo}${firstRationale} Istersen "Varsayimlarla ilerle" diyerek ilk taslagi hemen urettirebilirsin.`
-        : cognitiveAsk
-          ? `Bu talep dokumani saglam kurmak icin biraz seyrek. Kor bir taslak uretmek yerine once dokumani yanlis kurdurabilecek kritik kararlari netlestirelim. Istersen "Varsayimlarla ilerle" diyerek isaretli varsayimlarla taslaga gecebilirim.`
-        : 'Devam etmeden once su kritik noktalari netlestirmem gerekiyor.';
+      : 'Talebi doğru çerçevelemek için şu noktaları netleştirelim.';
     input.onStream(msg, '', questions, 'ask_clarifying_questions', 0);
     return {
       text: msg,
@@ -383,9 +344,26 @@ ${input.selectedNodeContent || ''}`;
       },
     })
   );
-  const updated = input.documentContent
-    ? applyNodeUpdate(input.documentContent, section, newContent)
-    : undefined;
+  let updated: DocumentData | undefined;
+  if (input.documentContent) {
+    const selected = input.selectedNodeContent || '';
+    const existingSection = input.documentContent[section] as any;
+    if (
+      selected
+      && typeof existingSection?.content === 'string'
+      && existingSection.content.includes(selected)
+    ) {
+      updated = {
+        ...input.documentContent,
+        [section]: {
+          ...existingSection,
+          content: existingSection.content.replace(selected, newContent),
+        },
+      };
+    } else {
+      updated = applyNodeUpdate(input.documentContent, section, newContent);
+    }
+  }
   const summary = `Seçili metni "${section}" bölümünde güncelledim.`;
   input.onStream(summary, thinking, undefined, summary, tokens);
   return {
@@ -456,8 +434,11 @@ async function runResearchWeb(
       },
     })
   );
+  const finalText = /\b(resmi\s+kaynak|resmi\s+kaynaklardan)\b/i.test(input.userMessage)
+    ? `Kullanıcı talebi: ${input.userMessage.trim()}\n\nResmi kaynak araştırması sonucu:\n\n${text}`
+    : text;
   return {
-    text,
+    text: finalText,
     thinking: '',
     groundingUrls: grounding.length > 0 ? grounding : undefined,
     actionSummary: 'research_web',
@@ -470,7 +451,7 @@ async function runResearchWeb(
 async function runBaLoop(
   input: SingleChatInput,
   classification: IntentClassification,
-  opts: { forceDraft?: boolean; behaviorInstruction?: string; turnDecision?: AiTurnDecision } = {}
+  opts: { forceDraft?: boolean; turnDecision?: AiTurnDecision } = {}
 ): Promise<SingleChatResult> {
   const focus = classification.baAgentFocus;
   const target = classification.targetSection;
@@ -485,8 +466,6 @@ async function runBaLoop(
           : target
             ? `\n\n[ODAK] Ozellikle "${target}" bolumunu guncelle; diger bolumleri koru.`
             : '';
-  const behaviorHint = opts.behaviorInstruction ? `\n\n${opts.behaviorInstruction}` : '';
-  const decisionHint = opts.turnDecision ? `\n\n${buildAiTurnDecisionInstruction(opts.turnDecision)}` : '';
   const sourceReport = analyzeSourceIntelligence({
     sourceText: buildSourceCorpus({
       userMessage: input.userMessage,
@@ -512,9 +491,12 @@ async function runBaLoop(
     knowledgeBase: input.knowledgeBase,
     model: input.model,
     signal: input.signal,
-    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}${behaviorHint}${decisionHint}${sourceHint}`,
+    // The concrete turn decision is added once by baAgentLoop's act context.
+    // Keep this system prompt focused on stable product rules and source facts.
+    systemInstruction: `${input.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}${focusHint}${sourceHint}`,
     turnDecision: opts.turnDecision,
     sourceProcessTitles: sourceReport.processes.map(process => process.title),
+    currentArtifactInSystemContext: !!input.analystContext?.currentArtifact,
     onPhase: (phase, label) => input.onPhase(phase, label),
     onThinking: input.onThinking,
     onActStream: input.onStream,
@@ -540,7 +522,6 @@ async function runBaLoop(
       const fallbackSystem = `${input.systemInstruction}
 
 ${DRAFT_FIRST_SYSTEM_RULE}
-${behaviorHint}
 ${sourceHint}
 
 ${opts.turnDecision ? buildAiTurnDecisionInstruction(opts.turnDecision) : ''}
@@ -554,7 +535,7 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
         {
           role: 'user',
           parts: [{ text: [
-            input.documentContent
+            input.documentContent && !input.analystContext?.currentArtifact
               ? `[MEVCUT DOKUMAN - REVIZYON BAGLAMI]\n${compactDocumentRevisionContext(input.documentContent)}`
               : '',
             `[KULLANICI TALEBI]\n${input.userMessage}`,
@@ -604,6 +585,25 @@ ${buildDeepBaActInstructions(buildRecentSubject(input))}`;
     finalText = generationTimedOut
       ? 'Kavramsal doküman üretimi zaman aşımına uğradı; yarım veya doğrulanmamış içerik sağ panele uygulanmadı.'
       : 'Doküman üretimi iki kontrollü denemede de geçerli bir artifact döndürmedi; sağ panel değiştirilmedi. Talep ve mevcut içerik korundu.';
+  }
+
+  if (finalDocument) {
+    finalDocument = preserveArtifactDecisions(
+      input.documentContent,
+      finalDocument,
+      input.userMessage,
+      classification.targetSection,
+    );
+  }
+
+  if (finalDocument && opts.turnDecision?.artifactProfile.id === 'enerjisa_bpmn') {
+    const xml = extractRenderableBpmnXml(finalDocument.businessAnalysis?.content || '');
+    if (xml) {
+      const link = await createKrokiBpmnMarkdownLink(xml);
+      if (link) {
+        finalText = `${removeKrokiLinks(finalText)}\n\n${link}`.trim();
+      }
+    }
   }
 
   return {
@@ -719,10 +719,18 @@ async function runPreviewRequired(
   input: SingleChatInput,
   classification: IntentClassification,
   turnDecision: AiTurnDecision,
-  behaviorInstruction: string,
 ): Promise<SingleChatResult> {
   if (!input.workspaceId || !input.documentContent) {
-    const msg = 'Bu değişiklik için önizleme oluşturulamadı: aktif çalışma alanı veya temel doküman bulunmuyor. Hiçbir değişiklik uygulanmadı.';
+    const protectedContent = input.documentContent?.businessAnalysis?.content
+      ?.replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 600);
+    const msg = [
+      'Bu yıkıcı değişiklik kullanıcı onayı olmadan uygulanmadı.',
+      'Önizleme oluşturmak için aktif çalışma alanı ve temel doküman gerekir; mevcut doküman aynen korunuyor.',
+      protectedContent ? `Korunan mevcut içerik: ${protectedContent}` : '',
+    ].filter(Boolean).join('\n\n');
     input.onStream(msg, '', undefined, `preview_failed:${classification.subIntent}`, 0);
     return { text: msg, thinking: '', actionSummary: `preview_failed:${classification.subIntent}`, intent: 'preview_required', classification, turnDecision, tokenCount: 0 };
   }
@@ -751,7 +759,6 @@ async function runPreviewRequired(
     };
     const proposed = await runBaLoop(input, previewClassification, {
       forceDraft: true,
-      behaviorInstruction,
       turnDecision: previewDecision,
     });
 
@@ -907,104 +914,50 @@ const runSingleChatOrchestratorInner = async (
     };
   }
 
-  let classification = await classifyIntent({
-    userMessage: turnInput.userMessage,
-    document: turnInput.documentContent,
-    selectedText: turnInput.selectedNodeContent ?? null,
-    selectedSection: (turnInput.selectedSection as DocumentSectionKey) ?? null,
-    model: turnInput.model,
-  });
-
-  const behaviorDecision = buildBehaviorDecision({
-    userMessage: turnInput.userMessage,
-    document: turnInput.documentContent,
-    classification,
-    discoveryReadiness: signals.baDiscoveryReadiness,
-  });
-  const turnSourceReport = analyzeSourceIntelligence({
-    sourceText: buildSourceCorpus({
-      userMessage: turnInput.userMessage,
-      messages: turnInput.messageHistory,
-      document: turnInput.documentContent,
-    }),
-    workspaceTitle: turnInput.workspaceTitle,
-  });
-  const cognitiveFrame = buildBaCognitiveFrame({
-    userMessage: turnInput.userMessage,
-    recentConversation: turnInput.history
-      .slice(-6)
-      .map(item => item.parts.map(part => part.text).join('\n'))
-      .filter(Boolean)
-      .join('\n\n'),
-    document: turnInput.documentContent,
-    sourceReport: turnSourceReport,
-    behaviorDecision,
-  });
-  classification = applyBehaviorDecisionToClassification(
-    classification,
-    behaviorDecision,
-    turnInput.documentContent,
-  );
   const aiDiscoverySignals = {
     mustGenerateNow: signals.mustGenerateNow,
     greetingOnly: signals.greetingOnly,
     newStandaloneRequest: signals.newStandaloneRequest,
+    isAnsweringDiscovery: signals.isAnsweringDiscovery,
     reason: signals.reason,
   };
-  const aiTurnDecision = buildAiTurnDecision({
+  const analystPlan = await planAnalystTurn({
     userMessage: turnInput.userMessage,
     document: turnInput.documentContent,
-    classification,
-    behaviorDecision,
-    cognitiveFrame,
-    sourceReport: turnSourceReport,
+    selectedText: turnInput.selectedNodeContent,
+    selectedSection: turnInput.selectedSection,
+    model: turnInput.model,
+    recentMessages: turnInput.messageHistory || [],
+    recentConversationText: turnInput.history
+      .slice(-6)
+      .map(item => item.parts.map(part => part.text).join('\n'))
+      .filter(Boolean)
+      .join('\n\n'),
+    workspaceTitle: turnInput.workspaceTitle,
+    knowledgeBase: turnInput.knowledgeBase,
+    projectMemory: turnInput.projectMemory,
+    discoveryReadiness: signals.baDiscoveryReadiness,
     discoverySignals: aiDiscoverySignals,
-    hasSelectedText: !!turnInput.selectedNodeContent,
-    capabilities: {
-      zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH,
-    },
+    zeroTouchEnabled: FEATURE_FLAGS.ZERO_TOUCH,
     pendingOperation: pendingOperation ? { id: pendingOperation.id } : null,
     pendingOperationLookupPerformed,
   });
-  const copilotTrace = buildCopilotCognitiveTrace({
-    userMessage: turnInput.userMessage,
-    messages: turnInput.messageHistory,
-    knowledgeBase: turnInput.knowledgeBase,
-    document: turnInput.documentContent,
-    hasSelectedText: !!turnInput.selectedNodeContent,
-    classification,
-    behaviorDecision,
-    sourceReport: turnSourceReport,
-    cognitiveFrame,
-    turnDecision: aiTurnDecision,
-    discoverySignals: aiDiscoverySignals,
-  });
-  const runtimeSnapshot = buildCopilotRuntimeSnapshot({
-    userMessage: turnInput.userMessage,
-    messages: turnInput.messageHistory,
-    knowledgeBase: turnInput.knowledgeBase,
-    document: turnInput.documentContent,
-    workspaceTitle: turnInput.workspaceTitle,
-    projectMemory: turnInput.projectMemory,
-    sourceReport: turnSourceReport,
-    trace: copilotTrace,
-  });
-  const behaviorInstruction = [
-    buildBehaviorOrchestratorInstruction(behaviorDecision, turnSourceReport),
-    buildBaCognitiveInstruction(cognitiveFrame),
-    buildCopilotCognitiveInstruction(copilotTrace),
-    buildCopilotRuntimeInstruction(runtimeSnapshot),
-    buildAiTurnDecisionInstruction(aiTurnDecision),
-  ].join('\n\n');
-  turnInput.onThinking(
-    `AI akli kuruldu: karar=${aiTurnDecision.action}, profil=${aiTurnDecision.artifactProfile.id}, mod=${cognitiveFrame.artifactMode}, kaynak=${cognitiveFrame.sourceRichness}, runtime=${runtimeSnapshot.currentState}/${runtimeSnapshot.completionStatus}, coverage=${cognitiveFrame.coverageSummary.score}/100, guven=${cognitiveFrame.confidence}/100. ${buildCopilotThinkingSummary(copilotTrace)}`
-  );
+  let classification = analystPlan.classification;
+  const behaviorDecision = analystPlan.behavior;
+  const cognitiveFrame = analystPlan.cognitiveFrame;
+  const copilotTrace = analystPlan.trace;
+  const runtimeSnapshot = analystPlan.runtime;
+  const aiTurnDecision = analystPlan.legacyDecision;
+  const analystDecision = analystPlan.decision;
+  turnInput.onDecision?.(analystDecision);
+  const requestedOperation = analystDecision.requestedOperation;
+  turnInput.onThinking('Talep iş analizi açısından değerlendiriliyor.');
 
   // Cognitive/runtime snapshots explain the decision. AiTurnDecision alone
   // controls execution so no downstream layer can reinterpret the same turn.
   const copilotFinalAction = runtimeSnapshot.finalAction;
 
-  if (aiTurnDecision.action === 'system_message') {
+  if (requestedOperation === 'system_message') {
     const code = classification.subIntent === 'zero_touch_requested'
       ? 'ZERO_TOUCH_DISABLED'
       : classification.subIntent === 'agent_debate_requested'
@@ -1013,46 +966,80 @@ const runSingleChatOrchestratorInner = async (
     return runSystemMessage(turnInput, classification, code);
   }
 
-  if (aiTurnDecision.action === 'memory_action') {
+  if (requestedOperation === 'memory_action') {
     return runMemoryAction(turnInput, classification);
   }
 
-  if (aiTurnDecision.action === 'workflow_action') {
+  if (requestedOperation === 'workflow_action') {
     return runWorkflowStub(turnInput, classification);
   }
 
-  if (aiTurnDecision.action === 'pending_operation_missing') {
+  if (requestedOperation === 'pending_operation_missing') {
     return runPendingOperationMissing(turnInput, classification, aiTurnDecision);
   }
 
-  if (aiTurnDecision.action === 'cancel_pending_change' && pendingOperation) {
+  if (requestedOperation === 'cancel_pending_change' && pendingOperation) {
     return runCancelPendingOperation(turnInput, classification, aiTurnDecision, pendingOperation);
   }
 
-  if (aiTurnDecision.action === 'execute_confirmed_change' && pendingOperation) {
+  if (requestedOperation === 'execute_confirmed_change' && pendingOperation) {
     return runExecutePendingOperation(turnInput, classification, aiTurnDecision, pendingOperation);
   }
 
-  if (aiTurnDecision.action === 'preview_change') {
-    return runPreviewRequired(turnInput, classification, aiTurnDecision, behaviorInstruction);
+  if (requestedOperation === 'preview_change') {
+    return runPreviewRequired(turnInput, classification, aiTurnDecision);
   }
 
-  if (aiTurnDecision.action === 'update_selected_text') {
+  if (requestedOperation === 'update_selected_text') {
     return runUpdateSelectedText(turnInput, classification);
   }
 
-  if (aiTurnDecision.action === 'validate_document') {
+  if (
+    analystDecision.action === 'REVIEW_ARTIFACT'
+    && ['draft_document', 'revise_document', 'repair_document'].includes(requestedOperation)
+  ) {
+    classification = {
+      ...classification,
+      primaryIntent: 'quality_review',
+      subIntent: 'generate_review_report',
+      targetSection: 'review',
+      documentImpact: 'updates_document',
+      operation: turnInput.documentContent ? 'append_to_section' : 'replace_or_create_section',
+      requiresClarification: false,
+      clarificationQuestions: undefined,
+      requiresPreview: false,
+      shouldRunBaAgentLoop: true,
+      baAgentFocus: 'review',
+      reason: `${classification.reason}; analyst_action:review_artifact_write`,
+    };
+    turnInput.onPhase('ACT', 'Review bölümü güncelleniyor...');
+    const result = await runBaLoop(
+      turnInput,
+      classification,
+      {
+        forceDraft: aiTurnDecision.documentPolicy.forceDocumentGeneration,
+        turnDecision: aiTurnDecision,
+      },
+    );
+    return {
+      ...result,
+      turnDecision: aiTurnDecision,
+      document: result.document,
+    };
+  }
+
+  if (analystDecision.action === 'REVIEW_ARTIFACT') {
     return runChatOnly({
       ...turnInput,
       systemInstruction: `${turnInput.systemInstruction}\n\n[READ-ONLY QUALITY REVIEW]\nMevcut dokumani degerlendir; belge bolumlerini degistirme veya yeni icerik ekleme. Bulgulari kanit, etki ve onerilen aksiyon ile sohbette raporla.`,
     }, classification);
   }
 
-  if (aiTurnDecision.action === 'answer_only') {
+  if (analystDecision.action === 'ANSWER' && requestedOperation === 'answer_only') {
     return runChatOnly(turnInput, classification);
   }
 
-  if (aiTurnDecision.action === 'research_first') {
+  if (requestedOperation === 'research_first') {
     const internalResearch = classification.researchType === 'internal'
       || classification.researchType === 'workspace_history'
       || classification.subIntent === 'research_internal_knowledge'
@@ -1069,27 +1056,25 @@ const runSingleChatOrchestratorInner = async (
     );
   }
 
-  if (aiTurnDecision.action === 'ask_questions') {
-    const gapQuestions = buildBaCognitiveQuestionItems(
-      cognitiveFrame,
-      aiTurnDecision.questionPolicy.maxQuestions || 3,
-    );
+  if (analystDecision.action === 'ASK') {
+    const gapQuestions = analystDecision.questions || [];
     classification = {
       ...classification,
       documentImpact: 'none',
       operation: 'none',
       requiresClarification: true,
-      clarificationQuestions: buildBaCognitiveQuestions(cognitiveFrame),
+      clarificationQuestions: gapQuestions.map(question => question.text),
       shouldRunBaAgentLoop: false,
       reason: `${classification.reason}; ai_turn_decision:${aiTurnDecision.reason}; copilot:${copilotFinalAction}; cognitive:ask_first:${cognitiveFrame.action}:${cognitiveFrame.artifactMode}:${cognitiveFrame.sourceRichness}`,
     };
-    return runAskClarifyingQuestions(turnInput, classification, undefined, behaviorDecision, gapQuestions);
+    return runAskClarifyingQuestions(turnInput, classification, undefined, gapQuestions);
   }
 
   // Short-circuit 2: behavior engine or discovery guard decided the turn must
   // produce/update a visible document. This is now the main decision point for
   // draft-first BA work.
-  if (['draft_document', 'revise_document', 'repair_document'].includes(aiTurnDecision.action)) {
+  if (['CREATE_ARTIFACT', 'UPDATE_ARTIFACT'].includes(analystDecision.action)
+    && ['draft_document', 'revise_document', 'repair_document'].includes(requestedOperation)) {
     classification = {
       ...classification,
       primaryIntent: 'analysis_generation',
@@ -1111,14 +1096,10 @@ const runSingleChatOrchestratorInner = async (
     };
     turnInput.onPhase('ACT', 'Taslak dokümana geçiliyor...');
     const result = await runBaLoop(
-      {
-        ...turnInput,
-        systemInstruction: `${turnInput.systemInstruction}\n\n${DRAFT_FIRST_SYSTEM_RULE}\n\n${behaviorInstruction}\n\n${buildDocumentGenerationDirective(aiTurnDecision)}\n\n${buildDeepBaActInstructions(buildRecentSubject(turnInput))}`,
-      },
+      turnInput,
       classification,
       {
         forceDraft: aiTurnDecision.documentPolicy.forceDocumentGeneration,
-        behaviorInstruction,
         turnDecision: aiTurnDecision,
       },
     );
@@ -1158,6 +1139,11 @@ export const runSingleChatOrchestrator = async (
       ? 'Haklısın, sadece selamlaştın. İyiyim, teşekkür ederim. Analiz etmek istediğin bir talep olduğunda buradayım.'
       : result.text;
     return { ...result, questions: undefined, text: cleanText };
+  }
+  // The public action contract is single-action-per-turn. Question cards are
+  // only valid when the chosen action is actually ASK.
+  if (result.intent !== 'ask_questions' && result.questions?.length) {
+    return { ...result, questions: undefined };
   }
   return result;
 };

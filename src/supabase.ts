@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
-const viteEnv = (import.meta as any).env || {};
+const viteEnv = (import.meta as any).env
+  || (typeof process !== 'undefined' ? process.env : {})
+  || {};
 const supabaseUrl = viteEnv.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = viteEnv.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
