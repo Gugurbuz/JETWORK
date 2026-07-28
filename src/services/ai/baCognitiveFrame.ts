@@ -133,6 +133,7 @@ export interface BaCognitiveFrame {
 
 export interface BuildBaCognitiveFrameInput {
   userMessage: string;
+  artifactIntentText?: string;
   recentConversation?: string;
   document: DocumentData | null;
   sourceReport: SourceIntelligenceReport;
@@ -815,7 +816,7 @@ function renderProblemFrame(problem: ProblemFrame): string {
 export function buildBaCognitiveFrame(input: BuildBaCognitiveFrameInput): BaCognitiveFrame {
   const sourceText = [input.userMessage, input.recentConversation || ''].filter(Boolean).join('\n\n');
   const richness = sourceRichness(input.sourceReport, sourceText);
-  const artifactMode = detectArtifactMode(sourceText, input.behaviorDecision);
+  const artifactMode = detectArtifactMode(input.artifactIntentText || input.userMessage, input.behaviorDecision);
   const problemFrame = buildProblemFrame(input.sourceReport, input.behaviorDecision, richness);
   const evidenceClaims = buildEvidenceClaims(input.sourceReport, richness, artifactMode);
   const informationGaps = buildInformationGaps(input.sourceReport, richness, input.behaviorDecision, artifactMode);
@@ -952,41 +953,25 @@ function optionText(value = ''): string {
 }
 
 function questionOptionsForGap(gap: InformationGap, index: number): string[] {
-  const topic = normalizeText(`${gap.topic} ${gap.question || ''}`);
+  const topic = normalizeText(gap.topic);
   const proposed = gap.proposedAssumption ? optionText(gap.proposedAssumption) : '';
   const defaultDecision = index === 0 ? 'Once bunu netlestirelim' : 'Bu karar acik konu kalsin';
   const assumption = proposed || 'Varsayimlarla ilerle';
 
-  if (/problem|hedef|kapsam|minimum kaynak/.test(topic)) {
-    return [
-      'Uyum/risk azaltma',
-      'Gelir veya satis verimliligi',
-      'Operasyonel hiz ve kalite',
-      'Varsayimlarla ilerle',
-    ];
-  }
-  if (/surec|akis|omurga|tetikleyici|baslar|asama/.test(topic)) {
-    return [
-      'Kullanici baslatir, sistem kontrollu ilerler',
-      'Sistem/API baslatir, operasyon izler',
-      'Manuel onayli operasyon akisi',
-      'Varsayimla surec omurgasi kur',
-    ];
-  }
-  if (/rol|raci|karar sahibi|onaylayan/.test(topic)) {
-    return [
-      'Is birimi karar verir, IT uygular',
-      'Operasyon yurutur, yonetici onaylar',
-      'Rol/RACI acik konu kalsin',
-      'Varsayimla standart roller',
-    ];
-  }
   if (/sistem|veri sahibi|kaynak|hedef/.test(topic)) {
     return [
-      'SAP/CRM kaynak sistem',
-      'Harici servis/API hedef sistem',
+      'Mevcut operasyon sistemi kaynak',
+      'Yeni merkezi platform hedef',
       'Veri sahipligi acik konu',
       'Varsayimla sistemleri ayir',
+    ];
+  }
+  if (/dokuman|evrak|belge|versiyon/.test(topic)) {
+    return [
+      'Zorunlu belge olmadan ilerlemesin',
+      'Eksik belge uyarisi ile devam etsin',
+      'Belge kurallari acik konu',
+      'Varsayimla evrak matrisi',
     ];
   }
   if (/entegrasyon|senkron|asenkron|batch|retry/.test(topic)) {
@@ -997,12 +982,20 @@ function questionOptionsForGap(gap: InformationGap, index: number): string[] {
       'Karar acik konu kalsin',
     ];
   }
-  if (/dokuman|evrak|belge|versiyon/.test(topic)) {
+  if (/rol|raci|karar sahibi|onaylayan/.test(topic)) {
     return [
-      'Zorunlu belge olmadan ilerlemesin',
-      'Eksik belge uyarisi ile devam etsin',
-      'Belge kurallari acik konu',
-      'Varsayimla evrak matrisi',
+      'Is birimi karar verir, IT uygular',
+      'Operasyon yurutur, yonetici onaylar',
+      'Rol/RACI acik konu kalsin',
+      'Varsayimla standart roller',
+    ];
+  }
+  if (/surec|akis|omurga|tetikleyici|baslar|asama/.test(topic)) {
+    return [
+      'Kullanici baslatir, sistem kontrollu ilerler',
+      'Sistem/API baslatir, operasyon izler',
+      'Manuel onayli operasyon akisi',
+      'Varsayimla surec omurgasi kur',
     ];
   }
   if (/ekran|validasyon|mesaj|uyari|kullanici/.test(topic)) {
@@ -1029,6 +1022,14 @@ function questionOptionsForGap(gap: InformationGap, index: number): string[] {
       'Varsayimla UAT seti',
     ];
   }
+  if (/problem|hedef|kapsam|minimum kaynak/.test(topic)) {
+    return [
+      'Uyum/risk azaltma',
+      'Gelir veya satis verimliligi',
+      'Operasyonel hiz ve kalite',
+      'Varsayimlarla ilerle',
+    ];
+  }
 
   return Array.from(new Set([
     assumption,
@@ -1038,12 +1039,12 @@ function questionOptionsForGap(gap: InformationGap, index: number): string[] {
   ].filter(Boolean))).slice(0, 4);
 }
 
-export function buildBaCognitiveQuestionItems(frame: BaCognitiveFrame, maxQuestions = 4): Question[] {
+export function buildBaCognitiveQuestionItems(frame: BaCognitiveFrame, maxQuestions = 3): Question[] {
   const gaps = rankedQuestionGaps(frame);
 
   return gaps.slice(0, maxQuestions).map((item, index) => {
     const questionText = item.question || `${item.topic} nasil ele alinmali?`;
-    const impact = `Karar etkisi: ${item.reason} Etki=${item.impact}, geri donus=${item.reversibility}.`;
+    const impact = `Neden önemli: ${item.reason}`;
     return {
       id: `q${index + 1}`,
       text: `${questionText}\n${impact}`,

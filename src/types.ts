@@ -8,7 +8,9 @@ export interface PromptSettings {
   reasoningFramework: 'standard' | 'cot' | 'tot';
   rolePersonas: Record<string, string>;
   fewShotLibrary: Record<string, string>;
-  contextWindowSize: number;
+  /** @deprecated Sprint 1 uses contextTokenBudget; retained for stored settings compatibility. */
+  contextWindowSize?: number;
+  contextTokenBudget?: number;
   memoryEnabled: boolean;
   versions?: PromptVersion[];
 }
@@ -25,6 +27,9 @@ export interface KnowledgeItem {
   keywords: string[];
   importance: number;
   createdAt: number;
+  sourceType?: 'user_message' | 'conversation_summary' | 'uploaded_source' | 'manual';
+  sourceMessageId?: string;
+  similarity?: number;
   projectId: string;
 }
 

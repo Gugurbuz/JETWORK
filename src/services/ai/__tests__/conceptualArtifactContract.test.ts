@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ARTIFACT_PROFILES } from '../artifactProfiles';
 import {
+  CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT,
   parseConceptualArtifact,
   renderConceptualArtifact,
 } from '../conceptualArtifactContract';
@@ -77,6 +78,12 @@ function rawArtifact() {
 }
 
 describe('structured conceptual artifact contract', () => {
+  it('requires source KPI names to remain verbatim', () => {
+    expect(CONCEPTUAL_ARTIFACT_CONTRACT_PROMPT).toContain(
+      'adini kaynakta yazildigi sekliyle birebir koru',
+    );
+  });
+
   it('renders the complete canonical Word structure without inventing process blocks', () => {
     const payload = parseConceptualArtifact(rawArtifact());
     expect(payload).not.toBeNull();

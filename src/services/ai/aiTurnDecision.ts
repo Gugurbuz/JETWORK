@@ -235,7 +235,7 @@ function wantsCorporateTemplate(input: BuildAiTurnDecisionInput): boolean {
 
 function explicitFocusedArtifactRequest(text: string): boolean {
   const normalized = normalize(text);
-  return /\b(test senaryo|test case|uat|negatif test|api kontrat|api contract|endpoint|teknik analiz|review raporu|kalite raporu)\b/.test(normalized);
+  return /\b(test senaryo\w*|test case\w*|uat|negatif test|api kontrat|api contract|endpoint|teknik analiz|review raporu|kalite raporu)\b/.test(normalized);
 }
 
 function explicitCorporateGeneration(input: BuildAiTurnDecisionInput): boolean {
@@ -245,7 +245,10 @@ function explicitCorporateGeneration(input: BuildAiTurnDecisionInput): boolean {
     && !explicitRepairRequest(input.userMessage);
 }
 
-function resolveArtifactMode(input: BuildAiTurnDecisionInput): ArtifactMode | 'none' {
+function resolveArtifactMode(
+  input: BuildAiTurnDecisionInput,
+  action: AiTurnAction,
+): ArtifactMode | 'none' {
   if (input.classification.baAgentFocus === 'test') return 'test_scenario';
   if (explicitCorporateGeneration(input)) return 'conceptual_analysis';
   if (input.classification.baAgentFocus === 'technical_analysis') return 'technical_analysis';
@@ -254,6 +257,12 @@ function resolveArtifactMode(input: BuildAiTurnDecisionInput): ArtifactMode | 'n
   if (input.classification.subIntent === 'generate_review_report' || input.classification.primaryIntent === 'quality_review') return 'conceptual_analysis';
   if (input.classification.documentImpact === 'updates_document' || explicitDocumentGeneration(input.userMessage)) {
     return input.cognitiveFrame.artifactMode || 'conceptual_analysis';
+  }
+  if (
+    ['draft_document', 'revise_document', 'repair_document', 'execute_confirmed_change'].includes(action)
+    && input.cognitiveFrame.artifactMode
+  ) {
+    return input.cognitiveFrame.artifactMode;
   }
   return input.cognitiveFrame.artifactMode === 'conceptual_analysis' ? 'none' : input.cognitiveFrame.artifactMode;
 }
@@ -282,6 +291,17 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
     || input.classification.documentImpact === 'updates_selected_text' && !input.hasSelectedText
   ) return 'ask_questions';
   if (conflictsWithProtectedDecision(input)) return 'ask_questions';
+  const structuredBriefLabels = [
+    /\bproblem\s*:/i,
+    /\bmevcut\s+durum\s*:/i,
+    /\bhedef\s+durum\s*:/i,
+  ].filter((pattern) => pattern.test(input.userMessage)).length;
+  if (
+    !hasDocument
+    && !explicitDoc
+    && structuredBriefLabels >= 2
+    && input.behaviorDecision.mode === 'suggest_next_step'
+  ) return 'answer_only';
   if (
     officialRequired
     && sensitive
@@ -303,14 +323,9 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
   if (input.hasSelectedText && explicitSelectedTextRevision(input.userMessage)) return 'update_selected_text';
   if (input.classification.primaryIntent === 'selected_text_editing' || input.classification.documentImpact === 'updates_selected_text') return 'update_selected_text';
   if (hasDocument && repairRequest) return 'repair_document';
-  if (
-    input.classification.primaryIntent === 'quality_review'
-    && input.classification.documentImpact === 'updates_document'
-    && input.behaviorDecision.shouldUpdateDocument
-  ) return hasDocument ? 'revise_document' : 'draft_document';
+  if (hasDocument && explicitRevision) return 'revise_document';
   if (input.classification.primaryIntent === 'quality_review' && !corporateGeneration) return 'validate_document';
   if (explicitResearchRequest(input.userMessage) && !explicitDoc) return 'research_first';
-  if (hasDocument && explicitRevision) return 'revise_document';
   if (
     hasDocument
     && (
@@ -320,8 +335,20 @@ function selectAction(input: BuildAiTurnDecisionInput): AiTurnAction {
       || allowsAssumption
     )
   ) return 'revise_document';
+  if (
+    explicitDoc
+    && input.behaviorDecision.mode === 'ask_clarifying_questions'
+    && !!input.classification.baAgentFocus
+    && !allowsAssumption
+  ) return 'ask_questions';
+  if (
+    explicitDoc
+    && explicitFocusedArtifactRequest(input.userMessage)
+    && (input.cognitiveFrame.action === 'block_until_source' || input.cognitiveFrame.action === 'ask_first')
+    && !allowsAssumption
+  ) return 'ask_questions';
   if (explicitDoc || allowsAssumption) return 'draft_document';
-  if (input.classification.requiresClarification) return 'ask_questions';
+  if (input.classification.requiresClarification && !allowsAssumption) return 'ask_questions';
   if (sparseHighImpactBrief(input) && !allowsAssumption) return 'ask_questions';
   if (
     (input.cognitiveFrame.action === 'block_until_source' || input.cognitiveFrame.action === 'ask_first')
@@ -341,7 +368,7 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
   const documentActions: AiTurnAction[] = ['draft_document', 'revise_document', 'validate_document', 'repair_document', 'execute_confirmed_change'];
   const mode = !documentActions.includes(action)
     ? 'none'
-    : resolveArtifactMode(input);
+    : resolveArtifactMode(input, action);
   const corporateGeneration = explicitCorporateGeneration(input);
   const profile = action === 'ask_questions'
     ? ARTIFACT_PROFILES.discovery_brief
@@ -405,7 +432,7 @@ export function buildAiTurnDecision(input: BuildAiTurnDecisionInput): AiTurnDeci
       reason: action === 'ask_questions'
         ? 'Yuksek etkili veya kaynak gerektiren kararlar netlesmeden tam dokuman uretimi yanlis yonlendirebilir.'
         : 'Bu turda soru sorma ana aksiyon degil.',
-      maxQuestions: action === 'ask_questions' ? Math.min(4, Math.max(2, input.behaviorDecision.questionBudget || 3)) : 0,
+      maxQuestions: action === 'ask_questions' ? Math.min(3, Math.max(2, input.behaviorDecision.questionBudget || 3)) : 0,
       questionType: action === 'ask_questions'
         ? input.behaviorDecision.domain !== 'generic_ba' ? 'domain_discovery' : 'critical_only'
         : 'none',

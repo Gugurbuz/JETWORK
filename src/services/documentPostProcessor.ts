@@ -5,6 +5,8 @@ import { evaluateBaQualityV2, type BaQualityReportV2 } from '../modules/ai-ba-en
 import { analyzeSourceIntelligence, normalizeSourceText } from './sourceIntelligence';
 import { conceptualTemplateCoverage } from './conceptualTemplate';
 import type { AiTurnDecision } from './ai/aiTurnDecision';
+import type { AdaptiveReasoningPlan } from './ai/adaptiveReasoningPolicy';
+import { evaluateAdaptiveReasoningCritique } from './ai/adaptiveReasoningCritic';
 import { invalidEvidenceClaims } from './evidenceClaims';
 import { sanitizeDocumentHtml } from '../lib/sanitizeHtml';
 
@@ -19,6 +21,7 @@ export interface DocumentPostProcessContext {
   sourceText?: string;
   workspaceTitle?: string;
   turnDecision?: AiTurnDecision;
+  reasoningPlan?: AdaptiveReasoningPlan;
 }
 
 interface SourceFidelityFinding {
@@ -179,6 +182,8 @@ export function postProcessDocumentData(
     artifactProfile: context.turnDecision?.artifactProfile,
     sourceProcessTitles: sourceReport.processes.map(process => process.title),
     sourceSensitive: context.turnDecision?.sourcePolicy.sourceSensitive,
+    reasoningPlan: context.reasoningPlan,
+    sourceText: context.sourceText,
   });
   const qualityReportV2 = evaluateBaQualityV2(document);
   const templateCoverage = conceptualTemplateCoverage(document.businessAnalysis?.content || '');
@@ -186,6 +191,11 @@ export function postProcessDocumentData(
     || /kavramsal\s+tasar/i.test(document.businessAnalysis?.content || '');
   const sourceFidelityFindings = evaluateSourceFidelity(sourceReport, document.businessAnalysis?.content || '');
   const invalidClaims = invalidEvidenceClaims(document.evidenceClaims || []);
+  const adaptiveCritique = evaluateAdaptiveReasoningCritique({
+    document,
+    plan: context.reasoningPlan,
+    sourceText: context.sourceText,
+  });
   const findings: DocumentQualityFinding[] = [];
 
   const addFinding = (finding: DocumentQualityFinding): void => {
@@ -194,19 +204,21 @@ export function postProcessDocumentData(
     }
   };
 
-  qualityGate.missingSections.forEach((message, index) => addFinding({
-    id: `QG-MISSING-${String(index + 1).padStart(3, '0')}`,
-    category: message.startsWith('Kurumsal Word sablonu')
-      ? 'template'
-      : message.startsWith('Artifact profili') || message.startsWith('Kaynak surec kapsami')
-        ? 'coverage'
-        : message.includes('EvidenceClaim') || message.includes('kanit')
-          ? 'source'
-          : 'content',
-    severity: qualityGate.canPublishToPanel ? 'warning' : 'error',
-    message,
-    recommendedAction: 'Eksik alani kaynak veya acik varsayimla tamamla.',
-  }));
+  qualityGate.missingSections
+    .filter(message => !message.startsWith('Adaptif muhakeme:'))
+    .forEach((message, index) => addFinding({
+      id: `QG-MISSING-${String(index + 1).padStart(3, '0')}`,
+      category: message.startsWith('Kurumsal Word sablonu')
+        ? 'template'
+        : message.startsWith('Artifact profili') || message.startsWith('Kaynak surec kapsami')
+          ? 'coverage'
+          : message.includes('EvidenceClaim') || message.includes('kanit')
+            ? 'source'
+            : 'content',
+      severity: qualityGate.canPublishToPanel ? 'warning' : 'error',
+      message,
+      recommendedAction: 'Eksik alani kaynak veya acik varsayimla tamamla.',
+    }));
 
   qualityGate.warnings.forEach((message, index) => addFinding({
     id: `QG-WARNING-${String(index + 1).padStart(3, '0')}`,
@@ -247,6 +259,18 @@ export function postProcessDocumentData(
     severity: 'error',
     message: `${item.claim.claimId}: ${item.errors.join('; ')}`,
     recommendedAction: 'Iddiayi OPEN/ASSUMPTION yap veya eksik resmi kaniti ekle.',
+  }));
+
+  adaptiveCritique.findings.forEach(finding => addFinding({
+    id: finding.id,
+    category: finding.id === 'AR-EVIDENCE'
+      ? 'source'
+      : finding.id === 'AR-CRITIC' || finding.id === 'AR-GAP-REVIEW'
+        ? 'consistency'
+        : 'coverage',
+    severity: finding.severity,
+    message: finding.message,
+    recommendedAction: finding.recommendedAction,
   }));
 
   document.score = qualityGate.score;
