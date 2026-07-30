@@ -7,6 +7,7 @@ import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
 import { getActiveMemoryItems } from '../services/ai/projectMemoryEngine';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 
@@ -412,13 +413,15 @@ export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProjec
                     
                     <div className="w-full h-px bg-theme-border/50 my-1" />
                     
-                    <button 
-                      onClick={() => { useUIStore.getState().setShowAISettingsModal(true); setShowUserMenu(false); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2 font-medium"
-                    >
-                      <BrainCircuit size={14} />
-                      Yapay Zeka Ayarları
-                    </button>
+                    {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && (
+                      <button
+                        onClick={() => { useUIStore.getState().setShowAISettingsModal(true); setShowUserMenu(false); }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2 font-medium"
+                      >
+                        <BrainCircuit size={14} />
+                        Yapay Zeka Ayarları
+                      </button>
+                    )}
 
                     <button 
                       onClick={() => { onLogout(); setShowUserMenu(false); }}

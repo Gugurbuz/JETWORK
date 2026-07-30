@@ -22,6 +22,11 @@ export function mergeAiChunk(previous: Message[], data: any): Message[] {
     senderRole,
     agentRole: data.agentRole,
     groundingUrls: data.groundingUrls,
+    knowledgeSources: data.knowledgeSources,
+    tokenCount: data.tokenCount,
+    phase: data.phase,
+    phaseLabel: data.phaseLabel,
+    isError: data.isError,
   };
 
   if (existing) {
@@ -45,6 +50,11 @@ export function mergeAiEnd(previous: Message[], data: any): Message[] {
     scoreExplanation: data.scoreExplanation,
     questions: data.questions,
     groundingUrls: data.groundingUrls,
+    knowledgeSources: data.knowledgeSources,
+    tokenCount: data.tokenCount,
+    phase: null,
+    phaseLabel: undefined,
+    isError: data.isError,
     isTyping: false,
     createdAt: Date.now(),
   };

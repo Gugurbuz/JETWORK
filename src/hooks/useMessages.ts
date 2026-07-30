@@ -3,7 +3,7 @@ import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
-import { Message } from '../types';
+import { Message, MessageAttachment, MessageSendOptions } from '../types';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { buildSystemPrompt } from '../services/promptEngine';
 import { summarizeConversation } from '../services/contextManager';
@@ -24,6 +24,26 @@ import {
   retrieveRelevantKnowledge,
   saveKnowledgeItems,
 } from '../services/semanticKnowledgeRepository';
+import { ingestKnowledgeAttachment } from '../services/knowledgeCatalogRepository';
+import {
+  prepareAssistantChatAttachments,
+  streamAssistantResponse,
+} from '../services/assistantRuntimeClient';
+
+const messageForRealtime = (message: Message): Message => (
+  FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    ? {
+        ...message,
+        retryPayload: undefined,
+        attachments: message.attachments?.map(attachment => ({
+          ...attachment,
+          file: undefined,
+          data: undefined,
+          url: attachment.url?.startsWith('data:') ? '' : attachment.url,
+        })),
+      }
+    : message
+);
 
 export const useMessages = (channelRef: any) => {
   const generationAbortRef = useRef<AbortController | null>(null);
@@ -49,7 +69,11 @@ export const useMessages = (channelRef: any) => {
     return useMessageStore.getState().messagesByWorkspace[id] || [];
   };
 
-  const handleSendMessage = async (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string) => {
+  const handleSendMessage = async (
+    text: string,
+    attachments?: MessageAttachment[],
+    options: MessageSendOptions = {},
+  ) => {
     if (!text.trim() && (!attachments || attachments.length === 0)) return;
     if (!user) return;
     
@@ -103,7 +127,14 @@ export const useMessages = (channelRef: any) => {
       }
     }
 
-    const msgId = Date.now().toString();
+    const preparedAttachments = attachments?.map(attachment => ({
+      ...attachment,
+      attachmentId: attachment.attachmentId || crypto.randomUUID(),
+    }));
+    const isAssistantRetry = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+      && !!options.retryMessageId;
+    const replyToId = options.replyToId;
+    const msgId = options.retryMessageId || Date.now().toString();
     const newMsg: Message = {
       id: msgId,
       role: 'user',
@@ -112,25 +143,137 @@ export const useMessages = (channelRef: any) => {
       senderRole: 'Kullanıcı',
       senderColor: user.color,
       createdAt: Date.now(),
-      attachments: attachments?.map(a => ({ url: a.url, data: a.data, name: a.name, mimeType: a.mimeType })),
+      attachments: preparedAttachments?.map(a => ({
+        attachmentId: a.attachmentId,
+        url: a.url,
+        data: a.data,
+        name: a.name,
+        mimeType: a.mimeType,
+        purpose: a.purpose,
+        ingestion: a.purpose === 'knowledge_bank'
+          ? { status: 'queued' }
+          : undefined,
+      })),
       replyToId
     };
 
-    setMessages(prev => [...prev, newMsg]);
+    if (!isAssistantRetry) {
+      setMessages(prev => [...prev, newMsg]);
 
-    try {
-      await saveUserMessage(currentWorkspaceId, user.uid, newMsg);
-    } catch (err) {
-      console.error('Failed to save user message to database:', err);
+      try {
+        await saveUserMessage(currentWorkspaceId, user.uid, newMsg);
+      } catch (err) {
+        console.error('Failed to save user message to database:', err);
+      }
+
+      broadcastMessage(channelRef, 'new_message', {
+        itemId: currentWorkspaceId,
+        message: messageForRealtime(newMsg),
+      });
     }
 
-    broadcastMessage(channelRef, 'new_message', { itemId: currentWorkspaceId, message: newMsg });
+    const knowledgeAttachments = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && !isAssistantRetry
+      ? (preparedAttachments || []).filter(attachment => attachment.purpose === 'knowledge_bank')
+      : [];
+    const ingestionNotes: string[] = [];
+    if (knowledgeAttachments.length > 0) {
+      setIsGenerating(true);
+      for (const attachment of knowledgeAttachments) {
+        const updateAttachmentStatus = async (
+          ingestion: NonNullable<MessageAttachment['ingestion']>,
+        ) => {
+          let updatedMessage: Message | undefined;
+          setMessages(previous => previous.map(message => {
+            if (message.id !== msgId || !message.attachments) return message;
+            updatedMessage = {
+              ...message,
+              attachments: message.attachments.map(candidate => (
+                candidate.attachmentId === attachment.attachmentId
+                  ? { ...candidate, ingestion }
+                  : candidate
+              )),
+            };
+            return updatedMessage;
+          }));
+          if (updatedMessage) {
+            try {
+              await saveUserMessage(currentWorkspaceId, user.uid, updatedMessage);
+            } catch (statusError) {
+              console.error('Failed to persist knowledge attachment status:', statusError);
+            }
+          }
+        };
+        try {
+          const result = await ingestKnowledgeAttachment(
+            currentWorkspaceId,
+            attachment,
+            updateAttachmentStatus,
+          );
+          ingestionNotes.push(
+            result.deduplicated
+              ? `- ${attachment.name || 'Kaynak'}: Aynı içerik zaten kayıtlı; yeni kopya oluşturulmadı.`
+              : `- ${attachment.name || 'Kaynak'}: ${result.parsedObjects} nesne ve ${result.parsedRelations} ilişki taslak olarak işlendi.`,
+          );
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : 'Bilinmeyen yükleme hatası';
+          await updateAttachmentStatus({ status: 'failed', error: detail });
+          ingestionNotes.push(`- ${attachment.name || 'Kaynak'}: Yüklenemedi (${detail}).`);
+        }
+      }
+
+      const hasOnlyKnowledgeAttachments = !!preparedAttachments?.length
+        && preparedAttachments.every(attachment => attachment.purpose === 'knowledge_bank');
+      if (!messageText.trim() && hasOnlyKnowledgeAttachments) {
+        if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+          if (generationAbortRef.current === generationController) {
+            generationAbortRef.current = null;
+            setIsGenerating(false);
+          }
+          return;
+        }
+        const ingestionMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'model',
+          text: [
+            'Bilgi bankası işlemi tamamlandı.',
+            '',
+            ...ingestionNotes,
+            '',
+            'Yeni kaynaklar güvenli biçimde **taslak** kaldı. AI’ın kullanabilmesi için mesaj alanındaki veritabanı simgesinden Bilgi Bankası’nı açıp kaynakları yayımla.',
+          ].join('\n'),
+          senderName: 'JetWork AI',
+          senderRole: 'Bilgi Bankası',
+          createdAt: Date.now(),
+          isError: ingestionNotes.every(note => note.includes('Yüklenemedi')),
+        };
+        setMessages(previous => [...previous, ingestionMessage]);
+        try {
+          await saveAiMessage(currentWorkspaceId, user.uid, ingestionMessage);
+        } catch (error) {
+          console.error('Failed to save knowledge ingestion message:', error);
+        }
+        broadcastMessage(channelRef, 'new_message', {
+          itemId: currentWorkspaceId,
+          message: ingestionMessage,
+        });
+        setIsGenerating(false);
+        return;
+      }
+
+      if (!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+        messageText = [
+          messageText,
+          '',
+          '[Bilgi bankası yükleme sonucu]',
+          ...ingestionNotes,
+        ].join('\n').trim();
+      }
+    }
 
     setIsGenerating(true);
-    const aiMsgId = crypto.randomUUID();
+    const aiMsgId = options.retryAiMessageId || crypto.randomUUID();
     const aiCreatedAt = Date.now();
-    
-    setMessages(prev => [...prev, {
+    const pendingAiMessage: Message = {
       id: aiMsgId,
       role: 'model',
       text: '',
@@ -139,7 +282,140 @@ export const useMessages = (channelRef: any) => {
       agentRole: targetAgentRole || undefined,
       createdAt: aiCreatedAt,
       isTyping: true
-    }]);
+    };
+    setMessages(previous => {
+      if (!options.retryAiMessageId) return [...previous, pendingAiMessage];
+      const retryTargetExists = previous.some(message => message.id === options.retryAiMessageId);
+      return retryTargetExists
+        ? previous.map(message => message.id === options.retryAiMessageId ? pendingAiMessage : message)
+        : [...previous, pendingAiMessage];
+    });
+
+    if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+      let streamedText = '';
+      let streamedSources: Message['knowledgeSources'] = [];
+
+      try {
+        const result = await streamAssistantResponse({
+          workspaceId: currentWorkspaceId,
+          messageId: msgId,
+          message: messageText,
+          chatAttachments: await prepareAssistantChatAttachments(preparedAttachments),
+          signal: generationController.signal,
+          onText: fullText => {
+            streamedText = fullText;
+            const patch = {
+              text: fullText,
+              knowledgeSources: streamedSources,
+              phase: 'ACT' as const,
+              phaseLabel: 'Yanıt hazırlanıyor...',
+            };
+            setMessages(previous => previous.map(message => (
+              message.id === aiMsgId ? { ...message, ...patch } : message
+            )));
+            broadcastMessage(channelRef, 'ai_stream_chunk', {
+              id: aiMsgId,
+              ...patch,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+            });
+          },
+          onSources: sources => {
+            streamedSources = sources;
+            setMessages(previous => previous.map(message => (
+              message.id === aiMsgId
+                ? { ...message, knowledgeSources: sources }
+                : message
+            )));
+            broadcastMessage(channelRef, 'ai_stream_chunk', {
+              id: aiMsgId,
+              text: streamedText,
+              knowledgeSources: sources,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+            });
+          },
+          onStatus: (_stage, label) => {
+            setMessages(previous => previous.map(message => (
+              message.id === aiMsgId
+                ? { ...message, phase: 'RESEARCH', phaseLabel: label || 'Bilgi aranıyor...' }
+                : message
+            )));
+          },
+        });
+
+        const completedAiMessage: Message = {
+          id: aiMsgId,
+          role: 'model',
+          text: result.text,
+          knowledgeSources: result.sources,
+          tokenCount: result.usage?.total_tokens || result.usage?.totalTokens,
+          phase: null,
+          phaseLabel: undefined,
+          isTyping: false,
+          senderName: 'JetWork AI',
+          senderRole: 'Sistem Asistanı',
+          createdAt: aiCreatedAt,
+        };
+        setMessages(previous => previous.map(message => (
+          message.id === aiMsgId ? completedAiMessage : message
+        )));
+        broadcastMessage(channelRef, 'ai_stream_end', completedAiMessage);
+        try {
+          await saveAiMessage(currentWorkspaceId, user.uid, completedAiMessage);
+        } catch (persistError) {
+          console.error('Assistant response was generated but could not be persisted:', persistError);
+        }
+      } catch (error) {
+        console.error('Single assistant runtime error:', error);
+        const wasAborted = error instanceof DOMException && error.name === 'AbortError';
+        const failureDetail = error instanceof Error
+          ? error.message
+          : 'Yeni asistan yanıtı oluşturulamadı.';
+        const failedMessage: Message = {
+          id: aiMsgId,
+          role: 'model',
+          text: streamedText
+            ? `${streamedText}\n\n> Yanıt tamamlanmadan bağlantı kesildi. Aşağıdaki tekrar deneme seçeneğini kullanabilirsin.`
+            : (
+              wasAborted
+                ? 'Önceki yanıt yeni talep nedeniyle iptal edildi.'
+                : `${failureDetail} Lütfen tekrar deneyin.`
+            ),
+          knowledgeSources: streamedSources,
+          isTyping: false,
+          isError: !wasAborted,
+          retryPayload: wasAborted ? undefined : {
+            text,
+            attachments: preparedAttachments,
+            replyToId,
+            messageId: msgId,
+            assistantMessageId: aiMsgId,
+          },
+          senderName: 'JetWork AI',
+          senderRole: 'Sistem Asistanı',
+          createdAt: aiCreatedAt,
+          phase: null,
+        };
+        setMessages(previous => previous.map(message => (
+          message.id === aiMsgId ? failedMessage : message
+        )));
+        broadcastMessage(channelRef, 'ai_stream_end', messageForRealtime(failedMessage));
+        if (!wasAborted) {
+          try {
+            await saveAiMessage(currentWorkspaceId, user.uid, failedMessage);
+          } catch (persistError) {
+            console.error('Failed to save assistant error message:', persistError);
+          }
+        }
+      } finally {
+        if (generationAbortRef.current === generationController) {
+          generationAbortRef.current = null;
+          setIsGenerating(false);
+        }
+      }
+      return;
+    }
 
     const documentState = useDocumentStore.getState();
     const promptSettings = useSettingsStore.getState().promptSettings;

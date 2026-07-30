@@ -4,18 +4,17 @@ JetWork AI is a collaborative business-analysis workspace. It turns project conv
 
 ## Product Architecture
 
-The web client is React 19, TypeScript, Vite, Zustand, and TipTap. Supabase provides authentication, Postgres persistence, Realtime collaboration, and the `gemini-chat` Edge Function.
+The web client is React 19, TypeScript, Vite, Zustand, and TipTap. Supabase provides authentication, Postgres persistence, Realtime collaboration, private source storage, and server-side Edge Functions.
 
-The primary AI turn follows one decision path:
+The new runtime is protected by `VITE_SINGLE_ASSISTANT_RUNTIME` and uses one simple chat surface:
 
-1. `useMessages` records the user turn and invokes `runSingleChatOrchestrator`.
-2. `AiTurnDecision` classifies the intent, information gaps, research need, artifact mode, and confirmation policy.
-3. `baAgentLoop` plans deterministically and performs only the action authorized by that decision.
-4. Structured `EvidenceClaim` records distinguish verified, inferred, assumed, and conflicting claims.
-5. `documentPostProcessor` normalizes and scores output without adding business content.
-6. High-impact changes are stored as pending operations and require confirmation before persistence.
+1. `useMessages` records the user turn and calls the authenticated `openai-assistant` Edge Function.
+2. The Edge Function loads the single active prompt version and calls the OpenAI Responses API with `gpt-5.6-sol`.
+3. Published, workspace-scoped knowledge is available only through strict read-only tools.
+4. Conversation turns, idempotency leases, usage, and tool audit records stay server-side in Supabase.
+5. TXT/MD sources are ingested as drafts and become visible to the assistant only after explicit publication.
 
-Project memory and pending operations are persisted in Supabase. Local storage is only a cache and recovery fallback.
+With the flag disabled, the existing Gemini/BA orchestration remains unchanged as the rollback path. See `docs/SINGLE_ASSISTANT_RUNTIME.md` for the rollout and acceptance gate.
 
 ## Prerequisites
 
@@ -39,9 +38,14 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-anon-key
 ```
 
-`GEMINI_API_KEY` is a server-side Edge Function secret. Never expose it through a `VITE_` variable.
+`OPENAI_API_KEY` and the legacy `GEMINI_API_KEY` are server-side Edge Function secrets. Never expose either through a `VITE_` variable.
 
 ```bash
+supabase secrets set OPENAI_API_KEY=your-key
+supabase functions deploy ingest-knowledge-source
+supabase functions deploy openai-assistant
+
+# Legacy rollback runtime only
 supabase secrets set GEMINI_API_KEY=your-key
 supabase functions deploy gemini-chat
 ```
@@ -54,7 +58,7 @@ Apply migrations in order:
 supabase db push
 ```
 
-The current migrations cover prompt settings, knowledge search, project memory, and confirmation-controlled pending operations. Review the target project before applying migrations to an existing production database.
+The current migrations also cover version-pinned knowledge publication and the server-only assistant runtime. Review the target project before applying migrations to an existing production database.
 
 The RLS contract is executable with a local Supabase stack:
 
@@ -74,6 +78,7 @@ pnpm run verify:ai-turn-decision
 pnpm run verify:deep-ba-assistant
 pnpm run verify:product-runtime
 pnpm run verify:document-quality
+pnpm run verify:assistant-runtime
 pnpm run build
 ```
 
@@ -92,11 +97,13 @@ GitHub Actions runs the same typecheck, unit tests, behavior regressions, and pr
 
 ## Deployment
 
-The frontend is deployable to Vercel with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configured in the project environment. Database migrations and the `gemini-chat` Edge Function are deployed separately through Supabase.
+The frontend is deployable to Vercel with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` configured in the project environment. Database migrations and Edge Functions are deployed separately through Supabase. Keep `VITE_SINGLE_ASSISTANT_RUNTIME=false` until migrations, secrets, both new Edge Functions, and the five golden questions are verified in the target workspace.
 
 Before release, verify:
 
 - Supabase migrations are applied to the intended project.
+- `OPENAI_API_KEY` exists only in Supabase Edge Function secrets.
+- `ingest-knowledge-source` and `openai-assistant` are deployed with JWT verification enabled.
 - `GEMINI_API_KEY` exists only in Supabase Edge Function secrets.
 - RLS policies prevent cross-workspace reads and writes.
 - The behavior regression suite passes.
@@ -104,13 +111,17 @@ Before release, verify:
 
 ## Repository Map
 
-- `src/services/ai/aiTurnDecision.ts`: sole turn-level behavior decision contract
+- `src/services/assistantRuntimeClient.ts`: authenticated SSE client for the new runtime
+- `src/services/knowledgeCatalogRepository.ts`: TXT/MD ingestion and publication client
+- `supabase/functions/openai-assistant`: Responses API and read-only tool loop
+- `supabase/functions/ingest-knowledge-source`: deterministic source ingestion
+- `src/services/ai/aiTurnDecision.ts`: legacy turn-level behavior decision contract
 - `src/services/singleChatOrchestrator.ts`: active single-chat orchestration
 - `src/services/baAgentLoop.ts`: decision-controlled analysis execution
 - `src/services/evidenceClaims.ts`: evidence ledger validation
 - `src/services/documentPostProcessor.ts`: read-only normalization and quality assessment
 - `src/services/projectMemoryRepository.ts`: persistent project memory
 - `src/services/pendingOperationRepository.ts`: preview and confirmation persistence
-- `supabase/functions/gemini-chat`: server-side Gemini gateway
+- `supabase/functions/gemini-chat`: legacy server-side Gemini gateway
 - `supabase/migrations`: database changes
 - `scripts`: deterministic behavior regression scenarios

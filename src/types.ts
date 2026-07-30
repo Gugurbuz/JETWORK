@@ -44,6 +44,43 @@ export interface Question {
   options: string[];
 }
 
+export type AttachmentPurpose = 'chat_only' | 'knowledge_bank';
+
+export interface AttachmentIngestion {
+  status: 'queued' | 'uploading' | 'processing' | 'ready' | 'failed';
+  sourceId?: string;
+  jobId?: string;
+  publicationStatus?: 'draft' | 'published' | 'archived';
+  objectCount?: number;
+  relationCount?: number;
+  error?: string;
+}
+
+export interface MessageAttachment {
+  attachmentId?: string;
+  url: string;
+  data?: string;
+  mimeType: string;
+  name?: string;
+  file?: File;
+  purpose?: AttachmentPurpose;
+  ingestion?: AttachmentIngestion;
+}
+
+export interface MessageSendOptions {
+  replyToId?: string;
+  retryMessageId?: string;
+  retryAiMessageId?: string;
+}
+
+export interface AssistantKnowledgeSource {
+  sourceId?: string;
+  sourceName: string;
+  canonicalKey?: string;
+  objectType?: string;
+  title?: string;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -54,8 +91,9 @@ export interface Message {
   isTyping?: boolean;
   actionSummary?: string;
   groundingUrls?: { uri: string; title: string }[];
+  knowledgeSources?: AssistantKnowledgeSource[];
   thinkingText?: string;
-  attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[];
+  attachments?: MessageAttachment[];
   reactions?: Reaction[];
   documentSnapshot?: DocumentData;
   previousDocumentSnapshot?: DocumentData;
@@ -71,7 +109,13 @@ export interface Message {
   rawResponse?: string;
   replyToId?: string;
   isError?: boolean;
-  retryPayload?: { text: string; attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[], replyToId?: string };
+  retryPayload?: {
+    text: string;
+    attachments?: MessageAttachment[];
+    replyToId?: string;
+    messageId: string;
+    assistantMessageId: string;
+  };
   phase?: 'INTENT' | 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT' | null;
   phaseLabel?: string;
 }

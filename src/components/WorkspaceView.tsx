@@ -1,11 +1,12 @@
 import React from 'react';
 import { ChatPanel } from './ChatPanel';
 import { DocumentPanel } from './DocumentPanel';
-import { Message, DocumentData } from '../types';
+import { Message, DocumentData, MessageAttachment, MessageSendOptions } from '../types';
 import { User } from '../hooks/useAuth';
 import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 interface WorkspaceViewProps {
   messages: Message[];
@@ -15,7 +16,11 @@ interface WorkspaceViewProps {
   channelRef: React.MutableRefObject<any>;
   sessionId: React.MutableRefObject<string>;
   
-  onSendMessage: (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[]) => Promise<void>;
+  onSendMessage: (
+    text: string,
+    attachments?: MessageAttachment[],
+    options?: MessageSendOptions,
+  ) => Promise<void>;
   onToggleReaction: (messageId: string, emoji: string) => Promise<void>;
   onToggleAiActive: () => void;
   onToggleZeroTouchMode: () => void;
@@ -104,19 +109,22 @@ export function WorkspaceView({
         onRestoreDocument={onRestoreDocument}
         isLoadingWorkspace={isLoadingWorkspace}
         onManageParticipants={() => setShowManageParticipantsModal(true)}
+        fullWidth={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME}
       />
-      <DocumentPanel 
-        onGenerate={onGenerateDocument}
-        hasMessages={messages.length > 0}
-        collaborators={currentWorkspace?.collaborators}
-        onUpdateDocument={onUpdateDocument}
-        onQuickAction={(prompt) => { void onSendMessage(prompt); }}
-        score={latestScore}
-        scoreExplanation={latestScoreExplanation}
-        messages={messages}
-        onRestoreDocument={onRestoreDocument}
-        onManageParticipants={() => setShowManageParticipantsModal(true)}
-      />
+      {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && (
+        <DocumentPanel
+          onGenerate={onGenerateDocument}
+          hasMessages={messages.length > 0}
+          collaborators={currentWorkspace?.collaborators}
+          onUpdateDocument={onUpdateDocument}
+          onQuickAction={(prompt) => { void onSendMessage(prompt); }}
+          score={latestScore}
+          scoreExplanation={latestScoreExplanation}
+          messages={messages}
+          onRestoreDocument={onRestoreDocument}
+          onManageParticipants={() => setShowManageParticipantsModal(true)}
+        />
+      )}
     </>
   );
 }

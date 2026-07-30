@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
 import * as mammoth from 'mammoth';
-import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload } from 'lucide-react';
-import { Message, Question } from '../types';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database } from 'lucide-react';
+import { Message, MessageAttachment, MessageSendOptions, Question } from '../types';
 import { cn, stringToColor } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,6 +10,7 @@ import { DiffViewerModal } from './DiffViewerModal';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { useDataStore } from '../store/useDataStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
+import { KnowledgeBankModal } from './KnowledgeBankModal';
 
 const contextualQuestionOptions = (question: Question): string[] => {
   return (question.options || [])
@@ -178,7 +179,11 @@ const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingT
 
 interface ChatPanelProps {
   messages: Message[];
-  onSendMessage: (text: string, attachments?: { url: string; data: string; mimeType: string; name?: string; file?: File }[]) => void;
+  onSendMessage: (
+    text: string,
+    attachments?: MessageAttachment[],
+    options?: MessageSendOptions,
+  ) => void;
   isGenerating?: boolean;
   issueKey?: string;
   status?: string;
@@ -205,6 +210,7 @@ interface ChatPanelProps {
   setActiveZeroTouchRoles?: (roles: string[]) => void;
   isLoadingWorkspace?: boolean;
   onManageParticipants?: () => void;
+  fullWidth?: boolean;
 }
 
 const SLASH_COMMANDS = [
@@ -217,6 +223,24 @@ const SLASH_COMMANDS = [
 ];
 
 const EMOJIS = ['👍', '👎', '🚀', '👀', '✅', '💡', '🎉', '❤️'];
+const MAX_CHAT_ATTACHMENTS = 3;
+
+const supportsKnowledgeBank = (attachment: Pick<MessageAttachment, 'name' | 'mimeType'>) =>
+  /\.(txt|md)$/i.test(attachment.name || '')
+  && ['text/plain', 'text/markdown', ''].includes(attachment.mimeType || '');
+
+const defaultAttachmentPurpose = (): MessageAttachment['purpose'] => 'chat_only';
+
+const ingestionLabel = (attachment: MessageAttachment): string | null => {
+  const ingestion = attachment.ingestion;
+  if (!ingestion) return null;
+  if (ingestion.status === 'queued') return 'Sırada';
+  if (ingestion.status === 'uploading') return 'Yükleniyor';
+  if (ingestion.status === 'processing') return 'İşleniyor';
+  if (ingestion.status === 'failed') return 'Yükleme başarısız';
+  if (ingestion.publicationStatus === 'published') return 'Bilgi bankasında';
+  return 'Taslak hazır';
+};
 
 const getLatestThought = (text: string) => {
   if (!text) return "Düşünüyor...";
@@ -237,6 +261,8 @@ const MessageItem = memo(({
   onRestoreDocument, 
   setDiffModalData, 
   onToggleReaction,
+  onRetryMessage,
+  retryDisabled,
   isLastMessage
 }: { 
   msg: Message, 
@@ -245,8 +271,12 @@ const MessageItem = memo(({
   onRestoreDocument?: (doc: any) => void, 
   setDiffModalData: (data: any) => void, 
   onToggleReaction?: (id: string, emoji: string) => void,
+  onRetryMessage?: (payload: NonNullable<Message['retryPayload']>) => void,
+  retryDisabled?: boolean,
   isLastMessage?: boolean
 }) => {
+  const storeUser = useDataStore(state => state.user);
+
   if (msg.senderRole === 'System') {
     return (
       <motion.div 
@@ -263,7 +293,6 @@ const MessageItem = memo(({
     );
   }
 
-  const storeUser = useDataStore(state => state.user);
   const userColor = msg.role === 'user' 
     ? (msg.senderColor || (msg.senderName === storeUser?.name && storeUser?.color ? storeUser.color : (msg.senderName ? stringToColor(msg.senderName) : null)))
     : null;
@@ -321,6 +350,11 @@ const MessageItem = memo(({
               • <MessageTimer isTyping={!!msg.isTyping} />
             </span>
           )}
+          {msg.isError && (
+            <span className="ml-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
+              Yanıt tamamlanamadı
+            </span>
+          )}
         </div>
         
         <div 
@@ -328,9 +362,11 @@ const MessageItem = memo(({
           data-message-role={msg.role}
           className={cn(
             "text-sm text-theme-text leading-relaxed p-3 rounded-2xl shadow-sm border",
-            msg.role === 'user' 
-              ? "bg-theme-surface rounded-tl-sm" 
-              : "bg-theme-primary/10 border-theme-primary/20 rounded-tr-sm"
+            msg.isError
+              ? "bg-red-500/5 border-red-500/30 rounded-tr-sm"
+              : msg.role === 'user'
+                ? "bg-theme-surface rounded-tl-sm"
+                : "bg-theme-primary/10 border-theme-primary/20 rounded-tr-sm"
           )}
           style={msg.role === 'user' && userColor ? { 
             borderColor: `${userColor}40`,
@@ -382,10 +418,27 @@ const MessageItem = memo(({
                     att.mimeType.startsWith('image/') ? (
                       <img key={idx} src={att.url} alt="uploaded" className="max-w-[200px] max-h-[200px] object-cover border border-theme-border/50 rounded-md shadow-sm" />
                     ) : (
-                      <div key={idx} className="flex items-center gap-2 p-2 bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden max-w-[200px]">
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden max-w-[240px]">
                         <FileText size={16} className="text-theme-primary shrink-0" />
                         <span className="text-xs font-bold text-theme-text-muted uppercase shrink-0">{att.name?.split('.').pop() || 'FILE'}</span>
-                        {att.name && <span className="text-xs text-theme-text truncate">{att.name}</span>}
+                        <div className="min-w-0">
+                          {att.name && <div className="text-xs text-theme-text truncate">{att.name}</div>}
+                          {ingestionLabel(att) && (
+                            <div className={cn(
+                              'mt-0.5 text-[10px] font-medium',
+                              att.ingestion?.status === 'failed'
+                                ? 'text-red-500'
+                                : att.ingestion?.status === 'ready'
+                                  ? 'text-emerald-600'
+                                  : 'text-theme-primary',
+                            )}>
+                              {ingestionLabel(att)}
+                              {att.ingestion?.status === 'ready' && att.ingestion.objectCount !== undefined
+                                ? ` · ${att.ingestion.objectCount} nesne`
+                                : ''}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )
                   ))}
@@ -438,7 +491,11 @@ const MessageItem = memo(({
           {msg.role === 'model' && msg.isTyping && msg.text && (
             <div className="mt-4 p-4 bg-theme-surface border border-theme-border border-dashed rounded-xl shadow-sm flex items-center gap-3 animate-pulse">
               <JetWorkLogo className="w-4 h-4" isSpinning={true} />
-              <span className="text-sm font-medium text-theme-text-muted">Dokümanlar versiyonlanıyor...</span>
+              <span className="text-sm font-medium text-theme-text-muted">
+                {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+                  ? 'Yanıt hazırlanıyor...'
+                  : 'Dokümanlar versiyonlanıyor...'}
+              </span>
             </div>
           )}
 
@@ -498,6 +555,45 @@ const MessageItem = memo(({
               </div>
             </div>
           )}
+
+          {msg.knowledgeSources && msg.knowledgeSources.length > 0 && (
+            <div className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-theme-text-muted flex items-center gap-1.5">
+                <Database size={10} /> Kurumsal kaynaklar
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {msg.knowledgeSources.map((source, index) => (
+                  <div
+                    key={`${source.sourceId || source.sourceName}-${source.canonicalKey || index}`}
+                    className="flex items-start gap-2 rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs text-theme-text-muted"
+                  >
+                    <span className="font-bold text-theme-primary">[{index + 1}]</span>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-theme-text">
+                        {source.title || source.sourceName}
+                      </div>
+                      <div className="truncate text-[10px]">
+                        {source.sourceName}
+                        {source.canonicalKey ? ` · ${source.canonicalKey}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {msg.isError && msg.retryPayload && onRetryMessage && (
+            <button
+              type="button"
+              onClick={() => onRetryMessage(msg.retryPayload!)}
+              disabled={retryDisabled}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw size={13} />
+              Tekrar dene
+            </button>
+          )}
           
           {/* Reactions */}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -526,14 +622,6 @@ const MessageItem = memo(({
       </div>
     </motion.div>
   );
-}, (prevProps, nextProps) => {
-  return prevProps.msg.text === nextProps.msg.text &&
-         prevProps.msg.thinkingText === nextProps.msg.thinkingText &&
-         prevProps.msg.isTyping === nextProps.msg.isTyping &&
-         prevProps.msg.questions === nextProps.msg.questions &&
-         prevProps.msg.phase === nextProps.msg.phase &&
-         prevProps.msg.phaseLabel === nextProps.msg.phaseLabel &&
-         prevProps.msg.id === nextProps.msg.id;
 });
 
 export function ChatPanel({ 
@@ -545,11 +633,13 @@ export function ChatPanel({
   isZeroTouchMode, onToggleZeroTouchMode,
   activeZeroTouchRoles, setActiveZeroTouchRoles,
   isLoadingWorkspace,
-  onManageParticipants
+  onManageParticipants,
+  fullWidth = false,
 }: ChatPanelProps) {
   const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const [input, setInput] = useState('');
-  const [selectedAttachments, setSelectedAttachments] = useState<{ url: string; data: string; mimeType: string; name?: string; file?: File }[]>([]);
+  const [selectedAttachments, setSelectedAttachments] = useState<MessageAttachment[]>([]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
@@ -560,6 +650,7 @@ export function ChatPanel({
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showZeroTouchSettings, setShowZeroTouchSettings] = useState(false);
+  const [showKnowledgeBank, setShowKnowledgeBank] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -580,12 +671,19 @@ export function ChatPanel({
         ]
       : [];
 
-  const starterPrompts = [
-    'Yeni bir iş analizi dokümanı başlatmak istiyorum. Talebi birlikte olgunlaştıralım.',
-    'Aşağıdaki ham notları yapısal bir dokümana dönüştürmeni istiyorum. Gerekirse sorular sor.',
-    'Mevcut analizimin olgunluk seviyesini değerlendirip eksik noktaları bulur musun?',
-    'Exper Modu’nu aktifleştir. Bu konuyu analizden teste kadar uçtan uca tamamla.',
-  ];
+  const starterPrompts = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    ? [
+        'Bir talebim var; proje mi support konusu mu olduğunu birlikte netleştirelim.',
+        'ZCRM2-545 hangi koşulda alınır?',
+        'CHECK_ZTKS hangi mesajları üretiyor?',
+        'Bir TXT veya MD kaynağını bilgi bankasına eklemek istiyorum.',
+      ]
+    : [
+        'Yeni bir iş analizi dokümanı başlatmak istiyorum. Talebi birlikte olgunlaştıralım.',
+        'Aşağıdaki ham notları yapısal bir dokümana dönüştürmeni istiyorum. Gerekirse sorular sor.',
+        'Mevcut analizimin olgunluk seviyesini değerlendirip eksik noktaları bulur musun?',
+        'Exper Modu’nu aktifleştir. Bu konuyu analizden teste kadar uçtan uca tamamla.',
+      ];
 
   const scrollSuggestions = () => {
     if (suggestionsScrollRef.current) {
@@ -628,6 +726,12 @@ export function ChatPanel({
     }
   }, [aiHandRaised]);
 
+  useEffect(() => {
+    setInput('');
+    setSelectedAttachments([]);
+    setShowKnowledgeBank(false);
+  }, [currentWorkspaceId]);
+
   useLayoutEffect(() => {
     if (!isScrolledUp) {
       scrollToBottom();
@@ -655,6 +759,10 @@ export function ChatPanel({
   };
 
   const isSupportedFileType = (file: File) => {
+    if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+      return /\.(txt|md)$/i.test(file.name)
+        && ['text/plain', 'text/markdown', ''].includes(file.type || '');
+    }
     const supportedTypes = [
       'application/pdf', 
       'text/plain', 
@@ -663,16 +771,36 @@ export function ChatPanel({
       'text/markdown',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     ];
-    return file.type.startsWith('image/') || supportedTypes.includes(file.type) || file.name.toLowerCase().endsWith('.docx');
+    return file.type.startsWith('image/')
+      || supportedTypes.includes(file.type)
+      || /\.(docx|txt|md)$/i.test(file.name);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
-    if (files.length === 0) return;
+    const requestedFiles: File[] = e.target.files ? Array.from(e.target.files) : [];
+    const availableChatSlots = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+      ? Math.max(
+          0,
+          MAX_CHAT_ATTACHMENTS
+            - selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length,
+        )
+      : requestedFiles.length;
+    const files = requestedFiles.slice(0, availableChatSlots);
+    if (files.length < requestedFiles.length) {
+      alert(`Bir mesajda en fazla ${MAX_CHAT_ATTACHMENTS} sohbet eki kullanılabilir.`);
+    }
+    if (files.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
 
     for (const file of files) {
       if (!isSupportedFileType(file)) {
-        alert(`Desteklenmeyen dosya türü: ${file.name}. Sadece Görsel, PDF, TXT, CSV ve DOCX dosyaları desteklenmektedir.`);
+        alert(
+          FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+            ? `Desteklenmeyen dosya türü: ${file.name}. İlk bilgi bankası sürümü TXT ve MD dosyalarını destekliyor.`
+            : `Desteklenmeyen dosya türü: ${file.name}. Görsel, PDF, TXT, MD, CSV ve DOCX dosyaları desteklenmektedir.`,
+        );
         continue;
       }
 
@@ -692,7 +820,9 @@ export function ChatPanel({
             data: base64Text,
             mimeType: 'text/plain',
             name: file.name,
-            file: file
+            file: file,
+            attachmentId: crypto.randomUUID(),
+            purpose: 'chat_only',
           }]);
         } catch (err) {
           console.error("Error parsing DOCX:", err);
@@ -710,7 +840,9 @@ export function ChatPanel({
             data: data,
             mimeType: file.type,
             name: file.name,
-            file: file
+            file: file,
+            attachmentId: crypto.randomUUID(),
+            purpose: defaultAttachmentPurpose(),
           }]);
         };
         reader.readAsDataURL(file);
@@ -731,6 +863,26 @@ export function ChatPanel({
     });
   };
 
+  const toggleAttachmentPurpose = (index: number) => {
+    const target = selectedAttachments[index];
+    if (
+      target?.purpose === 'knowledge_bank'
+      && selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length
+        >= MAX_CHAT_ATTACHMENTS
+    ) {
+      alert(`Bir mesajda en fazla ${MAX_CHAT_ATTACHMENTS} sohbet eki kullanılabilir.`);
+      return;
+    }
+    setSelectedAttachments(previous => previous.map((attachment, attachmentIndex) => (
+      attachmentIndex === index
+        ? {
+            ...attachment,
+            purpose: attachment.purpose === 'knowledge_bank' ? 'chat_only' : 'knowledge_bank',
+          }
+        : attachment
+    )));
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInput(val);
@@ -746,22 +898,22 @@ export function ChatPanel({
     const cursorPosition = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPosition);
     
-    // Check if typing a mention
-    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
-    if (mentionMatch) {
-      setShowMentionMenu(true);
-    } else {
+    if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
       setShowMentionMenu(false);
-    }
-
-    // Check if typing a slash command
-    const slashMatch = textBeforeCursor.match(/(^|\s)\/([a-zA-Z0-9-]*)$/);
-    if (slashMatch) {
-      setShowSlashMenu(true);
-      setSlashFilter(slashMatch[2].toLowerCase());
-    } else {
       setShowSlashMenu(false);
       setSlashFilter('');
+    } else {
+      const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+      setShowMentionMenu(!!mentionMatch);
+
+      const slashMatch = textBeforeCursor.match(/(^|\s)\/([a-zA-Z0-9-]*)$/);
+      if (slashMatch) {
+        setShowSlashMenu(true);
+        setSlashFilter(slashMatch[2].toLowerCase());
+      } else {
+        setShowSlashMenu(false);
+        setSlashFilter('');
+      }
     }
     
     e.target.style.height = 'auto';
@@ -863,12 +1015,27 @@ export function ChatPanel({
     e.stopPropagation();
     setIsDragging(false);
     
-    const files: File[] = Array.from(e.dataTransfer.files);
+    const requestedFiles: File[] = Array.from(e.dataTransfer.files);
+    const availableChatSlots = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+      ? Math.max(
+          0,
+          MAX_CHAT_ATTACHMENTS
+            - selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length,
+        )
+      : requestedFiles.length;
+    const files = requestedFiles.slice(0, availableChatSlots);
+    if (files.length < requestedFiles.length) {
+      alert(`Bir mesajda en fazla ${MAX_CHAT_ATTACHMENTS} sohbet eki kullanılabilir.`);
+    }
     if (files.length === 0) return;
 
     for (const file of files) {
       if (!isSupportedFileType(file)) {
-        alert(`Desteklenmeyen dosya türü: ${file.name}. Sadece Görsel, PDF, TXT, CSV ve DOCX dosyaları desteklenmektedir.`);
+        alert(
+          FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+            ? `Desteklenmeyen dosya türü: ${file.name}. İlk bilgi bankası sürümü TXT ve MD dosyalarını destekliyor.`
+            : `Desteklenmeyen dosya türü: ${file.name}. Görsel, PDF, TXT, MD, CSV ve DOCX dosyaları desteklenmektedir.`,
+        );
         continue;
       }
 
@@ -887,7 +1054,9 @@ export function ChatPanel({
             data: base64Text,
             mimeType: 'text/plain',
             name: file.name,
-            file: file
+            file: file,
+            attachmentId: crypto.randomUUID(),
+            purpose: 'chat_only',
           }]);
         } catch (err) {
           console.error("Error parsing DOCX:", err);
@@ -904,7 +1073,9 @@ export function ChatPanel({
             data: data,
             mimeType: file.type,
             name: file.name,
-            file: file
+            file: file,
+            attachmentId: crypto.randomUUID(),
+            purpose: defaultAttachmentPurpose(),
           }]);
         };
         reader.readAsDataURL(file);
@@ -914,7 +1085,12 @@ export function ChatPanel({
 
   return (
     <div 
-      className="w-[650px] shrink-0 flex flex-col bg-theme-bg relative overflow-hidden border-r border-theme-border transition-colors duration-300"
+      className={cn(
+        "flex flex-col bg-theme-bg relative overflow-hidden transition-colors duration-300",
+        fullWidth
+          ? "flex-1 min-w-0 w-full"
+          : "w-[650px] shrink-0 border-r border-theme-border",
+      )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -934,7 +1110,11 @@ export function ChatPanel({
               </div>
               <div className="text-center">
                 <h3 className="text-lg font-bold text-theme-text mb-1">Dosyaları Buraya Bırakın</h3>
-                <p className="text-sm text-theme-text-muted">Görsel, PDF, TXT, CSV ve DOCX belgeleri ekleyebilirsiniz</p>
+                <p className="text-sm text-theme-text-muted">
+                  {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+                    ? 'Bilgi bankası için TXT veya MD dosyası ekleyebilirsiniz'
+                    : 'Görsel, PDF, TXT, CSV ve DOCX belgeleri ekleyebilirsiniz'}
+                </p>
               </div>
             </div>
           </motion.div>
@@ -1081,9 +1261,17 @@ export function ChatPanel({
                     idx={idx} 
                     currentUser={currentUser} 
                     onRestoreDocument={onRestoreDocument} 
-                    setDiffModalData={setDiffModalData} 
-                    onToggleReaction={onToggleReaction} 
-                    isLastMessage={idx === messages.length - 1}
+                     setDiffModalData={setDiffModalData}
+                     onToggleReaction={onToggleReaction}
+                     onRetryMessage={payload => {
+                       void onSendMessage(payload.text, payload.attachments, {
+                         replyToId: payload.replyToId,
+                         retryMessageId: payload.messageId,
+                         retryAiMessageId: payload.assistantMessageId,
+                       });
+                     }}
+                     retryDisabled={isGenerating}
+                     isLastMessage={idx === messages.length - 1}
                   />
                 ))
               )}
@@ -1190,7 +1378,7 @@ export function ChatPanel({
             {selectedAttachments.length > 0 && (
               <div className="absolute bottom-full mb-2 left-0 right-0 flex gap-2 overflow-x-auto p-2 bg-theme-surface border border-theme-border shadow-sm rounded-lg">
                 {selectedAttachments.map((att, idx) => (
-                  <div key={idx} className="relative group/img shrink-0">
+                  <div key={att.attachmentId || idx} className="relative group/img flex shrink-0 items-center gap-2 pr-1">
                     {att.mimeType.startsWith('image/') ? (
                       <img src={att.url} alt="upload preview" className="h-16 w-16 object-cover border border-theme-border/50 rounded-md" />
                     ) : (
@@ -1204,6 +1392,21 @@ export function ChatPanel({
                         </span>
                       </div>
                     )}
+                    {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && supportsKnowledgeBank(att) && (
+                      <button
+                        type="button"
+                        onClick={() => toggleAttachmentPurpose(idx)}
+                        className={cn(
+                          'rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors',
+                          att.purpose === 'knowledge_bank'
+                            ? 'border-theme-primary/40 bg-theme-primary/10 text-theme-primary'
+                            : 'border-theme-border bg-theme-bg text-theme-text-muted',
+                        )}
+                        title="Bu dosyanın kalıcı bilgi bankasına mı yoksa yalnızca bu sohbete mi ekleneceğini seç"
+                      >
+                        {att.purpose === 'knowledge_bank' ? 'Bilgi bankası' : 'Yalnızca sohbet'}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => removeAttachment(idx)}
@@ -1216,7 +1419,7 @@ export function ChatPanel({
               </div>
             )}
             
-            {showSuggestions && dynamicSuggestions.length > 0 && (
+            {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && showSuggestions && dynamicSuggestions.length > 0 && (
               <div className="flex items-center gap-2 mb-3">
                 <div 
                   ref={suggestionsScrollRef}
@@ -1265,7 +1468,7 @@ export function ChatPanel({
             )}
 
             <div className="relative flex flex-col bg-theme-bg border border-theme-border focus-within:border-theme-primary transition-colors rounded-2xl shadow-sm">
-              {showMentionMenu && (
+              {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && showMentionMenu && (
                 <div className="absolute bottom-full left-4 mb-2 w-64 bg-theme-bg border border-theme-border shadow-xl z-50 overflow-hidden rounded-lg">
                   <div className="px-3 py-2 text-[10px] font-bold text-theme-text-muted uppercase tracking-widest border-b border-theme-border/50 bg-theme-surface-hover">
                     Kişiler
@@ -1337,7 +1540,7 @@ export function ChatPanel({
                   </button>
                 </div>
               )}
-              {showSlashMenu && filteredCommands.length > 0 && (
+              {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && showSlashMenu && filteredCommands.length > 0 && (
                 <div className="absolute bottom-full left-4 mb-2 w-72 bg-theme-bg border border-theme-border shadow-xl z-50 overflow-hidden rounded-lg">
                   <div className="px-3 py-2 text-[10px] font-bold text-theme-text-muted uppercase tracking-widest border-b border-theme-border/50 bg-theme-surface-hover">
                     Hızlı Komutlar
@@ -1372,26 +1575,42 @@ export function ChatPanel({
               <div className="flex items-center justify-end px-3 py-3 gap-2">
                 <input 
                   type="file" 
-                  accept="image/*,application/pdf,text/plain,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+                  accept={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+                    ? 'text/plain,text/markdown,.txt,.md'
+                    : 'image/*,application/pdf,text/plain,text/markdown,.md,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
                   multiple 
                   className="hidden" 
                   ref={fileInputRef}
                   onChange={handleFileUpload}
                 />
                 
-                <button
-                  type="button"
-                  onClick={handleMagicWandClick}
-                  className={cn(
-                    "w-8 h-8 flex items-center justify-center rounded-full border transition-colors",
-                    selectedDocumentText 
-                      ? "border-blue-500 text-blue-500 bg-blue-500/10 hover:bg-blue-500/20" 
-                      : "border-theme-border text-theme-text-muted hover:text-theme-text hover:bg-theme-surface"
-                  )}
-                  title={selectedDocumentText ? "Seçili metni değerlendir" : "AI Features"}
-                >
-                  <Wand2 size={14} />
-                </button>
+                {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && (
+                  <button
+                    type="button"
+                    onClick={handleMagicWandClick}
+                    className={cn(
+                      "w-8 h-8 flex items-center justify-center rounded-full border transition-colors",
+                      selectedDocumentText
+                        ? "border-blue-500 text-blue-500 bg-blue-500/10 hover:bg-blue-500/20"
+                        : "border-theme-border text-theme-text-muted hover:text-theme-text hover:bg-theme-surface"
+                    )}
+                    title={selectedDocumentText ? "Seçili metni değerlendir" : "AI Features"}
+                  >
+                    <Wand2 size={14} />
+                  </button>
+                )}
+
+                {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && (
+                  <button
+                    type="button"
+                    onClick={() => setShowKnowledgeBank(true)}
+                    disabled={!currentWorkspaceId}
+                    className="w-8 h-8 flex items-center justify-center rounded-full border border-theme-border text-theme-text-muted hover:text-theme-text hover:bg-theme-surface transition-colors disabled:opacity-40"
+                    title="Bilgi Bankası"
+                  >
+                    <Database size={14} />
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -1427,6 +1646,13 @@ export function ChatPanel({
               onRestoreDocument(diffModalData.newDoc);
             }
           }}
+        />
+      )}
+
+      {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && showKnowledgeBank && currentWorkspaceId && (
+        <KnowledgeBankModal
+          workspaceId={currentWorkspaceId}
+          onClose={() => setShowKnowledgeBank(false)}
         />
       )}
 

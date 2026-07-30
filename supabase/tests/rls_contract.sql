@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(9);
+select plan(27);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
@@ -42,6 +42,35 @@ insert into public.workspaces (
   '[]'::jsonb, now(), now()
 );
 
+insert into public.kb_sources (
+  id, workspace_id, owner_id, name, media_type, storage_path,
+  publication_status, ingestion_status, latest_version
+) values (
+  '10000000-0000-4000-8000-000000000001',
+  'rls-workspace-a',
+  '00000000-0000-4000-8000-0000000000a1',
+  'RLS source.md',
+  'text/markdown',
+  '00000000-0000-4000-8000-0000000000a1/rls-workspace-a/source.md',
+  'published',
+  'ready',
+  1
+);
+
+insert into public.kb_objects (
+  id, workspace_id, canonical_key, object_type, name, normalized_name,
+  publication_status, primary_source_id
+) values (
+  '20000000-0000-4000-8000-000000000002',
+  'rls-workspace-a',
+  'function:z_rls_source',
+  'function',
+  'Z_RLS_SOURCE',
+  'Z_RLS_SOURCE',
+  'published',
+  '10000000-0000-4000-8000-000000000001'
+);
+
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -52,6 +81,45 @@ select is(
   (select count(*)::integer from public.workspaces where id = 'rls-workspace-a'),
   0,
   'unrelated user cannot read another workspace'
+);
+select is(
+  (select count(*)::integer from public.kb_sources where workspace_id = 'rls-workspace-a'),
+  0,
+  'unrelated user cannot read another workspace knowledge source'
+);
+select is(
+  (select count(*)::integer from public.kb_objects where workspace_id = 'rls-workspace-a'),
+  0,
+  'unrelated user cannot read another workspace knowledge object'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_conversations', 'select'),
+  'browser-authenticated users cannot read assistant conversation state'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_turns', 'select'),
+  'browser-authenticated users cannot read assistant turn state'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_tool_runs', 'select'),
+  'browser-authenticated users cannot read assistant tool audit'
+);
+
+reset role;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"00000000-0000-4000-8000-0000000000a1","role":"authenticated","is_anonymous":true}',
+  true
+);
+select is(
+  (select count(*)::integer from public.kb_sources where workspace_id = 'rls-workspace-a'),
+  0,
+  'anonymous authenticated session cannot read corporate knowledge sources'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_conversations', 'select'),
+  'anonymous browser sessions have no assistant state table privilege'
 );
 
 reset role;
@@ -65,6 +133,47 @@ select is(
   (select count(*)::integer from public.workspaces where id = 'rls-workspace-a'),
   1,
   'owner can read workspace'
+);
+select is(
+  (select count(*)::integer from public.kb_sources where workspace_id = 'rls-workspace-a'),
+  1,
+  'owner can read workspace knowledge source'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_conversations', 'select'),
+  'workspace owners still cannot read server-only assistant conversations'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_turns', 'select'),
+  'workspace owners still cannot read server-only assistant turns'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_tool_runs', 'select'),
+  'workspace owners still cannot read server-only assistant tool audit'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.assistant_prompt_versions', 'select'),
+  'browser-authenticated users cannot read the active assistant prompt table'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.kb_sources', 'insert'),
+  'browser-authenticated users cannot bypass the controlled knowledge ingestion RPC'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.kb_objects', 'update'),
+  'browser-authenticated users cannot alter knowledge objects directly'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.kb_relations', 'delete'),
+  'browser-authenticated users cannot delete knowledge relations directly'
+);
+select ok(
+  not has_table_privilege('authenticated', 'public.kb_source_version_objects', 'select'),
+  'browser-authenticated users cannot inspect internal source snapshot membership'
+);
+select ok(
+  has_table_privilege('service_role', 'public.assistant_turns', 'select,insert,update,delete'),
+  'service role can manage assistant turn state'
 );
 update public.workspaces
 set collaborators = '[{"id":"00000000-0000-4000-8000-0000000000b2","name":"User B","role":"Business Analyst"}]'::jsonb
@@ -81,6 +190,11 @@ select is(
   (select count(*)::integer from public.workspaces where id = 'rls-workspace-a'),
   1,
   'collaborator can read workspace'
+);
+select is(
+  (select count(*)::integer from public.kb_objects where workspace_id = 'rls-workspace-a'),
+  1,
+  'collaborator can read workspace knowledge object'
 );
 select lives_ok(
   $$select public.save_document_version('rls-workspace-a', 'rls-version-1', '{"businessAnalysis":{"content":"safe"}}'::jsonb)$$,

@@ -3,6 +3,7 @@ import { X, User, Settings as SettingsIcon, Save, Palette } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { stringToColor } from '../lib/utils';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 interface SettingsModalProps {
   user: { name: string; role: string; color?: string } | null;
@@ -196,21 +197,33 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                 <div>
                   <h3 className="text-sm font-bold text-theme-text uppercase tracking-widest mb-4">Uygulama Tercihleri</h3>
                   <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-theme-text-muted mb-1.5 uppercase tracking-wider">Yapay Zeka Modeli</label>
-                      <select 
-                        value={model}
-                        onChange={(e) => setModel(e.target.value)}
-                        className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
-                      >
-                        <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Varsayılan)</option>
-                        <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Karmaşık Görevler)</option>
-                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview (Hızlı)</option>
-                      </select>
-                      <p className="text-xs text-theme-text-muted mt-2">
-                        Kullanılacak Gemini modelini seçin. Pro modeller daha karmaşık analizler yaparken, Flash modeller daha hızlı yanıt verir.
-                      </p>
-                    </div>
+                    {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME ? (
+                      <div className="rounded-lg border border-theme-border bg-theme-surface p-4">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
+                          Yapay Zeka
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-theme-text">JetWork AI</div>
+                        <p className="mt-2 text-xs text-theme-text-muted">
+                          Model ve ana talimat merkezi olarak yönetilir; bu çalışma alanında tek asistan kullanılır.
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-semibold text-theme-text-muted mb-1.5 uppercase tracking-wider">Yapay Zeka Modeli</label>
+                        <select
+                          value={model}
+                          onChange={(e) => setModel(e.target.value)}
+                          className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
+                        >
+                          <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Varsayılan)</option>
+                          <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Karmaşık Görevler)</option>
+                          <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview (Hızlı)</option>
+                        </select>
+                        <p className="text-xs text-theme-text-muted mt-2">
+                          Kullanılacak Gemini modelini seçin. Pro modeller daha karmaşık analizler yaparken, Flash modeller daha hızlı yanıt verir.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

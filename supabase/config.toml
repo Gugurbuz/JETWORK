@@ -1,0 +1,13 @@
+project_id = "jetwork"
+
+[functions.gemini-chat]
+verify_jwt = true
+
+[functions.gemini-embed]
+verify_jwt = true
+
+[functions.ingest-knowledge-source]
+verify_jwt = true
+
+[functions.openai-assistant]
+verify_jwt = true
