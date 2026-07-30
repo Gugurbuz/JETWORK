@@ -148,7 +148,7 @@ export async function listKnowledgeSources(
       metadata,
       created_at,
       updated_at,
-      kb_source_versions (
+      kb_source_versions!kb_source_versions_source_id_fkey (
         version_number,
         object_count,
         relation_count
