@@ -33,7 +33,7 @@ const MAX_TOOL_ROUNDS = boundedIntegerEnv('ASSISTANT_MAX_TOOL_ROUNDS', 4, 1, 8)
 const MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_MAX_TOOL_CALLS', 8, 1, 24)
 const TOOL_TIMEOUT_MS = boundedIntegerEnv('ASSISTANT_TOOL_TIMEOUT_MS', 12_000, 1_000, 30_000)
 const RUN_TIMEOUT_MS = boundedIntegerEnv('ASSISTANT_RUN_TIMEOUT_MS', 120_000, 15_000, 150_000)
-const MAX_OUTPUT_TOKENS = boundedIntegerEnv('ASSISTANT_MAX_OUTPUT_TOKENS', 6_000, 512, 16_000)
+const MAX_OUTPUT_TOKENS = boundedIntegerEnv('ASSISTANT_MAX_OUTPUT_TOKENS', 12_000, 512, 24_000)
 const USER_REQUESTS_PER_MINUTE = boundedIntegerEnv(
   'ASSISTANT_USER_REQUESTS_PER_MINUTE',
   6,
@@ -218,6 +218,7 @@ interface OpenAiResponse {
   output?: Array<Record<string, unknown>>
   usage?: Record<string, number>
   error?: { message?: string }
+  incomplete_details?: { reason?: string }
 }
 
 interface OpenAiStreamEvent {
@@ -366,9 +367,17 @@ async function requestOpenAiResponse(
       || event.type === 'response.failed'
       || event.type === 'response.incomplete'
     ) {
+      const incompleteReason = cleanString(
+        event.response?.incomplete_details?.reason,
+        300,
+      )
       throw new Error(
         cleanString(event.error?.message || event.message || event.response?.error?.message, 1_000)
-        || 'OpenAI response generation failed.',
+        || (
+          incompleteReason
+            ? `OpenAI response generation was incomplete: ${incompleteReason}.`
+            : 'OpenAI response generation failed.'
+        ),
       )
     }
   }

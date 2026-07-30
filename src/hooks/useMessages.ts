@@ -380,7 +380,11 @@ export const useMessages = (channelRef: any) => {
             : (
               wasAborted
                 ? 'Önceki yanıt yeni talep nedeniyle iptal edildi.'
-                : `${failureDetail} Lütfen tekrar deneyin.`
+                : (
+                  /tekrar dene/iu.test(failureDetail)
+                    ? failureDetail
+                    : `${failureDetail} Lütfen tekrar deneyin.`
+                )
             ),
           knowledgeSources: streamedSources,
           isTyping: false,
