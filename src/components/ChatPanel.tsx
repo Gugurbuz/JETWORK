@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
 import * as mammoth from 'mammoth';
-import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database } from 'lucide-react';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database, CloudOff, Loader2 } from 'lucide-react';
 import { Message, MessageAttachment, MessageSendOptions, Question } from '../types';
 import { cn, stringToColor } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -209,6 +209,8 @@ interface ChatPanelProps {
   activeZeroTouchRoles?: string[];
   setActiveZeroTouchRoles?: (roles: string[]) => void;
   isLoadingWorkspace?: boolean;
+  messageLoadError?: string | null;
+  onRetryMessageLoad?: () => void;
   onManageParticipants?: () => void;
   fullWidth?: boolean;
 }
@@ -353,6 +355,21 @@ const MessageItem = memo(({
           {msg.isError && (
             <span className="ml-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
               Yanıt tamamlanamadı
+            </span>
+          )}
+          {msg.persistenceStatus === 'pending' && (
+            <span className="ml-1 inline-flex items-center gap-1 text-[10px] font-medium text-theme-text-muted">
+              <Loader2 size={10} className="animate-spin" /> Kaydediliyor
+            </span>
+          )}
+          {msg.persistenceStatus === 'failed' && (
+            <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
+              <CloudOff size={10} /> Kaydedilemedi
+            </span>
+          )}
+          {msg.role === 'model' && msg.provider && (
+            <span className="ml-1 rounded-md border border-theme-border bg-theme-surface px-1.5 py-0.5 text-[10px] font-medium text-theme-text-muted" title={msg.responseModel || msg.provider}>
+              {msg.provider === 'gemini' ? 'Gemini' : 'OpenAI'}{msg.fallbackUsed ? ' · Yedek' : ''}
             </span>
           )}
         </div>
@@ -637,6 +654,8 @@ export function ChatPanel({
   isZeroTouchMode, onToggleZeroTouchMode,
   activeZeroTouchRoles, setActiveZeroTouchRoles,
   isLoadingWorkspace,
+  messageLoadError,
+  onRetryMessageLoad,
   onManageParticipants,
   fullWidth = false,
 }: ChatPanelProps) {
@@ -1216,7 +1235,16 @@ export function ChatPanel({
         className="flex-1 overflow-y-auto px-8 py-8 relative chat-scroll-container"
       >
         <div className="max-w-4xl mx-auto space-y-8">
-          {isLoadingWorkspace ? (
+          {messageLoadError ? (
+            <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-red-500/30 bg-red-500/5 p-8 text-center">
+              <CloudOff size={28} className="mb-3 text-red-600" />
+              <h2 className="text-base font-semibold text-theme-text">Mesajlar yüklenemedi</h2>
+              <p className="mt-1 max-w-md text-sm text-theme-text-muted">{messageLoadError}</p>
+              <button type="button" onClick={onRetryMessageLoad} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-theme-border bg-theme-surface px-4 py-2 text-sm font-semibold text-theme-text hover:bg-theme-surface-hover">
+                <RotateCcw size={14} /> Tekrar dene
+              </button>
+            </div>
+          ) : isLoadingWorkspace ? (
             <div className="space-y-6 animate-pulse">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className={`flex gap-4 ${i % 2 !== 0 ? 'flex-row-reverse' : ''}`}>

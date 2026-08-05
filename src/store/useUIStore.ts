@@ -11,6 +11,7 @@ export interface UIState {
   editingWorkspace: Workspace | null;
   deletingProject: string | null;
   deletingWorkspace: string | null;
+  mobileSidebarOpen: boolean;
   setShowNewItemModal: (show: boolean) => void;
   setShowNewProjectModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
@@ -20,6 +21,7 @@ export interface UIState {
   setEditingWorkspace: (workspace: Workspace | null) => void;
   setDeletingProject: (id: string | null) => void;
   setDeletingWorkspace: (id: string | null) => void;
+  setMobileSidebarOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -32,6 +34,7 @@ export const useUIStore = create<UIState>((set) => ({
   editingWorkspace: null,
   deletingProject: null,
   deletingWorkspace: null,
+  mobileSidebarOpen: false,
   setShowNewItemModal: (show) => set({ showNewItemModal: show }),
   setShowNewProjectModal: (show) => set({ showNewProjectModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
@@ -41,4 +44,5 @@ export const useUIStore = create<UIState>((set) => ({
   setEditingWorkspace: (workspace) => set({ editingWorkspace: workspace }),
   setDeletingProject: (id) => set({ deletingProject: id }),
   setDeletingWorkspace: (id) => set({ deletingWorkspace: id }),
+  setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
 }));

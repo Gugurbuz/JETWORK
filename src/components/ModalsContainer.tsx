@@ -118,8 +118,8 @@ export function ModalsContainer({
       {deletingProject && (
         <ConfirmModal
           title="Projeyi Sil"
-          message="Bu projeyi ve içindeki tüm çalışma alanlarını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
-          confirmText="Sil"
+          message="Bu proje çöp kutusuna taşınacak. Daha sonra geri yükleyebilirsiniz."
+          confirmText="Çöp kutusuna taşı"
           onConfirm={handleDeleteProject}
           onCancel={() => setDeletingProject(null)}
         />
@@ -127,8 +127,8 @@ export function ModalsContainer({
       {deletingWorkspace && (
         <ConfirmModal
           title="Çalışma Alanını Sil"
-          message="Bu çalışma alanını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
-          confirmText="Sil"
+          message="Bu çalışma alanı çöp kutusuna taşınacak. Daha sonra geri yükleyebilirsiniz."
+          confirmText="Çöp kutusuna taşı"
           onConfirm={handleDeleteWorkspace}
           onCancel={() => setDeletingWorkspace(null)}
         />

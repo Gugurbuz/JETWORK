@@ -1,465 +1,159 @@
 import React from 'react';
-import { Plus, MessageSquare, LayoutDashboard, Settings, BrainCircuit, History, ChevronLeft, ChevronRight, ChevronDown, Palette, FolderPlus, LogOut, User, Search, Monitor, Smartphone, CreditCard as Edit2, Trash2, FileText } from 'lucide-react';
-import { Project, Workspace } from '../types';
+import {
+  Archive, ChevronDown, ChevronLeft, ChevronRight, FileText, FolderPlus,
+  Loader2, LogOut, Plus, RefreshCw, RotateCcw, Search, Settings, Trash2, User,
+} from 'lucide-react';
+import { motion } from 'motion/react';
+import { Project } from '../types';
 import { cn } from '../lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
 import { useDataStore } from '../store/useDataStore';
-import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
-import { getActiveMemoryItems } from '../services/ai/projectMemoryEngine';
-import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
+type Lifecycle = 'active' | 'archived' | 'trash';
 
 interface SidebarProps {
-  user: { name: string; role: string; color?: string } | null;
+  user: { uid: string; name: string; role: string; color?: string } | null;
   onSelectWorkspace: (id: string) => void;
   onSelectProject: (id: string) => void;
   onEditProject?: (project: Project) => void;
   onDeleteProject?: (id: string) => void;
+  onArchiveProject?: (id: string) => void;
+  onRestoreProject?: (id: string) => void;
+  isLoadingProjects?: boolean;
+  projectsError?: string | null;
+  onRetryProjects?: () => void;
   theme: ThemeType;
   onThemeChange: (theme: ThemeType) => void;
   onLogout: () => void;
   onOpenSettings: () => void;
 }
 
-// Minimalist Swiss Logo
-const SwissLogo = () => (
-  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="32" height="32" fill="#FFC107" />
-    <rect x="8" y="8" width="16" height="16" fill="var(--theme-surface)" />
-    <rect x="12" y="12" width="8" height="8" fill="#FF9800" />
-  </svg>
-);
+const PAGE_SIZE = 30;
 
-export function Sidebar({ user, onSelectWorkspace, onSelectProject, onEditProject, onDeleteProject, theme, onThemeChange, onLogout, onOpenSettings }: SidebarProps) {
-  const [isCollapsed, setIsCollapsed] = React.useState(false);
+export function Sidebar(props: SidebarProps) {
+  const { user, onSelectWorkspace, onSelectProject, onEditProject, onDeleteProject,
+    onArchiveProject, onRestoreProject, isLoadingProjects, projectsError,
+    onRetryProjects, theme, onThemeChange, onLogout, onOpenSettings } = props;
+  const [collapsed, setCollapsed] = React.useState(false);
+  const [scope, setScope] = React.useState<'owned' | 'shared'>('owned');
+  const [lifecycle, setLifecycle] = React.useState<Lifecycle>('active');
+  const [query, setQuery] = React.useState('');
+  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [showUserMenu, setShowUserMenu] = React.useState(false);
-  const [expandedProjects, setExpandedProjects] = React.useState<Record<string, boolean>>({});
-  const [activeProjectScope, setActiveProjectScope] = React.useState<'owned' | 'shared'>('owned');
-  const [projectSearch, setProjectSearch] = React.useState('');
-
   const projects = useDataStore(state => state.projects);
-  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const currentProjectId = useDataStore(state => state.currentProjectId);
-  const projectMemory = useDocumentStore(state => state.projectMemory);
-  const memoryItems = useDocumentStore(state => state.memoryItems);
-  const activeMemoryItems = React.useMemo(
-    () => getActiveMemoryItems(memoryItems).slice(-8),
-    [memoryItems],
-  );
+  const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
+  const mobileOpen = useUIStore(state => state.mobileSidebarOpen);
+  const setMobileOpen = useUIStore(state => state.setMobileSidebarOpen);
 
-  const visibleProjects = React.useMemo(() => {
-    if (activeProjectScope === 'shared') return [];
+  React.useEffect(() => setVisibleCount(PAGE_SIZE), [scope, lifecycle, query]);
 
-    const query = projectSearch.trim().toLocaleLowerCase('tr-TR');
-    if (!query) return projects;
-
-    return projects.filter((project) => {
-      const searchableText = [
-        project.name,
-        project.description,
-        ...project.workspaces.flatMap((workspace) => [
-          workspace.title,
-          workspace.issueKey,
-          workspace.type,
-          workspace.status,
-        ]),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase('tr-TR');
-
-      return searchableText.includes(query);
+  const filtered = React.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('tr-TR');
+    return projects.filter(project => {
+      const owned = project.ownerId === user?.uid;
+      if ((scope === 'owned') !== owned) return false;
+      if (lifecycle === 'trash' ? !project.deletedAt : project.deletedAt) return false;
+      if (lifecycle === 'archived' ? !project.archivedAt : lifecycle === 'active' && project.archivedAt) return false;
+      if (!normalized) return true;
+      return [project.name, project.description, ...project.workspaces.map(w => w.title)]
+        .filter(Boolean).join(' ').toLocaleLowerCase('tr-TR').includes(normalized);
     });
-  }, [activeProjectScope, projectSearch, projects]);
+  }, [projects, query, scope, lifecycle, user?.uid]);
 
-  const emptyProjectsMessage =
-    activeProjectScope === 'shared'
-      ? 'Paylaşılan proje yok.'
-      : projectSearch.trim()
-        ? 'Aramanızla eşleşen proje yok.'
-        : 'Henüz proje yok.';
+  const selectProject = (id: string) => { onSelectProject(id); setMobileOpen(false); };
+  const selectWorkspace = (id: string) => { onSelectWorkspace(id); setMobileOpen(false); };
+  const canManage = (project: Project) => project.ownerId === user?.uid;
 
-  const toggleProject = (projectId: string) => {
-    setExpandedProjects(prev => ({
-      ...prev,
-      [projectId]: !prev[projectId]
-    }));
-  };
-
-  return (
-    <motion.div 
+  const content = (
+    <motion.aside
       initial={false}
-      animate={{ width: isCollapsed ? 80 : 260 }}
-      className="bg-theme-bg text-theme-text flex flex-col h-full shrink-0 border-r border-theme-border/50 relative z-20 transition-colors duration-300 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.1)]"
+      animate={{ width: collapsed ? 80 : 280 }}
+      className={cn(
+        'fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r border-theme-border bg-theme-bg shadow-xl transition-transform md:relative md:z-20 md:shadow-none',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+      )}
     >
-      {/* Collapse Toggle */}
-      <button 
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 bg-theme-surface border border-theme-border/50 flex items-center justify-center text-theme-text-muted hover:text-theme-text hover:border-theme-primary transition-colors z-30 shadow-sm rounded-full"
-      >
-        {isCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+      <button type="button" onClick={() => setCollapsed(!collapsed)}
+        className="absolute -right-3 top-20 hidden h-6 w-6 items-center justify-center rounded-full border border-theme-border bg-theme-surface md:flex"
+        aria-label={collapsed ? 'Menüyü genişlet' : 'Menüyü daralt'}>
+        {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
       </button>
+      <div className="flex h-16 items-center gap-3 border-b border-theme-border px-5">
+        <div className="grid h-8 w-8 shrink-0 place-items-center bg-amber-400 font-black text-zinc-900">J</div>
+        {!collapsed && <span className="font-bold text-theme-text">JetWork</span>}
+      </div>
 
-      {/* Logo Section */}
-      <div className="h-16 flex items-center px-6 border-b border-theme-border shrink-0 overflow-hidden bg-theme-bg">
-        <div className="flex items-center gap-3 min-w-max">
-          <SwissLogo />
-          {!isCollapsed && (
-            <motion.span 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="font-bold text-theme-text text-lg tracking-tight"
-            >
-              JetWork
-            </motion.span>
-          )}
+      {!collapsed && <div className="space-y-3 border-b border-theme-border p-4">
+        <div className="grid grid-cols-2 rounded-lg border border-theme-border bg-theme-surface p-1 text-xs">
+          {(['owned', 'shared'] as const).map(value => <button key={value} type="button" onClick={() => setScope(value)}
+            className={cn('rounded-md py-1.5', scope === value && 'bg-theme-surface-hover font-semibold')}>
+            {value === 'owned' ? 'Projelerim' : 'Paylaşılanlar'}
+          </button>)}
         </div>
-      </div>
+        <div className="grid grid-cols-3 gap-1 text-[10px]">
+          {([['active', 'Aktif'], ['archived', 'Arşiv'], ['trash', 'Çöp']] as const).map(([value, label]) =>
+            <button key={value} type="button" onClick={() => setLifecycle(value)}
+              className={cn('rounded-md border border-theme-border px-1 py-1.5', lifecycle === value && 'border-theme-primary text-theme-primary')}>{label}</button>)}
+        </div>
+        <div className="relative"><Search size={14} className="absolute left-3 top-2.5 text-theme-text-muted" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Proje veya sohbet ara"
+            className="w-full rounded-md border border-theme-border bg-theme-surface py-2 pl-9 pr-3 text-xs outline-none" />
+        </div>
+      </div>}
 
-      {/* Action Section */}
-      <div className="p-4 shrink-0 overflow-hidden flex flex-col gap-4">
-        {!isCollapsed && (
-          <div className="flex bg-theme-surface border border-theme-border rounded-lg p-1">
-            <button
-              type="button"
-              aria-pressed={activeProjectScope === 'owned'}
-              onClick={() => setActiveProjectScope('owned')}
-              className={cn(
-                "flex-1 text-xs py-1.5 rounded-md transition-colors",
-                activeProjectScope === 'owned'
-                  ? "font-semibold bg-theme-surface-hover text-theme-text shadow-sm"
-                  : "font-medium text-theme-text-muted hover:text-theme-text"
-              )}
-            >
-              Projelerim
-            </button>
-            <button
-              type="button"
-              aria-pressed={activeProjectScope === 'shared'}
-              onClick={() => setActiveProjectScope('shared')}
-              className={cn(
-                "flex-1 text-xs py-1.5 rounded-md transition-colors",
-                activeProjectScope === 'shared'
-                  ? "font-semibold bg-theme-surface-hover text-theme-text shadow-sm"
-                  : "font-medium text-theme-text-muted hover:text-theme-text"
-              )}
-            >
-              Paylaşılanlar
-            </button>
-          </div>
-        )}
-
-        {!isCollapsed && (
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-text-muted" />
-            <input 
-              type="text" 
-              placeholder="Proje ara" 
-              value={projectSearch}
-              onChange={(event) => setProjectSearch(event.target.value)}
-              className="w-full bg-theme-surface border border-theme-border rounded-md pl-9 pr-3 py-2 text-xs text-theme-text placeholder:text-theme-text-muted outline-none focus:border-theme-primary transition-colors"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Projects List */}
-      {!isCollapsed && (
-        <motion.div 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex-1 overflow-y-auto px-4 py-2 flex flex-col gap-6"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-3 px-2">
-              <h3 className="text-[11px] font-bold text-theme-text-muted">
-                {activeProjectScope === 'shared' ? 'Paylaşılanlar' : 'Projeler'}
-              </h3>
-              {activeProjectScope === 'owned' && (
-                <button
-                  type="button"
-                  onClick={() => setShowNewProjectModal(true)}
-                  className="w-5 h-5 rounded-full bg-theme-surface-hover flex items-center justify-center text-theme-text-muted hover:text-theme-text transition-colors"
-                  title="Yeni Proje"
-                >
-                  <Plus size={12} />
-                </button>
-              )}
-            </div>
-            <div className="space-y-1">
-              {visibleProjects.length === 0 ? (
-                <div className="text-[11px] text-theme-text-muted text-center py-4 px-2 bg-theme-surface/50 rounded-lg border border-theme-border/50 border-dashed">
-                  {emptyProjectsMessage}
-                </div>
-              ) : (
-                visibleProjects.map(project => (
-                  <div key={project.id} className="relative group">
-                  <div className={cn(
-                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg transition-colors text-left",
-                    currentProjectId === project.id 
-                      ? "bg-theme-surface-hover" 
-                      : "hover:bg-theme-surface"
-                  )}>
-                    <button 
-                      onClick={() => toggleProject(project.id)}
-                      className="p-1 text-theme-text-muted hover:text-theme-text transition-colors"
-                    >
-                      <ChevronRight size={14} className={cn("transition-transform", expandedProjects[project.id] && "rotate-90")} />
-                    </button>
-                    <button 
-                      onClick={() => onSelectProject(project.id)}
-                      className="flex-1 flex items-center gap-3 min-w-0"
-                    >
-                      <div className="w-8 h-8 rounded-md bg-theme-surface border border-theme-border flex items-center justify-center shrink-0 group-hover:border-theme-primary/50 transition-colors">
-                        <FolderPlus size={14} className={currentProjectId === project.id ? "text-theme-primary" : "text-theme-text-muted"} />
-                      </div>
-                      <div className="flex-1 min-w-0 pr-12 text-left">
-                        <div className={cn(
-                          "text-sm font-medium truncate",
-                          currentProjectId === project.id ? "text-theme-text" : "text-theme-text-muted group-hover:text-theme-text"
-                        )}>
-                          {project.name}
-                        </div>
-                        <div className="text-[10px] text-theme-text-muted flex items-center gap-1 mt-0.5">
-                          <Monitor size={10} />
-                          {new Date(project.createdAt).toLocaleDateString('tr-TR', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                  
-                  <div className="absolute right-2 top-4 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {onEditProject && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
-                        className="p-1.5 text-theme-text-muted hover:text-theme-primary hover:bg-theme-surface rounded-md transition-colors"
-                        title="Düzenle"
-                      >
-                        <Edit2 size={12} />
-                      </button>
-                    )}
-                    {onDeleteProject && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-                        className="p-1.5 text-theme-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
-                        title="Sil"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Workspaces Accordion */}
-                  <AnimatePresence>
-                    {expandedProjects[project.id] && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="pl-10 pr-2 py-1 space-y-1 border-l border-theme-border/50 ml-4 mt-1">
-                          {project.workspaces.length === 0 ? (
-                            <div className="text-[10px] text-theme-text-muted py-2 px-2 bg-theme-surface/30 rounded border border-theme-border/30 border-dashed text-center">
-                              Çalışma alanı yok
-                            </div>
-                          ) : (
-                              project.workspaces.map(ws => {
-                                const isNew = (Date.now() - ws.lastUpdated) < 5 * 60 * 1000;
-                                return (
-                                  <button
-                                    key={ws.id}
-                                    onClick={() => onSelectWorkspace(ws.id)}
-                                    className={cn(
-                                      "w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors text-left group/ws relative",
-                                      currentWorkspaceId === ws.id
-                                        ? "bg-theme-primary/10 text-theme-primary"
-                                        : "text-theme-text-muted hover:bg-theme-surface hover:text-theme-text"
-                                    )}
-                                  >
-                                    <FileText size={12} className="shrink-0" />
-                                    <span className="text-xs font-medium truncate flex-1">{ws.title}</span>
-                                    {isNew && (
-                                      <span className="flex h-1.5 w-1.5 rounded-full bg-theme-primary animate-pulse shrink-0" />
-                                    )}
-                                  </button>
-                                );
-                              })
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Project Memory Section */}
-          {(activeMemoryItems.length > 0 || Object.keys(projectMemory).length > 0) && (
-            <div className="mt-auto mb-4">
-              <div className="flex items-center gap-2 mb-3 px-2">
-                <BrainCircuit size={14} className="text-theme-primary" />
-                <h3 className="text-[11px] font-bold text-theme-text-muted uppercase tracking-wider">Proje Hafızası</h3>
-              </div>
-              <div className="bg-theme-surface/50 border border-theme-border rounded-lg p-3 space-y-2">
-                {(activeMemoryItems.length
-                  ? activeMemoryItems.map(item => ({
-                    id: item.id,
-                    key: item.key,
-                    value: item.value,
-                    provenance: `${item.sourceType} · ${item.confirmationStatus} · ${Math.round(item.confidence * 100)}%`,
-                  }))
-                  : Object.entries(projectMemory).map(([key, value]) => ({
-                    id: `legacy:${key}`,
-                    key,
-                    value,
-                    provenance: 'LEGACY · PROPOSED · 50%',
-                  }))
-                ).map(item => (
-                  <div key={item.id} className="flex flex-col gap-0.5">
-                    <span className="text-[10px] text-theme-text-muted font-medium">{item.key}</span>
-                    <span className="text-xs text-theme-text font-semibold">{item.value}</span>
-                    <span className="text-[9px] text-theme-text-muted">{item.provenance}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </motion.div>
-      )}
-
-      {/* User Section */}
-      <div className="p-4 border-t border-theme-border shrink-0 bg-theme-bg overflow-visible relative">
-        <div className={cn("flex items-center gap-3", isCollapsed ? "justify-center" : "px-2")}>
-          <div 
-            className={cn(
-              "w-8 h-8 flex items-center justify-center font-bold shrink-0 text-xs rounded-full",
-              user?.color ? "text-white shadow-sm" : "bg-theme-surface text-theme-text border border-theme-border"
-            )}
-            style={user?.color ? { backgroundColor: user.color } : {}}
-          >
-            {user?.name?.charAt(0) || 'U'}
-          </div>
-          {!isCollapsed && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex-1 min-w-0"
-            >
-              <div className="text-xs font-bold text-theme-text truncate">{user?.name || 'Kullanıcı'}</div>
-              <div className="text-[9px] text-theme-text-muted uppercase tracking-widest font-semibold">{user?.role || 'Rol'}</div>
-            </motion.div>
-          )}
-          {!isCollapsed && (
-            <div className="relative">
-              <button 
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="text-theme-text-muted hover:text-theme-text transition-colors p-1 rounded-md hover:bg-theme-surface"
-              >
-                <Settings size={14} />
+      <div className="flex-1 overflow-y-auto p-3">
+        {!collapsed && <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-bold text-theme-text-muted">
+          <span>{lifecycle === 'active' ? 'PROJELER' : lifecycle === 'archived' ? 'ARŞİV' : 'ÇÖP KUTUSU'}</span>
+          {scope === 'owned' && lifecycle === 'active' && <button type="button" onClick={() => setShowNewProjectModal(true)} aria-label="Yeni proje"><Plus size={15} /></button>}
+        </div>}
+        {projectsError && !collapsed && <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600">
+          <p>Projeler yüklenemedi.</p><button type="button" onClick={onRetryProjects} className="mt-2 flex items-center gap-1 font-semibold"><RefreshCw size={12} />Tekrar dene</button>
+        </div>}
+        {isLoadingProjects && projects.length === 0 && <Loader2 className="mx-auto mt-6 animate-spin text-theme-text-muted" size={18} />}
+        <div className="space-y-1">
+          {filtered.slice(0, visibleCount).map(project => <div key={project.id} className="group relative rounded-lg hover:bg-theme-surface">
+            <div className="flex items-center gap-1 p-1.5">
+              <button type="button" onClick={() => setExpanded(s => ({ ...s, [project.id]: !s[project.id] }))} className="p-1">
+                <ChevronRight size={14} className={cn('transition-transform', expanded[project.id] && 'rotate-90')} />
               </button>
-              
-              <AnimatePresence>
-                {showUserMenu && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-full right-0 mb-2 w-48 bg-theme-surface border border-theme-border shadow-lg rounded-md overflow-hidden z-50"
-                  >
-                    <div className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest px-3 py-2 border-b border-theme-border">
-                      Hesap & Ayarlar
-                    </div>
-                    
-                    <button 
-                      onClick={() => { onOpenSettings(); setShowUserMenu(false); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2 text-theme-text"
-                    >
-                      <User size={14} />
-                      Profil & Ayarlar
-                    </button>
-                    
-                    <div className="w-full h-px bg-theme-border/50 my-1" />
-                    
-                    <div className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest px-3 py-2">
-                      Tema Seçimi
-                    </div>
-                    <button 
-                      onClick={() => { onThemeChange('monochrome'); setShowUserMenu(false); }}
-                      className={cn("w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2", theme === 'monochrome' && "font-bold text-theme-primary")}
-                    >
-                      <div className="w-3 h-3 rounded-full bg-zinc-900 border border-zinc-200" />
-                      Monochrome
-                    </button>
-                    <button 
-                      onClick={() => { onThemeChange('energetic'); setShowUserMenu(false); }}
-                      className={cn("w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2", theme === 'energetic' && "font-bold text-theme-primary")}
-                    >
-                      <div className="w-3 h-3 rounded-full bg-yellow-500 border border-yellow-200" />
-                      Energetic Glass
-                    </button>
-                    <button 
-                      onClick={() => { onThemeChange('ocean'); setShowUserMenu(false); }}
-                      className={cn("w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2", theme === 'ocean' && "font-bold text-theme-primary")}
-                    >
-                      <div className="w-3 h-3 rounded-full bg-sky-500 border border-sky-200" />
-                      Deep Ocean
-                    </button>
-                    
-                    <div className="w-full h-px bg-theme-border/50 my-1" />
-                    
-                    {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && (
-                      <button
-                        onClick={() => { useUIStore.getState().setShowAISettingsModal(true); setShowUserMenu(false); }}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-theme-surface-hover transition-colors flex items-center gap-2 font-medium"
-                      >
-                        <BrainCircuit size={14} />
-                        Yapay Zeka Ayarları
-                      </button>
-                    )}
-
-                    <button 
-                      onClick={() => { onLogout(); setShowUserMenu(false); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 transition-colors flex items-center gap-2 font-medium"
-                    >
-                      <LogOut size={14} />
-                      Çıkış Yap
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              <button type="button" onClick={() => selectProject(project.id)} className={cn('flex min-w-0 flex-1 items-center gap-2 text-left', currentProjectId === project.id && 'text-theme-primary')}>
+                <FolderPlus size={16} className="shrink-0" /><span className="truncate text-sm font-medium">{project.name}</span>
+              </button>
+              {canManage(project) && <div className="flex items-center">
+                {lifecycle === 'active' && <button type="button" onClick={() => onArchiveProject?.(project.id)} className="p-1.5" title="Arşivle"><Archive size={12} /></button>}
+                {lifecycle !== 'active' && <button type="button" onClick={() => onRestoreProject?.(project.id)} className="p-1.5 text-emerald-600" title="Geri yükle"><RotateCcw size={12} /></button>}
+                {lifecycle !== 'trash' && <button type="button" onClick={() => onDeleteProject?.(project.id)} className="p-1.5 text-red-500" title="Çöp kutusuna taşı"><Trash2 size={12} /></button>}
+              </div>}
             </div>
-          )}
+            {expanded[project.id] && <div className="mb-2 ml-8 border-l border-theme-border pl-2">
+              {project.workspaces.filter(w => !w.deletedAt && !w.archivedAt).map(ws => <button type="button" key={ws.id} onClick={() => selectWorkspace(ws.id)}
+                className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-theme-text-muted hover:bg-theme-surface-hover', currentWorkspaceId === ws.id && 'text-theme-primary')}>
+                <FileText size={12} /><span className="truncate">{ws.title}</span>
+              </button>)}
+            </div>}
+          </div>)}
         </div>
+        {!collapsed && filtered.length === 0 && !isLoadingProjects && <div className="mt-4 rounded-lg border border-dashed border-theme-border p-4 text-center text-xs text-theme-text-muted">Bu görünümde proje yok.</div>}
+        {!collapsed && filtered.length > visibleCount && <button type="button" onClick={() => setVisibleCount(c => c + PAGE_SIZE)} className="mt-3 flex w-full items-center justify-center gap-1 rounded-md border border-theme-border py-2 text-xs font-semibold"><ChevronDown size={14} />Daha fazla ({filtered.length - visibleCount})</button>}
       </div>
-    </motion.div>
-  );
-}
 
-function NavItem({ icon, label, active = false, isCollapsed = false }: { icon: React.ReactNode, label: string, active?: boolean, isCollapsed?: boolean }) {
-  return (
-    <button className={cn(
-      "w-full flex items-center gap-3 px-3 py-2.5 transition-colors group relative rounded-md",
-      active ? "bg-theme-surface text-theme-text shadow-sm border border-theme-border/50" : "text-theme-text-muted hover:bg-theme-surface hover:text-theme-text border border-transparent",
-      isCollapsed ? "justify-center" : ""
-    )}>
-      <div className={cn("transition-transform group-hover:scale-110", active ? "text-theme-text" : "")}>
-        {icon}
+      <div className="relative border-t border-theme-border p-4">
+        <button type="button" onClick={() => setShowUserMenu(!showUserMenu)} className="flex w-full items-center gap-3 rounded-lg p-2 hover:bg-theme-surface">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-theme-primary text-xs font-bold text-theme-primary-fg">{user?.name?.charAt(0) || 'U'}</div>
+          {!collapsed && <><div className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-bold">{user?.name}</p><p className="truncate text-[10px] text-theme-text-muted">{user?.role}</p></div><Settings size={14} /></>}
+        </button>
+        {showUserMenu && !collapsed && <div className="absolute bottom-full left-4 right-4 mb-2 rounded-lg border border-theme-border bg-theme-surface p-1 shadow-xl">
+          <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2 rounded p-2 text-xs hover:bg-theme-surface-hover"><User size={14} />Profil ve ayarlar</button>
+          <div className="grid grid-cols-3 gap-1 p-1">{(['monochrome', 'energetic', 'ocean'] as const).map(t => <button type="button" key={t} onClick={() => onThemeChange(t)} className={cn('rounded border p-1 text-[9px]', theme === t ? 'border-theme-primary' : 'border-theme-border')}>{t}</button>)}</div>
+          <button type="button" onClick={onLogout} className="flex w-full items-center gap-2 rounded p-2 text-xs text-red-500 hover:bg-red-500/10"><LogOut size={14} />Çıkış yap</button>
+        </div>}
       </div>
-      {!isCollapsed && (
-        <motion.span 
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="text-xs font-semibold tracking-wide"
-        >
-          {label}
-        </motion.span>
-      )}
-    </button>
+    </motion.aside>
   );
+
+  return <>{mobileOpen && <button type="button" aria-label="Menüyü kapat" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 bg-black/50 md:hidden" />}{content}</>;
 }

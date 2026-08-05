@@ -12,9 +12,13 @@ interface ProjectDashboardProps {
 }
 
 export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, onEditWorkspace, onDeleteWorkspace }: ProjectDashboardProps) {
+  const activeWorkspaces = useMemo(
+    () => project.workspaces.filter(workspace => !workspace.deletedAt && !workspace.archivedAt),
+    [project.workspaces],
+  );
   const activities = useMemo(() => {
     const acts: any[] = [];
-    project.workspaces.forEach(ws => {
+    activeWorkspaces.forEach(ws => {
       if (ws.collaborators.length > 0) {
         // Created activity
         acts.push({
@@ -27,36 +31,11 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
           type: 'create'
         });
         
-        // Updated activity
-        if (ws.lastUpdated > ws.createdAt && ws.collaborators.length > 1) {
-          acts.push({
-            id: `act-update-${ws.id}`,
-            user: ws.collaborators[1 % ws.collaborators.length],
-            action: 'dokümanı güncelledi',
-            targetName: ws.title,
-            workspaceId: ws.id,
-            timestamp: ws.lastUpdated,
-            type: 'update'
-          });
-        }
-
-        // Commented activity (mock)
-        if (ws.messages && ws.messages.length > 2 && ws.collaborators.length > 0) {
-           acts.push({
-            id: `act-comment-${ws.id}`,
-            user: ws.collaborators[ws.collaborators.length - 1],
-            action: 'yeni bir mesaj gönderdi',
-            targetName: ws.title,
-            workspaceId: ws.id,
-            timestamp: ws.lastUpdated - 3600000, // 1 hour before last update
-            type: 'comment'
-          });
-        }
       }
     });
     
     return acts.sort((a, b) => b.timestamp - a.timestamp);
-  }, [project]);
+  }, [activeWorkspaces]);
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -114,11 +93,11 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
               Çalışma Alanları
             </h2>
             <span className="text-xs font-medium text-theme-text-muted bg-theme-surface px-2 py-1 rounded-md border border-theme-border">
-              {project.workspaces.length} Alan
+              {activeWorkspaces.length} Alan
             </span>
           </div>
           
-          {project.workspaces.length === 0 ? (
+          {activeWorkspaces.length === 0 ? (
             <div className="text-center py-16 px-6 bg-theme-surface border border-theme-border border-dashed rounded-2xl flex flex-col items-center justify-center">
               <div className="w-16 h-16 bg-theme-primary/10 rounded-full flex items-center justify-center mb-4">
                 <FileText size={32} className="text-theme-primary" />
@@ -137,7 +116,7 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {project.workspaces.map((workspace, i) => (
+              {activeWorkspaces.map((workspace, i) => (
                 <motion.div
                   key={workspace.id}
                   initial={{ opacity: 0, y: 10 }}

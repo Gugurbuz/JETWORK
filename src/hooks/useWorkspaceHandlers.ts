@@ -62,6 +62,7 @@ export function useWorkspaceHandlers(
       role: 'Kurucu',
       avatar: user.photoURL || undefined,
       color: '#4f46e5',
+      email: user.email,
     };
 
     const initialCollaborators = data.team.map(t => ({
@@ -69,6 +70,7 @@ export function useWorkspaceHandlers(
       name: t.name,
       role: t.role,
       color: '#4f46e5',
+      email: t.email,
     }));
 
     if (!initialCollaborators.some(c => c.id === user.uid)) {
@@ -128,7 +130,7 @@ export function useWorkspaceHandlers(
     try {
       const { error } = await supabase
         .from('projects')
-        .delete()
+        .update({ deleted_at: nowIso(), last_updated: nowIso() })
         .eq('id', deletingProject)
         .select('id')
         .single();
@@ -143,6 +145,7 @@ export function useWorkspaceHandlers(
       setCurrentWorkspaceId(null);
     }
     setDeletingProject(null);
+    toast.success('Proje çöp kutusuna taşındı.');
   };
 
   const handleEditWorkspace = async (id: string, title: string) => {
@@ -167,7 +170,7 @@ export function useWorkspaceHandlers(
     try {
       const { error } = await supabase
         .from('workspaces')
-        .delete()
+        .update({ deleted_at: nowIso(), last_updated: nowIso() })
         .eq('id', deletingWorkspace)
         .select('id')
         .single();
@@ -181,6 +184,86 @@ export function useWorkspaceHandlers(
       setCurrentWorkspaceId(null);
     }
     setDeletingWorkspace(null);
+    toast.success('Çalışma alanı çöp kutusuna taşındı.');
+  };
+
+  const updateProjectLifecycle = async (
+    id: string,
+    values: { archived_at?: string | null; deleted_at?: string | null },
+  ) => {
+    const { error } = await supabase
+      .from('projects')
+      .update({ ...values, last_updated: nowIso() })
+      .eq('id', id);
+    if (error) throw error;
+  };
+
+  const handleArchiveProject = async (id: string) => {
+    try {
+      await updateProjectLifecycle(id, { archived_at: nowIso() });
+      if (currentProjectId === id) setCurrentProjectId(null);
+      toast.success('Proje arşivlendi.');
+    } catch (error) {
+      console.error('Failed to archive project:', error);
+      toast.error('Proje arşivlenemedi.');
+    }
+  };
+
+  const handleRestoreProject = async (id: string) => {
+    try {
+      await updateProjectLifecycle(id, { archived_at: null, deleted_at: null });
+      toast.success('Proje geri yüklendi.');
+    } catch (error) {
+      console.error('Failed to restore project:', error);
+      toast.error('Proje geri yüklenemedi.');
+    }
+  };
+
+  const handleQuickStart = async () => {
+    if (!user) return;
+    const projectId = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
+    const timestamp = nowIso();
+    try {
+      const { error: projectError } = await supabase.from('projects').insert({
+        id: projectId,
+        name: 'Yeni Sohbet',
+        description: 'Hızlı başlangıç sohbeti',
+        owner_id: user.uid,
+        created_at: timestamp,
+        last_updated: timestamp,
+      });
+      if (projectError) throw projectError;
+
+      const { error: workspaceError } = await supabase.from('workspaces').insert({
+        id: workspaceId,
+        project_id: projectId,
+        issue_key: `JET-${workspaceId.slice(0, 4).toUpperCase()}`,
+        title: 'Yeni Sohbet',
+        type: 'Development',
+        status: 'Draft',
+        owner_id: user.uid,
+        collaborators: [{
+          id: user.uid,
+          name: user.name || user.email?.split('@')[0] || 'Kullanıcı',
+          email: user.email,
+          role: 'Kurucu',
+          color: '#4f46e5',
+        }],
+        created_at: timestamp,
+        last_updated: timestamp,
+      });
+      if (workspaceError) {
+        await supabase.from('projects').delete().eq('id', projectId);
+        throw workspaceError;
+      }
+      setCurrentProjectId(null);
+      setCurrentWorkspaceId(workspaceId);
+      useUIStore.getState().setMobileSidebarOpen(false);
+    } catch (error) {
+      console.error('Failed to start quick chat:', error);
+      toast.error('Yeni sohbet başlatılamadı. Lütfen tekrar deneyin.');
+    }
   };
 
   const updateCollaborators = async (workspaceId: string, collaborators: any[]) => {
@@ -322,6 +405,9 @@ export function useWorkspaceHandlers(
     handleDeleteProject,
     handleEditWorkspace,
     handleDeleteWorkspace,
+    handleArchiveProject,
+    handleRestoreProject,
+    handleQuickStart,
     handleAddParticipant,
     handleRemoveParticipant,
     handleLeaveWorkspace,

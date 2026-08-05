@@ -254,6 +254,8 @@ interface OpenAiResponse {
   id?: string
   status?: string
   model?: string
+  provider?: AssistantProvider
+  fallbackUsed?: boolean
   output?: Array<Record<string, unknown>>
   usage?: Record<string, number>
   error?: { message?: string }
@@ -489,6 +491,8 @@ function cachedAssistantResponse(input: {
         type: 'completed',
         conversationId: input.conversationId,
         model: input.model,
+        provider: input.provider || providerForModel(input.model || DEFAULT_MODEL),
+        fallbackUsed: input.fallbackUsed === true,
         usage: input.usage,
         cached: true,
       })
@@ -719,6 +723,8 @@ serve(async req => {
         sources: Array.isArray(claim.source_refs) ? claim.source_refs : [],
         conversationId: conversation.id,
         model: claim.response_model || configuredModel,
+        provider: providerForModel(claim.response_model || configuredModel),
+        fallbackUsed: false,
         usage: claim.usage && typeof claim.usage === 'object' ? claim.usage : undefined,
       })
     }
@@ -760,6 +766,7 @@ serve(async req => {
         let responseModel = configuredModel
         let activeModel = configuredModel
         let activeProvider: AssistantProvider = configuredProvider
+        let fallbackUsed = false
         const toolResultCache = new Map<string, Awaited<ReturnType<typeof executeAssistantTool>>>()
         let turnCompleted = false
         const runController = new AbortController()
@@ -844,6 +851,7 @@ serve(async req => {
               console.warn('OpenAI provider failed; switching this turn to Gemini:', errorMessage(providerError))
               activeProvider = 'gemini'
               activeModel = DEFAULT_GEMINI_MODEL
+              fallbackUsed = true
               roundText = ''
               sendEvent(controller, encoder, 'status', {
                 type: 'status',
@@ -897,6 +905,8 @@ serve(async req => {
                 type: 'completed',
                   conversationId: conversation.id,
                   model: responseModel,
+                  provider: activeProvider,
+                  fallbackUsed,
                   usage,
                   cached: false,
                 })

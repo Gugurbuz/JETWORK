@@ -6,10 +6,13 @@ import { rowsToCamel, rowToCamel } from '../lib/mapping';
 interface MessageStore {
   messagesByWorkspace: Record<string, Message[]>;
   activeListeners: Record<string, () => void>;
+  loadErrorsByWorkspace: Record<string, string | null>;
+  loadingByWorkspace: Record<string, boolean>;
 
   getMessages: (workspaceId: string) => Message[];
   subscribeToWorkspace: (workspaceId: string, onLoaded?: () => void) => void;
   unsubscribeFromWorkspace: (workspaceId: string) => void;
+  retryWorkspace: (workspaceId: string) => void;
   addOptimisticMessage: (workspaceId: string, message: Message) => void;
   setMessages: (workspaceId: string, updater: (prev: Message[]) => Message[]) => void;
   clearAll: () => void;
@@ -23,7 +26,7 @@ async function loadMessages(workspaceId: string): Promise<Message[]> {
     .order('created_at', { ascending: true });
   if (error) {
     console.error('Error fetching messages:', error);
-    return [];
+    throw error;
   }
   return rowsToCamel<Message>(data);
 }
@@ -31,6 +34,8 @@ async function loadMessages(workspaceId: string): Promise<Message[]> {
 export const useMessageStore = create<MessageStore>((set, get) => ({
   messagesByWorkspace: {},
   activeListeners: {},
+  loadErrorsByWorkspace: {},
+  loadingByWorkspace: {},
 
   getMessages: (workspaceId: string) => {
     return get().messagesByWorkspace[workspaceId] || [];
@@ -64,6 +69,11 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
       return;
     }
 
+    set(state => ({
+      loadingByWorkspace: { ...state.loadingByWorkspace, [workspaceId]: true },
+      loadErrorsByWorkspace: { ...state.loadErrorsByWorkspace, [workspaceId]: null },
+    }));
+
     const mergeServerMessages = (msgs: Message[]) => {
       setMessages(workspaceId, (prev) => {
         const typingMessages = prev.filter(m => m.isTyping);
@@ -87,6 +97,19 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
     loadMessages(workspaceId).then((msgs) => {
       mergeServerMessages(msgs);
+      set(state => ({
+        loadingByWorkspace: { ...state.loadingByWorkspace, [workspaceId]: false },
+        loadErrorsByWorkspace: { ...state.loadErrorsByWorkspace, [workspaceId]: null },
+      }));
+      if (onLoaded) onLoaded();
+    }).catch(error => {
+      set(state => ({
+        loadingByWorkspace: { ...state.loadingByWorkspace, [workspaceId]: false },
+        loadErrorsByWorkspace: {
+          ...state.loadErrorsByWorkspace,
+          [workspaceId]: error instanceof Error ? error.message : 'Mesajlar yüklenemedi.',
+        },
+      }));
       if (onLoaded) onLoaded();
     });
 
@@ -144,9 +167,14 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     }
   },
 
+  retryWorkspace: (workspaceId: string) => {
+    get().unsubscribeFromWorkspace(workspaceId);
+    get().subscribeToWorkspace(workspaceId);
+  },
+
   clearAll: () => {
     const { activeListeners } = get();
     Object.values(activeListeners).forEach(unsubscribe => unsubscribe());
-    set({ messagesByWorkspace: {}, activeListeners: {} });
+    set({ messagesByWorkspace: {}, activeListeners: {}, loadErrorsByWorkspace: {}, loadingByWorkspace: {} });
   },
 }));

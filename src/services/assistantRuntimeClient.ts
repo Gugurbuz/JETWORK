@@ -25,6 +25,8 @@ export type AssistantRuntimeEvent =
     type: 'completed';
     conversationId?: string;
     model?: string;
+    provider?: 'openai' | 'gemini';
+    fallbackUsed?: boolean;
     usage?: Record<string, number>;
   }
   | { type: 'error'; message: string }
@@ -35,6 +37,8 @@ export interface AssistantRuntimeResult {
   sources: AssistantKnowledgeSource[];
   conversationId?: string;
   model?: string;
+  provider?: 'openai' | 'gemini';
+  fallbackUsed?: boolean;
   usage?: Record<string, number>;
 }
 
@@ -171,6 +175,8 @@ export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEve
       type: 'completed',
       conversationId: payload.conversationId ? String(payload.conversationId) : undefined,
       model: payload.model ? String(payload.model) : undefined,
+      provider: payload.provider === 'gemini' ? 'gemini' : payload.provider === 'openai' ? 'openai' : undefined,
+      fallbackUsed: payload.fallbackUsed === true,
       usage,
     };
   }
@@ -215,6 +221,8 @@ export async function streamAssistantResponse(input: {
   let sources: AssistantKnowledgeSource[] = [];
   let conversationId: string | undefined;
   let model: string | undefined;
+  let provider: 'openai' | 'gemini' | undefined;
+  let fallbackUsed = false;
   let usage: Record<string, number> | undefined;
   let completedSeen = false;
 
@@ -268,6 +276,8 @@ export async function streamAssistantResponse(input: {
       completedSeen = true;
       conversationId = parsed.conversationId;
       model = parsed.model;
+      provider = parsed.provider;
+      fallbackUsed = parsed.fallbackUsed === true;
       usage = parsed.usage;
     };
 
@@ -292,7 +302,7 @@ export async function streamAssistantResponse(input: {
       throw new Error('Asistan yanıt metni üretmedi.');
     }
 
-    return { text: fullText, sources, conversationId, model, usage };
+    return { text: fullText, sources, conversationId, model, provider, fallbackUsed, usage };
   } finally {
     clearTimeout(timeout);
     input.signal?.removeEventListener('abort', abortFromParent);

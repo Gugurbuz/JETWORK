@@ -41,6 +41,7 @@ export interface KnowledgeSourceSummary {
   updatedAt: string;
   objectCount: number;
   relationCount: number;
+  storagePath?: string;
 }
 
 interface KnowledgeCatalogSearchRow {
@@ -164,6 +165,7 @@ export async function listKnowledgeSources(
       metadata,
       created_at,
       updated_at,
+      storage_path,
       kb_source_versions!kb_source_versions_source_id_fkey (
         version_number,
         object_count,
@@ -192,6 +194,7 @@ export async function listKnowledgeSources(
       updatedAt: row.updated_at,
       objectCount: Number(latest?.object_count || 0),
       relationCount: Number(latest?.relation_count || 0),
+      storagePath: row.storage_path || undefined,
     };
   });
 }
@@ -201,6 +204,25 @@ export async function publishKnowledgeSource(sourceId: string): Promise<void> {
     p_source_id: sourceId,
   });
   if (error) throw error;
+}
+
+export async function archiveKnowledgeSource(sourceId: string): Promise<void> {
+  const { error } = await supabase
+    .from('kb_sources')
+    .update({ publication_status: 'archived', updated_at: new Date().toISOString() })
+    .eq('id', sourceId);
+  if (error) throw error;
+}
+
+export async function deleteKnowledgeSource(source: KnowledgeSourceSummary): Promise<void> {
+  const { error } = await supabase.from('kb_sources').delete().eq('id', source.id);
+  if (error) throw error;
+  if (source.storagePath) {
+    const { error: storageError } = await supabase.storage
+      .from(KNOWLEDGE_BUCKET)
+      .remove([source.storagePath]);
+    if (storageError) console.warn('Knowledge source file could not be removed:', storageError);
+  }
 }
 
 export async function searchKnowledgeCatalog(

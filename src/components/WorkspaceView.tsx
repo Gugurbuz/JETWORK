@@ -7,6 +7,7 @@ import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
+import { useMessageStore } from '../store/useMessageStore';
 
 interface WorkspaceViewProps {
   messages: Message[];
@@ -66,6 +67,7 @@ export function WorkspaceView({
   const selectedDocumentText = useDocumentStore(state => state.selectedDocumentText);
   const setSelectedDocumentText = useDocumentStore(state => state.setSelectedDocumentText);
   const isLoadingWorkspace = useDataStore(state => state.isLoadingWorkspace);
+  const messageLoadError = useMessageStore(state => currentWorkspaceId ? state.loadErrorsByWorkspace[currentWorkspaceId] : null);
   const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
 
   const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
@@ -108,6 +110,10 @@ export function WorkspaceView({
         selectedDocumentText={selectedDocumentText}
         onRestoreDocument={onRestoreDocument}
         isLoadingWorkspace={isLoadingWorkspace}
+        messageLoadError={messageLoadError}
+        onRetryMessageLoad={() => {
+          if (currentWorkspaceId) useMessageStore.getState().retryWorkspace(currentWorkspaceId);
+        }}
         onManageParticipants={() => setShowManageParticipantsModal(true)}
         fullWidth={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME}
       />

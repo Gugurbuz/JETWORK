@@ -23,6 +23,13 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     });
   }
 
+  const retryPayload = message.retryPayload
+    ? {
+        ...message.retryPayload,
+        attachments: message.retryPayload.attachments?.map(({ file: _file, data: _data, ...attachment }) => attachment),
+      }
+    : undefined;
+
   // Keep this list aligned with public.messages. UI-only fields must never reach PostgREST:
   // an unknown column makes the complete message write fail with HTTP 400.
   const candidates: Record<string, unknown> = {
@@ -55,6 +62,11 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     raw_response: message.rawResponse,
     reply_to_id: message.replyToId,
     knowledge_sources: message.knowledgeSources,
+    is_error: message.isError,
+    retry_payload: retryPayload,
+    provider: message.provider,
+    response_model: message.responseModel,
+    fallback_used: message.fallbackUsed,
   };
   const payload = Object.fromEntries(
     Object.entries(candidates).filter(([, value]) => value !== undefined),

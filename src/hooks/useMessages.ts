@@ -29,6 +29,7 @@ import {
   prepareAssistantChatAttachments,
   streamAssistantResponse,
 } from '../services/assistantRuntimeClient';
+import { toast } from 'sonner';
 
 const messageForRealtime = (message: Message): Message => (
   FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
@@ -154,7 +155,8 @@ export const useMessages = (channelRef: any) => {
           ? { status: 'queued' }
           : undefined,
       })),
-      replyToId
+      replyToId,
+      persistenceStatus: 'pending',
     };
 
     if (!isAssistantRetry) {
@@ -162,8 +164,16 @@ export const useMessages = (channelRef: any) => {
 
       try {
         await saveUserMessage(currentWorkspaceId, user.uid, newMsg);
+        setMessages(previous => previous.map(message => (
+          message.id === newMsg.id ? { ...message, persistenceStatus: 'saved' } : message
+        )));
       } catch (err) {
         console.error('Failed to save user message to database:', err);
+        setMessages(previous => previous.map(message => (
+          message.id === newMsg.id ? { ...message, persistenceStatus: 'failed' } : message
+        )));
+        toast.error('Mesaj kaydedilemedi. Bağlantını kontrol edip tekrar gönder.');
+        return;
       }
 
       broadcastMessage(channelRef, 'new_message', {
@@ -357,6 +367,10 @@ export const useMessages = (channelRef: any) => {
           senderName: 'JetWork AI',
           senderRole: 'Sistem Asistanı',
           createdAt: aiCreatedAt,
+          provider: result.provider || (result.model?.startsWith('gemini') ? 'gemini' : 'openai'),
+          responseModel: result.model,
+          fallbackUsed: result.fallbackUsed,
+          persistenceStatus: 'pending',
         };
         setMessages(previous => previous.map(message => (
           message.id === aiMsgId ? completedAiMessage : message
@@ -364,8 +378,15 @@ export const useMessages = (channelRef: any) => {
         broadcastMessage(channelRef, 'ai_stream_end', completedAiMessage);
         try {
           await saveAiMessage(currentWorkspaceId, user.uid, completedAiMessage);
+          setMessages(previous => previous.map(message => (
+            message.id === completedAiMessage.id ? { ...message, persistenceStatus: 'saved' } : message
+          )));
         } catch (persistError) {
           console.error('Assistant response was generated but could not be persisted:', persistError);
+          setMessages(previous => previous.map(message => (
+            message.id === completedAiMessage.id ? { ...message, persistenceStatus: 'failed' } : message
+          )));
+          toast.error('Asistan yanıtı oluşturuldu ancak kaydedilemedi.');
         }
       } catch (error) {
         console.error('Single assistant runtime error:', error);
@@ -401,6 +422,7 @@ export const useMessages = (channelRef: any) => {
           senderRole: 'Sistem Asistanı',
           createdAt: aiCreatedAt,
           phase: null,
+          persistenceStatus: 'pending',
         };
         setMessages(previous => previous.map(message => (
           message.id === aiMsgId ? failedMessage : message
@@ -409,8 +431,14 @@ export const useMessages = (channelRef: any) => {
         if (!wasAborted) {
           try {
             await saveAiMessage(currentWorkspaceId, user.uid, failedMessage);
+            setMessages(previous => previous.map(message => (
+              message.id === failedMessage.id ? { ...message, persistenceStatus: 'saved' } : message
+            )));
           } catch (persistError) {
             console.error('Failed to save assistant error message:', persistError);
+            setMessages(previous => previous.map(message => (
+              message.id === failedMessage.id ? { ...message, persistenceStatus: 'failed' } : message
+            )));
           }
         }
       } finally {

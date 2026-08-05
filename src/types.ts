@@ -116,6 +116,10 @@ export interface Message {
     messageId: string;
     assistantMessageId: string;
   };
+  persistenceStatus?: 'pending' | 'saved' | 'failed';
+  provider?: 'openai' | 'gemini';
+  responseModel?: string;
+  fallbackUsed?: boolean;
   phase?: 'INTENT' | 'PLAN' | 'RESEARCH' | 'REFLECT' | 'ACT' | null;
   phaseLabel?: string;
 }
@@ -260,6 +264,8 @@ export interface Workspace {
   lastUpdated: number;
   collaborators: Collaborator[];
   ownerId: string;
+  archivedAt?: string | null;
+  deletedAt?: string | null;
 }
 
 export interface Project {
@@ -270,4 +276,6 @@ export interface Project {
   createdAt: number;
   lastUpdated: number;
   ownerId: string;
+  archivedAt?: string | null;
+  deletedAt?: string | null;
 }

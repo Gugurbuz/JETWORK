@@ -72,7 +72,7 @@ export default function App() {
   const deletingWorkspace = useUIStore(state => state.deletingWorkspace);
   const setDeletingWorkspace = useUIStore(state => state.setDeletingWorkspace);
 
-  const { projects, setProjects } = useProjects(user, isAuthReady);
+  const { projects, setProjects, isLoadingProjects, projectsError, reloadProjects } = useProjects(user, isAuthReady);
   const projectMemory = useDocumentStore(state => state.projectMemory);
   
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
@@ -139,6 +139,9 @@ export default function App() {
     handleDeleteProject,
     handleEditWorkspace,
     handleDeleteWorkspace,
+    handleArchiveProject,
+    handleRestoreProject,
+    handleQuickStart,
     handleAddParticipant,
     handleRemoveParticipant,
     handleLeaveWorkspace,
@@ -282,13 +285,18 @@ export default function App() {
           onSelectProject={selectProject}
           onEditProject={setEditingProject}
           onDeleteProject={setDeletingProject}
+          onArchiveProject={handleArchiveProject}
+          onRestoreProject={handleRestoreProject}
+          isLoadingProjects={isLoadingProjects}
+          projectsError={projectsError}
+          onRetryProjects={() => void reloadProjects()}
           theme={theme}
           onThemeChange={setTheme}
           onLogout={handleLogout}
           onOpenSettings={() => setShowSettingsModal(true)}
         />
       )}
-      <MainContent>
+      <MainContent onQuickStart={() => void handleQuickStart()}>
         <WorkspaceView
           messages={messages}
           user={user}
