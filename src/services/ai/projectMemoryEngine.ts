@@ -182,7 +182,7 @@ export function buildProjectMemoryContext(memory: ProjectMemory = {}): string {
   const entries = Object.entries(memory);
   if (!entries.length) return '';
   return [
-    '[PROJECT WORKING MEMORY - ZORUNLU]',
+    '[USER-SOURCED PROJECT MEMORY - ZORUNLU]',
     'Bu bilgiler bu workspace icin kalici tercih/karar hafizasidir. Kullanici aksini soylemedikce uygula.',
     ...entries.slice(-24).map(([key, value]) => `- ${key}: ${value}`),
   ].join('\n');
