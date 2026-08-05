@@ -557,12 +557,17 @@ const MessageItem = memo(({
           )}
 
           {msg.knowledgeSources && msg.knowledgeSources.length > 0 && (
-            <div className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-theme-text-muted flex items-center gap-1.5">
-                <Database size={10} /> Kurumsal kaynaklar
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {msg.knowledgeSources.map((source, index) => (
+            <details className="group mt-4 border-t border-theme-border/50 pt-3">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
+                <Database size={10} />
+                {Math.min(msg.knowledgeSources.length, 3)} kurumsal kaynak kullanıldı
+                <ChevronDown
+                  size={12}
+                  className="ml-auto transition-transform group-open:rotate-180"
+                />
+              </summary>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {msg.knowledgeSources.slice(0, 3).map((source, index) => (
                   <div
                     key={`${source.sourceId || source.sourceName}-${source.canonicalKey || index}`}
                     className="flex items-start gap-2 rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs text-theme-text-muted"
@@ -572,15 +577,14 @@ const MessageItem = memo(({
                       <div className="truncate font-medium text-theme-text">
                         {source.title || source.sourceName}
                       </div>
-                      <div className="truncate text-[10px]">
-                        {source.sourceName}
-                        {source.canonicalKey ? ` · ${source.canonicalKey}` : ''}
-                      </div>
+                      {source.title && source.title !== source.sourceName && (
+                        <div className="truncate text-[10px]">{source.sourceName}</div>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           )}
 
           {msg.isError && msg.retryPayload && onRetryMessage && (
