@@ -4,7 +4,14 @@ import type { Message } from '../types';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
-  const { phase: _phase, phaseLabel: _phaseLabel, isTyping: _typing, retryPayload: _retry, ...persistable } = message as any;
+  const {
+    phase: _phase,
+    phaseLabel: _phaseLabel,
+    isTyping: _typing,
+    isError: _isError,
+    retryPayload: _retry,
+    ...persistable
+  } = message as any;
   if (
     FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
     && Array.isArray(persistable.attachments)

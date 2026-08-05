@@ -62,6 +62,14 @@ const errorMessage = (error: unknown) => (
   error instanceof Error ? error.message : 'Unexpected assistant runtime error.'
 )
 
+const userFacingAssistantError = (error: unknown) => {
+  const detail = errorMessage(error)
+  if (/no credits remaining|insufficient_quota|billing/i.test(detail)) {
+    return 'OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.'
+  }
+  return 'Asistan yanıtı tamamlanamadı. Lütfen tekrar deneyin.'
+}
+
 const cleanString = (value: unknown, maxLength: number) =>
   String(value ?? '').trim().slice(0, maxLength)
 
@@ -926,7 +934,7 @@ serve(async req => {
           try {
             sendEvent(controller, encoder, 'error', {
               type: 'error',
-              message: 'Asistan yanıtı tamamlanamadı. Lütfen tekrar deneyin.',
+              message: userFacingAssistantError(streamError),
             })
             controller.enqueue(encoder.encode('data: [DONE]\n\n'))
             controller.close()
