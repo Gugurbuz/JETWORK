@@ -8,7 +8,7 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 - API: OpenAI Responses API
 - Durum: `store: false`; konuşma öğeleri Supabase `assistant_conversations.state_items` alanında tutulur.
 - Talimat: yalnız aktif `assistant_prompt_versions` kaydı; tarayıcı bu tabloyu okuyamaz.
-- Retrieval: yalnız workspace-kısıtlı, salt-okunur bilgi bankası araçları.
+- Retrieval: hesap genelindeki ortak katalog üzerinde çalışan salt-okunur bilgi bankası araçları.
 - Dosya kapsamı: ilk sürümde TXT ve MD.
 - Yayın politikası: yeni kaynaklar taslak oluşur; kullanıcı yayımlamadan asistan kullanmaz.
 
@@ -45,7 +45,7 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 - Mesaj kimliği idempotency anahtarıdır; turn lease'i, çalışma alanı kilidi, istek kotası ve çıktı limiti çift üretim ile maliyet taşmasını sınırlar.
 - Conversation, turn ve tool audit tablolarına tarayıcı rolü erişemez.
 - Doküman ve araç çıktıları güvenilmeyen veri kabul edilir; içlerindeki talimatlar uygulanmaz.
-- Başka workspace'e ait nesneler araç sonucuna giremez.
+- Başka kullanıcı hesabına ait nesneler araç sonucuna giremez; aynı hesaptaki tüm sohbetler ortak kataloğu kullanır.
 
 ## Rollback
 
@@ -61,4 +61,4 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 4. `CHECK_ZTKS hangi mesajları üretiyor?`
 5. `ZCRM2-545 hangi koşulda alınır?`
 
-Canlı pilot için CRM dosyaları tek bir gerçek hedef workspace'e yüklenmeli, taslak kaynaklar kullanıcı tarafından yayımlanmalı ve sorular bu workspace'te çalıştırılmalıdır.
+Canlı pilot için CRM dosyaları hesap genelindeki ortak kataloğa bir kez yüklenmeli ve taslak kaynaklar kullanıcı tarafından yayımlanmalıdır. Sorular aynı hesaptaki herhangi bir projede veya yeni sohbette bu kaynakları kullanır.

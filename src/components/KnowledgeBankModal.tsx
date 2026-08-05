@@ -83,7 +83,7 @@ export function KnowledgeBankModal({
           <div>
             <h2 className="font-semibold text-theme-text">Bilgi Bankası</h2>
             <p className="text-xs text-theme-text-muted">
-              TXT ve MD kaynakları önce taslak işlenir; sen yayımladıktan sonra AI kullanır.
+              Hesabındaki tüm proje ve sohbetlerde kullanılan ortak TXT ve MD kaynakları.
             </p>
           </div>
           <button
@@ -122,7 +122,7 @@ export function KnowledgeBankModal({
               <FileText size={28} className="mb-3 text-theme-text-muted" />
               <p className="text-sm font-medium text-theme-text">Henüz kalıcı kaynak yok</p>
               <p className="mt-1 max-w-md text-xs text-theme-text-muted">
-                Sohbete bir TXT veya MD dosyası ekle ve “Bilgi bankası” seçeneğini açık bırak.
+                Herhangi bir sohbete TXT veya MD dosyası ekle ve “Bilgi bankası” seçeneğini açık bırak.
               </p>
             </div>
           ) : (

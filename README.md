@@ -10,7 +10,7 @@ The new runtime is protected by `VITE_SINGLE_ASSISTANT_RUNTIME` and uses one sim
 
 1. `useMessages` records the user turn and calls the authenticated `openai-assistant` Edge Function.
 2. The Edge Function loads the single active prompt version and calls the OpenAI Responses API with `gpt-5.6-sol`.
-3. Published, workspace-scoped knowledge is available only through strict read-only tools.
+3. Published knowledge is account-global across projects and chats, and is available only through strict read-only tools.
 4. Conversation turns, idempotency leases, usage, and tool audit records stay server-side in Supabase.
 5. TXT/MD sources are ingested as drafts and become visible to the assistant only after explicit publication.
 
@@ -105,7 +105,7 @@ Before release, verify:
 - `OPENAI_API_KEY` exists only in Supabase Edge Function secrets.
 - `ingest-knowledge-source` and `openai-assistant` are deployed with JWT verification enabled.
 - `GEMINI_API_KEY` exists only in Supabase Edge Function secrets.
-- RLS policies prevent cross-workspace reads and writes.
+- RLS policies keep each account's global knowledge catalog isolated from other accounts.
 - The behavior regression suite passes.
 - A user can create a workspace, send a message, generate a document, preview a high-impact change, confirm it, and reload persisted memory.
 

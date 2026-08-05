@@ -3,6 +3,19 @@ import type { AttachmentIngestion, KnowledgeItem, MessageAttachment } from '../t
 
 const KNOWLEDGE_BUCKET = 'knowledge-sources';
 
+export async function resolveKnowledgeWorkspace(
+  workspaceId: string,
+): Promise<string> {
+  const { data, error } = await supabase.rpc('resolve_account_knowledge_workspace', {
+    p_workspace_id: workspaceId,
+  });
+  if (error) throw error;
+  if (typeof data !== 'string' || !data) {
+    throw new Error('Hesap bilgi bankası çözümlenemedi.');
+  }
+  return data;
+}
+
 export interface KnowledgeIngestionResult {
   sourceId: string;
   sourceVersionId: string;
@@ -81,10 +94,12 @@ export async function ingestKnowledgeAttachment(
     throw authError || new Error('Bilgi kaynağı yüklemek için oturum gerekli.');
   }
 
+  const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(workspaceId);
+
   const file = attachmentToFile(attachment);
   const fileName = sanitizeFileName(file.name);
   const mimeType = fileName.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain';
-  const storagePath = `${authData.user.id}/${workspaceId}/${crypto.randomUUID()}/${fileName}`;
+  const storagePath = `${authData.user.id}/${knowledgeWorkspaceId}/${crypto.randomUUID()}/${fileName}`;
   await onStatus?.({ status: 'uploading' });
   const { error: uploadError } = await supabase.storage
     .from(KNOWLEDGE_BUCKET)
@@ -102,7 +117,7 @@ export async function ingestKnowledgeAttachment(
     await onStatus?.({ status: 'processing' });
     const { data, error } = await supabase.functions.invoke('ingest-knowledge-source', {
       body: {
-        workspaceId,
+        workspaceId: knowledgeWorkspaceId,
         storagePath,
         fileName: file.name,
         mimeType,
@@ -136,6 +151,7 @@ export async function ingestKnowledgeAttachment(
 export async function listKnowledgeSources(
   workspaceId: string,
 ): Promise<KnowledgeSourceSummary[]> {
+  const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(workspaceId);
   const { data, error } = await supabase
     .from('kb_sources')
     .select(`
@@ -154,7 +170,7 @@ export async function listKnowledgeSources(
         relation_count
       )
     `)
-    .eq('workspace_id', workspaceId)
+    .eq('workspace_id', knowledgeWorkspaceId)
     .order('updated_at', { ascending: false });
   if (error) throw error;
 
@@ -194,8 +210,9 @@ export async function searchKnowledgeCatalog(
 ): Promise<KnowledgeItem[]> {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return [];
+  const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(workspaceId);
   const { data, error } = await supabase.rpc('search_knowledge_catalog', {
-    p_workspace_id: workspaceId,
+    p_workspace_id: knowledgeWorkspaceId,
     p_query: normalizedQuery,
     p_object_types: null,
     p_limit: limit,
@@ -204,7 +221,7 @@ export async function searchKnowledgeCatalog(
 
   return ((data || []) as KnowledgeCatalogSearchRow[]).map(row => ({
     id: row.object_id,
-    projectId: workspaceId,
+    projectId: knowledgeWorkspaceId,
     content: [
       `Kaynak: ${row.source_name}`,
       `Nesne: ${row.canonical_key}`,

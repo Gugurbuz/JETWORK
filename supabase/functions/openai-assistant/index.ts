@@ -89,6 +89,17 @@ const uniqueSources = (sources: AssistantSourceRef[]) => {
   })
 }
 
+async function resolveKnowledgeWorkspace(client: any, workspaceId: string) {
+  const { data, error } = await client.rpc('resolve_account_knowledge_workspace', {
+    p_workspace_id: workspaceId,
+  })
+  if (error) throw error
+  if (typeof data !== 'string' || !data) {
+    throw new Error('Account knowledge workspace could not be resolved.')
+  }
+  return data
+}
+
 async function loadActivePrompt(client: any, workspaceId: string) {
   const { data, error } = await client.rpc('get_active_assistant_prompt', {
     p_workspace_id: workspaceId,
@@ -592,6 +603,8 @@ serve(async req => {
       return jsonResponse({ error: 'Workspace access denied.' }, 403)
     }
 
+    const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(client, workspaceId)
+
     const prompt = await loadActivePrompt(adminClient, workspaceId)
     const configuredModel = cleanString(
       Deno.env.get('OPENAI_MODEL') || prompt.model || DEFAULT_MODEL,
@@ -721,16 +734,25 @@ serve(async req => {
             label: 'Talep değerlendiriliyor...',
           })
 
-          for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+          for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+            const mustSynthesizeAnswer = round === MAX_TOOL_ROUNDS
             let roundText = ''
             const response = await requestOpenAiResponse(
               openAiApiKey,
               {
                 model: configuredModel,
                 instructions: prompt.prompt_text,
-                input: inputItems,
+                input: mustSynthesizeAnswer
+                  ? [
+                      ...inputItems,
+                      {
+                        role: 'developer',
+                        content: 'Araç araştırması tamamlandı. Artık yeni araç çağrısı yapmadan, mevcut sonuçlardan kullanıcıya doğrudan ve dürüst bir nihai yanıt üret. Kaynaklarda kesin karşılık yoksa bunu açıkça belirt; hata verme.',
+                      },
+                    ]
+                  : inputItems,
                 tools: ASSISTANT_KNOWLEDGE_TOOLS,
-                tool_choice: 'auto',
+                tool_choice: mustSynthesizeAnswer ? 'none' : 'auto',
                 parallel_tool_calls: false,
                 reasoning: { effort: 'medium' },
                 text: { verbosity: 'medium' },
@@ -820,7 +842,7 @@ serve(async req => {
                 const result = cachedResult || await withTimeout(
                   executeAssistantTool(
                     client,
-                    workspaceId,
+                    knowledgeWorkspaceId,
                     toolName,
                     parsedArguments,
                   ),
@@ -840,6 +862,7 @@ serve(async req => {
                   resultSummary: {
                     ...result.summary,
                     cached: !!cachedResult,
+                    knowledgeWorkspaceId,
                   },
                   sourceRefs: result.sources,
                   status: 'completed',
@@ -885,7 +908,7 @@ serve(async req => {
             })
           }
 
-          throw new Error('Assistant could not complete within the safe tool-round limit.')
+          throw new Error('Assistant could not produce a final answer after knowledge retrieval.')
         } catch (streamError) {
           console.error('OpenAI assistant stream failed:', streamError)
           if (!turnCompleted) {
