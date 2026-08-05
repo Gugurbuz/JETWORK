@@ -4,6 +4,7 @@ import ts from 'typescript';
 const files = [
   'supabase/functions/_shared/assistantTools.ts',
   'supabase/functions/_shared/knowledgeParser.ts',
+  'supabase/functions/_shared/modelProviders.ts',
   'supabase/functions/ingest-knowledge-source/index.ts',
   'supabase/functions/openai-assistant/index.ts',
 ];

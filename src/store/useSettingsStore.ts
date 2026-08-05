@@ -13,7 +13,7 @@ export interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  selectedModel: localStorage.getItem('selected_model') || 'gemini-3-flash-preview',
+  selectedModel: localStorage.getItem('selected_model') || 'auto',
   setSelectedModel: (model) => {
     localStorage.setItem('selected_model', model);
     set({ selectedModel: model });

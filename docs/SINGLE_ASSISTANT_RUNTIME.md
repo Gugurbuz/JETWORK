@@ -4,8 +4,8 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 
 ## Çalışma biçimi
 
-- Model: `gpt-5.6-sol`
-- API: OpenAI Responses API
+- Model: kullanıcı seçimine göre OpenAI GPT veya Gemini; varsayılan `auto`.
+- API: OpenAI Responses API ve Google Gen AI SDK üzerinden Gemini API.
 - Durum: `store: false`; konuşma öğeleri Supabase `assistant_conversations.state_items` alanında tutulur.
 - Talimat: yalnız aktif `assistant_prompt_versions` kaydı; tarayıcı bu tabloyu okuyamaz.
 - Retrieval: hesap genelindeki ortak katalog üzerinde çalışan salt-okunur bilgi bankası araçları.
@@ -15,10 +15,11 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 ## Sunucu kurulumu
 
 1. Migration'ları sırayla uygula.
-2. OpenAI anahtarını Supabase Edge Function secret'ı olarak tanımla:
+2. Sağlayıcı anahtarlarını Supabase Edge Function secret'ı olarak tanımla:
 
    ```text
    supabase secrets set OPENAI_API_KEY=...
+   supabase secrets set GEMINI_API_KEY=...
    ```
 
 3. İsteğe bağlı model sabitlemesi:
@@ -36,7 +37,7 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 
 ## Güvenlik sınırları
 
-- OpenAI anahtarı hiçbir zaman tarayıcıya gönderilmez.
+- OpenAI ve Gemini anahtarları hiçbir zaman tarayıcıya gönderilmez.
 - Model SQL, yazma veya genel ağ aracı alamaz.
 - Tüm katalog araçları kullanıcının JWT'si ve RLS ile çalışır.
 - Yayınlanan kaynak, nesne kimliği, içerik ve ilişkiler exact source/object version'larına pinlenir; yeni ingest taslağı canlı cevabı değiştirmez.
@@ -49,7 +50,7 @@ Bu paket, eski çok katmanlı BA/Gemini akışını silmeden yeni tek asistan ç
 
 ## Rollback
 
-`VITE_SINGLE_ASSISTANT_RUNTIME=false` yapıldığında mevcut Gemini/BA çalışma zamanı tekrar kullanılır. Yeni tablolar ve bilgi bankası verileri korunur; otomatik Gemini fallback yapılmaz.
+`VITE_SINGLE_ASSISTANT_RUNTIME=false` yapıldığında eski BA çalışma zamanı tekrar kullanılır. Yeni tablolar ve bilgi bankası verileri korunur. Yeni çalışma zamanında `auto`, OpenAI sağlayıcı hatasında aynı turn içinde Gemini'ye geçer.
 
 ## Pilot kabul kapısı
 

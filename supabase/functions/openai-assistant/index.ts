@@ -5,6 +5,15 @@ import {
   executeAssistantTool,
   type AssistantSourceRef,
 } from '../_shared/assistantTools.ts'
+import {
+  cleanProviderItemsForOpenAi,
+  DEFAULT_GEMINI_MODEL,
+  GEMINI_MODELS,
+  OPENAI_MODELS,
+  providerForModel,
+  requestGeminiResponse,
+  type AssistantProvider,
+} from '../_shared/modelProviders.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +22,12 @@ const corsHeaders = {
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const DEFAULT_MODEL = 'gpt-5.6-sol'
-const ALLOWED_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
+const AUTO_MODEL = 'auto'
+const ALLOWED_MODELS = new Set([
+  AUTO_MODEL,
+  ...OPENAI_MODELS,
+  ...GEMINI_MODELS,
+])
 const MAX_HISTORY_CHARACTERS = 36_000
 const MAX_CHAT_ATTACHMENTS = 3
 const MAX_CHAT_ATTACHMENT_CHARACTERS = 60_000
@@ -66,6 +80,9 @@ const userFacingAssistantError = (error: unknown) => {
   const detail = errorMessage(error)
   if (/no credits remaining|insufficient_quota|billing/i.test(detail)) {
     return 'OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.'
+  }
+  if (/resource_exhausted|quota exceeded|gemini.*quota/i.test(detail)) {
+    return 'Gemini API kullanım kotası tükendi. Yönetici kotayı yeniledikten sonra tekrar deneyin.'
   }
   return 'Asistan yanıtı tamamlanamadı. Lütfen tekrar deneyin.'
 }
@@ -134,7 +151,10 @@ async function getOrCreateConversation(
     .limit(1)
     .maybeSingle()
   if (selectError) throw selectError
-  if (existing?.prompt_version_id === promptVersionId) return existing
+  if (
+    existing?.prompt_version_id === promptVersionId
+    && existing?.model === model
+  ) return existing
   if (existing) {
     const { error: archiveError } = await client
       .from('assistant_conversations')
@@ -530,15 +550,16 @@ serve(async req => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY')
+  const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
   if (!authorization || !supabaseUrl || !anonKey) {
     return jsonResponse({ error: 'Authentication is required.' }, 401)
   }
   if (!serviceRoleKey) {
     return jsonResponse({ error: 'Assistant server configuration is incomplete.' }, 500)
   }
-  if (!openAiApiKey) {
+  if (!openAiApiKey && !geminiApiKey) {
     return jsonResponse({
-      error: 'The Responses API runtime is not enabled because OPENAI_API_KEY is missing.',
+      error: 'No assistant provider is configured. OPENAI_API_KEY or GEMINI_API_KEY is required.',
       code: 'RUNTIME_DISABLED',
     }, 503)
   }
@@ -572,6 +593,7 @@ serve(async req => {
     const workspaceId = cleanString(body?.workspaceId, 200)
     const messageId = cleanString(body?.messageId, 200)
     const message = cleanString(body?.message, 32_000)
+    const requestedModel = cleanString(body?.model || AUTO_MODEL, 80)
     const chatAttachments: Array<{
       name: string
       mimeType: string
@@ -601,6 +623,9 @@ serve(async req => {
         error: 'workspaceId, messageId and a message or chat attachment are required.',
       }, 400)
     }
+    if (!ALLOWED_MODELS.has(requestedModel)) {
+      return jsonResponse({ error: 'Requested assistant model is not allowed.' }, 400)
+    }
 
     const { data: workspace, error: workspaceError } = await client
       .from('workspaces')
@@ -614,12 +639,22 @@ serve(async req => {
     const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(client, workspaceId)
 
     const prompt = await loadActivePrompt(adminClient, workspaceId)
-    const configuredModel = cleanString(
+    const promptModelCandidate = cleanString(
       Deno.env.get('OPENAI_MODEL') || prompt.model || DEFAULT_MODEL,
       80,
     )
-    if (!ALLOWED_MODELS.has(configuredModel)) {
-      throw new Error('The configured assistant model is not allowed.')
+    const promptModel = OPENAI_MODELS.has(promptModelCandidate)
+      ? promptModelCandidate
+      : DEFAULT_MODEL
+    const configuredModel = requestedModel === AUTO_MODEL
+      ? (openAiApiKey ? promptModel : DEFAULT_GEMINI_MODEL)
+      : requestedModel
+    const configuredProvider = providerForModel(configuredModel)
+    if (configuredProvider === 'openai' && !openAiApiKey) {
+      return jsonResponse({ error: 'OPENAI_API_KEY is not configured for the selected model.' }, 503)
+    }
+    if (configuredProvider === 'gemini' && !geminiApiKey) {
+      return jsonResponse({ error: 'GEMINI_API_KEY is not configured for the selected model.' }, 503)
     }
 
     const conversation = await getOrCreateConversation(
@@ -645,6 +680,7 @@ serve(async req => {
     const requestHash = await sha256Text(stableJson({
       message,
       chatAttachments,
+      requestedModel,
     }))
     const safetyIdentifier = await sha256Text(
       `jetwork:${workspaceId}:${authData.user.id}`,
@@ -722,6 +758,8 @@ serve(async req => {
         let totalToolCalls = 0
         let usage: Record<string, number> | undefined
         let responseModel = configuredModel
+        let activeModel = configuredModel
+        let activeProvider: AssistantProvider = configuredProvider
         const toolResultCache = new Map<string, Awaited<ReturnType<typeof executeAssistantTool>>>()
         let turnCompleted = false
         const runController = new AbortController()
@@ -745,34 +783,75 @@ serve(async req => {
           for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
             const mustSynthesizeAnswer = round === MAX_TOOL_ROUNDS
             let roundText = ''
-            const response = await requestOpenAiResponse(
-              openAiApiKey,
-              {
-                model: configuredModel,
-                instructions: prompt.prompt_text,
-                input: mustSynthesizeAnswer
-                  ? [
-                      ...inputItems,
-                      {
-                        role: 'developer',
-                        content: 'Araç araştırması tamamlandı. Artık yeni araç çağrısı yapmadan, mevcut sonuçlardan kullanıcıya doğrudan ve dürüst bir nihai yanıt üret. Kaynaklarda kesin karşılık yoksa bunu açıkça belirt; hata verme.',
-                      },
-                    ]
-                  : inputItems,
-                tools: ASSISTANT_KNOWLEDGE_TOOLS,
-                tool_choice: mustSynthesizeAnswer ? 'none' : 'auto',
-                parallel_tool_calls: false,
-                reasoning: { effort: 'medium' },
-                text: { verbosity: 'medium' },
-                max_output_tokens: MAX_OUTPUT_TOKENS,
-                safety_identifier: safetyIdentifier,
-                store: false,
-              },
-              delta => {
-                roundText += delta
-              },
-              runController.signal,
-            )
+            const finalInstruction = mustSynthesizeAnswer
+              ? 'Araç araştırması tamamlandı. Artık yeni araç çağrısı yapmadan, mevcut sonuçlardan kullanıcıya doğrudan ve dürüst bir nihai yanıt üret. Kaynaklarda kesin karşılık yoksa bunu açıkça belirt; hata verme.'
+              : ''
+            const requestActiveProvider = async () => {
+              if (activeProvider === 'gemini') {
+                return await requestGeminiResponse({
+                  apiKey: String(geminiApiKey),
+                  model: activeModel,
+                  instructions: [prompt.prompt_text, finalInstruction].filter(Boolean).join('\n\n'),
+                  items: inputItems,
+                  tools: ASSISTANT_KNOWLEDGE_TOOLS as unknown as ReadonlyArray<Record<string, unknown>>,
+                  allowTools: !mustSynthesizeAnswer,
+                  maxOutputTokens: MAX_OUTPUT_TOKENS,
+                  onText: delta => {
+                    roundText += delta
+                  },
+                  signal: runController.signal,
+                })
+              }
+
+              return await requestOpenAiResponse(
+                String(openAiApiKey),
+                {
+                  model: activeModel,
+                  instructions: prompt.prompt_text,
+                  input: mustSynthesizeAnswer
+                    ? [
+                        ...cleanProviderItemsForOpenAi(inputItems),
+                        { role: 'developer', content: finalInstruction },
+                      ]
+                    : cleanProviderItemsForOpenAi(inputItems),
+                  tools: ASSISTANT_KNOWLEDGE_TOOLS,
+                  tool_choice: mustSynthesizeAnswer ? 'none' : 'auto',
+                  parallel_tool_calls: false,
+                  reasoning: { effort: 'medium' },
+                  text: { verbosity: 'medium' },
+                  max_output_tokens: MAX_OUTPUT_TOKENS,
+                  safety_identifier: safetyIdentifier,
+                  store: false,
+                },
+                delta => {
+                  roundText += delta
+                },
+                runController.signal,
+              )
+            }
+
+            let response: OpenAiResponse
+            try {
+              response = await requestActiveProvider()
+            } catch (providerError) {
+              if (
+                requestedModel !== AUTO_MODEL
+                || activeProvider !== 'openai'
+                || !geminiApiKey
+                || runController.signal.aborted
+              ) throw providerError
+
+              console.warn('OpenAI provider failed; switching this turn to Gemini:', errorMessage(providerError))
+              activeProvider = 'gemini'
+              activeModel = DEFAULT_GEMINI_MODEL
+              roundText = ''
+              sendEvent(controller, encoder, 'status', {
+                type: 'status',
+                stage: 'thinking',
+                label: 'Yedek yapay zeka sağlayıcısına geçiliyor...',
+              })
+              response = await requestActiveProvider()
+            }
 
             usage = addUsage(usage, response.usage)
             responseModel = response.model || responseModel
@@ -780,7 +859,7 @@ serve(async req => {
             const toolCalls = output.filter(item => item.type === 'function_call')
             if (!toolCalls.length) {
               if (!roundText.trim()) {
-                throw new Error('OpenAI completed without a user-visible answer.')
+                throw new Error(`${activeProvider} completed without a user-visible answer.`)
               }
               inputItems.push(...output)
               const stateItems = compactConversationState(inputItems)

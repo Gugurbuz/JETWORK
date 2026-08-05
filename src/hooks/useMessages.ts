@@ -300,6 +300,7 @@ export const useMessages = (channelRef: any) => {
           workspaceId: currentWorkspaceId,
           messageId: msgId,
           message: messageText,
+          model: selectedModel,
           chatAttachments: await prepareAssistantChatAttachments(preparedAttachments),
           signal: generationController.signal,
           onText: fullText => {

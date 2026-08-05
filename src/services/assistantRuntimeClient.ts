@@ -184,6 +184,7 @@ export async function streamAssistantResponse(input: {
   workspaceId: string;
   messageId: string;
   message: string;
+  model?: string;
   chatAttachments?: AssistantChatAttachment[];
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -231,6 +232,7 @@ export async function streamAssistantResponse(input: {
         workspaceId: input.workspaceId,
         messageId: input.messageId,
         message: input.message,
+        model: input.model || 'auto',
         chatAttachments: input.chatAttachments || [],
       }),
     });

@@ -38,15 +38,15 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-publishable-anon-key
 ```
 
-`OPENAI_API_KEY` and the legacy `GEMINI_API_KEY` are server-side Edge Function secrets. Never expose either through a `VITE_` variable.
+`OPENAI_API_KEY` and `GEMINI_API_KEY` are server-side Edge Function secrets used by the multi-provider assistant runtime. Never expose either through a `VITE_` variable.
 
 ```bash
 supabase secrets set OPENAI_API_KEY=your-key
+supabase secrets set GEMINI_API_KEY=your-key
 supabase functions deploy ingest-knowledge-source
 supabase functions deploy openai-assistant
 
 # Legacy rollback runtime only
-supabase secrets set GEMINI_API_KEY=your-key
 supabase functions deploy gemini-chat
 ```
 
@@ -113,7 +113,8 @@ Before release, verify:
 
 - `src/services/assistantRuntimeClient.ts`: authenticated SSE client for the new runtime
 - `src/services/knowledgeCatalogRepository.ts`: TXT/MD ingestion and publication client
-- `supabase/functions/openai-assistant`: Responses API and read-only tool loop
+- `supabase/functions/openai-assistant`: multi-provider OpenAI/Gemini runtime and read-only tool loop
+- `supabase/functions/_shared/modelProviders.ts`: provider adapters and normalized model response contract
 - `supabase/functions/ingest-knowledge-source`: deterministic source ingestion
 - `src/services/ai/aiTurnDecision.ts`: legacy turn-level behavior decision contract
 - `src/services/singleChatOrchestrator.ts`: active single-chat orchestration

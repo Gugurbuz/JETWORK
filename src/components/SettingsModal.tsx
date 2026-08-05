@@ -198,13 +198,24 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                   <h3 className="text-sm font-bold text-theme-text uppercase tracking-widest mb-4">Uygulama Tercihleri</h3>
                   <div className="space-y-4">
                     {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME ? (
-                      <div className="rounded-lg border border-theme-border bg-theme-surface p-4">
-                        <div className="text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
-                          Yapay Zeka
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-theme-text">JetWork AI</div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-theme-text-muted">
+                          Yapay Zeka Modeli
+                        </label>
+                        <select
+                          value={model}
+                          onChange={(event) => setModel(event.target.value)}
+                          className="w-full rounded-md border border-theme-border bg-theme-surface px-3 py-2 text-sm text-theme-text outline-none transition-colors focus:border-theme-primary"
+                        >
+                          <option value="auto">Otomatik — OpenAI, gerekirse Gemini (Önerilen)</option>
+                          <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>
+                          <option value="gpt-5.6">OpenAI GPT-5.6</option>
+                          <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                          <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                          <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+                        </select>
                         <p className="mt-2 text-xs text-theme-text-muted">
-                          Model ve ana talimat merkezi olarak yönetilir; bu çalışma alanında tek asistan kullanılır.
+                          Otomatik seçim OpenAI kullanılamadığında aynı bilgi bankası ve araç akışıyla Gemini'ye geçer.
                         </p>
                       </div>
                     ) : (
