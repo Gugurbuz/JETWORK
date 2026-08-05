@@ -171,14 +171,19 @@ export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEve
           .filter(([, value]) => typeof value === 'number'),
       ) as Record<string, number>
       : undefined;
-    return {
+    const completedEvent: AssistantRuntimeEvent = {
       type: 'completed',
       conversationId: payload.conversationId ? String(payload.conversationId) : undefined,
       model: payload.model ? String(payload.model) : undefined,
-      provider: payload.provider === 'gemini' ? 'gemini' : payload.provider === 'openai' ? 'openai' : undefined,
-      fallbackUsed: payload.fallbackUsed === true,
       usage,
     };
+    if (payload.provider === 'gemini' || payload.provider === 'openai') {
+      completedEvent.provider = payload.provider;
+    }
+    if (typeof payload.fallbackUsed === 'boolean') {
+      completedEvent.fallbackUsed = payload.fallbackUsed;
+    }
+    return completedEvent;
   }
   if (eventType === 'error') {
     return { type: 'error', message: String(payload.message || 'Asistan yanıtı oluşturulamadı.') };
