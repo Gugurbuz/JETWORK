@@ -1,22 +1,15 @@
 import { supabase } from '../supabase';
-import { camelToSnake, nowIso } from '../lib/mapping';
+import { nowIso } from '../lib/mapping';
 import type { Message } from '../types';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
-  const {
-    phase: _phase,
-    phaseLabel: _phaseLabel,
-    isTyping: _typing,
-    isError: _isError,
-    retryPayload: _retry,
-    ...persistable
-  } = message as any;
+  let attachments = message.attachments;
   if (
     FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-    && Array.isArray(persistable.attachments)
+    && Array.isArray(attachments)
   ) {
-    persistable.attachments = persistable.attachments.map((attachment: any) => {
+    attachments = attachments.map((attachment) => {
       const {
         file: _file,
         data: _data,
@@ -29,12 +22,43 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
       };
     });
   }
-  const payload = camelToSnake<Record<string, unknown>>(persistable);
-  payload.workspace_id = workspaceId;
-  payload.created_at = Number.isFinite(Number(message.createdAt))
-    ? new Date(Number(message.createdAt)).toISOString()
-    : nowIso();
-  if (ownerId) payload.owner_id = ownerId;
+
+  // Keep this list aligned with public.messages. UI-only fields must never reach PostgREST:
+  // an unknown column makes the complete message write fail with HTTP 400.
+  const candidates: Record<string, unknown> = {
+    id: message.id,
+    workspace_id: workspaceId,
+    sender_name: message.senderName,
+    sender_role: message.senderRole,
+    sender_color: message.senderColor,
+    text: message.text,
+    is_ai: message.role === 'model',
+    attachments,
+    reactions: message.reactions,
+    grounding_urls: message.groundingUrls,
+    questions: message.questions,
+    created_at: Number.isFinite(Number(message.createdAt))
+      ? new Date(Number(message.createdAt)).toISOString()
+      : nowIso(),
+    role: message.role,
+    thinking_text: message.thinkingText,
+    agent_role: message.agentRole,
+    action_summary: message.actionSummary,
+    document_snapshot: message.documentSnapshot,
+    previous_document_snapshot: message.previousDocumentSnapshot,
+    document_actions: message.documentActions,
+    score: message.score,
+    score_explanation: message.scoreExplanation,
+    token_count: message.tokenCount,
+    thinking_time: message.thinkingTime,
+    owner_id: ownerId ?? message.ownerId,
+    raw_response: message.rawResponse,
+    reply_to_id: message.replyToId,
+    knowledge_sources: message.knowledgeSources,
+  };
+  const payload = Object.fromEntries(
+    Object.entries(candidates).filter(([, value]) => value !== undefined),
+  );
   return payload;
 }
 

@@ -39,10 +39,12 @@ export function useWorkspaceHandlers(
         owner_id: user.uid,
         created_at: nowIso(),
         last_updated: nowIso(),
-      });
+      }).select('id').single();
       if (error) throw error;
     } catch (err) {
       console.error('Failed to create project in database:', err);
+      toast.error('Proje kaydedilemedi. Lütfen tekrar deneyin.');
+      return;
     }
 
     setShowNewProjectModal(false);
@@ -90,10 +92,12 @@ export function useWorkspaceHandlers(
         collaborators: initialCollaborators,
         created_at: nowIso(),
         last_updated: nowIso(),
-      });
+      }).select('id').single();
       if (error) throw error;
     } catch (err) {
       console.error('Failed to create workspace in database:', err);
+      toast.error('Çalışma alanı kaydedilemedi. Lütfen tekrar deneyin.');
+      return;
     }
 
     setShowNewItemModal(false);
@@ -107,10 +111,14 @@ export function useWorkspaceHandlers(
       const { error } = await supabase
         .from('projects')
         .update({ name, description, last_updated: nowIso() })
-        .eq('id', id);
+        .eq('id', id)
+        .select('id')
+        .single();
       if (error) throw error;
     } catch (err) {
       console.error('Failed to update project in database:', err);
+      toast.error('Proje güncellenemedi. Lütfen tekrar deneyin.');
+      return;
     }
     setEditingProject(null);
   };
@@ -118,10 +126,17 @@ export function useWorkspaceHandlers(
   const handleDeleteProject = async () => {
     if (!deletingProject) return;
     try {
-      const { error } = await supabase.from('projects').delete().eq('id', deletingProject);
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', deletingProject)
+        .select('id')
+        .single();
       if (error) throw error;
     } catch (err) {
       console.error('Failed to delete project in database:', err);
+      toast.error('Proje silinemedi. Lütfen tekrar deneyin.');
+      return;
     }
     if (currentProjectId === deletingProject) {
       setCurrentProjectId(null);
@@ -135,10 +150,14 @@ export function useWorkspaceHandlers(
       const { error } = await supabase
         .from('workspaces')
         .update({ title, last_updated: nowIso() })
-        .eq('id', id);
+        .eq('id', id)
+        .select('id')
+        .single();
       if (error) throw error;
     } catch (err) {
       console.error('Failed to update workspace in database:', err);
+      toast.error('Çalışma alanı güncellenemedi. Lütfen tekrar deneyin.');
+      return;
     }
     setEditingWorkspace(null);
   };
@@ -146,10 +165,17 @@ export function useWorkspaceHandlers(
   const handleDeleteWorkspace = async () => {
     if (!deletingWorkspace) return;
     try {
-      const { error } = await supabase.from('workspaces').delete().eq('id', deletingWorkspace);
+      const { error } = await supabase
+        .from('workspaces')
+        .delete()
+        .eq('id', deletingWorkspace)
+        .select('id')
+        .single();
       if (error) throw error;
     } catch (err) {
       console.error('Failed to delete workspace in database:', err);
+      toast.error('Çalışma alanı silinemedi. Lütfen tekrar deneyin.');
+      return;
     }
     if (currentWorkspaceId === deletingWorkspace) {
       setCurrentWorkspaceId(null);
