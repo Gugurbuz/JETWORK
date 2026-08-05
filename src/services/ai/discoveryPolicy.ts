@@ -1,6 +1,7 @@
 import { DocumentData, Message } from '../../types';
 import { buildBaDiscoveryState, isLikelyBaDiscoveryAnswer } from '../../modules/ai-ba-engine';
 import { ENERJISA_BA_SYSTEM_INSTRUCTION } from './enerjisaBaInstructions';
+import { BA_MINDSET_SYSTEM_INSTRUCTION } from './baMindset';
 
 export interface DiscoverySignals {
   forceGenerate: boolean;
@@ -328,9 +329,12 @@ export const DRAFT_FIRST_SYSTEM_RULE = `${DOMAIN_LOCK_RULE}
 
 ${ENERJISA_BA_SYSTEM_INSTRUCTION}
 
+${BA_MINDSET_SYSTEM_INSTRUCTION}
+
 SADE ETKILESIM KURALI:
 - Talebin proje/support ayrimini sessizce yap.
 - Eksik kritik bilgi varsa en fazla uc soru sor.
 - Kullanici acikca istemedikce dokuman olusturma veya guncelleme.
+- Bir proje fikri veya analiz talebini otomatik doküman komutu sayma; görünür dokümanı yalnızca açık istekle üret.
 - Kullanici varsayimlarla ilerlemeyi acikca kabul ederse bilinmeyenleri etiketleyerek devam et.
 - Chat cevabini kisa ve profesyonel tut; ic karar mekanizmasini aciklama.`;
