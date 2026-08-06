@@ -159,15 +159,18 @@ export function isExplicitDocumentRevisionRequest(
   const hasChatTarget = CHAT_ONLY_TARGETS.some(target => normalized.includes(target));
   const looksLikeQuestion = message.includes('?')
     || QUESTION_LEADS.some(lead => normalized.startsWith(lead));
+  const isPoliteCommand = normalized.includes('misin')
+    || normalized.includes('bilir misin')
+    || normalized.startsWith('lutfen');
 
   if (hasChatTarget && !hasDocumentTarget && !hasStructuredReference) return false;
-  if (looksLikeQuestion && !hasDocumentTarget && !hasStructuredReference) return false;
+  if (looksLikeQuestion && !isPoliteCommand) return false;
 
   return hasDocumentTarget
     || hasReferenceTarget
     || hasStructuredReference
     || hasReplacementInstruction
-    || (!hasChatTarget && !looksLikeQuestion && normalized.split(' ').length <= 24);
+    || (!hasChatTarget && (!looksLikeQuestion || isPoliteCommand) && normalized.split(' ').length <= 24);
 }
 
 export function resolveAssistantDocumentRequestMode(
