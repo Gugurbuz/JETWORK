@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import type { DocumentData } from '../../types';
 import {
   buildDocumentGenerationMessage,
   ENERJISA_REQUIRED_DOCUMENT_MARKERS,
   isExplicitDocumentCreationRequest,
+  isExplicitDocumentRevisionRequest,
   parseAssistantDocumentDraft,
+  resolveAssistantDocumentRequestMode,
   validateEnerjisaDocumentContract,
 } from '../assistantDocumentIntent';
 
@@ -33,6 +36,19 @@ Onay.
 Tasarım.
 `;
 
+const existingDocument = {
+  businessAnalysis: {
+    content: '<h1>İHTİYAÇ ANALİZİ</h1><h2>1. ANALİZ KAPSAMI</h2><p>Satışçı işlemi başlatır.</p>',
+    status: 'DRAFT',
+    flags: [],
+  },
+  review: {
+    content: '<p>Açık konu: Yetki matrisi.</p>',
+    status: 'DRAFT',
+    flags: [],
+  },
+} as DocumentData;
+
 describe('assistant document intent', () => {
   it.each([
     'Analiz oluştur',
@@ -41,7 +57,7 @@ describe('assistant document intent', () => {
     'Kavramsal tasarım belgesi yaz',
     'Talep dokümanına dönüştür',
   ])('routes explicit document creation request: %s', message => {
-    expect(isExplicitDocumentCreationRequest(message)).toBe(true);
+    expect(resolveAssistantDocumentRequestMode(message, null)).toBe('create');
   });
 
   it.each([
@@ -51,11 +67,41 @@ describe('assistant document intent', () => {
     'Doküman hakkında ne düşünüyorsun?',
     'Kavramsal tasarım nedir?',
   ])('keeps conversational analysis request in chat: %s', message => {
-    expect(isExplicitDocumentCreationRequest(message)).toBe(false);
+    expect(resolveAssistantDocumentRequestMode(message, null)).toBe('none');
+  });
+
+  it.each([
+    'Bu başlığı düzelt',
+    '3.2 bölümüne onay adımını ekle',
+    'FR-4 maddesini sil',
+    'Satışçı yerine satış uzmanı yaz',
+    'Dokümanı daha kısa ve profesyonel yap',
+    'Buradaki rol adını güncelle',
+  ])('routes an imperative edit to the existing document: %s', message => {
+    expect(isExplicitDocumentRevisionRequest(message, existingDocument)).toBe(true);
+    expect(resolveAssistantDocumentRequestMode(message, existingDocument)).toBe('revise');
+  });
+
+  it.each([
+    'Bu cevabı daha kısa yaz',
+    'Son mesajını düzelt',
+    'Sence dokümanda ne değişmeli?',
+    'Nasıl güncellemeliyiz?',
+    'Mevcut analizi değerlendir',
+  ])('keeps chat and advisory requests out of document versioning: %s', message => {
+    expect(isExplicitDocumentRevisionRequest(message, existingDocument)).toBe(false);
+  });
+
+  it('does not route a revision when no document exists', () => {
+    expect(isExplicitDocumentRevisionRequest('Bu başlığı düzelt', null)).toBe(false);
+  });
+
+  it('keeps the legacy boolean entry point compatible for creation requests', () => {
+    expect(isExplicitDocumentCreationRequest('Analiz oluştur')).toBe(true);
   });
 
   it('adds the complete Enerjisa template and deterministic output blocks', () => {
-    const prompt = buildDocumentGenerationMessage('Analiz oluştur');
+    const prompt = buildDocumentGenerationMessage('Analiz oluştur', null);
 
     ENERJISA_REQUIRED_DOCUMENT_MARKERS.forEach(marker => {
       expect(prompt).toContain(marker);
@@ -64,6 +110,23 @@ describe('assistant document intent', () => {
     expect(prompt).toContain('</ba_analysis>');
     expect(prompt).toContain('<review>');
     expect(prompt).toContain('</review>');
+  });
+
+  it('builds a full-document revision contract with the current Canvas content', () => {
+    const prompt = buildDocumentGenerationMessage(
+      'Satışçı yerine satış uzmanı yaz',
+      existingDocument,
+    );
+
+    expect(prompt).toContain('mevcut Enerjisa ihtiyaç analizi dokümanında değişiklik');
+    expect(prompt).toContain('Satışçı işlemi başlatır.');
+    expect(prompt).toContain('Açık konu: Yetki matrisi.');
+    expect(prompt).toContain('Yalnız kullanıcının istediği değişikliği uygula');
+    expect(prompt).toContain('değişiklik uygulanmış TAM dokümanı');
+    expect(prompt).toContain('<current_business_analysis format="html">');
+    ENERJISA_REQUIRED_DOCUMENT_MARKERS.forEach(marker => {
+      expect(prompt).toContain(marker);
+    });
   });
 
   it('parses BA analysis and review blocks separately', () => {
