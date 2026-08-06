@@ -1,8 +1,8 @@
 import React from 'react';
 import { ChatPanel } from './ChatPanel';
 import { DocumentPanel } from './DocumentPanel';
-import { Message, DocumentData, MessageAttachment, MessageSendOptions } from '../types';
-import { User } from '../hooks/useAuth';
+import type { Message, DocumentData, MessageAttachment, MessageSendOptions } from '../types';
+import type { User } from '../hooks/useAuth';
 import { useDataStore } from '../store/useDataStore';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
@@ -16,7 +16,7 @@ interface WorkspaceViewProps {
   latestScoreExplanation?: string;
   channelRef: React.MutableRefObject<any>;
   sessionId: React.MutableRefObject<string>;
-  
+
   onSendMessage: (
     text: string,
     attachments?: MessageAttachment[],
@@ -39,7 +39,6 @@ export function WorkspaceView({
   latestScoreExplanation,
   channelRef,
   sessionId,
-  
   onSendMessage,
   onToggleReaction,
   onToggleAiActive,
@@ -48,7 +47,7 @@ export function WorkspaceView({
   onDismissAiHandRaise,
   onRestoreDocument,
   onGenerateDocument,
-  onUpdateDocument
+  onUpdateDocument,
 }: WorkspaceViewProps) {
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const projects = useDataStore(state => state.projects);
@@ -62,38 +61,55 @@ export function WorkspaceView({
   const activeZeroTouchRoles = useDocumentStore(state => state.activeZeroTouchRoles);
   const setActiveZeroTouchRoles = useDocumentStore(state => state.setActiveZeroTouchRoles);
   const aiHandRaised = useDocumentStore(state => state.aiHandRaised);
-  const activeTab = useDocumentStore(state => state.activeTab);
-  const setActiveTab = useDocumentStore(state => state.setActiveTab);
   const selectedDocumentText = useDocumentStore(state => state.selectedDocumentText);
-  const setSelectedDocumentText = useDocumentStore(state => state.setSelectedDocumentText);
   const isLoadingWorkspace = useDataStore(state => state.isLoadingWorkspace);
-  const messageLoadError = useMessageStore(state => currentWorkspaceId ? state.loadErrorsByWorkspace[currentWorkspaceId] : null);
+  const messageLoadError = useMessageStore(
+    state => currentWorkspaceId ? state.loadErrorsByWorkspace[currentWorkspaceId] : null,
+  );
   const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
 
-  const currentWorkspace = projects.flatMap(p => p.workspaces).find(w => w.id === currentWorkspaceId);
+  const currentWorkspace = projects
+    .flatMap(project => project.workspaces)
+    .find(workspace => workspace.id === currentWorkspaceId);
+  const showDocumentPanel = FEATURE_FLAGS.DOCUMENT_COPILOT;
 
   return (
     <>
-      <ChatPanel 
-        messages={messages} 
-        onSendMessage={onSendMessage} 
+      <ChatPanel
+        messages={messages}
+        onSendMessage={onSendMessage}
         isGenerating={isGenerating || isDiscussing}
         issueKey={currentWorkspace?.issueKey}
         status={currentWorkspace?.status}
         title={currentWorkspace?.title}
-        projectName={projects.find(p => p.workspaces.some(w => w.id === currentWorkspaceId))?.name}
+        projectName={projects.find(project => project.workspaces.some(workspace => workspace.id === currentWorkspaceId))?.name}
         hasDocument={!!documentContent}
         activeUsers={activeUsers}
         collaborators={currentWorkspace?.collaborators}
         typingUsers={typingUsers}
         onTypingStart={() => {
           if (channelRef.current && currentWorkspaceId && user) {
-            channelRef.current.send({ type: 'broadcast', event: 'typing_start', payload: { itemId: currentWorkspaceId, userId: sessionId.current, userName: user.name } });
+            channelRef.current.send({
+              type: 'broadcast',
+              event: 'typing_start',
+              payload: {
+                itemId: currentWorkspaceId,
+                userId: sessionId.current,
+                userName: user.name,
+              },
+            });
           }
         }}
         onTypingEnd={() => {
           if (channelRef.current && currentWorkspaceId && user) {
-            channelRef.current.send({ type: 'broadcast', event: 'typing_end', payload: { itemId: currentWorkspaceId, userId: sessionId.current } });
+            channelRef.current.send({
+              type: 'broadcast',
+              event: 'typing_end',
+              payload: {
+                itemId: currentWorkspaceId,
+                userId: sessionId.current,
+              },
+            });
           }
         }}
         onToggleReaction={onToggleReaction}
@@ -112,12 +128,15 @@ export function WorkspaceView({
         isLoadingWorkspace={isLoadingWorkspace}
         messageLoadError={messageLoadError}
         onRetryMessageLoad={() => {
-          if (currentWorkspaceId) useMessageStore.getState().retryWorkspace(currentWorkspaceId);
+          if (currentWorkspaceId) {
+            useMessageStore.getState().retryWorkspace(currentWorkspaceId);
+          }
         }}
         onManageParticipants={() => setShowManageParticipantsModal(true)}
-        fullWidth={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME}
+        fullWidth={!showDocumentPanel}
       />
-      {!FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && (
+
+      {showDocumentPanel && (
         <DocumentPanel
           onGenerate={onGenerateDocument}
           hasMessages={messages.length > 0}
