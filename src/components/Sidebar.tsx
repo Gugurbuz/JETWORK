@@ -8,6 +8,7 @@ import { Project } from '../types';
 import { cn } from '../lib/utils';
 import { useDataStore } from '../store/useDataStore';
 import { useUIStore } from '../store/useUIStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 type Lifecycle = 'active' | 'archived' | 'trash';
@@ -56,6 +57,8 @@ export function Sidebar(props: SidebarProps) {
   const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
   const mobileOpen = useUIStore(state => state.mobileSidebarOpen);
   const setMobileOpen = useUIStore(state => state.setMobileSidebarOpen);
+  const selectedModel = useSettingsStore(state => state.selectedModel);
+  const setSelectedModel = useSettingsStore(state => state.setSelectedModel);
 
   React.useEffect(() => setVisibleCount(PAGE_SIZE), [scope, lifecycle, query]);
 
@@ -154,9 +157,28 @@ export function Sidebar(props: SidebarProps) {
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-theme-primary text-xs font-bold text-theme-primary-fg">{user?.name?.charAt(0) || 'U'}</div>
           {!collapsed && <><div className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-bold">{user?.name}</p><p className="truncate text-[10px] text-theme-text-muted">{user?.role}</p></div><Settings size={14} /></>}
         </button>
-        {showUserMenu && !collapsed && <div className="absolute bottom-full left-4 right-4 mb-2 rounded-lg border border-theme-border bg-theme-surface p-1 shadow-xl">
+        {showUserMenu && !collapsed && <div className="absolute bottom-full left-4 right-4 mb-2 max-h-[70vh] overflow-y-auto rounded-lg border border-theme-border bg-theme-surface p-2 shadow-xl">
           <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2 rounded p-2 text-xs hover:bg-theme-surface-hover"><User size={14} />Profil ve ayarlar</button>
-          <div className="grid grid-cols-3 gap-1 p-1">{(['monochrome', 'energetic', 'ocean'] as const).map(t => <button type="button" key={t} onClick={() => onThemeChange(t)} className={cn('rounded border p-1 text-[9px]', theme === t ? 'border-theme-primary' : 'border-theme-border')}>{t}</button>)}</div>
+          <div className="my-1 border-t border-theme-border pt-2">
+            <label htmlFor="sidebar-ai-model" className="mb-1.5 block px-1 text-[10px] font-semibold uppercase tracking-wider text-theme-text-muted">Yapay Zeka Modeli</label>
+            <select
+              id="sidebar-ai-model"
+              value={selectedModel}
+              onChange={event => setSelectedModel(event.target.value)}
+              className="w-full rounded-md border border-theme-border bg-theme-bg px-2 py-2 text-xs text-theme-text outline-none focus:border-theme-primary"
+            >
+              <option value="auto">Otomatik — OpenAI + Gemini</option>
+              <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>
+              <option value="gpt-5.6">OpenAI GPT-5.6</option>
+              <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
+              <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+              <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
+            </select>
+          </div>
+          <div className="my-1 border-t border-theme-border pt-2">
+            <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-theme-text-muted">Tema</p>
+            <div className="grid grid-cols-3 gap-1">{(['monochrome', 'energetic', 'ocean'] as const).map(t => <button type="button" key={t} onClick={() => onThemeChange(t)} className={cn('rounded border p-1 text-[9px]', theme === t ? 'border-theme-primary' : 'border-theme-border')}>{t}</button>)}</div>
+          </div>
           <button type="button" onClick={onLogout} className="flex w-full items-center gap-2 rounded p-2 text-xs text-red-500 hover:bg-red-500/10"><LogOut size={14} />Çıkış yap</button>
         </div>}
       </div>

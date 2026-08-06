@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DiffViewerModal } from './DiffViewerModal';
 import { ZERO_TOUCH_AGENTS } from '../constants';
 import { useDataStore } from '../store/useDataStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { KnowledgeBankModal } from './KnowledgeBankModal';
 
@@ -661,6 +662,8 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const selectedModel = useSettingsStore(state => state.selectedModel);
+  const setSelectedModel = useSettingsStore(state => state.setSelectedModel);
   const [input, setInput] = useState('');
   const [selectedAttachments, setSelectedAttachments] = useState<MessageAttachment[]>([]);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
@@ -1173,6 +1176,22 @@ export function ChatPanel({
               </span>
             </div>
           </div>
+
+          <select
+            aria-label="Yapay zeka modeli"
+            title="Sonraki mesajlarda kullanılacak yapay zeka modeli"
+            value={selectedModel}
+            onChange={event => setSelectedModel(event.target.value)}
+            disabled={isGenerating}
+            className="max-w-[112px] shrink-0 rounded-md border border-theme-border bg-theme-surface px-2 py-1.5 text-[11px] font-medium text-theme-text outline-none focus:border-theme-primary disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[190px] sm:text-xs"
+          >
+            <option value="auto">Otomatik · OpenAI + Gemini</option>
+            <option value="gpt-5.6-sol">OpenAI · GPT-5.6 Sol</option>
+            <option value="gpt-5.6">OpenAI · GPT-5.6</option>
+            <option value="gemini-3-flash-preview">Gemini · 3 Flash</option>
+            <option value="gemini-3.1-pro-preview">Gemini · 3.1 Pro</option>
+            <option value="gemini-3.1-flash-lite-preview">Gemini · 3.1 Flash Lite</option>
+          </select>
           
           {/* Collaborators */}
           {collaborators && collaborators.length > 0 && (
