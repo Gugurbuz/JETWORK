@@ -6,6 +6,7 @@ import { saveDocumentAndVersion } from '../utils/documentUtils';
 
 const normalizeIntentText = (value: string): string => value
   .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .replace(/[^a-z0-9\s]/g, ' ')
