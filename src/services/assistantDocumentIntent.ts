@@ -3,6 +3,7 @@ import type { DocumentData } from '../types';
 import { sanitizeDocumentHtml } from '../lib/sanitizeHtml';
 import { useDocumentStore } from '../store/useDocumentStore';
 import { saveDocumentAndVersion } from '../utils/documentUtils';
+import { ENERJISA_DOCUMENT_TEMPLATE_INSTRUCTION } from './ai/enerjisaBaInstructions';
 
 const normalizeIntentText = (value: string): string => value
   .toLocaleLowerCase('tr-TR')
@@ -34,6 +35,21 @@ const DOCUMENT_TARGETS = [
   'ihtiyac analizi',
 ];
 
+export const ENERJISA_REQUIRED_DOCUMENT_MARKERS = [
+  'İş Analizi Dokümanı',
+  'Talep Adı',
+  'İçindekiler',
+  '# İHTİYAÇ ANALİZİ',
+  '## 1. ANALİZ KAPSAMI',
+  '## 2. KISALTMALAR',
+  '## 3. İŞ GEREKSİNİMLERİ',
+  '## 4. FONKSİYONEL GEREKSİNİMLER (FR)',
+  '## 5. FONKSİYONEL OLMAYAN GEREKSİNİMLER (NFR)',
+  '## 6. SÜREÇ RİSK ANALİZİ',
+  '## 7. ONAY',
+  '## 8. FONKSİYONEL TASARIM DOKÜMANLARI',
+] as const;
+
 export function isExplicitDocumentCreationRequest(message: string): boolean {
   const normalized = normalizeIntentText(message);
   if (!normalized) return false;
@@ -47,13 +63,19 @@ export function buildDocumentGenerationMessage(message: string): string {
   return [
     message.trim(),
     '',
-    '[Sistem yönlendirmesi: Kullanıcı açıkça düzenlenebilir bir BA analiz dokümanı istiyor.]',
-    'Yanıtı yalnızca aşağıdaki iki blok halinde üret. Blokların dışına sohbet açıklaması yazma.',
+    '[Sistem yönlendirmesi: Kullanıcı açıkça düzenlenebilir bir Enerjisa ihtiyaç analizi dokümanı istiyor.]',
+    'Aşağıdaki Enerjisa doküman sözleşmesi zorunludur. Başlıkları, numaraları ve sıralamayı değiştirme; eş anlamlı veya alternatif başlık kullanma.',
+    'Bilgi bulunmayan alanları uydurma. İlgili satırda [AÇIK KONU] yaz; yalnız kullanıcının kabul ettiği kabulleri [VARSAYIM] olarak işaretle.',
+    '',
+    ENERJISA_DOCUMENT_TEMPLATE_INSTRUCTION,
+    '',
+    '[ÇIKTI SÖZLEŞMESİ]',
+    'Yanıtı yalnızca aşağıdaki iki XML-benzeri blok halinde üret. Blokların dışına sohbet açıklaması yazma.',
     '<ba_analysis>',
-    'Kapsamlı BA analiz içeriğini Markdown olarak buraya yaz. Mevcut konuşma ve kaynaklarla sınırlı kal; veri uydurma.',
+    'Enerjisa ihtiyaç analizi dokümanını Markdown olarak buraya yaz. Kapak tablosu, İçindekiler ve 1-8 arasındaki tüm zorunlu ana bölümler eksiksiz bulunmalıdır.',
     '</ba_analysis>',
     '<review>',
-    'Riskleri, varsayımları, açık konuları ve kalite bulgularını Markdown olarak buraya yaz.',
+    'Yalnız dokümandan ayrı tutulması gereken riskleri, varsayımları, açık konuları ve kalite bulgularını Markdown olarak buraya yaz. Yeni iş gerçeği ekleme.',
     '</review>',
   ].join('\n');
 }
@@ -61,6 +83,11 @@ export function buildDocumentGenerationMessage(message: string): string {
 export interface AssistantDocumentDraft {
   businessAnalysisMarkdown: string;
   reviewMarkdown: string;
+}
+
+export interface EnerjisaDocumentContractValidation {
+  valid: boolean;
+  missingMarkers: string[];
 }
 
 export function parseAssistantDocumentDraft(rawText: string): AssistantDocumentDraft {
@@ -73,6 +100,20 @@ export function parseAssistantDocumentDraft(rawText: string): AssistantDocumentD
       .replace(/<review>[\s\S]*?<\/review>/gi, '')
       .trim(),
     reviewMarkdown: (reviewMatch?.[1] || '').trim(),
+  };
+}
+
+export function validateEnerjisaDocumentContract(
+  businessAnalysisMarkdown: string,
+): EnerjisaDocumentContractValidation {
+  const normalizedDocument = normalizeIntentText(businessAnalysisMarkdown);
+  const missingMarkers = ENERJISA_REQUIRED_DOCUMENT_MARKERS.filter(marker => (
+    !normalizedDocument.includes(normalizeIntentText(marker))
+  ));
+
+  return {
+    valid: missingMarkers.length === 0,
+    missingMarkers: [...missingMarkers],
   };
 }
 
@@ -89,6 +130,14 @@ export async function persistAssistantDocument(input: {
   model?: string;
 }): Promise<{ document: DocumentData; versionNumber?: number }> {
   const draft = parseAssistantDocumentDraft(input.rawText);
+  const validation = validateEnerjisaDocumentContract(draft.businessAnalysisMarkdown);
+
+  if (!validation.valid) {
+    throw new Error(
+      `Enerjisa doküman formatı tamamlanamadı. Eksik bölümler: ${validation.missingMarkers.join(', ')}. Doküman kaydedilmedi; lütfen yeniden deneyin.`,
+    );
+  }
+
   const existingDocument = useDocumentStore.getState().documentContent;
   const businessAnalysisContent = markdownToSafeHtml(draft.businessAnalysisMarkdown);
   const reviewContent = markdownToSafeHtml(draft.reviewMarkdown);
@@ -118,8 +167,8 @@ export async function persistAssistantDocument(input: {
         input.messageId,
       ])).slice(-20),
       changeSummary: existingDocument
-        ? 'AI BA analiz dokümanını güncelledi'
-        : 'AI BA analiz dokümanını oluşturdu',
+        ? 'AI Enerjisa ihtiyaç analizi dokümanını güncelledi'
+        : 'AI Enerjisa ihtiyaç analizi dokümanını oluşturdu',
       changedSections,
       updatedAt: new Date().toISOString(),
     },
@@ -140,7 +189,7 @@ export async function persistAssistantDocument(input: {
   );
 
   if (!persistence.ok) {
-    throw new Error(persistence.error || 'BA analiz dokümanı kaydedilemedi.');
+    throw new Error(persistence.error || 'Enerjisa ihtiyaç analizi dokümanı kaydedilemedi.');
   }
 
   useDocumentStore.getState().setDocumentContent(document);
