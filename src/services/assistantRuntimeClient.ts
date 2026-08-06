@@ -1,6 +1,11 @@
 import { supabase } from '../supabase';
 import { consumeSseBuffer, type SseEvent } from './sseParser';
 import type { AssistantKnowledgeSource, MessageAttachment } from '../types';
+import {
+  buildDocumentGenerationMessage,
+  isExplicitDocumentCreationRequest,
+  persistAssistantDocument,
+} from './assistantDocumentIntent';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CHAT_ATTACHMENTS = 3;
@@ -40,6 +45,8 @@ export interface AssistantRuntimeResult {
   provider?: 'openai' | 'gemini';
   fallbackUsed?: boolean;
   usage?: Record<string, number>;
+  documentCreated?: boolean;
+  documentVersionNumber?: number;
 }
 
 export interface AssistantChatAttachment {
@@ -129,7 +136,6 @@ export async function prepareAssistantChatAttachments(
   return prepared;
 }
 
-
 export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEvent | null {
   if (event.data === '[DONE]') return { type: 'done' };
 
@@ -208,6 +214,10 @@ export async function streamAssistantResponse(input: {
   const token = session?.access_token;
   const supabaseUrl = env.VITE_SUPABASE_URL;
   const anonKey = env.VITE_SUPABASE_ANON_KEY;
+  const documentRequest = isExplicitDocumentCreationRequest(input.message);
+  const assistantMessage = documentRequest
+    ? buildDocumentGenerationMessage(input.message)
+    : input.message;
 
   if (!supabaseUrl || !anonKey || !token) {
     throw new Error('Asistan için geçerli bir kullanıcı oturumu ve Supabase yapılandırması gerekiyor.');
@@ -232,7 +242,10 @@ export async function streamAssistantResponse(input: {
   let completedSeen = false;
 
   try {
-    input.onStatus?.('connecting', 'Asistana bağlanılıyor...');
+    input.onStatus?.(
+      'connecting',
+      documentRequest ? 'BA Analiz dokümanı hazırlanıyor...' : 'Asistana bağlanılıyor...',
+    );
     const response = await fetch(`${supabaseUrl}/functions/v1/openai-assistant`, {
       method: 'POST',
       signal: controller.signal,
@@ -244,7 +257,7 @@ export async function streamAssistantResponse(input: {
       body: JSON.stringify({
         workspaceId: input.workspaceId,
         messageId: input.messageId,
-        message: input.message,
+        message: assistantMessage,
         model: input.model || 'auto',
         chatAttachments: input.chatAttachments || [],
       }),
@@ -266,7 +279,11 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'error') throw new Error(parsed.message);
       if (parsed.type === 'text_delta') {
         fullText += parsed.delta;
-        input.onText?.(fullText);
+        input.onText?.(
+          documentRequest
+            ? 'BA Analiz dokümanı hazırlanıyor...'
+            : fullText,
+        );
         return;
       }
       if (parsed.type === 'sources') {
@@ -275,7 +292,10 @@ export async function streamAssistantResponse(input: {
         return;
       }
       if (parsed.type === 'status') {
-        input.onStatus?.(parsed.stage, parsed.label);
+        input.onStatus?.(
+          parsed.stage,
+          documentRequest ? 'BA Analiz dokümanı hazırlanıyor...' : parsed.label,
+        );
         return;
       }
       completedSeen = true;
@@ -305,6 +325,32 @@ export async function streamAssistantResponse(input: {
     }
     if (!fullText.trim()) {
       throw new Error('Asistan yanıt metni üretmedi.');
+    }
+
+    if (documentRequest) {
+      input.onStatus?.('answering', 'BA Analiz dokümanı kaydediliyor...');
+      const persisted = await persistAssistantDocument({
+        workspaceId: input.workspaceId,
+        messageId: input.messageId,
+        rawText: fullText,
+        provider,
+        model,
+      });
+      const displayText = persisted.versionNumber
+        ? `BA Analiz dokümanı oluşturuldu ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
+        : "BA Analiz dokümanı oluşturuldu ve Canvas'a kaydedildi.";
+      input.onText?.(displayText);
+      return {
+        text: displayText,
+        sources,
+        conversationId,
+        model,
+        provider,
+        fallbackUsed,
+        usage,
+        documentCreated: true,
+        documentVersionNumber: persisted.versionNumber,
+      };
     }
 
     return { text: fullText, sources, conversationId, model, provider, fallbackUsed, usage };
