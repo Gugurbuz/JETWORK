@@ -31,6 +31,14 @@ interface SidebarProps {
 
 const PAGE_SIZE = 30;
 
+const SwissLogo = () => (
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="JetWork">
+    <rect width="32" height="32" fill="#FFC107" />
+    <rect x="8" y="8" width="16" height="16" fill="var(--theme-surface)" />
+    <rect x="12" y="12" width="8" height="8" fill="#FF9800" />
+  </svg>
+);
+
 export function Sidebar(props: SidebarProps) {
   const { user, onSelectWorkspace, onSelectProject, onEditProject, onDeleteProject,
     onArchiveProject, onRestoreProject, isLoadingProjects, projectsError,
@@ -83,7 +91,7 @@ export function Sidebar(props: SidebarProps) {
         {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
       </button>
       <div className="flex h-16 items-center gap-3 border-b border-theme-border px-5">
-        <div className="grid h-8 w-8 shrink-0 place-items-center bg-amber-400 font-black text-zinc-900">J</div>
+        <div className="h-8 w-8 shrink-0"><SwissLogo /></div>
         {!collapsed && <span className="font-bold text-theme-text">JetWork</span>}
       </div>
 
