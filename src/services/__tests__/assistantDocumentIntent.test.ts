@@ -83,11 +83,27 @@ describe('assistant document intent', () => {
   });
 
   it.each([
+    'Ürün adı aslında lrtv5 olmalı',
+    'Doğrusu LRT-V5',
+    'LRT-V4 değil LRT-V5',
+    'Bundan sonra adı LRTV5 olacak',
+    'Burada satışçı değil satış uzmanı yazmalı',
+    'Bu alan CRM değil C4C',
+    'FR-3te tarih 01.09 olmalı',
+  ])('routes a natural-language correction to the existing document: %s', message => {
+    expect(isExplicitDocumentRevisionRequest(message, existingDocument)).toBe(true);
+    expect(resolveAssistantDocumentRequestMode(message, existingDocument)).toBe('revise');
+  });
+
+  it.each([
     'Bu cevabı daha kısa yaz',
     'Son mesajını düzelt',
     'Sence dokümanda ne değişmeli?',
     'Nasıl güncellemeliyiz?',
     'Mevcut analizi değerlendir',
+    'Ürün adı ne olmalı?',
+    'Bu alan CRM değil mi?',
+    'Nasıl olmalı?',
   ])('keeps chat and advisory requests out of document versioning: %s', message => {
     expect(isExplicitDocumentRevisionRequest(message, existingDocument)).toBe(false);
   });
@@ -127,6 +143,17 @@ describe('assistant document intent', () => {
     ENERJISA_REQUIRED_DOCUMENT_MARKERS.forEach(marker => {
       expect(prompt).toContain(marker);
     });
+  });
+
+  it('builds the same revision contract for a natural correction', () => {
+    const prompt = buildDocumentGenerationMessage(
+      'Ürün adı aslında lrtv5 olmalı',
+      existingDocument,
+    );
+
+    expect(prompt).toContain('mevcut Enerjisa ihtiyaç analizi dokümanında değişiklik');
+    expect(prompt).toContain('Ürün adı aslında lrtv5 olmalı');
+    expect(prompt).toContain('<current_business_analysis format="html">');
   });
 
   it('parses BA analysis and review blocks separately', () => {
