@@ -109,7 +109,6 @@ export default function App() {
   const setTheme = useSettingsStore(state => state.setTheme);
   const sessionId = useRef(crypto.randomUUID());
 
-  // Apply theme to document
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('theme-monochrome', 'theme-energetic', 'theme-ocean');
@@ -119,9 +118,6 @@ export default function App() {
     localStorage.setItem('jetwork-theme', theme);
   }, [theme]);
 
-
-
-  // Save current project ID
   useEffect(() => {
     if (currentProjectId) {
       localStorage.setItem('jetwork-current-project-id', currentProjectId);
@@ -257,7 +253,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-theme-bg text-theme-text font-sans overflow-hidden selection:bg-theme-primary selection:text-theme-primary-fg transition-colors duration-300 relative">
-      {/* Background Gradient for Glass Effect */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-theme-primary/20 blur-[120px]" />
         <div className="absolute top-[40%] -right-[10%] w-[40%] h-[60%] rounded-full bg-theme-primary/10 blur-[100px]" />
@@ -278,24 +273,25 @@ export default function App() {
         handleDeleteWorkspace={handleDeleteWorkspace}
       />
       <AISettingsModal />
-      {!currentWorkspaceId && (
-        <Sidebar 
-          user={user}
-          onSelectWorkspace={selectWorkspace}
-          onSelectProject={selectProject}
-          onEditProject={setEditingProject}
-          onDeleteProject={setDeletingProject}
-          onArchiveProject={handleArchiveProject}
-          onRestoreProject={handleRestoreProject}
-          isLoadingProjects={isLoadingProjects}
-          projectsError={projectsError}
-          onRetryProjects={() => void reloadProjects()}
-          theme={theme}
-          onThemeChange={setTheme}
-          onLogout={handleLogout}
-          onOpenSettings={() => setShowSettingsModal(true)}
-        />
-      )}
+
+      <Sidebar 
+        user={user}
+        onSelectWorkspace={selectWorkspace}
+        onSelectProject={selectProject}
+        onQuickStart={() => void handleQuickStart()}
+        onEditProject={setEditingProject}
+        onDeleteProject={setDeletingProject}
+        onArchiveProject={handleArchiveProject}
+        onRestoreProject={handleRestoreProject}
+        isLoadingProjects={isLoadingProjects}
+        projectsError={projectsError}
+        onRetryProjects={() => void reloadProjects()}
+        theme={theme}
+        onThemeChange={setTheme}
+        onLogout={handleLogout}
+        onOpenSettings={() => setShowSettingsModal(true)}
+      />
+
       <MainContent onQuickStart={() => void handleQuickStart()}>
         <WorkspaceView
           messages={messages}
