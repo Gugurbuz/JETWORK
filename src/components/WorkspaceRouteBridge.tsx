@@ -38,6 +38,12 @@ export function WorkspaceRouteBridge({ children }: WorkspaceRouteBridgeProps) {
   }, [location.pathname, setCurrentProjectId, setCurrentWorkspaceId]);
 
   useEffect(() => {
+    // React StrictMode can replay effects with the render's old Zustand value
+    // after the route effect already updated the store. Never let that stale
+    // closure overwrite a valid deep link.
+    const activeWorkspaceId = useDataStore.getState().currentWorkspaceId;
+    if (activeWorkspaceId !== currentWorkspaceId) return;
+
     if (routeDrivenStoreUpdateRef.current) {
       routeDrivenStoreUpdateRef.current = false;
       return;
