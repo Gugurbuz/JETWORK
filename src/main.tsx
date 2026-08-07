@@ -5,6 +5,7 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WorkspaceRouteBridge } from './components/WorkspaceRouteBridge';
 import './index.css';
+import './ai-native.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

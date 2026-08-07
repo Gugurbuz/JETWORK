@@ -1,0 +1,362 @@
+/* JetWork AI-native visual simplification layer.
+   Scoped to the workspace/chat surface so legacy/admin screens keep their existing styling. */
+
+:root {
+  --jw-chat-max: 48rem;
+}
+
+/* Remove the old decorative dashboard glow behind the application shell. */
+#root > div.flex.h-screen > div.absolute.inset-0.pointer-events-none {
+  display: none !important;
+}
+
+/* Conversation surface ---------------------------------------------------- */
+[data-testid="workspace-chat-surface"] > div {
+  background: var(--theme-bg);
+}
+
+[data-testid="workspace-chat-surface"] > div > header {
+  height: 56px !important;
+  padding-inline: 18px !important;
+  border-bottom-color: color-mix(in srgb, var(--theme-border) 55%, transparent) !important;
+  box-shadow: none !important;
+  background: color-mix(in srgb, var(--theme-bg) 94%, transparent) !important;
+  backdrop-filter: blur(14px);
+}
+
+/* The global sidebar owns navigation now; the old chat back arrow is noise. */
+[data-testid="workspace-chat-surface"] > div > header > div > button:first-child {
+  display: none !important;
+}
+
+/* Remove the square workspace emblem. */
+[data-testid="workspace-chat-surface"] > div > header > div > div:nth-child(2) {
+  display: none !important;
+}
+
+/* Keep only the conversation title; project/status metadata lives in navigation. */
+[data-testid="workspace-chat-surface"] > div > header > div > div:nth-child(3) > div:nth-child(2) {
+  display: none !important;
+}
+
+[data-testid="workspace-chat-surface"] > div > header > div > div:last-child[title="Kıdemli İş Analisti"] {
+  display: none !important;
+}
+
+[data-testid="workspace-chat-surface"] > div > header select {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--theme-text-muted) !important;
+  padding-inline: 6px !important;
+  box-shadow: none !important;
+}
+
+[data-testid="workspace-chat-surface"] > div > header select:hover,
+[data-testid="workspace-chat-surface"] > div > header select:focus {
+  background: var(--theme-surface-hover) !important;
+}
+
+.chat-scroll-container {
+  padding: 34px 22px 160px !important;
+  scroll-behavior: smooth;
+}
+
+.chat-scroll-container > .max-w-4xl {
+  max-width: var(--jw-chat-max) !important;
+  gap: 0 !important;
+}
+
+/* Message rhythm --------------------------------------------------------- */
+.chat-scroll-container .group:has([data-testid="chat-message"]) {
+  gap: 0 !important;
+  padding-block: 14px;
+}
+
+.chat-scroll-container .group:has([data-testid="chat-message"]) > div:first-child {
+  display: none !important;
+}
+
+.chat-scroll-container .group:has([data-testid="chat-message"]) > div:nth-child(2) {
+  min-width: 0;
+}
+
+.chat-scroll-container .group:has([data-message-role="model"]) > div:nth-child(2) {
+  width: 100%;
+}
+
+.chat-scroll-container .group:has([data-message-role="user"]) {
+  justify-content: flex-end;
+}
+
+.chat-scroll-container .group:has([data-message-role="user"]) > div:nth-child(2) {
+  flex: 0 1 auto !important;
+  width: auto !important;
+  max-width: min(82%, 42rem);
+}
+
+/* User messages need no author chrome. */
+.chat-scroll-container .group:has([data-message-role="user"]) > div:nth-child(2) > div:first-child {
+  display: none !important;
+}
+
+/* AI metadata remains available, but quiet. */
+.chat-scroll-container .group:has([data-message-role="model"]) > div:nth-child(2) > div:first-child {
+  margin-bottom: 8px;
+  opacity: .68;
+}
+
+.chat-scroll-container .group:has([data-message-role="model"]) > div:nth-child(2) > div:first-child > span:nth-child(2) {
+  display: none !important;
+}
+
+[data-testid="chat-message"] {
+  box-shadow: none !important;
+  font-size: 15px !important;
+  line-height: 1.72 !important;
+}
+
+[data-testid="chat-message"][data-message-role="model"] {
+  padding: 0 !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+}
+
+[data-testid="chat-message"][data-message-role="user"] {
+  padding: 10px 14px !important;
+  border-color: transparent !important;
+  background: var(--theme-surface-hover) !important;
+  border-radius: 20px !important;
+}
+
+[data-testid="chat-message"].bg-red-500\/5 {
+  padding: 12px 14px !important;
+  border-color: color-mix(in srgb, #ef4444 25%, transparent) !important;
+  background: color-mix(in srgb, #ef4444 6%, var(--theme-bg)) !important;
+  border-radius: 14px !important;
+}
+
+[data-testid="chat-message"] .prose {
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+[data-testid="chat-message"] .prose p {
+  margin-top: .45em;
+  margin-bottom: .75em;
+}
+
+[data-testid="chat-message"] .prose h1,
+[data-testid="chat-message"] .prose h2,
+[data-testid="chat-message"] .prose h3 {
+  letter-spacing: -0.015em;
+}
+
+/* Safe work summary and sources should feel secondary, not like mini apps. */
+[data-testid="chat-message"] details {
+  border-color: transparent !important;
+  background: transparent !important;
+  border-radius: 10px !important;
+}
+
+[data-testid="chat-message"] details > summary {
+  padding: 8px 0 !important;
+  background: transparent !important;
+  color: var(--theme-text-muted) !important;
+}
+
+[data-testid="interactive-questions"] {
+  border-color: color-mix(in srgb, var(--theme-border) 55%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface) 55%, transparent) !important;
+  border-radius: 14px !important;
+}
+
+[data-testid="interactive-questions"] [data-testid="question-prompt"] {
+  font-weight: 500 !important;
+}
+
+/* Empty conversation ----------------------------------------------------- */
+.chat-scroll-container .grid.grid-cols-1.sm\:grid-cols-2 button {
+  border-color: transparent !important;
+  background: var(--theme-surface) !important;
+  box-shadow: none !important;
+}
+
+.chat-scroll-container .grid.grid-cols-1.sm\:grid-cols-2 button:hover {
+  background: var(--theme-surface-hover) !important;
+}
+
+/* Composer --------------------------------------------------------------- */
+[data-testid="workspace-chat-surface"] > div > div:has(form [data-testid="chat-input"]) {
+  position: absolute !important;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  padding: 12px 20px 20px !important;
+  border-top: 0 !important;
+  box-shadow: none !important;
+  background: linear-gradient(to top, var(--theme-bg) 62%, transparent) !important;
+  pointer-events: none;
+}
+
+[data-testid="workspace-chat-surface"] > div > div:has(form [data-testid="chat-input"]) > div {
+  max-width: var(--jw-chat-max) !important;
+  pointer-events: auto;
+}
+
+form:has([data-testid="chat-input"]) > div.relative.flex.flex-col {
+  border: 1px solid color-mix(in srgb, var(--theme-border) 72%, transparent) !important;
+  background: var(--theme-surface) !important;
+  border-radius: 26px !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,.08) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease !important;
+}
+
+form:has([data-testid="chat-input"]) > div.relative.flex.flex-col:focus-within {
+  border-color: color-mix(in srgb, var(--theme-text-muted) 38%, transparent) !important;
+  box-shadow: 0 10px 36px rgba(0,0,0,.11) !important;
+}
+
+[data-testid="chat-input"] {
+  min-height: 52px !important;
+  padding: 14px 16px 6px !important;
+  font-size: 15px !important;
+  line-height: 1.5 !important;
+}
+
+form:has([data-testid="chat-input"]) > div.relative.flex.flex-col > div:last-child {
+  padding: 5px 8px 8px !important;
+  gap: 2px !important;
+  justify-content: flex-end !important;
+}
+
+form:has([data-testid="chat-input"]) button:not([data-testid="chat-send"]) {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+form:has([data-testid="chat-input"]) button:not([data-testid="chat-send"]):hover {
+  background: var(--theme-surface-hover) !important;
+}
+
+[data-testid="chat-send"] {
+  width: 34px !important;
+  height: 34px !important;
+  border: 0 !important;
+  background: var(--theme-text) !important;
+  color: var(--theme-bg) !important;
+}
+
+[data-testid="chat-send"]:hover:not(:disabled) {
+  transform: translateY(-1px);
+  opacity: .9;
+}
+
+[data-testid="chat-send"]:disabled {
+  background: var(--theme-surface-hover) !important;
+  color: var(--theme-text-muted) !important;
+}
+
+/* Canvas ----------------------------------------------------------------- */
+[data-testid="document-canvas-open"] {
+  width: 44px !important;
+  gap: 4px !important;
+  border-left-color: color-mix(in srgb, var(--theme-border) 55%, transparent) !important;
+  background: var(--theme-bg) !important;
+}
+
+[data-testid="document-canvas-open"] > span:first-child {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: var(--theme-text-muted) !important;
+}
+
+[data-testid="document-canvas-open"] > span:nth-of-type(2),
+[data-testid="document-canvas-open"] > span:nth-of-type(3) {
+  display: none !important;
+}
+
+[data-testid="document-canvas-open"] > svg {
+  margin-top: 0 !important;
+  opacity: .55;
+}
+
+[data-testid="document-canvas-shell"] > div:first-child {
+  min-height: 52px !important;
+  border-bottom-color: color-mix(in srgb, var(--theme-border) 55%, transparent) !important;
+  background: var(--theme-bg) !important;
+  box-shadow: none !important;
+}
+
+[data-testid="document-canvas-shell"] > div:first-child p:last-child {
+  display: none !important;
+}
+
+[role="separator"][aria-label="Sohbet ve doküman genişliğini ayarla"] {
+  width: 1px !important;
+  border: 0 !important;
+  background: var(--theme-border) !important;
+  overflow: visible;
+}
+
+[role="separator"][aria-label="Sohbet ve doküman genişliğini ayarla"] > span {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+[role="separator"][aria-label="Sohbet ve doküman genişliğini ayarla"]:hover > span,
+[role="separator"][aria-label="Sohbet ve doküman genişliğini ayarla"]:focus > span {
+  opacity: 1;
+}
+
+[data-testid="document-canvas-mobile-switch"] {
+  height: 42px !important;
+  border-bottom-color: color-mix(in srgb, var(--theme-border) 45%, transparent) !important;
+  background: var(--theme-bg) !important;
+}
+
+[data-testid="document-canvas-mobile-switch"] > div {
+  background: transparent !important;
+  padding: 0 !important;
+  gap: 16px;
+}
+
+[data-testid="document-canvas-mobile-switch"] button {
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-bottom: 2px solid transparent;
+}
+
+@media (max-width: 767px) {
+  .chat-scroll-container {
+    padding: 24px 16px 145px !important;
+  }
+
+  .chat-scroll-container .group:has([data-message-role="user"]) > div:nth-child(2) {
+    max-width: 88%;
+  }
+
+  [data-testid="workspace-chat-surface"] > div > header {
+    padding-inline: 14px !important;
+  }
+
+  [data-testid="workspace-chat-surface"] > div > header select {
+    max-width: 92px !important;
+    font-size: 10px !important;
+  }
+
+  [data-testid="workspace-chat-surface"] > div > div:has(form [data-testid="chat-input"]) {
+    padding: 8px 12px max(12px, env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-testid="workspace-chat-surface"] > div > header,
+  [data-testid="document-canvas-open"],
+  [data-testid="document-canvas-shell"] > div:first-child {
+    transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease !important;
+  }
+}
