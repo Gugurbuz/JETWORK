@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, FileText, GripVertical, MessageSquare } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, GripVertical, Menu, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { ChatPanel } from './ChatPanel';
 import { DocumentPanel } from './DocumentPanel';
@@ -100,6 +100,7 @@ export function WorkspaceView({
     state => currentWorkspaceId ? state.loadErrorsByWorkspace[currentWorkspaceId] : null,
   );
   const setShowManageParticipantsModal = useUIStore(state => state.setShowManageParticipantsModal);
+  const setMobileSidebarOpen = useUIStore(state => state.setMobileSidebarOpen);
 
   const currentWorkspace = projects
     .flatMap(project => project.workspaces)
@@ -288,6 +289,40 @@ export function WorkspaceView({
   const showChatOnMobile = mobileSurface === 'chat';
   const showDocumentOnMobile = mobileSurface === 'document';
 
+  const mobileWorkspaceHeader = (
+    <header
+      data-testid="workspace-mobile-header"
+      className="flex h-12 shrink-0 items-center gap-2 border-b border-theme-border/60 bg-theme-bg px-2.5 lg:hidden"
+    >
+      <button
+        type="button"
+        data-testid="workspace-mobile-sidebar-open"
+        onClick={() => setMobileSidebarOpen(true)}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-theme-text-muted transition hover:bg-theme-surface-hover hover:text-theme-text"
+        aria-label="Ana menüyü aç"
+        title="Ana menü"
+      >
+        <Menu size={19} />
+      </button>
+      <div className="min-w-0 flex-1 px-1">
+        <p className="truncate text-sm font-semibold text-theme-text">
+          {currentWorkspace?.title || 'Sohbet'}
+        </p>
+      </div>
+      {currentWorkspace?.collaborators && currentWorkspace.collaborators.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowManageParticipantsModal(true)}
+          className="inline-flex h-9 min-w-9 items-center justify-center rounded-full px-2 text-xs font-semibold text-theme-text-muted transition hover:bg-theme-surface-hover hover:text-theme-text"
+          aria-label="Katılımcıları yönet"
+          title="Katılımcılar"
+        >
+          {currentWorkspace.collaborators.length}
+        </button>
+      )}
+    </header>
+  );
+
   const mobileSurfaceSwitch = hasDocument ? (
     <nav
       data-testid="document-canvas-mobile-switch"
@@ -328,6 +363,7 @@ export function WorkspaceView({
 
   return (
     <div ref={layoutRef} className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">
+      {mobileWorkspaceHeader}
       {mobileSurfaceSwitch}
 
       <section

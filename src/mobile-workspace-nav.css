@@ -1,0 +1,20 @@
+/* Mobile workspace chrome: one global header owns navigation while a chat is open. */
+@media (max-width: 767px) {
+  [data-testid="workspace-chat-surface"] > div > header {
+    display: none !important;
+  }
+
+  [data-testid="document-canvas-shell"] > div:first-child {
+    display: none !important;
+  }
+
+  [data-testid="workspace-mobile-header"] {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 768px) {
+  [data-testid="workspace-mobile-header"] {
+    display: none !important;
+  }
+}
