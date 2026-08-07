@@ -119,13 +119,16 @@ export function Sidebar(props: SidebarProps) {
     });
   }, [projects, query, scope, lifecycle, user?.uid]);
 
+  const runMobileAction = React.useCallback((action: () => void) => {
+    if (mobileOpen) setMobileOpen(false);
+    action();
+  }, [mobileOpen, setMobileOpen]);
+
   const selectProject = (id: string) => {
-    onSelectProject(id);
-    setMobileOpen(false);
+    runMobileAction(() => onSelectProject(id));
   };
   const selectWorkspace = (id: string) => {
-    onSelectWorkspace(id);
-    setMobileOpen(false);
+    runMobileAction(() => onSelectWorkspace(id));
   };
   const canManage = (project: Project) => project.ownerId === user?.uid;
 
@@ -135,8 +138,18 @@ export function Sidebar(props: SidebarProps) {
   };
 
   const startNewChat = () => {
-    onQuickStart?.();
-    setMobileOpen(false);
+    runMobileAction(() => onQuickStart?.());
+  };
+
+  const openNewProject = () => {
+    runMobileAction(() => setShowNewProjectModal(true));
+  };
+
+  const openSettings = () => {
+    runMobileAction(() => {
+      setShowUserMenu(false);
+      onOpenSettings();
+    });
   };
 
   const compactActionClass = 'relative flex h-11 w-11 items-center justify-center rounded-xl text-theme-text-muted transition hover:bg-theme-surface-hover hover:text-theme-text';
@@ -240,7 +253,7 @@ export function Sidebar(props: SidebarProps) {
             <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-bold text-theme-text-muted">
               <span>{lifecycle === 'active' ? 'PROJELER' : lifecycle === 'archived' ? 'ARŞİV' : 'ÇÖP KUTUSU'}</span>
               {scope === 'owned' && lifecycle === 'active' && (
-                <button type="button" onClick={() => setShowNewProjectModal(true)} aria-label="Yeni proje"><Plus size={15} /></button>
+                <button type="button" onClick={openNewProject} aria-label="Yeni proje"><Plus size={15} /></button>
               )}
             </div>
 
@@ -344,7 +357,7 @@ export function Sidebar(props: SidebarProps) {
 
         {showUserMenu && !compact && (
           <div className="absolute bottom-full left-4 right-4 mb-2 max-h-[70vh] overflow-y-auto rounded-lg border border-theme-border bg-theme-surface p-2 shadow-xl">
-            <button type="button" onClick={onOpenSettings} className="flex w-full items-center gap-2 rounded p-2 text-xs hover:bg-theme-surface-hover"><User size={14} />Profil ve ayarlar</button>
+            <button type="button" onClick={openSettings} className="flex w-full items-center gap-2 rounded p-2 text-xs hover:bg-theme-surface-hover"><User size={14} />Profil ve ayarlar</button>
             <div className="my-1 border-t border-theme-border pt-2">
               <label htmlFor="sidebar-ai-model" className="mb-1.5 block px-1 text-[10px] font-semibold uppercase tracking-wider text-theme-text-muted">Yapay Zeka Modeli</label>
               <select
