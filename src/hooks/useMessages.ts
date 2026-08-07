@@ -28,6 +28,7 @@ import { ingestKnowledgeAttachment } from '../services/knowledgeCatalogRepositor
 import {
   prepareAssistantChatAttachments,
   streamAssistantResponse,
+  type AssistantRuntimeStage,
 } from '../services/assistantRuntimeClient';
 import { toast } from 'sonner';
 
@@ -44,6 +45,16 @@ const messageForRealtime = (message: Message): Message => (
         })),
       }
     : message
+);
+
+const phaseForAssistantStage = (stage: AssistantRuntimeStage): NonNullable<Message['phase']> => {
+  if (stage === 'searching_knowledge') return 'RESEARCH';
+  if (stage === 'answering') return 'ACT';
+  return 'PLAN';
+};
+
+const stageNotesAsSummary = (notes: string[]): string | undefined => (
+  notes.length ? notes.map(note => `• ${note}`).join('\n') : undefined
 );
 
 export const useMessages = (channelRef: any) => {
@@ -304,6 +315,7 @@ export const useMessages = (channelRef: any) => {
     if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
       let streamedText = '';
       let streamedSources: Message['knowledgeSources'] = [];
+      const stageNotes: string[] = [];
 
       try {
         const result = await streamAssistantResponse({
@@ -320,6 +332,7 @@ export const useMessages = (channelRef: any) => {
               knowledgeSources: streamedSources,
               phase: 'ACT' as const,
               phaseLabel: 'Yanıt hazırlanıyor...',
+              thinkingText: stageNotesAsSummary(stageNotes),
             };
             setMessages(previous => previous.map(message => (
               message.id === aiMsgId ? { ...message, ...patch } : message
@@ -346,12 +359,30 @@ export const useMessages = (channelRef: any) => {
               senderRole: 'Sistem Asistanı',
             });
           },
-          onStatus: (_stage, label) => {
+          onStatus: (stage, label) => {
+            const safeLabel = (label || '').trim();
+            if (safeLabel && stageNotes[stageNotes.length - 1] !== safeLabel) {
+              stageNotes.push(safeLabel);
+              if (stageNotes.length > 5) stageNotes.shift();
+            }
+            const patch = {
+              phase: phaseForAssistantStage(stage),
+              phaseLabel: safeLabel || 'Çalışılıyor...',
+              thinkingText: stageNotesAsSummary(stageNotes),
+            };
             setMessages(previous => previous.map(message => (
               message.id === aiMsgId
-                ? { ...message, phase: 'RESEARCH', phaseLabel: label || 'Bilgi aranıyor...' }
+                ? { ...message, ...patch }
                 : message
             )));
+            broadcastMessage(channelRef, 'ai_stream_chunk', {
+              id: aiMsgId,
+              text: streamedText,
+              knowledgeSources: streamedSources,
+              ...patch,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+            });
           },
         });
 
@@ -359,6 +390,9 @@ export const useMessages = (channelRef: any) => {
           id: aiMsgId,
           role: 'model',
           text: result.text,
+          thinkingText: result.workSummary || stageNotesAsSummary(stageNotes),
+          questions: result.questions,
+          actionSummary: result.actionSummary,
           knowledgeSources: result.sources,
           tokenCount: result.usage?.total_tokens || result.usage?.totalTokens,
           phase: null,
@@ -408,6 +442,7 @@ export const useMessages = (channelRef: any) => {
                     : `${failureDetail} Lütfen tekrar deneyin.`
                 )
             ),
+          thinkingText: stageNotesAsSummary(stageNotes),
           knowledgeSources: streamedSources,
           isTyping: false,
           isError: !wasAborted,

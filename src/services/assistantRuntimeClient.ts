@@ -1,11 +1,13 @@
 import { supabase } from '../supabase';
 import { consumeSseBuffer, type SseEvent } from './sseParser';
-import type { AssistantKnowledgeSource, MessageAttachment } from '../types';
+import type { AssistantKnowledgeSource, MessageAttachment, Question } from '../types';
 import {
   buildDocumentGenerationMessage,
   persistAssistantDocument,
   resolveAssistantDocumentRequestMode,
+  type AssistantDocumentRequestMode,
 } from './assistantDocumentIntent';
+import { parseAssistantPresentationMetadata } from './assistantPresentationMetadata';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CHAT_ATTACHMENTS = 3;
@@ -45,6 +47,9 @@ export interface AssistantRuntimeResult {
   provider?: 'openai' | 'gemini';
   fallbackUsed?: boolean;
   usage?: Record<string, number>;
+  workSummary?: string;
+  questions?: Question[];
+  actionSummary?: string;
   documentCreated?: boolean;
   documentVersionNumber?: number;
 }
@@ -89,6 +94,28 @@ function asKnowledgeSources(value: unknown): AssistantKnowledgeSource[] {
       };
     })
     .filter((item): item is AssistantKnowledgeSource => !!item);
+}
+
+function documentStageLabel(
+  mode: AssistantDocumentRequestMode,
+  stage: AssistantRuntimeStage,
+  fallback?: string,
+): string | undefined {
+  if (mode === 'none') return fallback;
+  if (stage === 'connecting') {
+    return mode === 'revise'
+      ? 'Mevcut doküman bağlamı hazırlanıyor...'
+      : 'Doküman bağlamı hazırlanıyor...';
+  }
+  if (stage === 'thinking') {
+    return mode === 'revise'
+      ? 'Mevcut doküman ve değişiklik talebi değerlendiriliyor...'
+      : 'İhtiyaç ve Enerjisa şablonu değerlendiriliyor...';
+  }
+  if (stage === 'searching_knowledge') return 'Kurumsal bilgi bankası taranıyor...';
+  return mode === 'revise'
+    ? 'Doküman yeni sürüm olarak hazırlanıyor...'
+    : 'Doküman hazırlanıyor...';
 }
 
 async function readAttachmentText(attachment: MessageAttachment): Promise<string> {
@@ -216,9 +243,6 @@ export async function streamAssistantResponse(input: {
   const anonKey = env.VITE_SUPABASE_ANON_KEY;
   const documentRequestMode = resolveAssistantDocumentRequestMode(input.message);
   const documentRequest = documentRequestMode !== 'none';
-  const documentProgressLabel = documentRequestMode === 'revise'
-    ? 'BA Analiz dokümanı güncelleniyor...'
-    : 'BA Analiz dokümanı hazırlanıyor...';
   const assistantMessage = documentRequest
     ? buildDocumentGenerationMessage(input.message)
     : input.message;
@@ -248,7 +272,7 @@ export async function streamAssistantResponse(input: {
   try {
     input.onStatus?.(
       'connecting',
-      documentRequest ? documentProgressLabel : 'Asistana bağlanılıyor...',
+      documentStageLabel(documentRequestMode, 'connecting', 'Asistana bağlanılıyor...'),
     );
     const response = await fetch(`${supabaseUrl}/functions/v1/openai-assistant`, {
       method: 'POST',
@@ -283,10 +307,11 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'error') throw new Error(parsed.message);
       if (parsed.type === 'text_delta') {
         fullText += parsed.delta;
+        const presentation = parseAssistantPresentationMetadata(fullText);
         input.onText?.(
           documentRequest
-            ? documentProgressLabel
-            : fullText,
+            ? documentStageLabel(documentRequestMode, 'answering') || 'Doküman hazırlanıyor...'
+            : presentation.visibleText,
         );
         return;
       }
@@ -298,7 +323,7 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'status') {
         input.onStatus?.(
           parsed.stage,
-          documentRequest ? documentProgressLabel : parsed.label,
+          documentStageLabel(documentRequestMode, parsed.stage, parsed.label),
         );
         return;
       }
@@ -330,6 +355,8 @@ export async function streamAssistantResponse(input: {
     if (!fullText.trim()) {
       throw new Error('Asistan yanıt metni üretmedi.');
     }
+
+    const presentation = parseAssistantPresentationMetadata(fullText);
 
     if (documentRequest) {
       input.onStatus?.(
@@ -365,12 +392,30 @@ export async function streamAssistantResponse(input: {
         provider,
         fallbackUsed,
         usage,
+        workSummary: presentation.workSummary,
+        questions: presentation.questions,
+        actionSummary: presentation.actionSummary || (
+          documentRequestMode === 'revise'
+            ? `Enerjisa analiz dokümanını güncelledim${persisted.versionNumber ? ` ve v${persisted.versionNumber} olarak kaydettim` : ''}.`
+            : `Enerjisa analiz dokümanını oluşturdum${persisted.versionNumber ? ` ve v${persisted.versionNumber} olarak kaydettim` : ''}.`
+        ),
         documentCreated: true,
         documentVersionNumber: persisted.versionNumber,
       };
     }
 
-    return { text: fullText, sources, conversationId, model, provider, fallbackUsed, usage };
+    return {
+      text: presentation.visibleText || fullText,
+      sources,
+      conversationId,
+      model,
+      provider,
+      fallbackUsed,
+      usage,
+      workSummary: presentation.workSummary,
+      questions: presentation.questions,
+      actionSummary: presentation.actionSummary,
+    };
   } finally {
     clearTimeout(timeout);
     input.signal?.removeEventListener('abort', abortFromParent);
