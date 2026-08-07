@@ -14,6 +14,10 @@ const normalizeIntentText = (value: string): string => value
   .replace(/\s+/g, ' ')
   .trim();
 
+const hasExactPhrase = (normalized: string, phrase: string): boolean => (
+  ` ${normalized} `.includes(` ${phrase} `)
+);
+
 const CREATION_VERBS = [
   'olustur',
   'hazirla',
@@ -191,7 +195,7 @@ export function resolveAssistantDocumentRequestMode(
   const normalized = normalizeIntentText(message);
   if (!normalized) return 'none';
 
-  const hasCreationVerb = CREATION_VERBS.some(verb => normalized.includes(verb));
+  const hasCreationVerb = CREATION_VERBS.some(verb => hasExactPhrase(normalized, verb));
   const hasDocumentTarget = DOCUMENT_TARGETS.some(target => normalized.includes(target));
   if (hasCreationVerb && hasDocumentTarget) return 'create';
 

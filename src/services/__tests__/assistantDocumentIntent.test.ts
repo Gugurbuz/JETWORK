@@ -66,8 +66,13 @@ describe('assistant document intent', () => {
     'Eksikleri söyle',
     'Doküman hakkında ne düşünüyorsun?',
     'Kavramsal tasarım nedir?',
-  ])('keeps conversational analysis request in chat: %s', message => {
+    'Şu an bu konuşmada daha önce oluşturulan proje analiz dokümanını bana özetle',
+    'Daha önce oluşturduğumuz dokümanı özetle',
+    'Oluşturulmuş iş analizi belgesini bana göster',
+    'Hazırlanan analiz dokümanını değerlendir',
+  ])('keeps conversational and historical document requests in chat: %s', message => {
     expect(resolveAssistantDocumentRequestMode(message, null)).toBe('none');
+    expect(resolveAssistantDocumentRequestMode(message, existingDocument)).toBe('none');
   });
 
   it.each([
