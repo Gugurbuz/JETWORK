@@ -3,8 +3,8 @@ import { consumeSseBuffer, type SseEvent } from './sseParser';
 import type { AssistantKnowledgeSource, MessageAttachment } from '../types';
 import {
   buildDocumentGenerationMessage,
-  isExplicitDocumentCreationRequest,
   persistAssistantDocument,
+  resolveAssistantDocumentRequestMode,
 } from './assistantDocumentIntent';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -214,7 +214,11 @@ export async function streamAssistantResponse(input: {
   const token = session?.access_token;
   const supabaseUrl = env.VITE_SUPABASE_URL;
   const anonKey = env.VITE_SUPABASE_ANON_KEY;
-  const documentRequest = isExplicitDocumentCreationRequest(input.message);
+  const documentRequestMode = resolveAssistantDocumentRequestMode(input.message);
+  const documentRequest = documentRequestMode !== 'none';
+  const documentProgressLabel = documentRequestMode === 'revise'
+    ? 'BA Analiz dokümanı güncelleniyor...'
+    : 'BA Analiz dokümanı hazırlanıyor...';
   const assistantMessage = documentRequest
     ? buildDocumentGenerationMessage(input.message)
     : input.message;
@@ -244,7 +248,7 @@ export async function streamAssistantResponse(input: {
   try {
     input.onStatus?.(
       'connecting',
-      documentRequest ? 'BA Analiz dokümanı hazırlanıyor...' : 'Asistana bağlanılıyor...',
+      documentRequest ? documentProgressLabel : 'Asistana bağlanılıyor...',
     );
     const response = await fetch(`${supabaseUrl}/functions/v1/openai-assistant`, {
       method: 'POST',
@@ -281,7 +285,7 @@ export async function streamAssistantResponse(input: {
         fullText += parsed.delta;
         input.onText?.(
           documentRequest
-            ? 'BA Analiz dokümanı hazırlanıyor...'
+            ? documentProgressLabel
             : fullText,
         );
         return;
@@ -294,7 +298,7 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'status') {
         input.onStatus?.(
           parsed.stage,
-          documentRequest ? 'BA Analiz dokümanı hazırlanıyor...' : parsed.label,
+          documentRequest ? documentProgressLabel : parsed.label,
         );
         return;
       }
@@ -328,7 +332,12 @@ export async function streamAssistantResponse(input: {
     }
 
     if (documentRequest) {
-      input.onStatus?.('answering', 'BA Analiz dokümanı kaydediliyor...');
+      input.onStatus?.(
+        'answering',
+        documentRequestMode === 'revise'
+          ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
+          : 'BA Analiz dokümanı kaydediliyor...',
+      );
       const persisted = await persistAssistantDocument({
         workspaceId: input.workspaceId,
         messageId: input.messageId,
@@ -336,9 +345,17 @@ export async function streamAssistantResponse(input: {
         provider,
         model,
       });
-      const displayText = persisted.versionNumber
-        ? `BA Analiz dokümanı oluşturuldu ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
-        : "BA Analiz dokümanı oluşturuldu ve Canvas'a kaydedildi.";
+      const displayText = documentRequestMode === 'revise'
+        ? (
+          persisted.versionNumber
+            ? `BA Analiz dokümanı güncellendi ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
+            : "BA Analiz dokümanı güncellendi ve Canvas'a kaydedildi."
+        )
+        : (
+          persisted.versionNumber
+            ? `BA Analiz dokümanı oluşturuldu ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
+            : "BA Analiz dokümanı oluşturuldu ve Canvas'a kaydedildi."
+        );
       input.onText?.(displayText);
       return {
         text: displayText,
