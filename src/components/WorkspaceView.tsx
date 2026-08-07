@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FileText, GripVertical, MessageSquare, Sparkles, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, GripVertical, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
 import { ChatPanel } from './ChatPanel';
 import { DocumentPanel } from './DocumentPanel';
@@ -10,6 +10,7 @@ import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { useMessageStore } from '../store/useMessageStore';
+import { getDocumentHead } from '../services/documentVersionRepository';
 import { cn } from '../lib/utils';
 
 interface WorkspaceViewProps {
@@ -111,6 +112,7 @@ export function WorkspaceView({
   const [hasUnreadDocument, setHasUnreadDocument] = useState(false);
   const [chatPercent, setChatPercent] = useState(DEFAULT_CHAT_PERCENT);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [documentVersionNumber, setDocumentVersionNumber] = useState(0);
   const layoutRef = useRef<HTMLDivElement>(null);
   const hydratedWorkspaceRef = useRef<string | null>(null);
   const previousDocumentRef = useRef<DocumentData | null>(null);
@@ -132,7 +134,7 @@ export function WorkspaceView({
     persistCanvasOpen(true);
   }, [hasDocument, persistCanvasOpen]);
 
-  const closeCanvas = useCallback(() => {
+  const collapseCanvas = useCallback(() => {
     setIsCanvasOpen(false);
     setMobileSurface('chat');
     setHasUnreadDocument(false);
@@ -154,6 +156,7 @@ export function WorkspaceView({
       setIsCanvasOpen(false);
       setMobileSurface('chat');
       setHasUnreadDocument(false);
+      setDocumentVersionNumber(0);
       return;
     }
 
@@ -163,7 +166,37 @@ export function WorkspaceView({
     setIsCanvasOpen(false);
     setMobileSurface('chat');
     setHasUnreadDocument(false);
+    setDocumentVersionNumber(0);
   }, [currentWorkspaceId]);
+
+  useEffect(() => {
+    if (!currentWorkspaceId || !documentContent) {
+      setDocumentVersionNumber(0);
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const refreshVersionNumber = async () => {
+      try {
+        const head = await getDocumentHead(currentWorkspaceId, 'main');
+        if (!cancelled) {
+          setDocumentVersionNumber(head.currentVersionNumber || 1);
+        }
+      } catch {
+        if (!cancelled) setDocumentVersionNumber(value => value || 1);
+      }
+    };
+
+    void refreshVersionNumber();
+    retryTimer = setTimeout(() => { void refreshVersionNumber(); }, 500);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [currentWorkspaceId, documentContent]);
 
   useEffect(() => {
     if (!currentWorkspaceId || isLoadingWorkspace) return;
@@ -188,18 +221,23 @@ export function WorkspaceView({
         description: 'Doküman çalışma alanı açıldı.',
       });
     } else if (previousDocument && !documentContent) {
-      closeCanvas();
-    } else if (previousDocument && documentContent && previousDocument !== documentContent && !isCanvasOpen) {
-      setHasUnreadDocument(true);
+      collapseCanvas();
+    } else if (previousDocument && documentContent && previousDocument !== documentContent) {
+      const documentIsVisible = isDesktop
+        ? isCanvasOpen
+        : mobileSurface === 'document';
+      if (!documentIsVisible) setHasUnreadDocument(true);
     }
 
     previousDocumentRef.current = documentContent;
   }, [
-    closeCanvas,
+    collapseCanvas,
     currentWorkspaceId,
     documentContent,
     isCanvasOpen,
+    isDesktop,
     isLoadingWorkspace,
+    mobileSurface,
     persistCanvasOpen,
   ]);
 
@@ -246,11 +284,52 @@ export function WorkspaceView({
     setChatPercent(value => Math.min(MAX_CHAT_PERCENT, Math.max(MIN_CHAT_PERCENT, value + delta)));
   };
 
-  const showChatOnMobile = !isCanvasOpen || mobileSurface === 'chat';
-  const showDocumentOnMobile = isCanvasOpen && mobileSurface === 'document';
+  const versionLabel = `v${Math.max(1, documentVersionNumber || 1)}`;
+  const showChatOnMobile = mobileSurface === 'chat';
+  const showDocumentOnMobile = mobileSurface === 'document';
+
+  const mobileSurfaceSwitch = hasDocument ? (
+    <nav
+      data-testid="document-canvas-mobile-switch"
+      aria-label="Sohbet ve doküman görünümü"
+      className="flex h-11 shrink-0 items-center border-b border-theme-border bg-theme-bg px-3 lg:hidden"
+    >
+      <div className="grid w-full grid-cols-2 rounded-lg bg-theme-surface p-1">
+        <button
+          type="button"
+          onClick={() => setMobileSurface('chat')}
+          className={cn(
+            'inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition',
+            mobileSurface === 'chat'
+              ? 'bg-theme-bg text-theme-text shadow-sm'
+              : 'text-theme-text-muted hover:text-theme-text',
+          )}
+        >
+          <MessageSquare size={13} /> Sohbet
+        </button>
+        <button
+          type="button"
+          onClick={openCanvas}
+          className={cn(
+            'relative inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition',
+            mobileSurface === 'document'
+              ? 'bg-theme-bg text-theme-text shadow-sm'
+              : 'text-theme-text-muted hover:text-theme-text',
+          )}
+        >
+          <FileText size={13} /> Doküman {versionLabel}
+          {hasUnreadDocument && mobileSurface !== 'document' && (
+            <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-emerald-500" />
+          )}
+        </button>
+      </div>
+    </nav>
+  ) : null;
 
   return (
-    <div ref={layoutRef} className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+    <div ref={layoutRef} className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">
+      {mobileSurfaceSwitch}
+
       <section
         data-testid="workspace-chat-surface"
         className={cn(
@@ -320,30 +399,30 @@ export function WorkspaceView({
           onManageParticipants={() => setShowManageParticipantsModal(true)}
           fullWidth
         />
-
-        {hasDocument && !isCanvasOpen && (
-          <button
-            data-testid="document-canvas-open"
-            type="button"
-            onClick={openCanvas}
-            className="absolute bottom-24 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-theme-primary/30 bg-theme-surface px-4 py-2.5 text-sm font-semibold text-theme-text shadow-xl transition hover:-translate-y-0.5 hover:border-theme-primary/60 hover:bg-theme-surface-hover sm:bottom-28 sm:right-6"
-            title="BA Analiz çalışma alanını aç"
-          >
-            <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-theme-primary/10 text-theme-primary">
-              <FileText size={16} />
-              {hasUnreadDocument && (
-                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-theme-surface bg-emerald-500" />
-              )}
-            </span>
-            <span className="text-left leading-tight">
-              <span className="block text-[10px] font-bold uppercase tracking-widest text-theme-text-muted">
-                {hasUnreadDocument ? 'Güncellendi' : 'Doküman'}
-              </span>
-              <span>BA Analizi Aç</span>
-            </span>
-          </button>
-        )}
       </section>
+
+      {hasDocument && !isCanvasOpen && (
+        <button
+          data-testid="document-canvas-open"
+          type="button"
+          onClick={openCanvas}
+          className="group relative hidden w-14 shrink-0 flex-col items-center justify-center gap-2 border-l border-theme-border bg-theme-surface text-theme-text-muted transition hover:bg-theme-surface-hover hover:text-theme-text lg:flex"
+          title={`BA Analizi · ${versionLabel}`}
+          aria-label={`BA Analizi ${versionLabel} çalışma alanını genişlet`}
+        >
+          <span className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-theme-primary/10 text-theme-primary">
+            <FileText size={17} />
+            {hasUnreadDocument && (
+              <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-theme-surface bg-emerald-500" />
+            )}
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-theme-text">BA</span>
+          <span className="rounded-full border border-theme-border bg-theme-bg px-1.5 py-0.5 text-[10px] font-semibold text-theme-text-muted">
+            {versionLabel}
+          </span>
+          <ChevronLeft size={14} className="mt-1 transition-transform group-hover:-translate-x-0.5" />
+        </button>
+      )}
 
       {hasDocument && isCanvasOpen && isDesktop && (
         <div
@@ -378,36 +457,28 @@ export function WorkspaceView({
                 <FileText size={16} />
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-theme-text">BA Analiz Çalışma Alanı</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-theme-text">BA Analiz Çalışma Alanı</p>
+                  <span className="shrink-0 rounded-full border border-theme-border bg-theme-bg px-2 py-0.5 text-[10px] font-bold text-theme-text-muted">
+                    {versionLabel}
+                  </span>
+                </div>
                 <p className="hidden text-[10px] font-medium uppercase tracking-widest text-theme-text-muted sm:block">
-                  Sohbetten bağımsız düzenlenebilir doküman
+                  Sohbetin yanında yaşayan doküman
                 </p>
               </div>
-              {hasUnreadDocument && (
-                <span className="hidden items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-600 sm:inline-flex">
-                  <Sparkles size={11} /> Yeni
-                </span>
-              )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setMobileSurface('chat')}
-                className="inline-flex items-center gap-2 rounded-md border border-theme-border px-3 py-1.5 text-xs font-semibold text-theme-text hover:bg-theme-surface-hover lg:hidden"
-              >
-                <MessageSquare size={14} /> Sohbete Dön
-              </button>
-              <button
-                data-testid="document-canvas-close"
-                type="button"
-                onClick={closeCanvas}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text"
-                title="Doküman çalışma alanını kapat"
-              >
-                <X size={16} />
-              </button>
-            </div>
+            <button
+              data-testid="document-canvas-close"
+              type="button"
+              onClick={collapseCanvas}
+              className="hidden h-8 w-8 items-center justify-center rounded-md text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text lg:inline-flex"
+              title="Dokümanı sağ kenara küçült"
+              aria-label="Dokümanı sağ kenara küçült"
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
 
           <div className="min-h-0 flex-1">
@@ -425,45 +496,6 @@ export function WorkspaceView({
             />
           </div>
         </section>
-      )}
-
-      {hasDocument && isCanvasOpen && (
-        <nav
-          data-testid="document-canvas-mobile-switch"
-          aria-label="Sohbet ve doküman görünümü"
-          className="absolute bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center rounded-full border border-theme-border bg-theme-surface/95 p-1 shadow-xl backdrop-blur lg:hidden"
-        >
-          <button
-            type="button"
-            onClick={() => setMobileSurface('chat')}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition',
-              mobileSurface === 'chat'
-                ? 'bg-theme-primary text-theme-primary-fg'
-                : 'text-theme-text-muted hover:text-theme-text',
-            )}
-          >
-            <MessageSquare size={13} /> Sohbet
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMobileSurface('document');
-              setHasUnreadDocument(false);
-            }}
-            className={cn(
-              'relative inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition',
-              mobileSurface === 'document'
-                ? 'bg-theme-primary text-theme-primary-fg'
-                : 'text-theme-text-muted hover:text-theme-text',
-            )}
-          >
-            <FileText size={13} /> Doküman
-            {hasUnreadDocument && mobileSurface !== 'document' && (
-              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500" />
-            )}
-          </button>
-        </nav>
       )}
     </div>
   );
