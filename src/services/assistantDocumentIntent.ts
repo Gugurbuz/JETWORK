@@ -53,6 +53,12 @@ const REVISION_VERBS = [
   'yap',
 ];
 
+const NATURAL_CORRECTION_PATTERNS = [
+  /\b(?:olmali|olacak|yazmali|kullanilmali)\b/,
+  /\bdogrusu\b(?:\s+\S+){1,12}/,
+  /\bdegil\b\s+(?!mi\b|miydi\b|midir\b)\S+/,
+];
+
 const DOCUMENT_REVISION_TARGETS = [
   ...DOCUMENT_TARGETS,
   'canvas',
@@ -148,17 +154,22 @@ export function isExplicitDocumentRevisionRequest(
   if (!normalized) return false;
 
   const hasRevisionVerb = REVISION_VERBS.some(verb => normalized.includes(verb));
-  if (!hasRevisionVerb) return false;
+  const hasNaturalCorrection = NATURAL_CORRECTION_PATTERNS.some(pattern => pattern.test(normalized));
+  if (!hasRevisionVerb && !hasNaturalCorrection) return false;
 
   const hasDocumentTarget = DOCUMENT_REVISION_TARGETS.some(target => normalized.includes(target));
   const hasReferenceTarget = DOCUMENT_REFERENCE_TARGETS.some(target => normalized.includes(target));
   const hasStructuredReference = /\b(?:fr|nfr)\s*\d+\b/.test(normalized)
     || /\b\d+(?:\s+\d+){1,3}\b/.test(normalized);
-  const hasReplacementInstruction = normalized.includes('yerine')
-    && ['yaz', 'kullan', 'olsun', 'degistir'].some(verb => normalized.includes(verb));
+  const hasReplacementInstruction = (
+    normalized.includes('yerine')
+      && ['yaz', 'kullan', 'olsun', 'degistir'].some(verb => normalized.includes(verb))
+  ) || hasNaturalCorrection;
   const hasChatTarget = CHAT_ONLY_TARGETS.some(target => normalized.includes(target));
+  const looksLikeNaturalQuestion = /\b(?:ne|nasil)\s+(?:olmali|olacak)\b/.test(normalized);
   const looksLikeQuestion = message.includes('?')
-    || QUESTION_LEADS.some(lead => normalized.startsWith(lead));
+    || QUESTION_LEADS.some(lead => normalized.startsWith(lead))
+    || looksLikeNaturalQuestion;
   const isPoliteCommand = normalized.includes('misin')
     || normalized.includes('bilir misin')
     || normalized.startsWith('lutfen');
