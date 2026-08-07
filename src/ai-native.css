@@ -5,6 +5,12 @@
   --jw-chat-max: 48rem;
 }
 
+/* Remove the old decorative dashboard glow behind the application shell. */
+#root > div.flex.h-screen > div.absolute.inset-0.pointer-events-none {
+  display: none !important;
+}
+
+/* Conversation surface ---------------------------------------------------- */
 [data-testid="workspace-chat-surface"] > div {
   background: var(--theme-bg);
 }
@@ -18,11 +24,22 @@
   backdrop-filter: blur(14px);
 }
 
+/* The global sidebar owns navigation now; the old chat back arrow is noise. */
 [data-testid="workspace-chat-surface"] > div > header > div > button:first-child {
   display: none !important;
 }
 
+/* Remove the square workspace emblem. */
 [data-testid="workspace-chat-surface"] > div > header > div > div:nth-child(2) {
+  display: none !important;
+}
+
+/* Keep only the conversation title; project/status metadata lives in navigation. */
+[data-testid="workspace-chat-surface"] > div > header > div > div:nth-child(3) > div:nth-child(2) {
+  display: none !important;
+}
+
+[data-testid="workspace-chat-surface"] > div > header > div > div:last-child[title="Kıdemli İş Analisti"] {
   display: none !important;
 }
 
@@ -49,6 +66,7 @@
   gap: 0 !important;
 }
 
+/* Message rhythm --------------------------------------------------------- */
 .chat-scroll-container .group:has([data-testid="chat-message"]) {
   gap: 0 !important;
   padding-block: 14px;
@@ -76,13 +94,15 @@
   max-width: min(82%, 42rem);
 }
 
+/* User messages need no author chrome. */
 .chat-scroll-container .group:has([data-message-role="user"]) > div:nth-child(2) > div:first-child {
   display: none !important;
 }
 
+/* AI metadata remains available, but quiet. */
 .chat-scroll-container .group:has([data-message-role="model"]) > div:nth-child(2) > div:first-child {
   margin-bottom: 8px;
-  opacity: .72;
+  opacity: .68;
 }
 
 .chat-scroll-container .group:has([data-message-role="model"]) > div:nth-child(2) > div:first-child > span:nth-child(2) {
@@ -126,6 +146,13 @@
   margin-bottom: .75em;
 }
 
+[data-testid="chat-message"] .prose h1,
+[data-testid="chat-message"] .prose h2,
+[data-testid="chat-message"] .prose h3 {
+  letter-spacing: -0.015em;
+}
+
+/* Safe work summary and sources should feel secondary, not like mini apps. */
 [data-testid="chat-message"] details {
   border-color: transparent !important;
   background: transparent !important;
@@ -144,6 +171,11 @@
   border-radius: 14px !important;
 }
 
+[data-testid="interactive-questions"] [data-testid="question-prompt"] {
+  font-weight: 500 !important;
+}
+
+/* Empty conversation ----------------------------------------------------- */
 .chat-scroll-container .grid.grid-cols-1.sm\:grid-cols-2 button {
   border-color: transparent !important;
   background: var(--theme-surface) !important;
@@ -154,6 +186,7 @@
   background: var(--theme-surface-hover) !important;
 }
 
+/* Composer --------------------------------------------------------------- */
 [data-testid="workspace-chat-surface"] > div > div:has(form [data-testid="chat-input"]) {
   position: absolute !important;
   inset-inline: 0;
@@ -194,7 +227,7 @@ form:has([data-testid="chat-input"]) > div.relative.flex.flex-col:focus-within {
 form:has([data-testid="chat-input"]) > div.relative.flex.flex-col > div:last-child {
   padding: 5px 8px 8px !important;
   gap: 2px !important;
-  justify-content: space-between !important;
+  justify-content: flex-end !important;
 }
 
 form:has([data-testid="chat-input"]) button:not([data-testid="chat-send"]) {
@@ -224,6 +257,7 @@ form:has([data-testid="chat-input"]) button:not([data-testid="chat-send"]):hover
   color: var(--theme-text-muted) !important;
 }
 
+/* Canvas ----------------------------------------------------------------- */
 [data-testid="document-canvas-open"] {
   width: 44px !important;
   gap: 4px !important;
