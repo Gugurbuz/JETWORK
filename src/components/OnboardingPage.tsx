@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, User, Briefcase } from 'lucide-react';
 import { supabase } from '../supabase';
 import { OnboardingInputSchema } from '../schemas';
+import { completeUserOnboarding } from '../services/userProfile';
 
 interface OnboardingPageProps {
   user: { uid: string; name: string; username?: string; role: string; email: string | null; photoURL: string | null; };
@@ -56,17 +57,12 @@ export function OnboardingPage({ user, onComplete }: OnboardingPageProps) {
       setIsSaving(true);
       setErrorMsg('');
 
-      const { error } = await supabase
-        .from('users')
-        .update({
-          username: parsed.username,
-          name: parsed.firstName,
-          surname: parsed.lastName,
-          role: parsed.role,
-          onboarding_completed: true,
-        })
-        .eq('uid', user.uid);
-      if (error) throw error;
+      await completeUserOnboarding({
+        username: parsed.username,
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        role: parsed.role,
+      });
 
       const fullName = `${parsed.firstName} ${parsed.lastName}`.trim();
       onComplete({
