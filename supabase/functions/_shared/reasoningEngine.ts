@@ -70,15 +70,21 @@ const firstUserLine = (message: string) => (
 ).slice(0, 500)
 
 const TECHNICAL_PATTERN = /\b(?:sap|crm|c4c|abap|fica|billing|isu|is-u|s4|s\/4|cpi|webui|ninja|cost|class|sinif|method|metot|function|fonksiyon|tablo|alan|mapping|entegrasyon|servis|api|hata|dump|exception|badi|bapi|rfc|everh|vertrag|augbl|jira|sagile|z[a-z0-9_]{2,})\b/i
-const DIAGNOSIS_PATTERN = /\b(?:hata|neden|sebep|kok neden|root cause|calismiyor|olmuyor|veriyor|uyumsuz|kontrol|ters kayit|debug|incele)\b/i
+// "kontrol" tek başına teşhis sinyali değildir: "borç kontrol entegrasyonu" gibi
+// fonksiyonel analiz taleplerini yanlışlıkla sap_diagnosis'a taşımamalıdır.
+const DIAGNOSIS_PATTERN = /\b(?:hata|neden|sebep|kok neden|root cause|calismiyor|olmuyor|veriyor|uyumsuz|ters kayit|debug|incele)\b/i
 const RESEARCH_PATTERN = /\b(?:arastir|araştır|web|internet|guncel|güncel|bugun|bugün|latest|son durum|kaynak bul|dis kaynak|dış kaynak)\b/i
-const ANALYSIS_PATTERN = /\b(?:analiz|tasarla|mimari|surec|süreç|entegrasyon|gereksinim|is kurali|iş kuralı|kapsam|etki analizi)\b/i
+// Router normalize() sonrasında çalıştığı için Türkçe ek almış süreç ifadelerini de
+// kök üzerinden yakala (surec, sureci, surecin, surecler...).
+const ANALYSIS_PATTERN = /\b(?:analiz|tasarla|mimari|surec[a-z]*|entegrasyon|gereksinim[a-z]*|is kurali|kapsam|etki analizi)\b/i
 const DECISION_PATTERN = /\b(?:alternatif|secenek|seçenek|hangisi|karsilastir|karşılaştır|oner|öner|yaklasim|yaklaşım|cozum|çözüm)\b/i
 const PROJECT_PATTERN = /\b(?:roadmap|backlog|epic|sprint|proje|story|jira|efor|priorite|öncelik)\b/i
 const SYSTEM_DOCUMENT_PATTERN = /(?:<ba_analysis>|\[Sistem yönlendirmesi:[^\]]*(?:doküman|dokuman|revizyon|analiz)[^\]]*\])/i
 const DOCUMENT_COMMAND_PATTERN = /(?:\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b.{0,100}\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b|\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b.{0,100}\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b)/i
 const EXPLICIT_WEB_PATTERN = /\b(?:web(?:'te|de|den)?|internette|internetten|google|dis kaynak|dış kaynak|online|guncel|güncel|bugun|bugün|latest|haber|piyasa|fiyat|mevzuat|resmi dokuman|resmî doküman)\b/i
-const HIGH_COMPLEXITY_PATTERN = /\b(?:detayli|detaylı|derin|ucltan uca|uçtan uca|tum|tüm|kapsamli|kapsamlı|mimari|kok neden|kök neden|entegrasyon|refactor|workstream|senaryo|alternatifler)\b/i
+// Bu ifade normalize edilmiş metne uygulanır. "uçtan uca" => "uctan uca".
+// Sadece "entegrasyon" kelimesi ise tek başına high complexity gerekçesi değildir.
+const HIGH_COMPLEXITY_PATTERN = /\b(?:detayli|derin|uctan uca|tum|kapsamli|mimari|kok neden|refactor|workstream|senaryo|alternatifler)\b/i
 
 export function routeReasoningRequest(message: string, attachmentCount = 0): ReasoningRoute {
   const normalized = normalize(message)
@@ -392,39 +398,65 @@ const sourceNameFromUrl = (url: string) => {
   catch { return 'Web kaynağı' }
 }
 
-const collectWebSources = (payload: Record<string, unknown>): ReasoningSourceRef[] => {
+const webSourceFromUnknown = (value: unknown, titleHint = ''): ReasoningSourceRef | null => {
+  if (typeof value === 'string') {
+    const url = safeUrl(value)
+    if (!url) return null
+    return { sourceName: sourceNameFromUrl(url), url, sourceType: 'web' }
+  }
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const nested = raw.url_citation && typeof raw.url_citation === 'object'
+    ? raw.url_citation as Record<string, unknown>
+    : raw
+  const url = safeUrl(nested.url || nested.link || nested.uri)
+  if (!url) return null
+  const title = String(
+    nested.title || nested.site_name || nested.name || titleHint || sourceNameFromUrl(url),
+  ).trim().slice(0, 500)
+  return {
+    sourceName: title || sourceNameFromUrl(url),
+    title: title || undefined,
+    url,
+    sourceType: 'web',
+  }
+}
+
+export const collectWebSources = (payload: Record<string, unknown>): ReasoningSourceRef[] => {
   const output = Array.isArray(payload.output) ? payload.output as Array<Record<string, unknown>> : []
   const found: ReasoningSourceRef[] = []
+  const append = (value: unknown, titleHint = '') => {
+    const source = webSourceFromUnknown(value, titleHint)
+    if (source) found.push(source)
+  }
   for (const item of output) {
     if (item.type === 'message' && Array.isArray(item.content)) {
       for (const part of item.content as Array<Record<string, unknown>>) {
         if (!Array.isArray(part.annotations)) continue
         for (const annotation of part.annotations as Array<Record<string, unknown>>) {
           if (annotation.type !== 'url_citation') continue
-          const url = safeUrl(annotation.url)
-          if (!url) continue
-          found.push({
-            sourceName: String(annotation.title || sourceNameFromUrl(url)).slice(0, 300),
-            title: String(annotation.title || '').slice(0, 500) || undefined,
-            url,
-            sourceType: 'web',
-          })
+          // Responses API uses a flat url_citation shape; tolerate the nested
+          // Chat Completions-style shape as well so provider/schema changes do
+          // not silently drop user-visible evidence.
+          append(annotation)
         }
       }
     }
-    if (item.type === 'web_search_call') {
-      const action = item.action && typeof item.action === 'object' ? item.action as Record<string, unknown> : null
-      if (!action || !Array.isArray(action.sources)) continue
-      for (const source of action.sources as Array<Record<string, unknown>>) {
-        const url = safeUrl(source.url)
-        if (!url) continue
-        found.push({
-          sourceName: String(source.title || sourceNameFromUrl(url)).slice(0, 300),
-          title: String(source.title || '').slice(0, 500) || undefined,
-          url,
-          sourceType: 'web',
-        })
-      }
+    if (item.type !== 'web_search_call') continue
+    const action = item.action && typeof item.action === 'object'
+      ? item.action as Record<string, unknown>
+      : null
+    if (action && Array.isArray(action.sources)) {
+      for (const source of action.sources) append(source)
+    }
+    // Reasoning-model web_search can additionally return retrieved result
+    // records when web_search_call.results is requested. Treat these as a
+    // fallback evidence channel, not a replacement for citations/sources.
+    if (Array.isArray(item.results)) {
+      for (const result of item.results) append(result)
+    }
+    if (action && Array.isArray(action.results)) {
+      for (const result of action.results) append(result)
     }
   }
   const seen = new Set<string>()
@@ -433,7 +465,7 @@ const collectWebSources = (payload: Record<string, unknown>): ReasoningSourceRef
     if (seen.has(key)) return false
     seen.add(key)
     return true
-  }).slice(0, 12)
+  }).slice(0, 20)
 }
 
 export async function runRequiredWebResearch(input: {
@@ -466,7 +498,7 @@ export async function runRequiredWebResearch(input: {
         search_context_size: input.complexity === 'high' ? 'high' : 'medium',
       }],
       tool_choice: 'required',
-      include: ['web_search_call.action.sources'],
+      include: ['web_search_call.action.sources', 'web_search_call.results'],
       reasoning: { effort: input.complexity === 'high' ? 'medium' : 'low' },
       max_output_tokens: 4_000,
       store: false,

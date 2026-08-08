@@ -41,6 +41,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Reasoning Quality Golden Gate
+        run: pnpm run verify:reasoning-golden
+
       - name: AI behavior regressions
         run: |
           pnpm run verify:ai-ba-engine
@@ -63,7 +66,7 @@ jobs:
     steps:
       - name: E2E not configured
         if: env.E2E_USERNAME == '' || env.E2E_PASSWORD == ''
-        run: echo "E2E secrets are not configured; browser smoke test skipped."
+        run: echo "E2E secrets are not configured; browser and live reasoning canaries skipped."
 
       - name: Checkout
         if: env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
@@ -87,6 +90,21 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
+
+      - name: Reasoning live canaries against PR core
+        if: github.event_name == 'pull_request' && env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
+        env:
+          REASONING_CANARY_ENDPOINT: openai-assistant-golden-canary
+          REASONING_CANARY_OUTPUT: evaluation/results/reasoning-live-canary.json
+        run: pnpm exec tsx scripts/run-reasoning-live-canary.ts
+
+      - name: Upload reasoning canary report
+        if: always() && github.event_name == 'pull_request' && env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: reasoning-live-canary
+          path: evaluation/results/reasoning-live-canary.json
+          if-no-files-found: ignore
 
       - name: Browser smoke test against branch build
         if: env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
