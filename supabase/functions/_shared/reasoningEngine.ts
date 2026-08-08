@@ -70,15 +70,21 @@ const firstUserLine = (message: string) => (
 ).slice(0, 500)
 
 const TECHNICAL_PATTERN = /\b(?:sap|crm|c4c|abap|fica|billing|isu|is-u|s4|s\/4|cpi|webui|ninja|cost|class|sinif|method|metot|function|fonksiyon|tablo|alan|mapping|entegrasyon|servis|api|hata|dump|exception|badi|bapi|rfc|everh|vertrag|augbl|jira|sagile|z[a-z0-9_]{2,})\b/i
-const DIAGNOSIS_PATTERN = /\b(?:hata|neden|sebep|kok neden|root cause|calismiyor|olmuyor|veriyor|uyumsuz|kontrol|ters kayit|debug|incele)\b/i
+// "kontrol" tek başına teşhis sinyali değildir: "borç kontrol entegrasyonu" gibi
+// fonksiyonel analiz taleplerini yanlışlıkla sap_diagnosis'a taşımamalıdır.
+const DIAGNOSIS_PATTERN = /\b(?:hata|neden|sebep|kok neden|root cause|calismiyor|olmuyor|veriyor|uyumsuz|ters kayit|debug|incele)\b/i
 const RESEARCH_PATTERN = /\b(?:arastir|araştır|web|internet|guncel|güncel|bugun|bugün|latest|son durum|kaynak bul|dis kaynak|dış kaynak)\b/i
-const ANALYSIS_PATTERN = /\b(?:analiz|tasarla|mimari|surec|süreç|entegrasyon|gereksinim|is kurali|iş kuralı|kapsam|etki analizi)\b/i
+// Router normalize() sonrasında çalıştığı için Türkçe ek almış süreç ifadelerini de
+// kök üzerinden yakala (surec, sureci, surecin, surecler...).
+const ANALYSIS_PATTERN = /\b(?:analiz|tasarla|mimari|surec[a-z]*|entegrasyon|gereksinim[a-z]*|is kurali|kapsam|etki analizi)\b/i
 const DECISION_PATTERN = /\b(?:alternatif|secenek|seçenek|hangisi|karsilastir|karşılaştır|oner|öner|yaklasim|yaklaşım|cozum|çözüm)\b/i
 const PROJECT_PATTERN = /\b(?:roadmap|backlog|epic|sprint|proje|story|jira|efor|priorite|öncelik)\b/i
 const SYSTEM_DOCUMENT_PATTERN = /(?:<ba_analysis>|\[Sistem yönlendirmesi:[^\]]*(?:doküman|dokuman|revizyon|analiz)[^\]]*\])/i
 const DOCUMENT_COMMAND_PATTERN = /(?:\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b.{0,100}\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b|\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b.{0,100}\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b)/i
 const EXPLICIT_WEB_PATTERN = /\b(?:web(?:'te|de|den)?|internette|internetten|google|dis kaynak|dış kaynak|online|guncel|güncel|bugun|bugün|latest|haber|piyasa|fiyat|mevzuat|resmi dokuman|resmî doküman)\b/i
-const HIGH_COMPLEXITY_PATTERN = /\b(?:detayli|detaylı|derin|ucltan uca|uçtan uca|tum|tüm|kapsamli|kapsamlı|mimari|kok neden|kök neden|entegrasyon|refactor|workstream|senaryo|alternatifler)\b/i
+// Bu ifade normalize edilmiş metne uygulanır. "uçtan uca" => "uctan uca".
+// Sadece "entegrasyon" kelimesi ise tek başına high complexity gerekçesi değildir.
+const HIGH_COMPLEXITY_PATTERN = /\b(?:detayli|derin|uctan uca|tum|kapsamli|mimari|kok neden|refactor|workstream|senaryo|alternatifler)\b/i
 
 export function routeReasoningRequest(message: string, attachmentCount = 0): ReasoningRoute {
   const normalized = normalize(message)
