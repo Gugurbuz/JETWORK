@@ -59,13 +59,21 @@ function containsUnsupportedTechnicalAnchor(line: string, sourceNormalized: stri
   ))
 }
 
-function replaceUnsupportedTableRow(line: string): string {
-  const cells = line.split('|')
-  if (cells.length < 4) return '[AÇIK KONU]'
-  const firstValueIndex = cells.findIndex((cell, index) => index > 0 && cell.trim())
-  if (firstValueIndex < 0) return '[AÇIK KONU]'
-  const label = cells[firstValueIndex].trim()
-  return `| ${label} | [AÇIK KONU] |`
+function firstTableValue(line: string): string {
+  return line.split('|').map(cell => cell.trim()).find(Boolean) || ''
+}
+
+function replaceUnsupportedTableRow(
+  line: string,
+  sourceNormalized: string,
+  preserveLabel = true,
+): string {
+  const label = firstTableValue(line)
+  if (!label) return '| [AÇIK KONU] | [AÇIK KONU] |'
+  const safeLabel = preserveLabel && !containsUnsupportedTechnicalAnchor(label, sourceNormalized)
+    ? label
+    : '[AÇIK KONU]'
+  return `| ${safeLabel} | [AÇIK KONU] |`
 }
 
 function sanitizeUnsupportedTechnicalLines(markdown: string, sourceRequestText: string): {
@@ -82,7 +90,7 @@ function sanitizeUnsupportedTechnicalLines(markdown: string, sourceRequestText: 
   const lines = markdown.split('\n').map(line => {
     if (!containsUnsupportedTechnicalAnchor(line, sourceNormalized)) return line
     removed += 1
-    if (/^\s*\|/.test(line)) return replaceUnsupportedTableRow(line)
+    if (/^\s*\|/.test(line)) return replaceUnsupportedTableRow(line, sourceNormalized)
     if (/^\s*[-*]\s+/.test(line)) return '- [AÇIK KONU]'
     return '[AÇIK KONU]'
   })
@@ -106,7 +114,10 @@ function sanitizeUnsupportedCommitments(markdown: string, sourceRequestText: str
     const commitment = normalize(match[0])
     if (commitment && sourceNormalized.includes(commitment)) return line
     replaced += 1
-    if (/^\s*\|/.test(line)) return replaceUnsupportedTableRow(line)
+    if (/^\s*\|/.test(line)) {
+      const labelContainsCommitment = normalize(firstTableValue(line)).includes(commitment)
+      return replaceUnsupportedTableRow(line, sourceNormalized, !labelContainsCommitment)
+    }
     return line.replace(match[0], '[AÇIK KONU]')
   })
   return { markdown: lines.join('\n'), replaced }
