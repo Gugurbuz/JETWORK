@@ -82,6 +82,7 @@ function RunListItem({
   selected,
   onSelect,
 }: {
+  key?: React.Key;
   run: ReasoningDebugRunSummary;
   selected: boolean;
   onSelect: () => void;
