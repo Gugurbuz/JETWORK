@@ -10,7 +10,6 @@ interface PersistedUserProfile {
   email: string | null;
   photo_url: string | null;
   onboarding_completed: boolean | null;
-  color: string | null;
 }
 
 export interface LoadedAuthProfile {
@@ -19,10 +18,9 @@ export interface LoadedAuthProfile {
   lastName: string;
   role: string;
   onboardingCompleted: boolean;
-  color?: string;
 }
 
-const PROFILE_COLUMNS = 'uid,username,name,surname,role,email,photo_url,onboarding_completed,color';
+const PROFILE_COLUMNS = 'uid,username,name,surname,role,email,photo_url,onboarding_completed';
 
 const readProfile = async (
   client: SupabaseClient,
@@ -82,6 +80,5 @@ export async function loadOrCreateAuthProfile(
     lastName: profile.surname || '',
     role: profile.role || 'Kullanıcı',
     onboardingCompleted: !!profile.onboarding_completed,
-    color: profile.color || undefined,
   };
 }
