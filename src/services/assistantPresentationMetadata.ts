@@ -14,6 +14,24 @@ const cleanText = (value: unknown, maxLength: number): string => (
   typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
 );
 
+const normalizeContext = (value: string): string => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+export const isArtifactMaturationContext = (input: {
+  visibleText?: string;
+  actionSummary?: string;
+}): boolean => {
+  const normalized = normalizeContext(`${input.visibleText || ''} ${input.actionSummary || ''}`);
+  const mentionsArtifact = /\b(?:dokuman|belge|ihtiyac analizi|is analizi|ba analiz|canvas|kanvas)\b/.test(normalized);
+  const mentionsContinuation = /\b(?:cevap|yanit|ardindan|sonra|netles|tamamla|hazirla|olustur|devam)\w*\b/.test(normalized);
+  return mentionsArtifact && mentionsContinuation;
+};
+
 const asWorkSummary = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
     const cleaned = cleanText(value, 2_000);
@@ -29,7 +47,7 @@ const asWorkSummary = (value: unknown): string | undefined => {
   return undefined;
 };
 
-const asQuestions = (value: unknown): Question[] | undefined => {
+const asQuestions = (value: unknown, plain = false): Question[] | undefined => {
   if (!Array.isArray(value)) return undefined;
 
   const questions = value
@@ -38,12 +56,14 @@ const asQuestions = (value: unknown): Question[] | undefined => {
       const candidate = item as Record<string, unknown>;
       const text = cleanText(candidate.text, 500);
       if (!text) return null;
-      const options = Array.isArray(candidate.options)
-        ? candidate.options
-            .map(option => cleanText(option, 160))
-            .filter(Boolean)
-            .slice(0, 4)
-        : [];
+      const options = plain
+        ? []
+        : Array.isArray(candidate.options)
+          ? candidate.options
+              .map(option => cleanText(option, 160))
+              .filter(Boolean)
+              .slice(0, 4)
+          : [];
       return {
         id: cleanText(candidate.id, 120) || `assistant-question-${index + 1}`,
         text,
@@ -81,8 +101,11 @@ export function parseAssistantPresentationMetadata(
     if (!parsed || typeof parsed !== 'object') return { visibleText };
     const metadata = parsed as Record<string, unknown>;
     const workSummary = asWorkSummary(metadata.workSummary);
-    const questions = asQuestions(metadata.questions);
     const actionSummary = cleanText(metadata.actionSummary, 1_000) || undefined;
+    const questions = asQuestions(
+      metadata.questions,
+      isArtifactMaturationContext({ visibleText, actionSummary }),
+    );
 
     return {
       visibleText,
