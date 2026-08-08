@@ -169,6 +169,8 @@ serve(async req => {
       sourceFidelity: {
         explicitProcessStepCount: fidelity.processSteps.length,
         injectedProcessStepCount: fidelity.injectedProcessSteps.length,
+        explicitKpiFactCount: fidelity.kpiFacts.length,
+        injectedKpiFactCount: fidelity.injectedKpiFacts.length,
         removedUnsupportedTechnicalLines: fidelity.removedUnsupportedTechnicalLines,
         replacedUnsupportedCommitments: fidelity.replacedUnsupportedCommitments,
       },
