@@ -143,7 +143,14 @@ function documentStageLabel(
  * restored before strict contract validation and Canvas persistence.
  */
 export function normalizeEnerjisaDocumentForPersistence(rawText: string): string {
-  if (!rawText.trim() || /\btalep\s+ad[ıi]\b/iu.test(rawText)) return rawText;
+  if (!rawText.trim()) return rawText;
+  const normalizedCoverText = rawText
+    .slice(0, 1200)
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (normalizedCoverText.includes('talep adi')) return rawText;
 
   const coverPattern = /(\|\s*İş Analizi Dokümanı\s*\|\s*)([^|\n]+)(\s*\|\s*)\n(\s*\|\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|\s*)/iu;
   const match = rawText.match(coverPattern);
