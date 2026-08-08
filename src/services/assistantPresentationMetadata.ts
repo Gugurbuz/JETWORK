@@ -32,6 +32,14 @@ export const isArtifactMaturationContext = (input: {
   return mentionsArtifact && mentionsContinuation;
 };
 
+export const looksLikeCompletedEnerjisaArtifact = (visibleText: string): boolean => {
+  const normalized = normalizeContext(visibleText);
+  return normalized.includes('ihtiyac analizi')
+    && normalized.includes('1. analiz kapsami')
+    && normalized.includes('4. fonksiyonel gereksinimler')
+    && normalized.includes('8. fonksiyonel tasarim dokumanlari');
+};
+
 const asWorkSummary = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
     const cleaned = cleanText(value, 2_000);
@@ -102,10 +110,13 @@ export function parseAssistantPresentationMetadata(
     const metadata = parsed as Record<string, unknown>;
     const workSummary = asWorkSummary(metadata.workSummary);
     const actionSummary = cleanText(metadata.actionSummary, 1_000) || undefined;
-    const questions = asQuestions(
-      metadata.questions,
-      isArtifactMaturationContext({ visibleText, actionSummary }),
-    );
+    const artifactCompleted = looksLikeCompletedEnerjisaArtifact(visibleText);
+    const questions = artifactCompleted
+      ? undefined
+      : asQuestions(
+          metadata.questions,
+          isArtifactMaturationContext({ visibleText, actionSummary }),
+        );
 
     return {
       visibleText,
