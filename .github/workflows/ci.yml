@@ -92,14 +92,14 @@ jobs:
           pnpm exec playwright install --with-deps chromium
 
       - name: Reasoning live canaries against PR core
-        if: env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
+        if: github.event_name == 'pull_request' && env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
         env:
           REASONING_CANARY_ENDPOINT: openai-assistant-golden-canary
           REASONING_CANARY_OUTPUT: evaluation/results/reasoning-live-canary.json
         run: pnpm exec tsx scripts/run-reasoning-live-canary.ts
 
       - name: Upload reasoning canary report
-        if: always() && env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
+        if: always() && github.event_name == 'pull_request' && env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
         uses: actions/upload-artifact@v4
         with:
           name: reasoning-live-canary
