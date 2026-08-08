@@ -26,7 +26,7 @@ const DOCUMENT_ACTION_STEMS = [
   'yaz',
 ];
 
-const isStructuredInteractiveAnswer = (message: string): boolean => {
+export const isDocumentContinuationAnswerCandidate = (message: string): boolean => {
   const normalized = normalizeContinuationText(message);
   if (!normalized) return false;
   if (normalized.startsWith('varsayimlarla devam et')) return true;
@@ -73,7 +73,7 @@ export function inferDocumentContinuationMode(input: {
   document?: DocumentData | null;
 }): AssistantDocumentRequestMode | undefined {
   if (input.document?.businessAnalysis?.content?.trim()) return undefined;
-  if (!isStructuredInteractiveAnswer(input.message)) return undefined;
+  if (!isDocumentContinuationAnswerCandidate(input.message)) return undefined;
 
   const previousAssistant = latestAssistantWithQuestions(input.recentMessages);
   if (!previousAssistant || !signalsPendingDocumentCreation(previousAssistant)) return undefined;
