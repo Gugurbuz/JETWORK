@@ -398,39 +398,65 @@ const sourceNameFromUrl = (url: string) => {
   catch { return 'Web kaynağı' }
 }
 
-const collectWebSources = (payload: Record<string, unknown>): ReasoningSourceRef[] => {
+const webSourceFromUnknown = (value: unknown, titleHint = ''): ReasoningSourceRef | null => {
+  if (typeof value === 'string') {
+    const url = safeUrl(value)
+    if (!url) return null
+    return { sourceName: sourceNameFromUrl(url), url, sourceType: 'web' }
+  }
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const nested = raw.url_citation && typeof raw.url_citation === 'object'
+    ? raw.url_citation as Record<string, unknown>
+    : raw
+  const url = safeUrl(nested.url || nested.link || nested.uri)
+  if (!url) return null
+  const title = String(
+    nested.title || nested.site_name || nested.name || titleHint || sourceNameFromUrl(url),
+  ).trim().slice(0, 500)
+  return {
+    sourceName: title || sourceNameFromUrl(url),
+    title: title || undefined,
+    url,
+    sourceType: 'web',
+  }
+}
+
+export const collectWebSources = (payload: Record<string, unknown>): ReasoningSourceRef[] => {
   const output = Array.isArray(payload.output) ? payload.output as Array<Record<string, unknown>> : []
   const found: ReasoningSourceRef[] = []
+  const append = (value: unknown, titleHint = '') => {
+    const source = webSourceFromUnknown(value, titleHint)
+    if (source) found.push(source)
+  }
   for (const item of output) {
     if (item.type === 'message' && Array.isArray(item.content)) {
       for (const part of item.content as Array<Record<string, unknown>>) {
         if (!Array.isArray(part.annotations)) continue
         for (const annotation of part.annotations as Array<Record<string, unknown>>) {
           if (annotation.type !== 'url_citation') continue
-          const url = safeUrl(annotation.url)
-          if (!url) continue
-          found.push({
-            sourceName: String(annotation.title || sourceNameFromUrl(url)).slice(0, 300),
-            title: String(annotation.title || '').slice(0, 500) || undefined,
-            url,
-            sourceType: 'web',
-          })
+          // Responses API uses a flat url_citation shape; tolerate the nested
+          // Chat Completions-style shape as well so provider/schema changes do
+          // not silently drop user-visible evidence.
+          append(annotation)
         }
       }
     }
-    if (item.type === 'web_search_call') {
-      const action = item.action && typeof item.action === 'object' ? item.action as Record<string, unknown> : null
-      if (!action || !Array.isArray(action.sources)) continue
-      for (const source of action.sources as Array<Record<string, unknown>>) {
-        const url = safeUrl(source.url)
-        if (!url) continue
-        found.push({
-          sourceName: String(source.title || sourceNameFromUrl(url)).slice(0, 300),
-          title: String(source.title || '').slice(0, 500) || undefined,
-          url,
-          sourceType: 'web',
-        })
-      }
+    if (item.type !== 'web_search_call') continue
+    const action = item.action && typeof item.action === 'object'
+      ? item.action as Record<string, unknown>
+      : null
+    if (action && Array.isArray(action.sources)) {
+      for (const source of action.sources) append(source)
+    }
+    // Reasoning-model web_search can additionally return retrieved result
+    // records when web_search_call.results is requested. Treat these as a
+    // fallback evidence channel, not a replacement for citations/sources.
+    if (Array.isArray(item.results)) {
+      for (const result of item.results) append(result)
+    }
+    if (action && Array.isArray(action.results)) {
+      for (const result of action.results) append(result)
     }
   }
   const seen = new Set<string>()
@@ -439,7 +465,7 @@ const collectWebSources = (payload: Record<string, unknown>): ReasoningSourceRef
     if (seen.has(key)) return false
     seen.add(key)
     return true
-  }).slice(0, 12)
+  }).slice(0, 20)
 }
 
 export async function runRequiredWebResearch(input: {
@@ -472,7 +498,7 @@ export async function runRequiredWebResearch(input: {
         search_context_size: input.complexity === 'high' ? 'high' : 'medium',
       }],
       tool_choice: 'required',
-      include: ['web_search_call.action.sources'],
+      include: ['web_search_call.action.sources', 'web_search_call.results'],
       reasoning: { effort: input.complexity === 'high' ? 'medium' : 'low' },
       max_output_tokens: 4_000,
       store: false,
