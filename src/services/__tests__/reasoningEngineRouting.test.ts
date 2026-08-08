@@ -49,4 +49,36 @@ describe('Reasoning Engine v2 router', () => {
       webMode: 'none',
     });
   });
+
+  it('does not confuse a business control integration with an incident diagnosis', () => {
+    expect(routeReasoningRequest('SAP CRM ile FICA arasındaki borç kontrol entegrasyonunu analiz et.')).toMatchObject({
+      intent: 'analysis',
+      complexity: 'medium',
+      knowledgeRequired: true,
+    });
+  });
+
+  it('recognizes Turkish-inflected process wording in decision requests', () => {
+    expect(routeReasoningRequest('Onay süreci için alternatif çözümleri karşılaştır ve en uygun yaklaşımı öner.')).toMatchObject({
+      intent: 'decision',
+      complexity: 'medium',
+      creativeMode: true,
+    });
+  });
+
+  it('recognizes normalized uçtan uca wording as high complexity', () => {
+    expect(routeReasoningRequest('EVERH ters kayıt problemini uçtan uca incele.')).toMatchObject({
+      intent: 'sap_diagnosis',
+      complexity: 'high',
+      webMode: 'if_internal_insufficient',
+    });
+  });
+
+  it('does not promote every integration mention to high complexity', () => {
+    expect(routeReasoningRequest('Mevcut CRM entegrasyon yaklaşımımızla karşılaştırmak için güncel SAP entegrasyon API önerilerini webde araştır.')).toMatchObject({
+      intent: 'research',
+      complexity: 'medium',
+      webMode: 'required',
+    });
+  });
 });
