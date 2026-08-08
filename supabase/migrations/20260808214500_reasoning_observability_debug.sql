@@ -1,6 +1,85 @@
 -- Secure browser read-model for Reasoning Engine observability.
--- The underlying runtime ledgers stay service-role only. Authenticated users can
--- inspect only their own turns inside workspaces they can already access.
+-- Runtime tables remain RLS protected. Authenticated users receive SELECT only
+-- on observability-safe columns and only for their own rows in workspaces they
+-- can already access. Prompt text, response text and hidden chain-of-thought are
+-- intentionally not granted to the browser role.
+
+-- -----------------------------------------------------------------------------
+-- 1. Add narrow read policies for runtime ledgers.
+-- -----------------------------------------------------------------------------
+
+drop policy if exists "Owners can read assistant reasoning runs for debug"
+on public.assistant_reasoning_runs;
+create policy "Owners can read assistant reasoning runs for debug"
+on public.assistant_reasoning_runs
+for select
+to authenticated
+using (
+  owner_id = (select auth.uid())
+  and public.is_workspace_member(workspace_id)
+);
+
+drop policy if exists "Owners can read assistant turns for debug"
+on public.assistant_turns;
+create policy "Owners can read assistant turns for debug"
+on public.assistant_turns
+for select
+to authenticated
+using (
+  owner_id = (select auth.uid())
+  and public.is_workspace_member(workspace_id)
+);
+
+drop policy if exists "Owners can read assistant tool runs for debug"
+on public.assistant_tool_runs;
+create policy "Owners can read assistant tool runs for debug"
+on public.assistant_tool_runs
+for select
+to authenticated
+using (
+  owner_id = (select auth.uid())
+  and public.is_workspace_member(workspace_id)
+);
+
+drop policy if exists "Owners can read assistant conversations for debug"
+on public.assistant_conversations;
+create policy "Owners can read assistant conversations for debug"
+on public.assistant_conversations
+for select
+to authenticated
+using (
+  owner_id = (select auth.uid())
+  and public.is_workspace_member(workspace_id)
+);
+
+-- Earlier runtime migrations revoke table access from authenticated. Grant only
+-- the columns required by the operational read-model. In particular, prompt
+-- text and assistant_turns.response_text remain inaccessible.
+grant select (
+  id, turn_id, conversation_id, workspace_id, owner_id, engine_version,
+  intent, complexity, plan, verification, execution_trace, evidence_summary,
+  knowledge_used, web_used, tool_call_count, fallback_used, status,
+  error_message, started_at, completed_at
+) on public.assistant_reasoning_runs to authenticated;
+
+grant select (
+  id, conversation_id, workspace_id, owner_id, message_id, source_refs, usage,
+  response_model, error_message, created_at, completed_at
+) on public.assistant_turns to authenticated;
+
+grant select (
+  id, workspace_id, owner_id, model
+) on public.assistant_conversations to authenticated;
+
+grant select (
+  id, conversation_id, turn_id, workspace_id, owner_id, tool_name, call_id,
+  arguments, result_summary, source_refs, status, duration_ms, error_message,
+  created_at
+) on public.assistant_tool_runs to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 2. Expose a compact list view through an invoker-rights RPC.
+-- -----------------------------------------------------------------------------
 
 create or replace function public.get_reasoning_debug_runs(
   p_workspace_id text default null,
@@ -34,7 +113,7 @@ returns table (
 )
 language sql
 stable
-security definer
+security invoker
 set search_path = ''
 as $$
   select
@@ -90,13 +169,17 @@ as $$
   offset greatest(0, coalesce(p_offset, 0));
 $$;
 
+-- -----------------------------------------------------------------------------
+-- 3. Expose one operational turn with evidence/tool/artifact metadata.
+-- -----------------------------------------------------------------------------
+
 create or replace function public.get_reasoning_debug_run(
   p_run_id uuid
 )
 returns jsonb
 language sql
 stable
-security definer
+security invoker
 set search_path = ''
 as $$
   select jsonb_build_object(
@@ -186,16 +269,16 @@ as $$
 $$;
 
 revoke all on function public.get_reasoning_debug_runs(text, integer, integer)
-from public, anon;
+from public, anon, authenticated;
 grant execute on function public.get_reasoning_debug_runs(text, integer, integer)
 to authenticated;
 
 revoke all on function public.get_reasoning_debug_run(uuid)
-from public, anon;
+from public, anon, authenticated;
 grant execute on function public.get_reasoning_debug_run(uuid)
 to authenticated;
 
 comment on function public.get_reasoning_debug_runs(text, integer, integer) is
-  'Safe operational Reasoning Engine list view for the authenticated user. Does not expose prompt text or hidden chain-of-thought.';
+  'Invoker-rights operational Reasoning Engine list view for the authenticated owner. Does not expose prompt text, response text or hidden chain-of-thought.';
 comment on function public.get_reasoning_debug_run(uuid) is
-  'Safe operational Reasoning Engine detail view for the authenticated user. Exposes system trace/evidence/tool metadata, never hidden chain-of-thought.';
+  'Invoker-rights operational Reasoning Engine detail view for the authenticated owner. Exposes system trace/evidence/tool metadata, never hidden chain-of-thought.';
