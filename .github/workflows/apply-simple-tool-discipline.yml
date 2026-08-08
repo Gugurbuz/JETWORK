@@ -1,0 +1,30 @@
+name: Apply Simple Tool Discipline
+
+on:
+  push:
+    branches:
+      - feat/reasoning-quality-golden-set
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch core and golden contract
+        run: python3 scripts/patch-simple-tool-discipline.py
+      - name: Commit
+        run: |
+          if git diff --quiet -- supabase/functions/openai-assistant-core-v2/implementation.ts src/evaluation/reasoningGoldenScenarios.ts; then
+            echo "Already patched"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/openai-assistant-core-v2/implementation.ts src/evaluation/reasoningGoldenScenarios.ts
+          git commit -m "fix: skip unnecessary tools for simple reasoning turns"
+          git push origin HEAD:feat/reasoning-quality-golden-set
