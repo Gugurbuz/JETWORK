@@ -27,7 +27,7 @@ export const isArtifactMaturationContext = (input: {
   actionSummary?: string;
 }): boolean => {
   const normalized = normalizeContext(`${input.visibleText || ''} ${input.actionSummary || ''}`);
-  const mentionsArtifact = /\b(?:dokuman|belge|ihtiyac analizi|is analizi|ba analiz|canvas|kanvas)\b/.test(normalized);
+  const mentionsArtifact = /\b(?:dokuman\w*|belge\w*|ihtiyac analizi\w*|is analizi\w*|ba analiz\w*|canvas\w*|kanvas\w*)\b/.test(normalized);
   const mentionsContinuation = /\b(?:cevap|yanit|ardindan|sonra|netles|tamamla|hazirla|olustur|devam)\w*\b/.test(normalized);
   return mentionsArtifact && mentionsContinuation;
 };
