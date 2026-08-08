@@ -44,25 +44,30 @@ interface DocumentEditorProps {
   placeholder?: string;
 }
 
-interface ToolbarButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface ToolbarButtonProps {
   active?: boolean;
   label: string;
+  className?: string;
+  children?: React.ReactNode;
+  disabled?: boolean;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
 }
 
-function ToolbarButton({ active = false, label, className, children, ...props }: ToolbarButtonProps) {
+function ToolbarButton({ active = false, label, className, children, disabled, onClick }: ToolbarButtonProps) {
   return (
     <button
       type="button"
       title={label}
       aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
       className={cn(
         'inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-theme-text-muted transition-colors',
         'hover:border-theme-border hover:bg-theme-surface-hover hover:text-theme-text',
         active && 'border-theme-primary/30 bg-theme-primary/10 text-theme-primary',
-        props.disabled && 'cursor-not-allowed opacity-40',
+        disabled && 'cursor-not-allowed opacity-40',
         className,
       )}
-      {...props}
     >
       {children}
     </button>

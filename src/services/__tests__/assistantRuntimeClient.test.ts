@@ -41,6 +41,7 @@ const sseResponse = (frames: string[]) => new Response(
 beforeEach(() => {
   vi.stubEnv('VITE_SUPABASE_URL', 'https://example.supabase.co');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
+  vi.stubEnv('VITE_REASONING_ENGINE_V2', 'true');
   getSessionMock.mockResolvedValue({
     data: { session: { access_token: 'access-token' } },
   });
@@ -86,7 +87,50 @@ describe('parseAssistantRuntimeEvent', () => {
         canonicalKey: 'method:zcl_crm/save',
         objectType: 'method',
         title: 'SAVE',
+        sourceType: 'knowledge',
+        url: undefined,
       }],
+    });
+  });
+
+  it('preserves web source URLs for visible grounding', () => {
+    expect(parseAssistantRuntimeEvent({
+      event: 'sources',
+      data: JSON.stringify({
+        sources: [{
+          sourceName: 'OpenAI Docs',
+          title: 'Web search guide',
+          sourceType: 'web',
+          url: 'https://platform.openai.com/docs/guides/tools-web-search',
+        }],
+      }),
+    })).toEqual({
+      type: 'sources',
+      sources: [{
+        sourceName: 'OpenAI Docs',
+        title: 'Web search guide',
+        sourceType: 'web',
+        url: 'https://platform.openai.com/docs/guides/tools-web-search',
+      }],
+    });
+  });
+
+  it.each([
+    'routing',
+    'planning',
+    'searching_knowledge',
+    'searching_web',
+    'verifying',
+    'synthesizing',
+    'answering',
+  ] as const)('parses %s status events', stage => {
+    expect(parseAssistantRuntimeEvent({
+      event: 'status',
+      data: JSON.stringify({ stage, label: `stage:${stage}` }),
+    })).toEqual({
+      type: 'status',
+      stage,
+      label: `stage:${stage}`,
     });
   });
 
@@ -163,6 +207,22 @@ describe('prepareAssistantChatAttachments', () => {
 });
 
 describe('streamAssistantResponse', () => {
+  it('targets reasoning engine v2 by default', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      'event: text_delta\ndata: {"delta":"Tamam"}\n\n',
+      'event: completed\ndata: {"conversationId":"conversation-1","model":"gpt-5.6-sol"}\n\n',
+    ]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await streamAssistantResponse({
+      workspaceId: 'workspace-1',
+      messageId: 'message-1',
+      message: 'Test',
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/functions/v1/openai-assistant-v2');
+  });
+
   it('accepts the committed completed event even if the optional DONE frame is lost', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([
       'event: text_delta\ndata: {"delta":"Tamam"}\n\n',

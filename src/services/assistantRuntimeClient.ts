@@ -9,7 +9,7 @@ import {
 } from './assistantDocumentIntent';
 import { parseAssistantPresentationMetadata } from './assistantPresentationMetadata';
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 150_000;
 const MAX_CHAT_ATTACHMENTS = 3;
 const MAX_CHAT_ATTACHMENT_CHARACTERS = 60_000;
 
@@ -18,10 +18,19 @@ const runtimeEnv = (): Record<string, string | undefined> => ({
   ...((import.meta as any).env || {}),
 });
 
+const isFeatureEnabled = (value?: string): boolean => (
+  String(value ?? 'true').trim().toLowerCase() !== 'false'
+);
+
 export type AssistantRuntimeStage =
   | 'connecting'
   | 'thinking'
+  | 'routing'
+  | 'planning'
   | 'searching_knowledge'
+  | 'searching_web'
+  | 'verifying'
+  | 'synthesizing'
   | 'answering';
 
 export type AssistantRuntimeEvent =
@@ -85,12 +94,18 @@ function asKnowledgeSources(value: unknown): AssistantKnowledgeSource[] {
       const candidate = item as Record<string, unknown>;
       const sourceName = String(candidate.sourceName || '').trim();
       if (!sourceName) return null;
+      const sourceType = candidate.sourceType === 'web' ? 'web' : 'knowledge';
+      const url = candidate.url && /^https?:\/\//i.test(String(candidate.url))
+        ? String(candidate.url)
+        : undefined;
       return {
         sourceId: candidate.sourceId ? String(candidate.sourceId) : undefined,
         sourceName,
         canonicalKey: candidate.canonicalKey ? String(candidate.canonicalKey) : undefined,
         objectType: candidate.objectType ? String(candidate.objectType) : undefined,
         title: candidate.title ? String(candidate.title) : undefined,
+        sourceType,
+        url,
       };
     })
     .filter((item): item is AssistantKnowledgeSource => !!item);
@@ -107,15 +122,12 @@ function documentStageLabel(
       ? 'Mevcut doküman bağlamı hazırlanıyor...'
       : 'Doküman bağlamı hazırlanıyor...';
   }
-  if (stage === 'thinking') {
+  if (stage === 'answering' || stage === 'synthesizing') {
     return mode === 'revise'
-      ? 'Mevcut doküman ve değişiklik talebi değerlendiriliyor...'
-      : 'İhtiyaç ve Enerjisa şablonu değerlendiriliyor...';
+      ? 'Doküman yeni sürüm olarak hazırlanıyor...'
+      : 'Doküman hazırlanıyor...';
   }
-  if (stage === 'searching_knowledge') return 'Kurumsal bilgi bankası taranıyor...';
-  return mode === 'revise'
-    ? 'Doküman yeni sürüm olarak hazırlanıyor...'
-    : 'Doküman hazırlanıyor...';
+  return fallback;
 }
 
 async function readAttachmentText(attachment: MessageAttachment): Promise<string> {
@@ -186,7 +198,12 @@ export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEve
     const allowedStages = new Set<AssistantRuntimeStage>([
       'connecting',
       'thinking',
+      'routing',
+      'planning',
       'searching_knowledge',
+      'searching_web',
+      'verifying',
+      'synthesizing',
       'answering',
     ]);
     const stage = String(payload.stage || 'thinking') as AssistantRuntimeStage;
@@ -246,6 +263,7 @@ export async function streamAssistantResponse(input: {
   const assistantMessage = documentRequest
     ? buildDocumentGenerationMessage(input.message)
     : input.message;
+  const reasoningEngineEnabled = isFeatureEnabled(env.VITE_REASONING_ENGINE_V2);
 
   if (!supabaseUrl || !anonKey || !token) {
     throw new Error('Asistan için geçerli bir kullanıcı oturumu ve Supabase yapılandırması gerekiyor.');
@@ -268,28 +286,49 @@ export async function streamAssistantResponse(input: {
   let fallbackUsed = false;
   let usage: Record<string, number> | undefined;
   let completedSeen = false;
+  const executionLabels: string[] = [];
+
+  const rememberExecutionLabel = (label?: string) => {
+    const safe = String(label || '').trim();
+    if (!safe || safe === 'Asistana bağlanılıyor...' || executionLabels[executionLabels.length - 1] === safe) return;
+    executionLabels.push(safe);
+    if (executionLabels.length > 10) executionLabels.shift();
+  };
 
   try {
     input.onStatus?.(
       'connecting',
       documentStageLabel(documentRequestMode, 'connecting', 'Asistana bağlanılıyor...'),
     );
-    const response = await fetch(`${supabaseUrl}/functions/v1/openai-assistant`, {
+
+    const requestBody = JSON.stringify({
+      workspaceId: input.workspaceId,
+      messageId: input.messageId,
+      message: assistantMessage,
+      model: input.model || 'auto',
+      chatAttachments: input.chatAttachments || [],
+    });
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: anonKey,
+    };
+    const callEndpoint = (slug: string) => fetch(`${supabaseUrl}/functions/v1/${slug}`, {
       method: 'POST',
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        apikey: anonKey,
-      },
-      body: JSON.stringify({
-        workspaceId: input.workspaceId,
-        messageId: input.messageId,
-        message: assistantMessage,
-        model: input.model || 'auto',
-        chatAttachments: input.chatAttachments || [],
-      }),
+      headers,
+      body: requestBody,
     });
+
+    let response = await callEndpoint(reasoningEngineEnabled ? 'openai-assistant-v2' : 'openai-assistant');
+    if (reasoningEngineEnabled && !response.ok && (response.status === 404 || response.status === 503)) {
+      const errorPayload = await response.clone().json().catch(() => ({}));
+      const code = String(errorPayload.code || '');
+      if (response.status === 404 || code === 'REASONING_ENGINE_DISABLED' || code === 'RUNTIME_DISABLED') {
+        rememberExecutionLabel('Reasoning Engine v2 kullanılamadı; güvenli legacy runtime devreye alındı.');
+        response = await callEndpoint('openai-assistant');
+      }
+    }
 
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
@@ -321,10 +360,9 @@ export async function streamAssistantResponse(input: {
         return;
       }
       if (parsed.type === 'status') {
-        input.onStatus?.(
-          parsed.stage,
-          documentStageLabel(documentRequestMode, parsed.stage, parsed.label),
-        );
+        const label = documentStageLabel(documentRequestMode, parsed.stage, parsed.label);
+        rememberExecutionLabel(label);
+        input.onStatus?.(parsed.stage, label);
         return;
       }
       completedSeen = true;
@@ -357,14 +395,16 @@ export async function streamAssistantResponse(input: {
     }
 
     const presentation = parseAssistantPresentationMetadata(fullText);
+    const executionSummary = executionLabels.length
+      ? executionLabels.map(label => `• ${label}`).join('\n')
+      : undefined;
 
     if (documentRequest) {
-      input.onStatus?.(
-        'answering',
-        documentRequestMode === 'revise'
-          ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
-          : 'BA Analiz dokümanı kaydediliyor...',
-      );
+      const persistenceLabel = documentRequestMode === 'revise'
+        ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
+        : 'BA Analiz dokümanı kaydediliyor...';
+      rememberExecutionLabel(persistenceLabel);
+      input.onStatus?.('answering', persistenceLabel);
       const persisted = await persistAssistantDocument({
         workspaceId: input.workspaceId,
         messageId: input.messageId,
@@ -384,6 +424,9 @@ export async function streamAssistantResponse(input: {
             : "BA Analiz dokümanı oluşturuldu ve Canvas'a kaydedildi."
         );
       input.onText?.(displayText);
+      const documentExecutionSummary = executionLabels.length
+        ? executionLabels.map(label => `• ${label}`).join('\n')
+        : executionSummary;
       return {
         text: displayText,
         sources,
@@ -392,7 +435,7 @@ export async function streamAssistantResponse(input: {
         provider,
         fallbackUsed,
         usage,
-        workSummary: presentation.workSummary,
+        workSummary: documentExecutionSummary || presentation.workSummary,
         questions: presentation.questions,
         actionSummary: presentation.actionSummary || (
           documentRequestMode === 'revise'
@@ -412,7 +455,7 @@ export async function streamAssistantResponse(input: {
       provider,
       fallbackUsed,
       usage,
-      workSummary: presentation.workSummary,
+      workSummary: executionSummary || presentation.workSummary,
       questions: presentation.questions,
       actionSummary: presentation.actionSummary,
     };

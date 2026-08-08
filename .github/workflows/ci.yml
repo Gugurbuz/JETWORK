@@ -54,11 +54,12 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      E2E_BASE_URL: https://jetwork.vercel.app
       E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
     steps:
       - name: E2E not configured
         if: env.E2E_USERNAME == '' || env.E2E_PASSWORD == ''
@@ -87,6 +88,6 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
 
-      - name: Browser smoke test
+      - name: Browser smoke test against branch build
         if: env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
         run: pnpm run test:e2e

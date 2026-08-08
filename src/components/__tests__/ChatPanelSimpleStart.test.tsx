@@ -18,10 +18,10 @@ describe('ChatPanel simple BA start', () => {
   it('shows four direct starters and no active-listening copy', () => {
     const html = renderPanel();
     expect(html).toContain('İş analizi talebini birlikte netleştirelim');
-    expect(html).toContain('Yeni bir iş analizi dokümanı başlatmak istiyorum');
-    expect(html).toContain('Aşağıdaki ham notları yapısal bir dokümana dönüştürmeni istiyorum');
-    expect(html).toContain('Mevcut analizimin olgunluk seviyesini değerlendirip eksik noktaları bulur musun');
-    expect(html).toContain('Exper Modu');
+    expect(html).toContain('Bir talebim var; proje mi support konusu mu olduğunu birlikte netleştirelim.');
+    expect(html).toContain('ZCRM2-545 hangi koşulda alınır?');
+    expect(html).toContain('CHECK_ZTKS hangi mesajları üretiyor?');
+    expect(html).toContain('Bir TXT veya MD kaynağını bilgi bankasına eklemek istiyorum.');
     expect(html).not.toContain('aktif dinlemede');
     expect(html).not.toContain('proaktif olarak dahil olur');
   });
