@@ -568,6 +568,45 @@ export async function streamAssistantResponse(input: {
     const effectiveDocumentRequestMode: AssistantDocumentRequestMode = autoCaptureDocument
       ? 'create'
       : documentRequestMode;
+    const clarificationBeforeArtifact = effectiveDocumentRequestMode !== 'none'
+      && Array.isArray(presentation.questions)
+      && presentation.questions.length > 0
+      && !validateEnerjisaDocumentContract(persistablePresentation.visibleText).valid;
+
+    if (clarificationBeforeArtifact) {
+      if (!artifactTask) {
+        artifactTask = await ensureArtifactTask({
+          workspaceId: input.workspaceId,
+          requestMessageId: input.messageId,
+          requestText: input.message,
+          mode: effectiveDocumentRequestMode as Exclude<AssistantDocumentRequestMode, 'none'>,
+          status: 'awaiting_input',
+        }).catch(error => {
+          console.warn('Awaiting artifact task could not be created:', error);
+          return null;
+        });
+      } else {
+        await transitionArtifactTask(artifactTask.id, 'awaiting_input', { errorMessage: null })
+          .catch(error => console.warn('Artifact task could not return to awaiting_input:', error));
+      }
+      rememberExecutionLabel('Doküman için gerekli kararlar bekleniyor.');
+      const clarificationText = presentation.visibleText || 'Dokümanı tamamlamak için birkaç kısa bilgiye ihtiyacım var.';
+      input.onText?.(clarificationText);
+      return {
+        text: clarificationText,
+        sources,
+        conversationId,
+        model,
+        provider,
+        fallbackUsed,
+        usage,
+        workSummary: executionLabels.length
+          ? executionLabels.map(label => `• ${label}`).join('\n')
+          : executionSummary || presentation.workSummary,
+        questions: presentation.questions,
+        actionSummary: presentation.actionSummary || 'Yanıtlarından sonra doküman görevine kaldığım yerden devam edeceğim.',
+      };
+    }
 
     if (effectiveDocumentRequestMode !== 'none') {
       if (!artifactTask) {
