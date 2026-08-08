@@ -204,6 +204,38 @@ if (authError || !authData.session || !authData.user) {
   throw new Error(`Reasoning canary login failed: ${authError?.message || 'no session'}`);
 }
 
+// Golden canaries are intentionally disabled after their one-off deployment is
+// retired. Subsequent unrelated PRs must not fail because the secured canary
+// endpoint returns its explicit 410 sentinel. When active, a malformed probe
+// returns a normal validation error and the real scenarios continue below.
+const availabilityResponse = await fetch(`${supabaseUrl}/functions/v1/${endpoint}`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${authData.session.access_token}`,
+    apikey: anonKey,
+  },
+  body: JSON.stringify({}),
+});
+const availabilityRaw = await availabilityResponse.text();
+if (availabilityResponse.status === 410 && /GOLDEN_CANARY_DISABLED/i.test(availabilityRaw)) {
+  const skippedReport = {
+    schemaVersion: 2,
+    generatedAt: new Date().toISOString(),
+    endpoint,
+    skipped: true,
+    skipReason: 'golden_canary_disabled',
+    summary: null,
+    environmentBlockedCount: 0,
+    environmentBlocked: [],
+    results: [],
+  };
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(skippedReport, null, 2)}\n`, 'utf8');
+  console.log(`Reasoning canary endpoint ${endpoint} is intentionally disabled; live canary skipped.`);
+  process.exit(0);
+}
+
 const canaryIds = ['rq-01-simple-definition', 'rq-03-sap-diagnosis-message', 'rq-11-current-official-docs'];
 const scenarios = canaryIds.map(id => {
   const scenario = REASONING_GOLDEN_SCENARIOS.find(item => item.id === id);
