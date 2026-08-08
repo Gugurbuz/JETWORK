@@ -100,6 +100,18 @@ const responseErrorMessage = async (response: Response): Promise<string> => {
   }
 }
 
+const logFailureCategory = (
+  category: OpenAiFailureCategory,
+  cooldownMs: number,
+  status?: number,
+) => {
+  console.warn('[provider-circuit] OpenAI provider degraded', {
+    category,
+    status: status ?? null,
+    cooldownMs,
+  })
+}
+
 export function createOpenAiCircuitBreaker(
   baseFetch: typeof fetch,
   options: OpenAiCircuitBreakerOptions = {},
@@ -145,6 +157,7 @@ export function createOpenAiCircuitBreaker(
 
       const detail = await responseErrorMessage(response)
       const failure = classifyOpenAiFailure(response.status, detail, options)
+      logFailureCategory(failure.category, failure.cooldownMs, response.status)
       open(failure.category, failure.cooldownMs)
       return response
     } catch (error) {
@@ -152,6 +165,7 @@ export function createOpenAiCircuitBreaker(
       // Caller-driven aborts must never poison provider health.
       if (!/abort|timeout/i.test(message)) {
         const failure = classifyOpenAiFailure(undefined, message, options)
+        logFailureCategory(failure.category, failure.cooldownMs)
         open(failure.category, failure.cooldownMs)
       }
       throw error
