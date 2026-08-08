@@ -14,6 +14,7 @@ vi.mock('../../supabase', () => ({
 
 import {
   AssistantAttachmentValidationError,
+  normalizeEnerjisaDocumentForPersistence,
   parseAssistantRuntimeEvent,
   prepareAssistantChatAttachments,
   streamAssistantResponse,
@@ -203,6 +204,23 @@ describe('prepareAssistantChatAttachments', () => {
       ...attachment,
       data: encodeBase64('x'.repeat(60_001)),
     }])).rejects.toThrow('60.000');
+  });
+});
+
+describe('normalizeEnerjisaDocumentForPersistence', () => {
+  it('restores the canonical Talep Adı cover label without losing the generated title', () => {
+    const raw = `<ba_analysis>\n| İş Analizi Dokümanı | Maliyet İnceleme Ekranı Bakanlık Alanı Eklenmesi |\n| :--- | :--- |\n| **Talep No** | [AÇIK KONU] |\n\n# İHTİYAÇ ANALİZİ\n</ba_analysis>`;
+
+    const normalized = normalizeEnerjisaDocumentForPersistence(raw);
+
+    expect(normalized).toContain('| İş Analizi Dokümanı | Talep Adı |');
+    expect(normalized).toContain('| Talep Adı | Maliyet İnceleme Ekranı Bakanlık Alanı Eklenmesi |');
+    expect(normalized).toContain('| **Talep No** | [AÇIK KONU] |');
+  });
+
+  it('leaves an already canonical cover unchanged', () => {
+    const raw = '| İş Analizi Dokümanı | Talep Adı |\n| --- | --- |\n| Talep Adı | Test |';
+    expect(normalizeEnerjisaDocumentForPersistence(raw)).toBe(raw);
   });
 });
 
