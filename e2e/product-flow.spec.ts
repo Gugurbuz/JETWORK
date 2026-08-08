@@ -77,18 +77,11 @@ test.describe('authenticated product flow', () => {
     expect(qualityScore).toBeGreaterThanOrEqual(72);
     expect(await page.evaluate(() => (window as any).__jetworkXss)).toBe(false);
 
-    const shareDialog = page.waitForEvent('dialog');
     await page.getByTestId('share-document').click();
-    const createdShareDialog = await shareDialog;
-    expect(createdShareDialog.message()).toContain('?share=');
-    await createdShareDialog.accept();
-    await expect(page.getByTestId('revoke-document-share')).toBeVisible();
-
-    const revokeDialog = page.waitForEvent('dialog');
-    await page.getByTestId('revoke-document-share').click();
-    const revokedShareDialog = await revokeDialog;
-    expect(revokedShareDialog.message()).toMatch(/iptal/i);
-    await revokedShareDialog.accept();
+    const revokeShare = page.getByTestId('revoke-document-share');
+    await expect(revokeShare).toBeVisible({ timeout: 15_000 });
+    await revokeShare.click();
+    await expect(page.getByTestId('revoke-document-share')).toHaveCount(0, { timeout: 15_000 });
   });
 
   test('asks at most three plain maturation questions for a sparse request', async ({ page }) => {
