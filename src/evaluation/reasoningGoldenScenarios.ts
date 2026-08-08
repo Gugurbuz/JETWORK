@@ -48,7 +48,9 @@ export interface ReasoningGoldenScenario {
 
 const lowSimple = (): ReasoningGoldenRuntimeExpectation => ({
   requiredStages: ['routing', 'answering'],
-  forbiddenStages: ['searching_web'],
+  forbiddenStages: ['searching_knowledge', 'searching_web', 'verifying'],
+  minimumKnowledgeSources: 0,
+  minimumWebSources: 0,
   minimumToolCalls: 0,
 });
 

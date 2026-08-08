@@ -761,17 +761,19 @@ serve(async req => {
 
           const requestActiveProvider = async () => {
             if (activeProvider === 'gemini') {
+              const allowSynthesisTools = !mustSynthesize && (plan.knowledgeRequired || plan.webMode !== 'none')
               return await requestGeminiResponse({
                 apiKey: String(geminiApiKey), model: activeModel,
                 instructions: [prompt.prompt_text, synthesisInstruction, finalInstruction].filter(Boolean).join('\n\n'),
                 items: runItems, tools: ASSISTANT_KNOWLEDGE_TOOLS as unknown as ReadonlyArray<Record<string, unknown>>,
-                allowTools: !mustSynthesize, maxOutputTokens: MAX_OUTPUT_TOKENS,
+                allowTools: allowSynthesisTools, maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => { roundText += delta }, signal: runController.signal,
               })
             }
-            const tools: Array<Record<string, unknown>> = [
-              ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as Array<Record<string, unknown>>),
-            ]
+            const allowSynthesisTools = !mustSynthesize && (plan.knowledgeRequired || plan.webMode !== 'none')
+            const tools: Array<Record<string, unknown>> = plan.knowledgeRequired
+              ? [...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as Array<Record<string, unknown>>)]
+              : []
             if (!mustSynthesize && plan.webMode !== 'none') tools.push({
               type: 'web_search', search_context_size: plan.complexity === 'high' ? 'high' : 'medium',
             })
@@ -780,7 +782,7 @@ serve(async req => {
               input: mustSynthesize
                 ? [...cleanProviderItemsForOpenAi(runItems), { role: 'developer', content: finalInstruction }]
                 : cleanProviderItemsForOpenAi(runItems),
-              tools, tool_choice: mustSynthesize ? 'none' : 'auto', parallel_tool_calls: false,
+              tools, tool_choice: allowSynthesisTools && tools.length ? 'auto' : 'none', parallel_tool_calls: false,
               include: plan.webMode !== 'none' ? ['web_search_call.action.sources'] : undefined,
               reasoning: { effort: reasoningEffort(plan.complexity) },
               text: { verbosity: plan.complexity === 'high' ? 'high' : 'medium' },
