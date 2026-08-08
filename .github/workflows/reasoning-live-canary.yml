@@ -1,0 +1,52 @@
+name: Reasoning Live Canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+      REASONING_CANARY_ENDPOINT: openai-assistant-v2
+      REASONING_CANARY_OUTPUT: evaluation/results/reasoning-live-canary.json
+    steps:
+      - name: Require canary credentials
+        run: |
+          test -n "$E2E_USERNAME" || (echo "E2E_USERNAME is not configured" && exit 1)
+          test -n "$E2E_PASSWORD" || (echo "E2E_PASSWORD is not configured" && exit 1)
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run production Reasoning canaries
+        run: pnpm exec tsx scripts/run-reasoning-live-canary.ts
+
+      - name: Upload quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reasoning-live-canary-production
+          path: evaluation/results/reasoning-live-canary.json
+          if-no-files-found: ignore
