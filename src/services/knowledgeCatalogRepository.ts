@@ -3,17 +3,12 @@ import type { AttachmentIngestion, KnowledgeItem, MessageAttachment } from '../t
 
 const KNOWLEDGE_BUCKET = 'knowledge-sources';
 
-export async function resolveKnowledgeWorkspace(
-  workspaceId: string,
-): Promise<string> {
-  const { data, error } = await supabase.rpc('resolve_account_knowledge_workspace', {
-    p_workspace_id: workspaceId,
-  });
-  if (error) throw error;
-  if (typeof data !== 'string' || !data) {
-    throw new Error('Hesap bilgi bankası çözümlenemedi.');
-  }
-  return data;
+export type KnowledgeScope = 'global' | 'project';
+
+export interface KnowledgeContext {
+  globalSpaceId: string;
+  projectSpaceId?: string;
+  projectId?: string;
 }
 
 export interface KnowledgeIngestionResult {
@@ -42,6 +37,7 @@ export interface KnowledgeSourceSummary {
   objectCount: number;
   relationCount: number;
   storagePath?: string;
+  scope: KnowledgeScope;
 }
 
 interface KnowledgeCatalogSearchRow {
@@ -54,6 +50,7 @@ interface KnowledgeCatalogSearchRow {
   content: string;
   source_id: string;
   source_name: string;
+  scope_type: KnowledgeScope;
   score: number;
 }
 
@@ -70,23 +67,53 @@ const attachmentToFile = (attachment: MessageAttachment): File => {
     throw new Error('Bilgi kaynağının dosya içeriği artık mevcut değil; dosyayı yeniden ekleyin.');
   }
   const bytes = Uint8Array.from(atob(attachment.data), character => character.charCodeAt(0));
-  return new File(
-    [bytes],
-    attachment.name || 'source.txt',
-    { type: attachment.mimeType || 'text/plain' },
-  );
+  return new File([bytes], attachment.name || 'source.txt', {
+    type: attachment.mimeType || 'text/plain',
+  });
 };
 
-export const isKnowledgeFile = (attachment: MessageAttachment) =>
+export const isKnowledgeFile = (attachment: Pick<MessageAttachment, 'name' | 'mimeType'>) =>
   /\.(txt|md)$/i.test(attachment.name || '')
   && ['text/plain', 'text/markdown', ''].includes(attachment.mimeType || '');
 
-export async function ingestKnowledgeAttachment(
+export async function resolveKnowledgeContext(workspaceId: string): Promise<KnowledgeContext> {
+  const { data, error } = await supabase.rpc('resolve_knowledge_context', {
+    p_workspace_id: workspaceId,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.global_space_id) {
+    throw new Error('JetWork Bilgi Bankası çözümlenemedi.');
+  }
+  return {
+    globalSpaceId: String(row.global_space_id),
+    projectSpaceId: row.project_space_id ? String(row.project_space_id) : undefined,
+    projectId: row.project_id ? String(row.project_id) : undefined,
+  };
+}
+
+export async function resolveKnowledgeSpace(
   workspaceId: string,
-  attachment: MessageAttachment,
+  scope: KnowledgeScope,
+): Promise<string> {
+  const { data, error } = await supabase.rpc('resolve_knowledge_space_v2', {
+    p_workspace_id: workspaceId,
+    p_scope_type: scope,
+  });
+  if (error) throw error;
+  if (typeof data !== 'string' || !data) {
+    throw new Error(scope === 'global' ? 'JetWork Bilgi Bankası bulunamadı.' : 'Proje Bilgi Bankası bulunamadı.');
+  }
+  return data;
+}
+
+export async function ingestKnowledgeFile(
+  workspaceId: string,
+  file: File,
+  scope: KnowledgeScope = 'global',
   onStatus?: (status: AttachmentIngestion) => void | Promise<void>,
 ): Promise<KnowledgeIngestionResult> {
-  if (!isKnowledgeFile(attachment)) {
+  if (!/\.(txt|md)$/i.test(file.name) || !['text/plain', 'text/markdown', ''].includes(file.type || '')) {
     throw new Error('Bilgi bankasının ilk sürümü yalnızca TXT ve MD dosyalarını destekliyor.');
   }
 
@@ -95,12 +122,11 @@ export async function ingestKnowledgeAttachment(
     throw authError || new Error('Bilgi kaynağı yüklemek için oturum gerekli.');
   }
 
-  const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(workspaceId);
-
-  const file = attachmentToFile(attachment);
+  const knowledgeSpaceId = await resolveKnowledgeSpace(workspaceId, scope);
   const fileName = sanitizeFileName(file.name);
   const mimeType = fileName.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain';
-  const storagePath = `${authData.user.id}/${knowledgeWorkspaceId}/${crypto.randomUUID()}/${fileName}`;
+  const storagePath = `${authData.user.id}/${knowledgeSpaceId}/${crypto.randomUUID()}/${fileName}`;
+
   await onStatus?.({ status: 'uploading' });
   const { error: uploadError } = await supabase.storage
     .from(KNOWLEDGE_BUCKET)
@@ -118,7 +144,7 @@ export async function ingestKnowledgeAttachment(
     await onStatus?.({ status: 'processing' });
     const { data, error } = await supabase.functions.invoke('ingest-knowledge-source', {
       body: {
-        workspaceId: knowledgeWorkspaceId,
+        knowledgeSpaceId,
         storagePath,
         fileName: file.name,
         mimeType,
@@ -137,10 +163,7 @@ export async function ingestKnowledgeAttachment(
     });
     return result;
   } catch (error) {
-    await supabase.storage
-      .from(KNOWLEDGE_BUCKET)
-      .remove([storagePath])
-      .catch(() => undefined);
+    await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]).catch(() => undefined);
     await onStatus?.({
       status: 'failed',
       error: error instanceof Error ? error.message : 'Bilgi kaynağı işlenemedi.',
@@ -149,12 +172,24 @@ export async function ingestKnowledgeAttachment(
   }
 }
 
+export async function ingestKnowledgeAttachment(
+  workspaceId: string,
+  attachment: MessageAttachment,
+  onStatus?: (status: AttachmentIngestion) => void | Promise<void>,
+): Promise<KnowledgeIngestionResult> {
+  if (!isKnowledgeFile(attachment)) {
+    throw new Error('Bilgi bankasının ilk sürümü yalnızca TXT ve MD dosyalarını destekliyor.');
+  }
+  return ingestKnowledgeFile(workspaceId, attachmentToFile(attachment), 'global', onStatus);
+}
+
 export async function listKnowledgeSources(
   workspaceId: string,
+  scope: KnowledgeScope = 'global',
 ): Promise<KnowledgeSourceSummary[]> {
-  const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(workspaceId);
+  const knowledgeSpaceId = await resolveKnowledgeSpace(workspaceId, scope);
   const { data, error } = await supabase
-    .from('kb_sources')
+    .from('knowledge_sources_v2')
     .select(`
       id,
       name,
@@ -166,19 +201,19 @@ export async function listKnowledgeSources(
       created_at,
       updated_at,
       storage_path,
-      kb_source_versions!kb_source_versions_source_id_fkey (
+      knowledge_source_versions_v2!knowledge_source_versions_v2_source_id_fkey (
         version_number,
         object_count,
         relation_count
       )
     `)
-    .eq('workspace_id', knowledgeWorkspaceId)
+    .eq('knowledge_space_id', knowledgeSpaceId)
     .order('updated_at', { ascending: false });
   if (error) throw error;
 
   return (data || []).map((row: any) => {
-    const versions = Array.isArray(row.kb_source_versions)
-      ? row.kb_source_versions
+    const versions = Array.isArray(row.knowledge_source_versions_v2)
+      ? row.knowledge_source_versions_v2
       : [];
     const latest = versions.find((version: any) =>
       Number(version.version_number) === Number(row.latest_version));
@@ -195,12 +230,13 @@ export async function listKnowledgeSources(
       objectCount: Number(latest?.object_count || 0),
       relationCount: Number(latest?.relation_count || 0),
       storagePath: row.storage_path || undefined,
+      scope,
     };
   });
 }
 
 export async function publishKnowledgeSource(sourceId: string): Promise<void> {
-  const { error } = await supabase.rpc('publish_knowledge_source', {
+  const { error } = await supabase.rpc('publish_knowledge_source_v2', {
     p_source_id: sourceId,
   });
   if (error) throw error;
@@ -208,14 +244,14 @@ export async function publishKnowledgeSource(sourceId: string): Promise<void> {
 
 export async function archiveKnowledgeSource(sourceId: string): Promise<void> {
   const { error } = await supabase
-    .from('kb_sources')
+    .from('knowledge_sources_v2')
     .update({ publication_status: 'archived', updated_at: new Date().toISOString() })
     .eq('id', sourceId);
   if (error) throw error;
 }
 
 export async function deleteKnowledgeSource(source: KnowledgeSourceSummary): Promise<void> {
-  const { error } = await supabase.from('kb_sources').delete().eq('id', source.id);
+  const { error } = await supabase.from('knowledge_sources_v2').delete().eq('id', source.id);
   if (error) throw error;
   if (source.storagePath) {
     const { error: storageError } = await supabase.storage
@@ -232,9 +268,8 @@ export async function searchKnowledgeCatalog(
 ): Promise<KnowledgeItem[]> {
   const normalizedQuery = query.trim();
   if (!normalizedQuery) return [];
-  const knowledgeWorkspaceId = await resolveKnowledgeWorkspace(workspaceId);
-  const { data, error } = await supabase.rpc('search_knowledge_catalog', {
-    p_workspace_id: knowledgeWorkspaceId,
+  const { data, error } = await supabase.rpc('search_knowledge_catalog_v2', {
+    p_workspace_id: workspaceId,
     p_query: normalizedQuery,
     p_object_types: null,
     p_limit: limit,
@@ -243,14 +278,15 @@ export async function searchKnowledgeCatalog(
 
   return ((data || []) as KnowledgeCatalogSearchRow[]).map(row => ({
     id: row.object_id,
-    projectId: knowledgeWorkspaceId,
+    projectId: row.scope_type,
     content: [
+      `Kapsam: ${row.scope_type === 'project' ? 'Proje' : 'JetWork Global'}`,
       `Kaynak: ${row.source_name}`,
       `Nesne: ${row.canonical_key}`,
       row.summary || row.title,
       row.content,
     ].filter(Boolean).join('\n').slice(0, 8_000),
-    keywords: [row.object_type, row.object_name, row.canonical_key],
+    keywords: [row.scope_type, row.object_type, row.object_name, row.canonical_key],
     importance: Math.max(1, Math.min(10, Math.round(Number(row.score || 0.5) * 10))),
     createdAt: Date.now(),
     sourceType: 'uploaded_source',

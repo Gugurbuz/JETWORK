@@ -12,13 +12,7 @@ const corsHeaders = {
 
 const jsonResponse = (payload: unknown, status = 200) => new Response(
   JSON.stringify(payload),
-  {
-    status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    },
-  },
+  { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
 )
 
 const sha256 = async (value: Uint8Array) => {
@@ -40,12 +34,8 @@ const decodeSource = (bytes: Uint8Array) => {
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
-  if (req.method !== 'POST') {
-    return jsonResponse({ error: 'Only POST is supported.' }, 405)
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
 
   const authorization = req.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
@@ -78,38 +68,36 @@ serve(async (req) => {
     }
 
     const body = await req.json()
-    const workspaceId = String(body?.workspaceId || '').trim()
+    const knowledgeSpaceId = String(body?.knowledgeSpaceId || '').trim()
     const storagePath = String(body?.storagePath || '').trim()
     const fileName = String(body?.fileName || '').trim()
     const mimeType = String(body?.mimeType || 'text/plain').trim().toLowerCase()
     const allowedMimeTypes = new Set(['text/plain', 'text/markdown'])
 
-    if (!workspaceId || !storagePath || !fileName) {
-      return jsonResponse({ error: 'workspaceId, storagePath and fileName are required.' }, 400)
+    if (!knowledgeSpaceId || !storagePath || !fileName) {
+      return jsonResponse({ error: 'knowledgeSpaceId, storagePath and fileName are required.' }, 400)
     }
     if (
       storagePath.includes('..')
-      || !storagePath.startsWith(`${authData.user.id}/${workspaceId}/`)
+      || !storagePath.startsWith(`${authData.user.id}/${knowledgeSpaceId}/`)
     ) {
-      return jsonResponse({ error: 'Storage path is outside the authenticated workspace scope.' }, 403)
+      return jsonResponse({ error: 'Storage path is outside the authenticated knowledge scope.' }, 403)
     }
     if (!/\.(txt|md)$/i.test(fileName) || !allowedMimeTypes.has(mimeType)) {
       return jsonResponse({ error: 'The first ingestion release supports only TXT and MD files.' }, 415)
     }
 
-    const { data: workspace, error: workspaceError } = await client
-      .from('workspaces')
-      .select('id')
-      .eq('id', workspaceId)
-      .maybeSingle()
-    if (workspaceError || !workspace) {
-      return jsonResponse({ error: 'Workspace access denied.' }, 403)
+    const { data: canWrite, error: accessError } = await client.rpc('can_write_knowledge_space', {
+      target_space_id: knowledgeSpaceId,
+    })
+    if (accessError || !canWrite) {
+      return jsonResponse({ error: 'Knowledge space access denied.' }, 403)
     }
 
     const { data: job, error: jobError } = await adminClient
-      .from('kb_ingestion_jobs')
+      .from('knowledge_ingestion_jobs_v2')
       .insert({
-        workspace_id: workspaceId,
+        knowledge_space_id: knowledgeSpaceId,
         owner_id: authData.user.id,
         status: 'running',
         phase: 'reading_source',
@@ -136,7 +124,7 @@ serve(async (req) => {
     const parsed = parseKnowledgeSource(fileName, rawText)
 
     await adminClient
-      .from('kb_ingestion_jobs')
+      .from('knowledge_ingestion_jobs_v2')
       .update({
         phase: 'persisting_catalog',
         stats: {
@@ -147,10 +135,10 @@ serve(async (req) => {
       .eq('id', jobId)
 
     const { data: result, error: ingestError } = await client.rpc(
-      'ingest_knowledge_catalog',
+      'ingest_knowledge_catalog_v2',
       {
         p_job_id: jobId,
-        p_workspace_id: workspaceId,
+        p_knowledge_space_id: knowledgeSpaceId,
         p_storage_path: storagePath,
         p_file_name: fileName,
         p_mime_type: mimeType,
@@ -178,7 +166,7 @@ serve(async (req) => {
     console.error('Knowledge ingestion failed:', error)
     if (jobId) {
       await adminClient
-        .from('kb_ingestion_jobs')
+        .from('knowledge_ingestion_jobs_v2')
         .update({
           status: 'failed',
           phase: 'failed',
@@ -189,8 +177,8 @@ serve(async (req) => {
     }
     if (sourceId) {
       await adminClient
-        .from('kb_sources')
-        .update({ ingestion_status: 'failed' })
+        .from('knowledge_sources_v2')
+        .update({ ingestion_status: 'failed', updated_at: new Date().toISOString() })
         .eq('id', sourceId)
     }
     return jsonResponse({ error: message, jobId }, 400)
