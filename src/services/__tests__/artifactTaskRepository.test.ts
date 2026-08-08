@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ARTIFACT_STALE_AFTER_MS,
   artifactModeForTask,
+  artifactStaleBefore,
   shouldOpenAwaitingArtifactTask,
   type ArtifactTask,
 } from '../artifactTaskRepository';
@@ -45,5 +47,11 @@ describe('artifact task continuation policy', () => {
       text: 'Kararı netleştirelim.',
       actionSummary: 'Cevabın ardından iş analizi dokümanını oluşturacağım.',
     })).toBe(true);
+  });
+
+  it('uses a conservative ten-minute stale threshold for interrupted processing tasks', () => {
+    const now = Date.parse('2026-08-08T12:30:00.000Z');
+    expect(ARTIFACT_STALE_AFTER_MS).toBe(10 * 60 * 1000);
+    expect(artifactStaleBefore(now)).toBe('2026-08-08T12:20:00.000Z');
   });
 });
