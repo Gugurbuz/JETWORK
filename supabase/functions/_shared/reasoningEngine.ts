@@ -463,7 +463,6 @@ export async function runRequiredWebResearch(input: {
       tools: [{
         type: 'web_search',
         search_context_size: input.complexity === 'high' ? 'high' : 'medium',
-        external_web_access: true,
       }],
       tool_choice: 'required',
       include: ['web_search_call.action.sources'],
