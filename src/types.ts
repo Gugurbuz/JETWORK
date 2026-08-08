@@ -79,6 +79,8 @@ export interface AssistantKnowledgeSource {
   canonicalKey?: string;
   objectType?: string;
   title?: string;
+  sourceType?: 'knowledge' | 'web';
+  url?: string;
 }
 
 export interface Message {
