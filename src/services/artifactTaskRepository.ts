@@ -26,6 +26,8 @@ export interface ArtifactTask {
 }
 
 const ACTIVE_STATUSES: ArtifactTaskStatus[] = ['awaiting_input', 'generating', 'validating', 'persisting'];
+const INTERRUPTIBLE_STATUSES: ArtifactTaskStatus[] = ['generating', 'validating', 'persisting'];
+export const ARTIFACT_STALE_AFTER_MS = 10 * 60 * 1000;
 
 function mapRow(row: any): ArtifactTask {
   return {
@@ -46,7 +48,30 @@ function mapRow(row: any): ArtifactTask {
   };
 }
 
+export function artifactStaleBefore(now = Date.now()): string {
+  return new Date(now - ARTIFACT_STALE_AFTER_MS).toISOString();
+}
+
+async function cancelStaleArtifactTasks(workspaceId: string): Promise<void> {
+  const { error } = await supabase
+    .from('artifact_tasks')
+    .update({
+      status: 'cancelled',
+      error_message: 'Artifact işlemi oturum tamamlanmadan kesildi. Yeni talep veya tekrar deneme ile devam edilebilir.',
+      last_transition_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .in('status', INTERRUPTIBLE_STATUSES)
+    .lt('updated_at', artifactStaleBefore());
+
+  if (error && String(error.code || '') !== '42P01') {
+    console.warn('Stale artifact tasks could not be cancelled:', error);
+  }
+}
+
 export async function getActiveArtifactTask(workspaceId: string): Promise<ArtifactTask | null> {
+  await cancelStaleArtifactTasks(workspaceId);
+
   const { data, error } = await supabase
     .from('artifact_tasks')
     .select('*')
