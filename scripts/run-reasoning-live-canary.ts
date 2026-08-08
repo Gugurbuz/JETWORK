@@ -63,10 +63,14 @@ const parseSseText = (raw: string): ParsedSse[] => raw
   });
 
 const externalBlockReason = (message: string | null) => {
-  const normalized = String(message || '').toLocaleLowerCase('tr-TR');
+  const normalized = String(message || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
   if (
-    /openai api kullanım kredisi tükendi/.test(normalized)
-    || /gemini api kullanım kotası tükendi/.test(normalized)
+    /openai api kullanim kredisi tukendi/.test(normalized)
+    || /gemini api kullanim kotasi tukendi/.test(normalized)
     || /insufficient_quota|no credits remaining|quota exceeded|billing/.test(normalized)
   ) return 'provider_quota_or_billing';
   return null;
@@ -200,8 +204,6 @@ if (authError || !authData.session || !authData.user) {
   throw new Error(`Reasoning canary login failed: ${authError?.message || 'no session'}`);
 }
 
-// Deterministic coverage is broad; live canaries intentionally stay small to prove the
-// real orchestration transport without multiplying provider cost on every run.
 const canaryIds = ['rq-01-simple-definition', 'rq-03-sap-diagnosis-message', 'rq-11-current-official-docs'];
 const scenarios = canaryIds.map(id => {
   const scenario = REASONING_GOLDEN_SCENARIOS.find(item => item.id === id);
