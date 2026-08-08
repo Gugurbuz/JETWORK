@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-08T14:21:35.598Z",
+  "endpoint": "openai-assistant-golden-canary",
+  "summary": {
+    "scenarioCount": 2,
+    "criticalScenarioCount": 2,
+    "averageScore": 100,
+    "criticalAverageScore": 100,
+    "hardFailureCount": 0,
+    "criticalHardFailureCount": 0,
+    "criterionScores": {
+      "routeAccuracy": 100,
+      "stageDiscipline": 100,
+      "knowledgePolicy": 100,
+      "webPolicy": 100,
+      "verificationPolicy": 100,
+      "toolDepth": 100,
+      "answerDiscipline": 100,
+      "completion": 100
+    },
+    "failedScenarioIds": []
+  },
+  "environmentBlockedCount": 1,
+  "environmentBlocked": [
+    {
+      "scenarioId": "rq-11-current-official-docs",
+      "reason": "provider_quota_or_billing"
+    }
+  ],
+  "results": [
+    {
+      "scenarioId": "rq-01-simple-definition",
+      "title": "Basit kavram sorusu doğrudan cevaplanır",
+      "critical": true,
+      "environmentBlocked": null,
+      "route": {
+        "intent": "simple_answer",
+        "complexity": "low",
+        "knowledgeRequired": false,
+        "webMode": "none",
+        "verificationRequired": false,
+        "creativeMode": false
+      },
+      "stages": ["routing", "planning", "synthesizing", "answering"],
+      "sourceCounts": { "knowledge": 0, "web": 0 },
+      "completed": true,
+      "errorMessage": null,
+      "evaluation": {
+        "scenarioId": "rq-01-simple-definition",
+        "score": 100,
+        "criteria": {
+          "routeAccuracy": 1,
+          "stageDiscipline": 1,
+          "knowledgePolicy": 1,
+          "webPolicy": 1,
+          "verificationPolicy": 1,
+          "toolDepth": 1,
+          "answerDiscipline": 1,
+          "completion": 1
+        },
+        "hardFailures": [],
+        "warnings": []
+      }
+    },
+    {
+      "scenarioId": "rq-03-sap-diagnosis-message",
+      "title": "SAP hata kodu teşhisi kurumsal kanıta zorlanır",
+      "critical": true,
+      "environmentBlocked": null,
+      "route": {
+        "intent": "sap_diagnosis",
+        "complexity": "medium",
+        "knowledgeRequired": true,
+        "webMode": "none",
+        "verificationRequired": true,
+        "creativeMode": false
+      },
+      "stages": ["routing", "planning", "searching_knowledge", "verifying", "synthesizing", "answering"],
+      "sourceCounts": { "knowledge": 16, "web": 0 },
+      "completed": true,
+      "errorMessage": null,
+      "evaluation": {
+        "scenarioId": "rq-03-sap-diagnosis-message",
+        "score": 100,
+        "criteria": {
+          "routeAccuracy": 1,
+          "stageDiscipline": 1,
+          "knowledgePolicy": 1,
+          "webPolicy": 1,
+          "verificationPolicy": 1,
+          "toolDepth": 1,
+          "answerDiscipline": 1,
+          "completion": 1
+        },
+        "hardFailures": [],
+        "warnings": []
+      }
+    },
+    {
+      "scenarioId": "rq-11-current-official-docs",
+      "title": "Güncel resmi API dokümanı web araştırmasını zorunlu kılar",
+      "critical": true,
+      "environmentBlocked": "provider_quota_or_billing",
+      "route": {
+        "intent": "research",
+        "complexity": "medium",
+        "knowledgeRequired": true,
+        "webMode": "required",
+        "verificationRequired": true,
+        "creativeMode": false
+      },
+      "stages": ["routing", "planning", "searching_knowledge", "searching_web"],
+      "sourceCounts": { "knowledge": 8, "web": 0 },
+      "completed": false,
+      "errorMessage": "OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.",
+      "evaluation": {
+        "scenarioId": "rq-11-current-official-docs",
+        "score": 50,
+        "criteria": {
+          "routeAccuracy": 1,
+          "stageDiscipline": 0,
+          "knowledgePolicy": 1,
+          "webPolicy": 0,
+          "verificationPolicy": 0,
+          "toolDepth": 1,
+          "answerDiscipline": 1,
+          "completion": 0
+        },
+        "hardFailures": [
+          "missing_stages:verifying,synthesizing,answering",
+          "required_web_evidence_missing:0/1",
+          "verification_missing",
+          "runtime_not_completed:OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin."
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}
