@@ -136,6 +136,31 @@ function documentStageLabel(
   return fallback;
 }
 
+/**
+ * Repairs the common cover-table variation where the model replaces the literal
+ * "Talep Adı" header with the actual request title. The content is not invented:
+ * the existing title is moved into a labelled row and the canonical header is
+ * restored before strict contract validation and Canvas persistence.
+ */
+export function normalizeEnerjisaDocumentForPersistence(rawText: string): string {
+  if (!rawText.trim() || /\btalep\s+ad[ıi]\b/iu.test(rawText)) return rawText;
+
+  const coverPattern = /(\|\s*İş Analizi Dokümanı\s*\|\s*)([^|\n]+)(\s*\|\s*)\n(\s*\|\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|\s*)/iu;
+  const match = rawText.match(coverPattern);
+  if (!match) return rawText;
+
+  const title = match[2].trim();
+  if (!title) return rawText;
+  const safeTitle = title.replace(/\|/g, '\\|');
+  const repairedCover = [
+    '| İş Analizi Dokümanı | Talep Adı |',
+    match[4],
+    `| Talep Adı | ${safeTitle} |`,
+  ].join('\n');
+
+  return rawText.replace(coverPattern, repairedCover);
+}
+
 async function resolvePersistedDocumentContinuationMode(input: {
   workspaceId: string;
   messageId: string;
@@ -397,12 +422,10 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'error') throw new Error(parsed.message);
       if (parsed.type === 'text_delta') {
         fullText += parsed.delta;
-        const presentation = parseAssistantPresentationMetadata(fullText);
-        input.onText?.(
-          documentRequest
-            ? documentStageLabel(documentRequestMode, 'answering') || 'Doküman hazırlanıyor...'
-            : presentation.visibleText,
-        );
+        if (!documentRequest) {
+          const presentation = parseAssistantPresentationMetadata(fullText);
+          input.onText?.(presentation.visibleText);
+        }
         return;
       }
       if (parsed.type === 'sources') {
@@ -445,13 +468,15 @@ export async function streamAssistantResponse(input: {
       throw new Error('Asistan yanıt metni üretmedi.');
     }
 
+    const persistableFullText = normalizeEnerjisaDocumentForPersistence(fullText);
     const presentation = parseAssistantPresentationMetadata(fullText);
+    const persistablePresentation = parseAssistantPresentationMetadata(persistableFullText);
     const executionSummary = executionLabels.length
       ? executionLabels.map(label => `• ${label}`).join('\n')
       : undefined;
     const autoCaptureDocument = documentRequestMode === 'none'
       && !useDocumentStore.getState().documentContent?.businessAnalysis?.content?.trim()
-      && validateEnerjisaDocumentContract(presentation.visibleText).valid;
+      && validateEnerjisaDocumentContract(persistablePresentation.visibleText).valid;
     const effectiveDocumentRequestMode: AssistantDocumentRequestMode = autoCaptureDocument
       ? 'create'
       : documentRequestMode;
@@ -468,7 +493,7 @@ export async function streamAssistantResponse(input: {
       const persisted = await persistAssistantDocument({
         workspaceId: input.workspaceId,
         messageId: input.messageId,
-        rawText: autoCaptureDocument ? presentation.visibleText : fullText,
+        rawText: autoCaptureDocument ? persistablePresentation.visibleText : persistableFullText,
         provider,
         model,
       });
