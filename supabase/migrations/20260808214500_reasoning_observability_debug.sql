@@ -1,87 +1,17 @@
 -- Secure browser read-model for Reasoning Engine observability.
--- Runtime tables remain RLS protected. Authenticated users receive SELECT only
--- on observability-safe columns and only for their own rows in workspaces they
--- can already access. Prompt text, response text and hidden chain-of-thought are
--- intentionally not granted to the browser role.
+-- Runtime ledgers remain browser-inaccessible. A non-exposed private helper
+-- reads them with definer rights, but every query is explicitly constrained to
+-- auth.uid() and workspace membership. The public RPCs remain SECURITY INVOKER.
+-- Prompt text, assistant response text and hidden chain-of-thought are never
+-- returned by this API.
+
+create schema if not exists private;
 
 -- -----------------------------------------------------------------------------
--- 1. Add narrow read policies for runtime ledgers.
+-- 1. Private helpers: privileged read, explicit per-user authorization.
 -- -----------------------------------------------------------------------------
 
-drop policy if exists "Owners can read assistant reasoning runs for debug"
-on public.assistant_reasoning_runs;
-create policy "Owners can read assistant reasoning runs for debug"
-on public.assistant_reasoning_runs
-for select
-to authenticated
-using (
-  owner_id = (select auth.uid())
-  and public.is_workspace_member(workspace_id)
-);
-
-drop policy if exists "Owners can read assistant turns for debug"
-on public.assistant_turns;
-create policy "Owners can read assistant turns for debug"
-on public.assistant_turns
-for select
-to authenticated
-using (
-  owner_id = (select auth.uid())
-  and public.is_workspace_member(workspace_id)
-);
-
-drop policy if exists "Owners can read assistant tool runs for debug"
-on public.assistant_tool_runs;
-create policy "Owners can read assistant tool runs for debug"
-on public.assistant_tool_runs
-for select
-to authenticated
-using (
-  owner_id = (select auth.uid())
-  and public.is_workspace_member(workspace_id)
-);
-
-drop policy if exists "Owners can read assistant conversations for debug"
-on public.assistant_conversations;
-create policy "Owners can read assistant conversations for debug"
-on public.assistant_conversations
-for select
-to authenticated
-using (
-  owner_id = (select auth.uid())
-  and public.is_workspace_member(workspace_id)
-);
-
--- Earlier runtime migrations revoke table access from authenticated. Grant only
--- the columns required by the operational read-model. In particular, prompt
--- text and assistant_turns.response_text remain inaccessible.
-grant select (
-  id, turn_id, conversation_id, workspace_id, owner_id, engine_version,
-  intent, complexity, plan, verification, execution_trace, evidence_summary,
-  knowledge_used, web_used, tool_call_count, fallback_used, status,
-  error_message, started_at, completed_at
-) on public.assistant_reasoning_runs to authenticated;
-
-grant select (
-  id, conversation_id, workspace_id, owner_id, message_id, source_refs, usage,
-  response_model, error_message, created_at, completed_at
-) on public.assistant_turns to authenticated;
-
-grant select (
-  id, workspace_id, owner_id, model
-) on public.assistant_conversations to authenticated;
-
-grant select (
-  id, conversation_id, turn_id, workspace_id, owner_id, tool_name, call_id,
-  arguments, result_summary, source_refs, status, duration_ms, error_message,
-  created_at
-) on public.assistant_tool_runs to authenticated;
-
--- -----------------------------------------------------------------------------
--- 2. Expose a compact list view through an invoker-rights RPC.
--- -----------------------------------------------------------------------------
-
-create or replace function public.get_reasoning_debug_runs(
+create or replace function private.get_reasoning_debug_runs_internal(
   p_workspace_id text default null,
   p_limit integer default 50,
   p_offset integer default 0
@@ -113,7 +43,7 @@ returns table (
 )
 language sql
 stable
-security invoker
+security definer
 set search_path = ''
 as $$
   select
@@ -161,7 +91,8 @@ as $$
     order by task.updated_at desc
     limit 1
   ) artifact on true
-  where run.owner_id = (select auth.uid())
+  where (select auth.uid()) is not null
+    and run.owner_id = (select auth.uid())
     and public.is_workspace_member(run.workspace_id)
     and (p_workspace_id is null or run.workspace_id = p_workspace_id)
   order by run.started_at desc
@@ -169,17 +100,13 @@ as $$
   offset greatest(0, coalesce(p_offset, 0));
 $$;
 
--- -----------------------------------------------------------------------------
--- 3. Expose one operational turn with evidence/tool/artifact metadata.
--- -----------------------------------------------------------------------------
-
-create or replace function public.get_reasoning_debug_run(
+create or replace function private.get_reasoning_debug_run_internal(
   p_run_id uuid
 )
 returns jsonb
 language sql
 stable
-security invoker
+security definer
 set search_path = ''
 as $$
   select jsonb_build_object(
@@ -262,10 +189,84 @@ as $$
     where tool.turn_id = run.turn_id
       and tool.owner_id = (select auth.uid())
   ) tools on true
-  where run.id = p_run_id
+  where (select auth.uid()) is not null
+    and run.id = p_run_id
     and run.owner_id = (select auth.uid())
     and public.is_workspace_member(run.workspace_id)
   limit 1;
+$$;
+
+-- Private helpers are not part of the Data API schema. Keep their ACL narrow.
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
+revoke all on function private.get_reasoning_debug_runs_internal(text, integer, integer)
+from public, anon, authenticated;
+grant execute on function private.get_reasoning_debug_runs_internal(text, integer, integer)
+to authenticated;
+
+revoke all on function private.get_reasoning_debug_run_internal(uuid)
+from public, anon, authenticated;
+grant execute on function private.get_reasoning_debug_run_internal(uuid)
+to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 2. Public Data API wrappers: caller rights only, no RLS bypass here.
+-- -----------------------------------------------------------------------------
+
+create or replace function public.get_reasoning_debug_runs(
+  p_workspace_id text default null,
+  p_limit integer default 50,
+  p_offset integer default 0
+)
+returns table (
+  run_id uuid,
+  turn_id uuid,
+  conversation_id uuid,
+  workspace_id text,
+  message_id text,
+  intent text,
+  complexity text,
+  engine_version text,
+  status text,
+  knowledge_used boolean,
+  web_used boolean,
+  tool_call_count integer,
+  fallback_used boolean,
+  response_model text,
+  provider text,
+  usage jsonb,
+  latency_ms bigint,
+  artifact_status text,
+  artifact_operation text,
+  artifact_version_number integer,
+  error_message text,
+  started_at timestamptz,
+  completed_at timestamptz
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select *
+  from private.get_reasoning_debug_runs_internal(
+    p_workspace_id,
+    p_limit,
+    p_offset
+  );
+$$;
+
+create or replace function public.get_reasoning_debug_run(
+  p_run_id uuid
+)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select private.get_reasoning_debug_run_internal(p_run_id);
 $$;
 
 revoke all on function public.get_reasoning_debug_runs(text, integer, integer)
@@ -279,6 +280,6 @@ grant execute on function public.get_reasoning_debug_run(uuid)
 to authenticated;
 
 comment on function public.get_reasoning_debug_runs(text, integer, integer) is
-  'Invoker-rights operational Reasoning Engine list view for the authenticated owner. Does not expose prompt text, response text or hidden chain-of-thought.';
+  'Operational Reasoning Engine list view for the authenticated owner. Does not expose prompt text, response text or hidden chain-of-thought.';
 comment on function public.get_reasoning_debug_run(uuid) is
-  'Invoker-rights operational Reasoning Engine detail view for the authenticated owner. Exposes system trace/evidence/tool metadata, never hidden chain-of-thought.';
+  'Operational Reasoning Engine detail view for the authenticated owner. Exposes bounded system trace/evidence/tool metadata, never hidden chain-of-thought.';
