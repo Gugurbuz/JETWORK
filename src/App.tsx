@@ -22,6 +22,7 @@ import { useAuth } from './hooks/useAuth';
 import { useProjects } from './hooks/useProjects';
 import { useWorkspaceSync } from './hooks/useWorkspaceSync';
 import { useWorkspaceHandlers } from './hooks/useWorkspaceHandlers';
+import { updateUserProfile } from './services/userProfile';
 
 function AuthLoadingState({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   return (
@@ -199,14 +200,12 @@ export default function App() {
     const lastName = parts.slice(1).join(' ');
 
     try {
-      const payload: Record<string, any> = {
-        name: firstName,
-        surname: lastName,
+      await updateUserProfile({
+        firstName,
+        lastName,
         role: updatedUser.role,
-      };
-      if (updatedUser.color) payload.color = updatedUser.color;
-      const { error } = await supabase.from('users').update(payload).eq('uid', user.uid);
-      if (error) throw error;
+        color: updatedUser.color,
+      });
       setUser(user ? { ...user, ...updatedUser, firstName, lastName } : null);
     } catch (error) {
       console.error("Failed to update user profile:", error);
