@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createAuthBootstrapCoordinator } from './services/authState';
 
 const viteEnv = (import.meta as any).env
   || (typeof process !== 'undefined' ? process.env : {})
@@ -26,18 +27,21 @@ const normalizeAuthUser = (sessionUser: any | null): AuthUser | null => {
 };
 
 export const onAuthStateChanged = (callback: (user: AuthUser | null) => void) => {
+  const coordinator = createAuthBootstrapCoordinator<AuthUser>(callback);
+
   const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(normalizeAuthUser(session?.user || null));
+    coordinator.handleAuthEvent(normalizeAuthUser(session?.user || null));
   });
 
   supabase.auth
     .getSession()
     .then(({ data: { session } }) => {
-      callback(normalizeAuthUser(session?.user || null));
+      coordinator.handleSessionSnapshot(normalizeAuthUser(session?.user || null));
     })
     .catch((error) => {
+      // Do not convert a bootstrap read failure into a fake signed-out event.
+      // The realtime auth callback remains authoritative and useAuth owns timeout UX.
       console.error('Failed to read auth session:', error);
-      callback(null);
     });
 
   return () => subscription.unsubscribe();
