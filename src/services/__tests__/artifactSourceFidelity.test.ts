@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   enforceArtifactSourceFidelity,
+  extractExplicitKpiFacts,
   extractExplicitProcessSteps,
 } from '../../../supabase/functions/_shared/artifactSourceFidelity';
 
@@ -38,7 +39,7 @@ const generated = `# İHTİYAÇ ANALİZİ
 ### 5.2. Performans Gereksinimleri
 - Liste 2 saniyenin altında açılmalıdır.
 ### 5.3. Raporlama Gereksinimleri
-- KPI
+- Taleplerin uçtan uca tamamlanma süreleri ölçülebilmelidir.
 ## 6. SÜREÇ RİSK ANALİZİ
 ### 6.1. Kısıtlar ve Varsayımlar
 - [VARSAYIM]
@@ -58,17 +59,35 @@ describe('artifact source fidelity guard', () => {
     ]);
   });
 
-  it('restores missing process names and removes unsupported enterprise context', () => {
+  it('extracts explicit KPI facts as source facts', () => {
+    expect(extractExplicitKpiFacts(source)).toEqual([
+      'Tamamlanma suresi olculecek; hedef deger acik konu.',
+    ]);
+  });
+
+  it('restores source process/KPI facts and removes unsupported enterprise context', () => {
     const result = enforceArtifactSourceFidelity(generated, source);
 
     expect(result.markdown).toContain('Iptal talebinin alinmasi');
     expect(result.markdown).toContain('Uygunluk kontrolu ve onay');
     expect(result.markdown).toContain('Iade sonucu ve kapanis');
+    expect(result.markdown).toContain('KPI: Tamamlanma suresi olculecek; hedef deger acik konu.');
     expect(result.markdown).not.toMatch(/\bSAP\b|\bCRM\b|IS-U/i);
     expect(result.markdown).not.toContain('2 saniye');
     expect(result.injectedProcessSteps).toHaveLength(3);
+    expect(result.injectedKpiFacts).toEqual([
+      'Tamamlanma suresi olculecek; hedef deger acik konu.',
+    ]);
     expect(result.removedUnsupportedTechnicalLines).toBeGreaterThan(0);
     expect(result.replacedUnsupportedCommitments).toBeGreaterThan(0);
+  });
+
+  it('does not duplicate a KPI fact that already exists verbatim', () => {
+    const result = enforceArtifactSourceFidelity(
+      `${generated}\n- KPI: Tamamlanma suresi olculecek; hedef deger acik konu.`,
+      source,
+    );
+    expect(result.injectedKpiFacts).toEqual([]);
   });
 
   it('does not apply strict source-only technical cleanup to requests without an explicit process contract', () => {
