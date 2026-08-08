@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, onAuthStateChanged } from '../supabase';
+import { loadOrCreateAuthProfile } from '../services/authProfile';
 import { useDataStore } from '../store/useDataStore';
 
 export interface User {
@@ -43,6 +44,14 @@ export function useAuth() {
       }
     };
 
+    const failAuth = (message: string) => {
+      window.clearTimeout(timeoutId);
+      if (isMounted) {
+        setAuthError(message);
+        setIsAuthReady(false);
+      }
+    };
+
     const unsubscribe = onAuthStateChanged(async (authUser) => {
       if (!isMounted) return;
 
@@ -52,60 +61,28 @@ export function useAuth() {
         return;
       }
 
-      const fallbackName = authUser.displayName || authUser.email || 'User';
-      let username = fallbackName;
-      let firstName = '';
-      let lastName = '';
-      let role = 'Kullanıcı';
-      let onboardingCompleted = false;
-      let color: string | undefined;
-
       try {
-        const { data: existing } = await supabase
-          .from('users')
-          .select('*')
-          .eq('uid', authUser.uid)
-          .maybeSingle();
+        const profile = await loadOrCreateAuthProfile(supabase, authUser);
+        if (!isMounted) return;
 
-        if (!existing) {
-          const insertPayload: Record<string, any> = {
-            uid: authUser.uid,
-            username,
-            role,
-            onboarding_completed: false,
-          };
-          if (authUser.email) insertPayload.email = authUser.email;
-          if (authUser.photoURL) insertPayload.photo_url = authUser.photoURL;
-          await supabase.from('users').upsert(insertPayload);
-        } else {
-          username = existing.username || username;
-          firstName = existing.name || '';
-          lastName = existing.surname || '';
-          role = existing.role || role;
-          onboardingCompleted = !!existing.onboarding_completed;
-          color = existing.color;
-        }
+        const fullName = `${profile.firstName} ${profile.lastName}`.trim() || profile.username;
+
+        setUser({
+          uid: authUser.uid,
+          name: fullName,
+          username: profile.username,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          role: profile.role,
+          email: authUser.email || null,
+          photoURL: authUser.photoURL || null,
+          onboardingCompleted: profile.onboardingCompleted,
+        });
+        finishAuth();
       } catch (err) {
         console.error('Error loading user profile:', err);
+        failAuth('Profil bilgileriniz güvenli biçimde yüklenemedi. Lütfen tekrar deneyin.');
       }
-
-      if (!isMounted) return;
-
-      const fullName = `${firstName} ${lastName}`.trim() || username;
-
-      setUser({
-        uid: authUser.uid,
-        name: fullName,
-        username,
-        firstName,
-        lastName,
-        role,
-        email: authUser.email || null,
-        photoURL: authUser.photoURL || null,
-        onboardingCompleted,
-        color,
-      });
-      finishAuth();
     });
 
     return () => {
