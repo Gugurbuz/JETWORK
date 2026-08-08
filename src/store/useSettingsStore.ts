@@ -12,15 +12,25 @@ export interface SettingsState {
   setPromptSettings: (settings: PromptSettings | null) => void;
 }
 
+const readLocalSetting = (key: string): string | null => {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return null;
+  return window.localStorage.getItem(key);
+};
+
+const writeLocalSetting = (key: string, value: string) => {
+  if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return;
+  window.localStorage.setItem(key, value);
+};
+
 export const useSettingsStore = create<SettingsState>((set) => ({
-  selectedModel: localStorage.getItem('selected_model') || 'auto',
+  selectedModel: readLocalSetting('selected_model') || 'auto',
   setSelectedModel: (model) => {
-    localStorage.setItem('selected_model', model);
+    writeLocalSetting('selected_model', model);
     set({ selectedModel: model });
   },
-  theme: (localStorage.getItem('theme') as ThemeType) || 'monochrome',
+  theme: (readLocalSetting('theme') as ThemeType) || 'monochrome',
   setTheme: (theme) => {
-    localStorage.setItem('theme', theme);
+    writeLocalSetting('theme', theme);
     set({ theme });
   },
   promptSettings: null,
