@@ -37,6 +37,10 @@ const DOCUMENT_TARGETS = [
   'kavramsal tasarim',
   'talep dokumani',
   'ihtiyac analizi',
+  'test senaryosu',
+  'test senaryolari',
+  'test case',
+  'test caseleri',
 ];
 
 const REVISION_VERBS = [

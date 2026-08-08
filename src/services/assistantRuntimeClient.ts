@@ -12,6 +12,14 @@ import {
   inferDocumentContinuationMode,
   isDocumentContinuationAnswerCandidate,
 } from './assistantDocumentContinuation';
+import {
+  artifactModeForTask,
+  ensureArtifactTask,
+  getActiveArtifactTask,
+  shouldOpenAwaitingArtifactTask,
+  transitionArtifactTask,
+  type ArtifactTask,
+} from './artifactTaskRepository';
 import { parseAssistantPresentationMetadata } from './assistantPresentationMetadata';
 import { useDocumentStore } from '../store/useDocumentStore';
 
@@ -73,6 +81,19 @@ export interface AssistantChatAttachment {
   name: string;
   mimeType: string;
   content: string;
+}
+
+interface NormalizedArtifactResponse {
+  artifact: {
+    artifactType: 'business_analysis';
+    operation: 'create' | 'revise';
+    businessAnalysisMarkdown: string;
+    reviewMarkdown: string;
+    contractVersion: string;
+    validatedAt: string;
+  };
+  normalizedRawText: string;
+  taskId?: string | null;
 }
 
 export class AssistantRuntimeHttpError extends Error {
@@ -138,9 +159,8 @@ function documentStageLabel(
 
 /**
  * Repairs the common cover-table variation where the model replaces the literal
- * "Talep Adı" header with the actual request title. The content is not invented:
- * the existing title is moved into a labelled row and the canonical header is
- * restored before strict contract validation and Canvas persistence.
+ * "Talep Adı" header with the actual request title. Kept as a local safety net;
+ * Artifact Runtime v2 performs the canonical validation on the server first.
  */
 export function normalizeEnerjisaDocumentForPersistence(rawText: string): string {
   if (!rawText.trim()) return rawText;
@@ -175,6 +195,14 @@ async function resolvePersistedDocumentContinuationMode(input: {
 }): Promise<AssistantDocumentRequestMode | undefined> {
   if (!isDocumentContinuationAnswerCandidate(input.message)) return undefined;
 
+  try {
+    const activeTask = await getActiveArtifactTask(input.workspaceId);
+    const taskMode = artifactModeForTask(activeTask);
+    if (taskMode) return taskMode;
+  } catch (error) {
+    console.warn('Artifact continuation state could not be loaded:', error);
+  }
+
   const { data, error } = await supabase
     .from('messages')
     .select('id, role, text, questions, action_summary, created_at')
@@ -204,6 +232,44 @@ async function resolvePersistedDocumentContinuationMode(input: {
     recentMessages,
     document: useDocumentStore.getState().documentContent,
   });
+}
+
+async function normalizeArtifactOnServer(input: {
+  supabaseUrl: string;
+  anonKey: string;
+  token: string;
+  workspaceId: string;
+  taskId?: string;
+  rawText: string;
+  mode: Exclude<AssistantDocumentRequestMode, 'none'>;
+  signal: AbortSignal;
+}): Promise<NormalizedArtifactResponse> {
+  const response = await fetch(`${input.supabaseUrl}/functions/v1/normalize-artifact-v2`, {
+    method: 'POST',
+    signal: input.signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${input.token}`,
+      apikey: input.anonKey,
+    },
+    body: JSON.stringify({
+      workspaceId: input.workspaceId,
+      taskId: input.taskId,
+      rawText: input.rawText,
+      operation: input.mode === 'revise' ? 'revise' : 'create',
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const missing = Array.isArray(payload.missingMarkers) && payload.missingMarkers.length
+      ? ` Eksik bölümler: ${payload.missingMarkers.join(', ')}.`
+      : '';
+    throw new AssistantRuntimeHttpError(
+      `${String(payload.error || 'Artifact doğrulaması başarısız oldu.')}${missing}`,
+      response.status,
+    );
+  }
+  return payload as NormalizedArtifactResponse;
 }
 
 async function readAttachmentText(attachment: MessageAttachment): Promise<string> {
@@ -352,6 +418,21 @@ export async function streamAssistantResponse(input: {
     throw new Error('Asistan için geçerli bir kullanıcı oturumu ve Supabase yapılandırması gerekiyor.');
   }
 
+  let artifactTask: ArtifactTask | null = null;
+  if (documentRequest) {
+    try {
+      artifactTask = await ensureArtifactTask({
+        workspaceId: input.workspaceId,
+        requestMessageId: input.messageId,
+        requestText: input.message,
+        mode: documentRequestMode as Exclude<AssistantDocumentRequestMode, 'none'>,
+        status: 'generating',
+      });
+    } catch (error) {
+      console.warn('Artifact task could not be started; document generation will continue:', error);
+    }
+  }
+
   const controller = new AbortController();
   const abortFromParent = () => controller.abort(input.signal?.reason);
   if (input.signal?.aborted) abortFromParent();
@@ -487,11 +568,91 @@ export async function streamAssistantResponse(input: {
     const effectiveDocumentRequestMode: AssistantDocumentRequestMode = autoCaptureDocument
       ? 'create'
       : documentRequestMode;
+    const clarificationBeforeArtifact = effectiveDocumentRequestMode !== 'none'
+      && Array.isArray(presentation.questions)
+      && presentation.questions.length > 0
+      && !validateEnerjisaDocumentContract(persistablePresentation.visibleText).valid;
+
+    if (clarificationBeforeArtifact) {
+      if (!artifactTask) {
+        artifactTask = await ensureArtifactTask({
+          workspaceId: input.workspaceId,
+          requestMessageId: input.messageId,
+          requestText: input.message,
+          mode: effectiveDocumentRequestMode as Exclude<AssistantDocumentRequestMode, 'none'>,
+          status: 'awaiting_input',
+        }).catch(error => {
+          console.warn('Awaiting artifact task could not be created:', error);
+          return null;
+        });
+      } else {
+        await transitionArtifactTask(artifactTask.id, 'awaiting_input', { errorMessage: null })
+          .catch(error => console.warn('Artifact task could not return to awaiting_input:', error));
+      }
+      rememberExecutionLabel('Doküman için gerekli kararlar bekleniyor.');
+      const clarificationText = presentation.visibleText || 'Dokümanı tamamlamak için birkaç kısa bilgiye ihtiyacım var.';
+      input.onText?.(clarificationText);
+      return {
+        text: clarificationText,
+        sources,
+        conversationId,
+        model,
+        provider,
+        fallbackUsed,
+        usage,
+        workSummary: executionLabels.length
+          ? executionLabels.map(label => `• ${label}`).join('\n')
+          : executionSummary || presentation.workSummary,
+        questions: presentation.questions,
+        actionSummary: presentation.actionSummary || 'Yanıtlarından sonra doküman görevine kaldığım yerden devam edeceğim.',
+      };
+    }
 
     if (effectiveDocumentRequestMode !== 'none') {
+      if (!artifactTask) {
+        try {
+          artifactTask = await ensureArtifactTask({
+            workspaceId: input.workspaceId,
+            requestMessageId: input.messageId,
+            requestText: input.message,
+            mode: effectiveDocumentRequestMode,
+            status: 'generating',
+          });
+        } catch (error) {
+          console.warn('Auto-captured artifact task could not be created:', error);
+        }
+      }
       if (autoCaptureDocument) {
         rememberExecutionLabel('Tam Enerjisa dokümanı algılandı; sohbet yerine Canvas’a aktarılıyor...');
       }
+
+      let normalizedRawText = autoCaptureDocument ? persistablePresentation.visibleText : persistableFullText;
+      let artifactPayload: Record<string, unknown> | undefined;
+      rememberExecutionLabel('Doküman sözleşmesi sunucu tarafında doğrulanıyor...');
+      input.onStatus?.('verifying', 'Doküman yapısı doğrulanıyor...');
+      try {
+        const normalized = await normalizeArtifactOnServer({
+          supabaseUrl,
+          anonKey,
+          token,
+          workspaceId: input.workspaceId,
+          taskId: artifactTask?.id,
+          rawText: normalizedRawText,
+          mode: effectiveDocumentRequestMode,
+          signal: controller.signal,
+        });
+        normalizedRawText = normalized.normalizedRawText;
+        artifactPayload = normalized.artifact as unknown as Record<string, unknown>;
+      } catch (normalizerError) {
+        const canFallback = normalizerError instanceof AssistantRuntimeHttpError
+          && (normalizerError.status === 404 || normalizerError.status === 503);
+        if (!canFallback) throw normalizerError;
+        // Rolling-deploy safety: preserve the previous strict local validator only
+        // if the new normalizer endpoint is temporarily unavailable.
+        console.warn('Artifact Runtime v2 normalizer unavailable; using strict local fallback:', normalizerError);
+        await transitionArtifactTask(artifactTask?.id, 'persisting').catch(() => undefined);
+      }
+
       const persistenceLabel = effectiveDocumentRequestMode === 'revise'
         ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
         : 'BA Analiz dokümanı kaydediliyor...';
@@ -500,10 +661,16 @@ export async function streamAssistantResponse(input: {
       const persisted = await persistAssistantDocument({
         workspaceId: input.workspaceId,
         messageId: input.messageId,
-        rawText: autoCaptureDocument ? persistablePresentation.visibleText : persistableFullText,
+        rawText: normalizedRawText,
         provider,
         model,
       });
+      await transitionArtifactTask(artifactTask?.id, 'completed', {
+        artifactPayload,
+        documentVersionNumber: persisted.versionNumber,
+        errorMessage: null,
+      }).catch(error => console.warn('Artifact task completion could not be persisted:', error));
+
       const displayText = effectiveDocumentRequestMode === 'revise'
         ? (
           persisted.versionNumber
@@ -539,6 +706,23 @@ export async function streamAssistantResponse(input: {
       };
     }
 
+    if (shouldOpenAwaitingArtifactTask({
+      questions: presentation.questions,
+      text: presentation.visibleText || fullText,
+      actionSummary: presentation.actionSummary,
+    })) {
+      const mode: Exclude<AssistantDocumentRequestMode, 'none'> = useDocumentStore.getState().documentContent?.businessAnalysis?.content?.trim()
+        ? 'revise'
+        : 'create';
+      await ensureArtifactTask({
+        workspaceId: input.workspaceId,
+        requestMessageId: input.messageId,
+        requestText: input.message,
+        mode,
+        status: 'awaiting_input',
+      }).catch(error => console.warn('Awaiting artifact task could not be persisted:', error));
+    }
+
     return {
       text: presentation.visibleText || fullText,
       sources,
@@ -551,6 +735,11 @@ export async function streamAssistantResponse(input: {
       questions: presentation.questions,
       actionSummary: presentation.actionSummary,
     };
+  } catch (error) {
+    await transitionArtifactTask(artifactTask?.id, 'failed', {
+      errorMessage: error instanceof Error ? error.message.slice(0, 2000) : String(error).slice(0, 2000),
+    }).catch(() => undefined);
+    throw error;
   } finally {
     clearTimeout(timeout);
     input.signal?.removeEventListener('abort', abortFromParent);
