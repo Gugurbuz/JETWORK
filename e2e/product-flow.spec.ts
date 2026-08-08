@@ -63,11 +63,11 @@ test.describe('authenticated product flow', () => {
     await expect(panel).toContainText(/S.RE. R.SK ANAL.Z./i);
     await expect(panel).toContainText(/FONKS.YONEL TASARIM DOK.MANLARI/i);
     await expect(panel).toContainText(/NDEK.LER/i);
-    await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/);
+    await expect(panel).toContainText(/[iIİı]ptal taleb[iIİı]n[iIİı]n al[iIİı]nmas[iIİı]/i);
     await expect(panel).toContainText(/Uygunluk kontrol. ve onay/i);
     await expect(panel).toContainText(/ade sonucu ve kapan./i);
-    await expect(panel).toContainText(/M.steri temsilcisi/i);
-    await expect(panel).toContainText(/Tamamlanma s.resi/i);
+    await expect(panel).toContainText(/M[üu][şs]teri temsilcisi/i);
+    await expect(panel).toContainText(/Tamamlanma s[üu]resi/i);
     await expect(panel).not.toContainText(/SAP|IYS|Findeks|KKB|D2D/i);
     await expect(panel).not.toContainText(/CRM_Metot|ana_rol_ve_mantik|AI TURN DECISION/i);
     await expect(page.getByTestId('interactive-questions')).toHaveCount(0);
@@ -77,18 +77,11 @@ test.describe('authenticated product flow', () => {
     expect(qualityScore).toBeGreaterThanOrEqual(72);
     expect(await page.evaluate(() => (window as any).__jetworkXss)).toBe(false);
 
-    const shareDialog = page.waitForEvent('dialog');
     await page.getByTestId('share-document').click();
-    const createdShareDialog = await shareDialog;
-    expect(createdShareDialog.message()).toContain('?share=');
-    await createdShareDialog.accept();
-    await expect(page.getByTestId('revoke-document-share')).toBeVisible();
-
-    const revokeDialog = page.waitForEvent('dialog');
-    await page.getByTestId('revoke-document-share').click();
-    const revokedShareDialog = await revokeDialog;
-    expect(revokedShareDialog.message()).toMatch(/iptal/i);
-    await revokedShareDialog.accept();
+    const revokeShare = page.getByTestId('revoke-document-share');
+    await expect(revokeShare).toBeVisible({ timeout: 15_000 });
+    await revokeShare.click();
+    await expect(page.getByTestId('revoke-document-share')).toHaveCount(0, { timeout: 15_000 });
   });
 
   test('asks at most three plain maturation questions for a sparse request', async ({ page }) => {

@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2.99.3'
+import { enforceArtifactSourceFidelity } from '../_shared/artifactSourceFidelity.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -71,6 +72,16 @@ function parseArtifact(rawText: string) {
   }
 }
 
+function replaceBusinessAnalysisBlock(rawText: string, markdown: string): string {
+  if (/<ba_analysis>[\s\S]*?<\/ba_analysis>/i.test(rawText)) {
+    return rawText.replace(
+      /<ba_analysis>[\s\S]*?<\/ba_analysis>/i,
+      `<ba_analysis>\n${markdown.trim()}\n</ba_analysis>`,
+    )
+  }
+  return `<ba_analysis>\n${markdown.trim()}\n</ba_analysis>\n${rawText.trim()}`
+}
+
 serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
@@ -105,7 +116,17 @@ serve(async req => {
       .maybeSingle()
     if (workspaceError || !workspace) return jsonResponse({ error: 'Workspace access denied.' }, 403)
 
+    let sourceRequestText = ''
     if (taskId) {
+      const { data: task, error: taskError } = await client
+        .from('artifact_tasks')
+        .select('request_text')
+        .eq('id', taskId)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle()
+      if (taskError) console.warn('Artifact source request could not be loaded:', taskError)
+      sourceRequestText = String(task?.request_text || '').slice(0, 64_000)
+
       const { error } = await client.from('artifact_tasks').update({
         status: 'validating',
         last_transition_at: new Date().toISOString(),
@@ -129,13 +150,30 @@ serve(async req => {
       }, 422)
     }
 
+    const fidelity = enforceArtifactSourceFidelity(
+      parsed.businessAnalysisMarkdown,
+      sourceRequestText,
+    )
+    const normalizedRawText = replaceBusinessAnalysisBlock(
+      parsed.repairedRawText,
+      fidelity.markdown,
+    )
+
     const artifact = {
       artifactType: 'business_analysis',
       operation,
-      businessAnalysisMarkdown: parsed.businessAnalysisMarkdown,
+      businessAnalysisMarkdown: fidelity.markdown,
       reviewMarkdown: parsed.reviewMarkdown,
-      contractVersion: 'enerjisa-ba-v1',
+      contractVersion: 'enerjisa-ba-v2-source-fidelity',
       validatedAt: new Date().toISOString(),
+      sourceFidelity: {
+        explicitProcessStepCount: fidelity.processSteps.length,
+        injectedProcessStepCount: fidelity.injectedProcessSteps.length,
+        explicitKpiFactCount: fidelity.kpiFacts.length,
+        injectedKpiFactCount: fidelity.injectedKpiFacts.length,
+        removedUnsupportedTechnicalLines: fidelity.removedUnsupportedTechnicalLines,
+        replacedUnsupportedCommitments: fidelity.replacedUnsupportedCommitments,
+      },
     }
 
     if (taskId) {
@@ -148,7 +186,7 @@ serve(async req => {
       if (error) throw error
     }
 
-    return jsonResponse({ artifact, normalizedRawText: parsed.repairedRawText, taskId: taskId || null })
+    return jsonResponse({ artifact, normalizedRawText, taskId: taskId || null })
   } catch (error) {
     console.error('Artifact normalizer failed:', error)
     return jsonResponse({ error: error instanceof Error ? error.message : 'Artifact normalization failed.' }, 500)

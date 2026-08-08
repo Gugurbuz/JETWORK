@@ -3,6 +3,7 @@ import {
   ARTIFACT_STALE_AFTER_MS,
   artifactModeForTask,
   artifactStaleBefore,
+  mergeArtifactRequestText,
   shouldOpenAwaitingArtifactTask,
   type ArtifactTask,
 } from '../artifactTaskRepository';
@@ -47,6 +48,21 @@ describe('artifact task continuation policy', () => {
       text: 'Kararı netleştirelim.',
       actionSummary: 'Cevabın ardından iş analizi dokümanını oluşturacağım.',
     })).toBe(true);
+  });
+
+  it('preserves the original artifact request when clarification answers arrive later', () => {
+    const original = [
+      'Surec 1 - Iptal talebinin alinmasi',
+      'Surec 2 - Uygunluk kontrolu ve onay',
+      'Kurumsal analiz dokumani hazirla.',
+    ].join('\n');
+    const answer = '**Soru 1:** Rol nedir?\n**Cevap:** Operasyon uzmani';
+    const merged = mergeArtifactRequestText(original, answer);
+
+    expect(merged).toContain('Surec 1 - Iptal talebinin alinmasi');
+    expect(merged).toContain('[SONRAKİ KULLANICI YANITI]');
+    expect(merged).toContain('Operasyon uzmani');
+    expect(mergeArtifactRequestText(merged, answer)).toBe(merged);
   });
 
   it('uses a conservative ten-minute stale threshold for interrupted processing tasks', () => {

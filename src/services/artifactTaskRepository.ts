@@ -28,6 +28,7 @@ export interface ArtifactTask {
 const ACTIVE_STATUSES: ArtifactTaskStatus[] = ['awaiting_input', 'generating', 'validating', 'persisting'];
 const INTERRUPTIBLE_STATUSES: ArtifactTaskStatus[] = ['generating', 'validating', 'persisting'];
 export const ARTIFACT_STALE_AFTER_MS = 10 * 60 * 1000;
+const MAX_ARTIFACT_SOURCE_CONTEXT = 64_000;
 
 function mapRow(row: any): ArtifactTask {
   return {
@@ -50,6 +51,17 @@ function mapRow(row: any): ArtifactTask {
 
 export function artifactStaleBefore(now = Date.now()): string {
   return new Date(now - ARTIFACT_STALE_AFTER_MS).toISOString();
+}
+
+export function mergeArtifactRequestText(existing: string, next: string): string {
+  const current = String(existing || '').trim();
+  const incoming = String(next || '').trim();
+  if (!current) return incoming.slice(0, MAX_ARTIFACT_SOURCE_CONTEXT);
+  if (!incoming) return current.slice(0, MAX_ARTIFACT_SOURCE_CONTEXT);
+  if (current.includes(incoming)) return current.slice(-MAX_ARTIFACT_SOURCE_CONTEXT);
+
+  const merged = `${current}\n\n[SONRAKİ KULLANICI YANITI]\n${incoming}`;
+  return merged.slice(-MAX_ARTIFACT_SOURCE_CONTEXT);
 }
 
 async function cancelStaleArtifactTasks(workspaceId: string): Promise<void> {
@@ -113,7 +125,7 @@ export async function ensureArtifactTask(input: {
         operation,
         status: input.status,
         request_message_id: input.requestMessageId || existing.requestMessageId || null,
-        request_text: input.requestText || existing.requestText,
+        request_text: mergeArtifactRequestText(existing.requestText, input.requestText),
         error_message: null,
         last_transition_at: new Date().toISOString(),
       })
