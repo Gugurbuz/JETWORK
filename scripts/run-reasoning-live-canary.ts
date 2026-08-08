@@ -17,6 +17,33 @@ const username = env.E2E_USERNAME || '';
 const password = env.E2E_PASSWORD || '';
 const endpoint = env.REASONING_CANARY_ENDPOINT || 'openai-assistant-v2';
 const outputPath = resolve(env.REASONING_CANARY_OUTPUT || 'evaluation/results/reasoning-live-canary.json');
+const RETIRED_GOLDEN_CANARY_ENDPOINT = 'openai-assistant-golden-canary';
+
+const writeRetiredCanaryReport = async () => {
+  const skippedReport = {
+    schemaVersion: 2,
+    generatedAt: new Date().toISOString(),
+    endpoint,
+    skipped: true,
+    skipReason: 'golden_canary_disabled',
+    summary: null,
+    environmentBlockedCount: 0,
+    environmentBlocked: [],
+    results: [],
+  };
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(skippedReport, null, 2)}\n`, 'utf8');
+  console.log(`Reasoning canary endpoint ${endpoint} is intentionally disabled; live canary skipped.`);
+};
+
+// The one-off golden-canary Edge Function is intentionally retired. CI still
+// points at this explicit sentinel endpoint so unrelated PRs preserve the report
+// shape without depending on a test account or a live provider call. Browser E2E
+// remains a separate authenticated gate and is not skipped by this branch.
+if (endpoint === RETIRED_GOLDEN_CANARY_ENDPOINT) {
+  await writeRetiredCanaryReport();
+  process.exit(0);
+}
 
 if (!anonKey || !username || !password) {
   throw new Error('Reasoning live canary requires VITE_SUPABASE_ANON_KEY, E2E_USERNAME and E2E_PASSWORD.');
@@ -202,38 +229,6 @@ const email = await resolveEmail(username);
 const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
 if (authError || !authData.session || !authData.user) {
   throw new Error(`Reasoning canary login failed: ${authError?.message || 'no session'}`);
-}
-
-// Golden canaries are intentionally disabled after their one-off deployment is
-// retired. Subsequent unrelated PRs must not fail because the secured canary
-// endpoint returns its explicit 410 sentinel. When active, a malformed probe
-// returns a normal validation error and the real scenarios continue below.
-const availabilityResponse = await fetch(`${supabaseUrl}/functions/v1/${endpoint}`, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${authData.session.access_token}`,
-    apikey: anonKey,
-  },
-  body: JSON.stringify({}),
-});
-const availabilityRaw = await availabilityResponse.text();
-if (availabilityResponse.status === 410 && /GOLDEN_CANARY_DISABLED/i.test(availabilityRaw)) {
-  const skippedReport = {
-    schemaVersion: 2,
-    generatedAt: new Date().toISOString(),
-    endpoint,
-    skipped: true,
-    skipReason: 'golden_canary_disabled',
-    summary: null,
-    environmentBlockedCount: 0,
-    environmentBlocked: [],
-    results: [],
-  };
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(skippedReport, null, 2)}\n`, 'utf8');
-  console.log(`Reasoning canary endpoint ${endpoint} is intentionally disabled; live canary skipped.`);
-  process.exit(0);
 }
 
 const canaryIds = ['rq-01-simple-definition', 'rq-03-sap-diagnosis-message', 'rq-11-current-official-docs'];
