@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { parseAssistantPresentationMetadata } from '../assistantPresentationMetadata';
+import {
+  isArtifactMaturationContext,
+  parseAssistantPresentationMetadata,
+} from '../assistantPresentationMetadata';
 
 describe('assistant presentation metadata', () => {
   it('separates the visible answer from safe presentation metadata', () => {
@@ -34,6 +37,37 @@ Kısa kullanıcı cevabı burada.
       },
     ]);
     expect(parsed.actionSummary).toBe('Sonucu teknik kanıtla eşleştirip cevapladım.');
+  });
+
+  it('strips model-suggested options from artifact maturation questions', () => {
+    const parsed = parseAssistantPresentationMetadata(`
+Dokümanı tamamlamak için birkaç kararı netleştirmem gerekiyor.
+<jetwork_meta>
+${JSON.stringify({
+  questions: [
+    { id: 'q1', text: 'Mobil uygulamada hangi roller işlem yapacak?', options: ['Saha çalışanı', 'Yönetici'] },
+    { id: 'q2', text: 'Offline kullanım gerekli mi?', options: ['Evet', 'Hayır'] },
+  ],
+  actionSummary: 'Yanıtlarından sonra iş analizi dokümanını hazırlamaya devam edeceğim.',
+})}
+</jetwork_meta>
+    `);
+
+    expect(parsed.questions).toEqual([
+      { id: 'q1', text: 'Mobil uygulamada hangi roller işlem yapacak?', options: [] },
+      { id: 'q2', text: 'Offline kullanım gerekli mi?', options: [] },
+    ]);
+  });
+
+  it('detects artifact maturation context without treating ordinary analysis as artifact work', () => {
+    expect(isArtifactMaturationContext({
+      visibleText: 'Dokümanı tamamlamak için iki bilgiye ihtiyacım var.',
+      actionSummary: 'Cevabından sonra dokümanı oluşturacağım.',
+    })).toBe(true);
+    expect(isArtifactMaturationContext({
+      visibleText: 'Analizi tamamladım ve sonucu aşağıda özetledim.',
+      actionSummary: 'Teknik analizi yanıtladım.',
+    })).toBe(false);
   });
 
   it('hides an incomplete metadata block while streaming', () => {
