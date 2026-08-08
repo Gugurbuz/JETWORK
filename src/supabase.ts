@@ -1,5 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type Session } from '@supabase/supabase-js';
 import { createAuthBootstrapCoordinator } from './services/authState';
+import { createAuthSessionFastPath } from './services/authSessionFastPath';
 
 const viteEnv = (import.meta as any).env
   || (typeof process !== 'undefined' ? process.env : {})
@@ -8,6 +9,15 @@ const supabaseUrl = viteEnv.VITE_SUPABASE_URL || 'https://placeholder.supabase.c
 const supabaseAnonKey = viteEnv.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+const originalGetSession = supabase.auth.getSession.bind(supabase.auth);
+const authSessionFastPath = createAuthSessionFastPath<Session>(originalGetSession);
+
+// getSession is called from the assistant runtime before every request. Supabase
+// already delivers the active/refreshed session through onAuthStateChange, so
+// reuse that in-memory session and only enter the auth lock when the cache is
+// missing or close to expiry. The fallback read is single-flight as well.
+(supabase.auth as typeof supabase.auth & { getSession: typeof originalGetSession }).getSession = authSessionFastPath.getSession as typeof originalGetSession;
 
 export interface AuthUser {
   uid: string;
@@ -30,12 +40,14 @@ export const onAuthStateChanged = (callback: (user: AuthUser | null) => void) =>
   const coordinator = createAuthBootstrapCoordinator<AuthUser>(callback);
 
   const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    authSessionFastPath.remember(session);
     coordinator.handleAuthEvent(normalizeAuthUser(session?.user || null));
   });
 
   supabase.auth
     .getSession()
     .then(({ data: { session } }) => {
+      authSessionFastPath.remember(session);
       coordinator.handleSessionSnapshot(normalizeAuthUser(session?.user || null));
     })
     .catch((error) => {
@@ -55,23 +67,27 @@ export const signInWithGoogle = async () => {
 export const logOut = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+  authSessionFastPath.clear();
 };
 
 export const signInWithEmailAndPassword = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
+  authSessionFastPath.remember(data.session);
   return data;
 };
 
 export const createUserWithEmailAndPassword = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) throw error;
+  authSessionFastPath.remember(data.session);
   return data;
 };
 
 export const signInAnonymously = async () => {
   const { data, error } = await supabase.auth.signInAnonymously();
   if (error) throw error;
+  authSessionFastPath.remember(data.session);
   return data;
 };
 

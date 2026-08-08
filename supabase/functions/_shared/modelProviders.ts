@@ -39,6 +39,47 @@ const textFromContent = (content: unknown) => {
     .join('\n')
 }
 
+const normalizeConversationText = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[!?.,;:]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|naber|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
+
+const lastUserText = (items: Array<Record<string, unknown>>) => {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (String(item.role || '') !== 'user') continue
+    return textFromContent(item.content)
+  }
+  return ''
+}
+
+export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => (
+  TRIVIAL_CONVERSATION_PATTERN.test(normalizeConversationText(lastUserText(items)))
+)
+
+const compactConversationalItems = (items: Array<Record<string, unknown>>) => {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (String(item.role || '') !== 'user') continue
+    const text = textFromContent(item.content)
+    return text ? [{ role: 'user', content: text }] : items
+  }
+  return items
+}
+
+const TRIVIAL_CONVERSATION_INSTRUCTIONS = [
+  'Sen JetWork AI asistanısın.',
+  'Kullanıcının gündelik selamlaşma, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
+  'Kullanıcı istemedikçe Enerjisa, SAP, süreç, teknik talep, yetenek listesi veya soru menüsü ekleme.',
+  'Yanıtı en fazla iki kısa cümle tut.',
+].join('\n')
+
 const parseToolOutput = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
   try {
@@ -131,9 +172,11 @@ export async function requestGeminiResponse(input: {
   signal?: AbortSignal
 }): Promise<NormalizedModelResponse> {
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
+  const trivialConversation = !input.allowTools && isTrivialConversationalTurn(input.items)
+  const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.items
   const config: Record<string, unknown> = {
-    systemInstruction: input.instructions,
-    maxOutputTokens: input.maxOutputTokens,
+    systemInstruction: trivialConversation ? TRIVIAL_CONVERSATION_INSTRUCTIONS : input.instructions,
+    maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
     abortSignal: input.signal,
   }
 
@@ -152,7 +195,7 @@ export async function requestGeminiResponse(input: {
 
   const response = await ai.models.generateContent({
     model: input.model,
-    contents: toGeminiContents(input.items),
+    contents: toGeminiContents(effectiveItems),
     config,
   } as any)
 
