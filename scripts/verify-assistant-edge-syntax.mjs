@@ -3,10 +3,12 @@ import ts from 'typescript';
 
 const files = [
   'supabase/functions/_shared/assistantTools.ts',
+  'supabase/functions/_shared/artifactSourceFidelity.ts',
   'supabase/functions/_shared/knowledgeParser.ts',
   'supabase/functions/_shared/modelProviders.ts',
   'supabase/functions/_shared/safeStreamSink.ts',
   'supabase/functions/ingest-knowledge-source/index.ts',
+  'supabase/functions/normalize-artifact-v2/index.ts',
   'supabase/functions/openai-assistant/index.ts',
   'supabase/functions/openai-assistant-v2/index.ts',
   'supabase/functions/openai-assistant-core-v2/index.ts',
