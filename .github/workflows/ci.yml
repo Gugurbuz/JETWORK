@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  deployments: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -54,11 +55,12 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      E2E_BASE_URL: https://jetwork.vercel.app
       E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      DEPLOYMENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: E2E not configured
         if: env.E2E_USERNAME == '' || env.E2E_PASSWORD == ''
@@ -86,6 +88,37 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
+
+      - name: Resolve Vercel deployment under test
+        if: env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          for attempt in $(seq 1 40); do
+            deployment_ids=$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${api}/deployments?sha=${DEPLOYMENT_SHA}&per_page=10" \
+              | jq -r '.[].id')
+
+            for deployment_id in ${deployment_ids}; do
+              environment_url=$(curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "${api}/deployments/${deployment_id}/statuses?per_page=10" \
+                | jq -r '[.[] | select(.state == "success" and (.environment_url // "") != "")][0].environment_url // empty')
+              if [[ -n "${environment_url}" ]]; then
+                echo "E2E_BASE_URL=${environment_url}" >> "${GITHUB_ENV}"
+                echo "Testing deployment: ${environment_url}"
+                exit 0
+              fi
+            done
+            echo "Waiting for Vercel deployment for ${DEPLOYMENT_SHA} (attempt ${attempt}/40)..."
+            sleep 10
+          done
+          echo "No successful Vercel deployment URL found for ${DEPLOYMENT_SHA}." >&2
+          exit 1
 
       - name: Browser smoke test
         if: env.E2E_USERNAME != '' && env.E2E_PASSWORD != ''
