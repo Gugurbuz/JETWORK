@@ -3,22 +3,26 @@ from pathlib import Path
 core_path = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
 core = core_path.read_text()
 
-old_gemini = """              return await requestGeminiToolRound({
+old_gemini = """            if (activeProvider === 'gemini') {
+              return await requestGeminiResponse({
                 apiKey: String(geminiApiKey), model: activeModel,
                 instructions: [prompt.prompt_text, synthesisInstruction, finalInstruction].filter(Boolean).join('\\n\\n'),
                 items: runItems, tools: ASSISTANT_KNOWLEDGE_TOOLS as unknown as ReadonlyArray<Record<string, unknown>>,
                 allowTools: !mustSynthesize, maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => { roundText += delta }, signal: runController.signal,
               })
+            }
 """
-new_gemini = """              const allowSynthesisTools = !mustSynthesize && (plan.knowledgeRequired || plan.webMode !== 'none')
-              return await requestGeminiToolRound({
+new_gemini = """            if (activeProvider === 'gemini') {
+              const allowSynthesisTools = !mustSynthesize && (plan.knowledgeRequired || plan.webMode !== 'none')
+              return await requestGeminiResponse({
                 apiKey: String(geminiApiKey), model: activeModel,
                 instructions: [prompt.prompt_text, synthesisInstruction, finalInstruction].filter(Boolean).join('\\n\\n'),
                 items: runItems, tools: ASSISTANT_KNOWLEDGE_TOOLS as unknown as ReadonlyArray<Record<string, unknown>>,
                 allowTools: allowSynthesisTools, maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => { roundText += delta }, signal: runController.signal,
               })
+            }
 """
 if old_gemini not in core:
     raise SystemExit('Gemini synthesis block not found')
