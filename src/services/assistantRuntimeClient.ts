@@ -1,13 +1,19 @@
 import { supabase } from '../supabase';
 import { consumeSseBuffer, type SseEvent } from './sseParser';
-import type { AssistantKnowledgeSource, MessageAttachment, Question } from '../types';
+import type { AssistantKnowledgeSource, Message, MessageAttachment, Question } from '../types';
 import {
   buildDocumentGenerationMessage,
   persistAssistantDocument,
   resolveAssistantDocumentRequestMode,
+  validateEnerjisaDocumentContract,
   type AssistantDocumentRequestMode,
 } from './assistantDocumentIntent';
+import {
+  inferDocumentContinuationMode,
+  isDocumentContinuationAnswerCandidate,
+} from './assistantDocumentContinuation';
 import { parseAssistantPresentationMetadata } from './assistantPresentationMetadata';
+import { useDocumentStore } from '../store/useDocumentStore';
 
 const DEFAULT_TIMEOUT_MS = 150_000;
 const MAX_CHAT_ATTACHMENTS = 3;
@@ -128,6 +134,44 @@ function documentStageLabel(
       : 'Doküman hazırlanıyor...';
   }
   return fallback;
+}
+
+async function resolvePersistedDocumentContinuationMode(input: {
+  workspaceId: string;
+  messageId: string;
+  message: string;
+}): Promise<AssistantDocumentRequestMode | undefined> {
+  if (!isDocumentContinuationAnswerCandidate(input.message)) return undefined;
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, role, text, questions, action_summary, created_at')
+    .eq('workspace_id', input.workspaceId)
+    .neq('id', input.messageId)
+    .order('created_at', { ascending: false })
+    .limit(4);
+
+  if (error) {
+    console.warn('Document continuation context could not be loaded:', error);
+    return undefined;
+  }
+
+  const recentMessages: Message[] = [...(data || [])]
+    .reverse()
+    .map((row: any) => ({
+      id: String(row.id),
+      role: row.role === 'user' ? 'user' : 'model',
+      text: String(row.text || ''),
+      questions: Array.isArray(row.questions) ? row.questions as Question[] : [],
+      actionSummary: row.action_summary ? String(row.action_summary) : undefined,
+      createdAt: row.created_at ? new Date(row.created_at).getTime() : undefined,
+    }));
+
+  return inferDocumentContinuationMode({
+    message: input.message,
+    recentMessages,
+    document: useDocumentStore.getState().documentContent,
+  });
 }
 
 async function readAttachmentText(attachment: MessageAttachment): Promise<string> {
@@ -258,7 +302,14 @@ export async function streamAssistantResponse(input: {
   const token = session?.access_token;
   const supabaseUrl = env.VITE_SUPABASE_URL;
   const anonKey = env.VITE_SUPABASE_ANON_KEY;
-  const documentRequestMode = resolveAssistantDocumentRequestMode(input.message);
+  let documentRequestMode = resolveAssistantDocumentRequestMode(input.message);
+  if (documentRequestMode === 'none') {
+    documentRequestMode = (await resolvePersistedDocumentContinuationMode({
+      workspaceId: input.workspaceId,
+      messageId: input.messageId,
+      message: input.message,
+    })) || 'none';
+  }
   const documentRequest = documentRequestMode !== 'none';
   const assistantMessage = documentRequest
     ? buildDocumentGenerationMessage(input.message)
@@ -398,9 +449,18 @@ export async function streamAssistantResponse(input: {
     const executionSummary = executionLabels.length
       ? executionLabels.map(label => `• ${label}`).join('\n')
       : undefined;
+    const autoCaptureDocument = documentRequestMode === 'none'
+      && !useDocumentStore.getState().documentContent?.businessAnalysis?.content?.trim()
+      && validateEnerjisaDocumentContract(presentation.visibleText).valid;
+    const effectiveDocumentRequestMode: AssistantDocumentRequestMode = autoCaptureDocument
+      ? 'create'
+      : documentRequestMode;
 
-    if (documentRequest) {
-      const persistenceLabel = documentRequestMode === 'revise'
+    if (effectiveDocumentRequestMode !== 'none') {
+      if (autoCaptureDocument) {
+        rememberExecutionLabel('Tam Enerjisa dokümanı algılandı; sohbet yerine Canvas’a aktarılıyor...');
+      }
+      const persistenceLabel = effectiveDocumentRequestMode === 'revise'
         ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
         : 'BA Analiz dokümanı kaydediliyor...';
       rememberExecutionLabel(persistenceLabel);
@@ -408,11 +468,11 @@ export async function streamAssistantResponse(input: {
       const persisted = await persistAssistantDocument({
         workspaceId: input.workspaceId,
         messageId: input.messageId,
-        rawText: fullText,
+        rawText: autoCaptureDocument ? presentation.visibleText : fullText,
         provider,
         model,
       });
-      const displayText = documentRequestMode === 'revise'
+      const displayText = effectiveDocumentRequestMode === 'revise'
         ? (
           persisted.versionNumber
             ? `BA Analiz dokümanı güncellendi ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
@@ -438,7 +498,7 @@ export async function streamAssistantResponse(input: {
         workSummary: documentExecutionSummary || presentation.workSummary,
         questions: presentation.questions,
         actionSummary: presentation.actionSummary || (
-          documentRequestMode === 'revise'
+          effectiveDocumentRequestMode === 'revise'
             ? `Enerjisa analiz dokümanını güncelledim${persisted.versionNumber ? ` ve v${persisted.versionNumber} olarak kaydettim` : ''}.`
             : `Enerjisa analiz dokümanını oluşturdum${persisted.versionNumber ? ` ve v${persisted.versionNumber} olarak kaydettim` : ''}.`
         ),
