@@ -476,6 +476,9 @@ serve(async req => {
     const promptModel = OPENAI_MODELS.has(promptModelCandidate) ? promptModelCandidate : DEFAULT_MODEL
     const configuredModel = requestedModel === AUTO_MODEL ? (openAiApiKey ? promptModel : DEFAULT_GEMINI_MODEL) : requestedModel
     const configuredProvider = providerForModel(configuredModel)
+    const modelReasoningUsesOpenAi = configuredProvider === 'openai'
+    const reasoningApiKey = modelReasoningUsesOpenAi ? openAiApiKey || undefined : undefined
+    const reasoningModel = modelReasoningUsesOpenAi ? configuredModel : promptModel
     if (configuredProvider === 'openai' && !openAiApiKey) return jsonResponse({ error: 'OPENAI_API_KEY is not configured for the selected model.' }, 503)
     if (configuredProvider === 'gemini' && !geminiApiKey) return jsonResponse({ error: 'GEMINI_API_KEY is not configured for the selected model.' }, 503)
 
@@ -673,12 +676,12 @@ serve(async req => {
 
         emitStatus('planning', route.complexity === 'low' ? 'Kısa yanıt yolu hazırlanıyor...' : 'Araştırma ve doğrulama planı oluşturuluyor...')
         const planned = await buildReasoningPlan({
-          apiKey: openAiApiKey || undefined, model: promptModel, message,
+          apiKey: reasoningApiKey, model: reasoningModel, message,
           workspaceTitle: String(workspace.title || ''), attachmentNames: chatAttachments.map(item => item.name),
           route, signal: runController.signal,
         })
         const plan = planned.plan
-        usage = addUsage(usage, planned.usage); reasoningFallbackUsed ||= planned.plannerFallback
+        usage = addUsage(usage, planned.usage); reasoningFallbackUsed ||= modelReasoningUsesOpenAi && planned.plannerFallback
         await patchReasoningRun(adminClient, reasoningRunId, { plan, fallback_used: reasoningFallbackUsed, execution_trace: trace })
         emitStatus('planning', `Plan hazır: ${plan.steps.length} operasyonel adım`)
 
@@ -699,9 +702,9 @@ serve(async req => {
         if (plan.verificationRequired) {
           emitStatus('verifying', 'Kanıt yeterliliği ve çelişkiler kontrol ediliyor...')
           const checked = await verifyReasoningEvidence({
-            apiKey: openAiApiKey || undefined, model: promptModel, plan, evidence, signal: runController.signal,
+            apiKey: reasoningApiKey, model: reasoningModel, plan, evidence, signal: runController.signal,
           })
-          verification = checked.verification; usage = addUsage(usage, checked.usage); reasoningFallbackUsed ||= checked.verifierFallback
+          verification = checked.verification; usage = addUsage(usage, checked.usage); reasoningFallbackUsed ||= modelReasoningUsesOpenAi && checked.verifierFallback
 
           const followKnowledge = verification.followUpKnowledgeQueries.slice(0, 2)
           const shouldUseConditionalWeb = plan.webMode === 'if_internal_insufficient'
@@ -717,9 +720,9 @@ serve(async req => {
           }
           if (followKnowledge.length || shouldUseConditionalWeb || followWeb.length) {
             const rechecked = await verifyReasoningEvidence({
-              apiKey: openAiApiKey || undefined, model: promptModel, plan, evidence, signal: runController.signal,
+              apiKey: reasoningApiKey, model: reasoningModel, plan, evidence, signal: runController.signal,
             })
-            verification = rechecked.verification; usage = addUsage(usage, rechecked.usage); reasoningFallbackUsed ||= rechecked.verifierFallback
+            verification = rechecked.verification; usage = addUsage(usage, rechecked.usage); reasoningFallbackUsed ||= modelReasoningUsesOpenAi && rechecked.verifierFallback
           }
           emitStatus('verifying', `Doğrulama tamamlandı: %${Math.round((verification.confidence || 0) * 100)} güven · ${verification.verdict === 'sufficient' ? 'kanıt yeterli' : verification.verdict === 'conflicting' ? 'çelişki var' : 'açık kanıt eksikleri var'}`)
         }
