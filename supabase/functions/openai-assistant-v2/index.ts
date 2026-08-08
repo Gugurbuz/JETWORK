@@ -3,7 +3,6 @@ import { createClient } from 'npm:@supabase/supabase-js@2.99.3'
 import {
   ASSISTANT_KNOWLEDGE_TOOLS,
   executeAssistantTool,
-  type AssistantSourceRef,
   type AssistantToolExecution,
 } from '../_shared/assistantTools.ts'
 import {
@@ -389,6 +388,13 @@ const detailToolForRecord = (record: Record<string, unknown>) => {
   return null
 }
 
+const webSourceName = (url: string, title?: unknown) => {
+  const safeTitle = String(title || '').trim()
+  if (safeTitle) return safeTitle.slice(0, 300)
+  try { return new URL(url).hostname.replace(/^www\./, '').slice(0, 300) }
+  catch { return 'Web kaynağı' }
+}
+
 const extractWebSourcesFromOutput = (output: Array<Record<string, unknown>>): ReasoningSourceRef[] => {
   const sources: ReasoningSourceRef[] = []
   for (const item of output) {
@@ -400,7 +406,7 @@ const extractWebSourcesFromOutput = (output: Array<Record<string, unknown>>): Re
         const url = String(annotation.url || '').trim()
         if (!/^https?:\/\//i.test(url)) continue
         sources.push({
-          sourceName: String(annotation.title || new URL(url).hostname).slice(0, 300),
+          sourceName: webSourceName(url, annotation.title),
           title: String(annotation.title || '').slice(0, 500) || undefined,
           url: url.slice(0, 2_000), sourceType: 'web',
         })
@@ -740,9 +746,11 @@ serve(async req => {
                 onText: delta => { roundText += delta }, signal: runController.signal,
               })
             }
-            const tools: Array<Record<string, unknown>> = [...ASSISTANT_KNOWLEDGE_TOOLS as unknown as Array<Record<string, unknown>>]
+            const tools: Array<Record<string, unknown>> = [
+              ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as Array<Record<string, unknown>>),
+            ]
             if (!mustSynthesize && plan.webMode !== 'none') tools.push({
-              type: 'web_search', search_context_size: plan.complexity === 'high' ? 'high' : 'medium', external_web_access: true,
+              type: 'web_search', search_context_size: plan.complexity === 'high' ? 'high' : 'medium',
             })
             return await requestOpenAiResponse(String(openAiApiKey), {
               model: activeModel, instructions: prompt.prompt_text,
