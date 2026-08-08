@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { DocumentData, KnowledgeItem, ProjectMemoryItem } from '../types';
 import type { AnalystContextDebug } from '../services/analystContext';
+import { withDerivedDocumentQuality } from '../services/documentQualityScore';
 
 export interface DocumentState {
   isGenerating: boolean;
@@ -38,6 +39,10 @@ export interface DocumentState {
   addKnowledge: (item: KnowledgeItem) => void;
 }
 
+const hydrateDocumentQuality = (content: DocumentData | null): DocumentData | null => (
+  content ? withDerivedDocumentQuality(content) : null
+);
+
 export const useDocumentStore = create<DocumentState>((set) => ({
   isGenerating: false,
   setIsGenerating: (generating) => set({ isGenerating: generating }),
@@ -56,9 +61,10 @@ export const useDocumentStore = create<DocumentState>((set) => ({
 
   documentContent: null,
   setDocumentContent: (content) =>
-    set((state) => ({
-      documentContent: typeof content === 'function' ? content(state.documentContent) : content,
-    })),
+    set((state) => {
+      const resolved = typeof content === 'function' ? content(state.documentContent) : content;
+      return { documentContent: hydrateDocumentQuality(resolved) };
+    }),
   projectMemory: {},
   setProjectMemory: (memory) => set({ projectMemory: memory }),
   memoryItems: [],
