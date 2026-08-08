@@ -28,6 +28,7 @@
     "verify:product-runtime": "tsx scripts/verify-product-runtime-scenarios.ts",
     "verify:document-quality": "tsx scripts/verify-document-content-quality.ts",
     "verify:golden-contract": "vitest run src/evaluation/__tests__/goldenScenarios.test.ts",
+    "verify:reasoning-golden": "tsx scripts/verify-reasoning-quality-golden.ts",
     "verify:assistant-runtime": "node scripts/verify-assistant-edge-syntax.mjs && vitest run src/services/__tests__/assistantRuntimeClient.test.ts src/services/__tests__/knowledgeParser.test.ts src/services/__tests__/workspaceRealtimeTransport.test.ts src/testing/assistant/goldenKnowledgeQuestions.test.ts",
     "evaluate:golden": "tsx scripts/run-golden-evaluation.ts --confirm-live"
   },
@@ -63,7 +64,7 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.1",
-    "remark-gfm": "^4.0.1",
+    "remark-gfm": "^4.1.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "uuid": "^13.0.0",
