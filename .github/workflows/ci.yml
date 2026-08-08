@@ -41,6 +41,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Reasoning Quality Golden Gate
+        run: pnpm run verify:reasoning-golden
+
       - name: AI behavior regressions
         run: |
           pnpm run verify:ai-ba-engine
