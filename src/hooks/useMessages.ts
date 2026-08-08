@@ -48,8 +48,9 @@ const messageForRealtime = (message: Message): Message => (
 );
 
 const phaseForAssistantStage = (stage: AssistantRuntimeStage): NonNullable<Message['phase']> => {
-  if (stage === 'searching_knowledge') return 'RESEARCH';
-  if (stage === 'answering') return 'ACT';
+  if (stage === 'searching_knowledge' || stage === 'searching_web') return 'RESEARCH';
+  if (stage === 'verifying') return 'REFLECT';
+  if (stage === 'synthesizing' || stage === 'answering') return 'ACT';
   return 'PLAN';
 };
 
