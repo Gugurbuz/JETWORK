@@ -38,4 +38,12 @@ describe('artifact task continuation policy', () => {
       text: 'İhtiyaç analizi dokümanını hazırlayabilirim.',
     })).toBe(false);
   });
+
+  it('recognizes a future artifact promise carried in actionSummary', () => {
+    expect(shouldOpenAwaitingArtifactTask({
+      questions: [{ id: 'q1', text: 'Onay akışı nasıl çalışmalı?' }],
+      text: 'Kararı netleştirelim.',
+      actionSummary: 'Cevabın ardından iş analizi dokümanını oluşturacağım.',
+    })).toBe(true);
+  });
 });
