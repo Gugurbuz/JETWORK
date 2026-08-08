@@ -75,14 +75,15 @@ const RESEARCH_PATTERN = /\b(?:arastir|araştır|web|internet|guncel|güncel|bug
 const ANALYSIS_PATTERN = /\b(?:analiz|tasarla|mimari|surec|süreç|entegrasyon|gereksinim|is kurali|iş kuralı|kapsam|etki analizi)\b/i
 const DECISION_PATTERN = /\b(?:alternatif|secenek|seçenek|hangisi|karsilastir|karşılaştır|oner|öner|yaklasim|yaklaşım|cozum|çözüm)\b/i
 const PROJECT_PATTERN = /\b(?:roadmap|backlog|epic|sprint|proje|story|jira|efor|priorite|öncelik)\b/i
-const DOCUMENT_PATTERN = /(?:<ba_analysis>|\[Sistem yönlendirmesi: Kullanıcı .*doküman|\b(?:dokuman|doküman|belge|ihtiyac analizi|ihtiyaç analizi|is analizi|iş analizi|kavramsal tasarim|kavramsal tasarım)\b)/i
+const SYSTEM_DOCUMENT_PATTERN = /(?:<ba_analysis>|\[Sistem yönlendirmesi:[^\]]*(?:doküman|dokuman|revizyon|analiz)[^\]]*\])/i
+const DOCUMENT_COMMAND_PATTERN = /(?:\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b.{0,100}\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b|\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b.{0,100}\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b)/i
 const EXPLICIT_WEB_PATTERN = /\b(?:web(?:'te|de|den)?|internette|internetten|google|dis kaynak|dış kaynak|online|guncel|güncel|bugun|bugün|latest|haber|piyasa|fiyat|mevzuat|resmi dokuman|resmî doküman)\b/i
 const HIGH_COMPLEXITY_PATTERN = /\b(?:detayli|detaylı|derin|ucltan uca|uçtan uca|tum|tüm|kapsamli|kapsamlı|mimari|kok neden|kök neden|entegrasyon|refactor|workstream|senaryo|alternatifler)\b/i
 
 export function routeReasoningRequest(message: string, attachmentCount = 0): ReasoningRoute {
   const normalized = normalize(message)
   const userLine = firstUserLine(message)
-  const isDocument = DOCUMENT_PATTERN.test(message)
+  const isDocument = SYSTEM_DOCUMENT_PATTERN.test(message) || DOCUMENT_COMMAND_PATTERN.test(normalized)
   const isTechnical = TECHNICAL_PATTERN.test(normalized)
   const isDiagnosis = isTechnical && DIAGNOSIS_PATTERN.test(normalized)
   const isResearch = RESEARCH_PATTERN.test(normalized)
