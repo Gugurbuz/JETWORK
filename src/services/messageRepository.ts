@@ -28,10 +28,12 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
         ...message.retryPayload,
         attachments: message.retryPayload.attachments?.map(({ file: _file, data: _data, ...attachment }) => attachment),
       }
-    : undefined;
+    : null;
 
   // Keep this list aligned with public.messages. UI-only fields must never reach PostgREST:
   // an unknown column makes the complete message write fail with HTTP 400.
+  // Error state is intentionally explicit so a successful retry clears stale flags/payloads
+  // from the row that previously represented the failed assistant attempt.
   const candidates: Record<string, unknown> = {
     id: message.id,
     workspace_id: workspaceId,
@@ -62,7 +64,7 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     raw_response: message.rawResponse,
     reply_to_id: message.replyToId,
     knowledge_sources: message.knowledgeSources,
-    is_error: message.isError,
+    is_error: message.isError === true,
     retry_payload: retryPayload,
     provider: message.provider,
     response_model: message.responseModel,
