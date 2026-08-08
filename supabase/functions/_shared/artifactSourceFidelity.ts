@@ -97,7 +97,7 @@ function sanitizeUnsupportedTechnicalLines(markdown: string, sourceRequestText: 
   return { markdown: lines.join('\n'), removed }
 }
 
-const COMMITMENT_PATTERN = /(?:\b\d+(?:[.,]\d+)?\s*(?:ms|milisaniye|saniye|sn|dakika|dk|saat|gun|gün|hafta|ay|yil|yıl|kayit|kayıt|tl|%)\b|\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b)/i
+const COMMITMENT_PATTERN = /(?:\b\d+(?:[.,]\d+)?\s*(?:ms|milisaniye|saniye|sn|dakika|dk|saat|gun|gün|hafta|ay|yil|yıl|kayit|kayıt|tl)(?:[a-zçğıöşü]*)\b|\b\d+(?:[.,]\d+)?\s*%|\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b)/i
 
 function sanitizeUnsupportedCommitments(markdown: string, sourceRequestText: string): {
   markdown: string
