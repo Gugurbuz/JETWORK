@@ -77,7 +77,6 @@ export function useAuth() {
           email: authUser.email || null,
           photoURL: authUser.photoURL || null,
           onboardingCompleted: profile.onboardingCompleted,
-          color: profile.color,
         });
         finishAuth();
       } catch (err) {
