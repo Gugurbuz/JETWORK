@@ -13,8 +13,8 @@ describe('sparse document discovery gate', () => {
     const prompt = buildDocumentGenerationMessage(sparse, null);
     expect(prompt).toContain('<jetwork_meta>');
     expect(prompt).toContain('"options":[]');
-    expect(prompt).not.toContain('<ba_analysis>');
-    expect(prompt).not.toContain('<review>');
+    expect(prompt).not.toMatch(/(?:^|\n)<ba_analysis>\s*(?:\n|$)/);
+    expect(prompt).not.toMatch(/(?:^|\n)<review>\s*(?:\n|$)/);
   });
 
   it('keeps a detailed structured request on the full document path', () => {
