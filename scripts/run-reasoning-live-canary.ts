@@ -62,6 +62,16 @@ const parseSseText = (raw: string): ParsedSse[] => raw
     }
   });
 
+const externalBlockReason = (message: string | null) => {
+  const normalized = String(message || '').toLocaleLowerCase('tr-TR');
+  if (
+    /openai api kullanım kredisi tükendi/.test(normalized)
+    || /gemini api kullanım kotası tükendi/.test(normalized)
+    || /insufficient_quota|no credits remaining|quota exceeded|billing/.test(normalized)
+  ) return 'provider_quota_or_billing';
+  return null;
+};
+
 const createWorkspace = async (user: { id: string; email?: string | null }, label: string) => {
   const projectId = randomUUID();
   const workspaceId = randomUUID();
@@ -160,8 +170,6 @@ const runScenario = async (
       route,
       stages: [...new Set(stages)],
       sources,
-      // SSE deliberately exposes sources/stages, while detailed individual tool calls remain
-      // service-side observability. Count evidence-bearing source groups conservatively here.
       toolCallCount: Math.max(
         sources.length,
         stages.includes('searching_knowledge') ? 1 : 0,
@@ -172,10 +180,12 @@ const runScenario = async (
       completed,
       errorMessage,
     };
+    const environmentBlocked = externalBlockReason(errorMessage);
     return {
       scenario,
       observed,
       evaluation: evaluateReasoningObservedRun(scenario, observed),
+      environmentBlocked,
       httpStatus: response.status,
       eventCount: events.length,
     };
@@ -190,8 +200,8 @@ if (authError || !authData.session || !authData.user) {
   throw new Error(`Reasoning canary login failed: ${authError?.message || 'no session'}`);
 }
 
-// Keep the live suite deliberately small: deterministic route coverage is 24 scenarios,
-// while these canaries prove the real orchestration/evidence transport without multiplying cost.
+// Deterministic coverage is broad; live canaries intentionally stay small to prove the
+// real orchestration transport without multiplying provider cost on every run.
 const canaryIds = ['rq-01-simple-definition', 'rq-03-sap-diagnosis-message', 'rq-11-current-official-docs'];
 const scenarios = canaryIds.map(id => {
   const scenario = REASONING_GOLDEN_SCENARIOS.find(item => item.id === id);
@@ -204,22 +214,33 @@ for (const scenario of scenarios) {
   console.log(`Running ${scenario.id}: ${scenario.title}`);
   const result = await runScenario(authData.session.access_token, authData.user, scenario);
   results.push(result);
-  console.log(`  score=${result.evaluation.score} hardFailures=${result.evaluation.hardFailures.length}`);
+  if (result.environmentBlocked) {
+    console.log(`  BLOCKED=${result.environmentBlocked}; product runtime failed closed as expected`);
+  } else {
+    console.log(`  score=${result.evaluation.score} hardFailures=${result.evaluation.hardFailures.length}`);
+  }
 }
 
-const summary = summarizeReasoningGoldenSuite(results.map(item => ({
+const evaluatedResults = results.filter(item => !item.environmentBlocked);
+const summary = summarizeReasoningGoldenSuite(evaluatedResults.map(item => ({
   scenario: item.scenario,
   evaluation: item.evaluation,
 })));
+const blocked = results
+  .filter(item => item.environmentBlocked)
+  .map(item => ({ scenarioId: item.scenario.id, reason: item.environmentBlocked }));
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   endpoint,
   summary,
+  environmentBlockedCount: blocked.length,
+  environmentBlocked: blocked,
   results: results.map(item => ({
     scenarioId: item.scenario.id,
     title: item.scenario.title,
     critical: item.scenario.critical,
+    environmentBlocked: item.environmentBlocked,
     route: item.observed.route,
     stages: item.observed.stages,
     sourceCounts: {
@@ -227,6 +248,7 @@ const report = {
       web: item.observed.sources.filter(source => source.sourceType === 'web').length,
     },
     completed: item.observed.completed,
+    errorMessage: item.observed.errorMessage,
     evaluation: item.evaluation,
   })),
 };
@@ -234,8 +256,12 @@ const report = {
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 console.log(`Reasoning canary report written to ${outputPath}`);
-console.log(JSON.stringify(summary, null, 2));
+console.log(JSON.stringify({ summary, environmentBlocked: blocked }, null, 2));
 
+const evaluatedCritical = evaluatedResults.filter(item => item.scenario.critical);
+if (evaluatedCritical.length < 2) {
+  throw new Error(`Reasoning live canary has too few evaluated critical scenarios: ${evaluatedCritical.length}.`);
+}
 if (summary.criticalHardFailureCount > 0 || summary.criticalAverageScore < 85) {
   throw new Error(
     `Reasoning live canary failed: criticalScore=${summary.criticalAverageScore}, hardFailures=${summary.criticalHardFailureCount}`,
