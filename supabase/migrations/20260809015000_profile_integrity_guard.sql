@@ -3,6 +3,10 @@
 
 create schema if not exists private;
 
+-- The frontend already treats color as optional profile metadata. Production did
+-- not yet have the column, so add it before the guarded profile RPCs reference it.
+alter table public.users add column if not exists color text;
+
 create table if not exists private.jetwork_admin_acl (
   uid uuid primary key references auth.users(id) on delete cascade,
   granted_at timestamptz not null default now(),
@@ -63,6 +67,7 @@ as $$
     'name', p.name,
     'surname', p.surname,
     'role', p.role,
+    'color', p.color,
     'onboarding_completed', p.onboarding_completed
   );
 $$;
@@ -76,23 +81,29 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into private.user_profile_audit (
-    profile_uid,
-    operation,
-    actor_uid,
-    actor_role,
-    old_values,
-    new_values
-  ) values (
-    coalesce(new.uid, old.uid),
-    tg_op,
-    auth.uid(),
-    auth.role(),
-    case when tg_op in ('UPDATE', 'DELETE') then private.profile_audit_payload(old) else null end,
-    case when tg_op in ('INSERT', 'UPDATE') then private.profile_audit_payload(new) else null end
-  );
-
-  return coalesce(new, old);
+  if tg_op = 'INSERT' then
+    insert into private.user_profile_audit (
+      profile_uid, operation, actor_uid, actor_role, old_values, new_values
+    ) values (
+      new.uid, tg_op, auth.uid(), auth.role(), null, private.profile_audit_payload(new)
+    );
+    return new;
+  elsif tg_op = 'UPDATE' then
+    insert into private.user_profile_audit (
+      profile_uid, operation, actor_uid, actor_role, old_values, new_values
+    ) values (
+      new.uid, tg_op, auth.uid(), auth.role(),
+      private.profile_audit_payload(old), private.profile_audit_payload(new)
+    );
+    return new;
+  else
+    insert into private.user_profile_audit (
+      profile_uid, operation, actor_uid, actor_role, old_values, new_values
+    ) values (
+      old.uid, tg_op, auth.uid(), auth.role(), private.profile_audit_payload(old), null
+    );
+    return old;
+  end if;
 end;
 $$;
 
@@ -110,7 +121,10 @@ declare
 begin
   -- Trusted database/service operations remain available for migrations and support.
   if v_actor_uid is null or v_actor_role = 'service_role' then
-    return case when tg_op = 'DELETE' then old else new end;
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    return new;
   end if;
 
   if old.uid is distinct from v_actor_uid then
@@ -130,8 +144,9 @@ begin
     return new;
   end if;
 
-  -- Email, username and onboarding state are never mutable from an arbitrary
-  -- authenticated browser UPDATE once onboarding is complete.
+  -- Email, username, onboarding state and the profile role are not mutable from
+  -- an arbitrary authenticated browser UPDATE after onboarding. The role is
+  -- editable only through update_user_profile and no longer grants admin rights.
   if old.onboarding_completed is true then
     if new.email is distinct from old.email then
       raise exception using errcode = '42501', message = 'profile_email_protected';
@@ -141,6 +156,9 @@ begin
     end if;
     if new.onboarding_completed is distinct from true then
       raise exception using errcode = '42501', message = 'profile_onboarding_state_protected';
+    end if;
+    if new.role is distinct from old.role then
+      raise exception using errcode = '42501', message = 'profile_role_requires_rpc';
     end if;
     return new;
   end if;
@@ -153,7 +171,8 @@ begin
        or new.surname is distinct from old.surname
        or new.role is distinct from old.role
        or new.email is distinct from old.email
-       or new.photo_url is distinct from old.photo_url then
+       or new.photo_url is distinct from old.photo_url
+       or new.color is distinct from old.color then
       raise exception using errcode = '42501', message = 'incomplete_profile_requires_onboarding_completion';
     end if;
     return new;
