@@ -5,26 +5,19 @@ const password = process.env.E2E_PASSWORD;
 
 const createWorkspace = async (page: Page, label: string) => {
   const unique = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const projectName = `E2E Product ${label} ${unique}`;
   const workspaceName = `E2E ${label} ${unique}`;
 
   await page.goto('/');
   await page.getByTestId('login-identity').fill(username!);
   await page.getByTestId('login-password').fill(password!);
   await page.getByTestId('login-submit').click();
-  await expect(page.getByTestId('open-new-project')).toBeVisible({ timeout: 30_000 });
 
-  await page.getByTestId('open-new-project').click();
-  await page.getByTestId('new-project-name').fill(projectName);
-  await page.getByTestId('new-project-description').fill('AI behavior and document quality smoke test.');
-  await page.getByTestId('new-project-submit').click();
-  await expect(page.getByRole('heading', { name: projectName })).toBeVisible({ timeout: 20_000 });
+  const newChat = page.getByRole('button', { name: 'Yeni sohbet' }).first();
+  await expect(newChat).toBeVisible({ timeout: 30_000 });
+  await newChat.click();
 
-  await page.getByTestId('open-new-workspace').click();
-  await page.getByTestId('new-workspace-item-number').fill(`E2E-${unique.toUpperCase()}`);
-  await page.getByTestId('new-workspace-title').fill(workspaceName);
-  await page.getByTestId('new-workspace-submit').click();
-  await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 20_000 });
+  await expect(page).toHaveURL(/\/c\/[^/?#]+(?:[?#].*)?$/, { timeout: 30_000 });
+  await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
 
   return { workspaceName };
 };
@@ -133,5 +126,16 @@ test.describe('authenticated product flow', () => {
     await expect(panel).toContainText(/Then/i);
     await expect(panel).toContainText(/Negatif/i);
     await expect(panel).not.toContainText(/KAVRAMSAL TASARIM RAPORU/i);
+  });
+
+  test('runs a technical diagnosis through observable reasoning stages', async ({ page }) => {
+    test.setTimeout(180_000);
+    await createWorkspace(page, 'Reasoning');
+    await sendMessage(page, 'ZCRM2-545 hangi koşulda alınır? Bilgi bankasından teknik kanıtla incele.');
+
+    const modelMessage = page.locator('[data-testid="chat-message"][data-message-role="model"]').last();
+    await expect(modelMessage).toBeVisible({ timeout: 160_000 });
+    await expect(modelMessage).not.toContainText('Yanıt tamamlanamadı');
+    await expect(modelMessage).toContainText(/Talep sınıflandırıldı|bilgi bankasında|kanıt/i, { timeout: 160_000 });
   });
 });
