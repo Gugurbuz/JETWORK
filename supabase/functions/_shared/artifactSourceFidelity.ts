@@ -24,11 +24,14 @@ const TECHNICAL_ANCHORS = [
 ] as const
 
 const PROCESS_STEP_PATTERN = /^\s*(?:süreç|surec)\s*(?:adım|adim)?\s*\d+\s*[-:.)]\s*(.+?)\s*$/i
+const KPI_PATTERN = /^\s*KPI\s*:\s*(.+?)\s*$/i
 
 export interface ArtifactSourceFidelityResult {
   markdown: string
   processSteps: string[]
   injectedProcessSteps: string[]
+  kpiFacts: string[]
+  injectedKpiFacts: string[]
   removedUnsupportedTechnicalLines: number
   replacedUnsupportedCommitments: number
 }
@@ -46,6 +49,21 @@ export function extractExplicitProcessSteps(sourceRequestText: string): string[]
     steps.push(step.slice(0, 500))
   }
   return steps.slice(0, 20)
+}
+
+export function extractExplicitKpiFacts(sourceRequestText: string): string[] {
+  const seen = new Set<string>()
+  const facts: string[] = []
+  for (const rawLine of sourceRequestText.split(/\r?\n/)) {
+    const match = rawLine.match(KPI_PATTERN)
+    const fact = match?.[1]?.trim()
+    if (!fact) continue
+    const key = normalize(fact)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    facts.push(fact.slice(0, 700))
+  }
+  return facts.slice(0, 12)
 }
 
 function sourceSupportsTechnicalAnchor(sourceNormalized: string, pattern: RegExp): boolean {
@@ -160,6 +178,43 @@ function injectMissingProcessSteps(markdown: string, sourceRequestText: string):
   }
 }
 
+function injectMissingKpiFacts(markdown: string, sourceRequestText: string): {
+  markdown: string
+  kpiFacts: string[]
+  injected: string[]
+} {
+  const kpiFacts = extractExplicitKpiFacts(sourceRequestText)
+  if (!kpiFacts.length) return { markdown, kpiFacts, injected: [] }
+
+  const normalizedDocument = normalize(markdown)
+  const injected = kpiFacts.filter(fact => !normalizedDocument.includes(normalize(fact)))
+  if (!injected.length) return { markdown, kpiFacts, injected: [] }
+
+  const headingPattern = /^(###\s*5\.3\.\s*Raporlama Gereksinimleri\s*)$/im
+  const headingMatch = markdown.match(headingPattern)
+  const sourceBlock = [
+    '',
+    '**Kullanıcı tarafından verilen KPI ifadesi (kaynak ifade korunmuştur):**',
+    ...injected.map(fact => `- KPI: ${fact}`),
+    '',
+  ].join('\n')
+
+  if (headingMatch?.index !== undefined) {
+    const insertAt = headingMatch.index + headingMatch[0].length
+    return {
+      markdown: `${markdown.slice(0, insertAt)}${sourceBlock}${markdown.slice(insertAt)}`,
+      kpiFacts,
+      injected,
+    }
+  }
+
+  return {
+    markdown: `${markdown.trimEnd()}\n\n### 5.3. Raporlama Gereksinimleri${sourceBlock}`,
+    kpiFacts,
+    injected,
+  }
+}
+
 export function enforceArtifactSourceFidelity(
   businessAnalysisMarkdown: string,
   sourceRequestText: string,
@@ -167,10 +222,13 @@ export function enforceArtifactSourceFidelity(
   const technical = sanitizeUnsupportedTechnicalLines(businessAnalysisMarkdown, sourceRequestText)
   const commitments = sanitizeUnsupportedCommitments(technical.markdown, sourceRequestText)
   const process = injectMissingProcessSteps(commitments.markdown, sourceRequestText)
+  const kpi = injectMissingKpiFacts(process.markdown, sourceRequestText)
   return {
-    markdown: process.markdown,
+    markdown: kpi.markdown,
     processSteps: process.processSteps,
     injectedProcessSteps: process.injected,
+    kpiFacts: kpi.kpiFacts,
+    injectedKpiFacts: kpi.injected,
     removedUnsupportedTechnicalLines: technical.removed,
     replacedUnsupportedCommitments: commitments.replaced,
   }
