@@ -199,9 +199,10 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     expect(providerSource).toContain('isRetryableGeminiError');
     expect(providerSource).toContain('generateGeminiContentWithResilience');
     expect(providerSource).toContain('GEMINI_PRO_CIRCUIT_BREAKER_MS');
-    expect(providerSource).toContain('GEMINI_ATTEMPT_TIMEOUT_MS');
+    expect(providerSource).toContain('GEMINI_PRO_ATTEMPT_TIMEOUT_MS');
+    expect(providerSource).toContain('GEMINI_FALLBACK_ATTEMPT_TIMEOUT_MS');
     expect(providerSource).toContain('generateGeminiAttempt');
-    expect(providerSource).toContain('same-provider Flash fallback');
+    expect(providerSource).toContain('same-provider stable Flash fallback');
   });
 
   it('configures Gemini 3 for native Google Search plus custom function calling in the same adaptive loop', () => {
