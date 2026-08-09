@@ -1,15 +1,15 @@
-import {
-  GEMINI_MODELS,
-  OPENAI_MODELS,
-  isTrivialConversationalTurn,
-  providerForModel,
-  requestGeminiResponse,
-  type AssistantProvider,
-} from './modelProviders.ts'
-
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 
 export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v1'
+
+const OPENAI_FAST_PATH_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
+const GEMINI_FAST_PATH_MODELS = new Set([
+  'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite-preview',
+])
+
+export type TrivialFastPathProvider = 'openai' | 'gemini'
 
 const TRIVIAL_FAST_PATH_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
@@ -17,6 +17,17 @@ const TRIVIAL_FAST_PATH_INSTRUCTIONS = [
   'Kullanıcı istemedikçe Enerjisa, SAP, süreç, teknik talep, yetenek listesi veya soru menüsü ekleme.',
   'Yanıtı en fazla iki kısa cümle tut.',
 ].join('\n')
+
+const normalizeConversationText = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[!?.,;:]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|naber|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 
@@ -29,16 +40,20 @@ export interface TrivialAssistantFastPathInput {
 export interface TrivialAssistantFastPathResult {
   text: string
   model: string
-  provider: AssistantProvider
+  provider: TrivialFastPathProvider
   usage?: Record<string, number>
   fallbackUsed: false
 }
 
+export const providerForTrivialFastPathModel = (model: string): TrivialFastPathProvider => (
+  GEMINI_FAST_PATH_MODELS.has(model) ? 'gemini' : 'openai'
+)
+
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
   const model = cleanString(input.model, 80)
   if (!model || model === 'auto' || input.attachmentCount > 0) return false
-  if (!GEMINI_MODELS.has(model) && !OPENAI_MODELS.has(model)) return false
-  return isTrivialConversationalTurn([{ role: 'user', content: input.message }])
+  if (!GEMINI_FAST_PATH_MODELS.has(model) && !OPENAI_FAST_PATH_MODELS.has(model)) return false
+  return TRIVIAL_CONVERSATION_PATTERN.test(normalizeConversationText(input.message))
 }
 
 const extractOpenAiText = (payload: Record<string, unknown>): string => {
@@ -100,8 +115,6 @@ async function requestOpenAiTrivialResponse(input: {
 
   return {
     text,
-    // Persist the configured model id, not a provider-resolved snapshot id that
-    // may violate the assistant_conversations model constraint.
     model: input.model,
     provider: 'openai',
     usage: numericUsage(payload.usage),
@@ -115,9 +128,13 @@ export async function requestTrivialAssistantResponse(input: {
   openAiApiKey?: string
   geminiApiKey?: string
 }): Promise<TrivialAssistantFastPathResult> {
-  const provider = providerForModel(input.model)
+  const provider = providerForTrivialFastPathModel(input.model)
   if (provider === 'gemini') {
     if (!input.geminiApiKey) throw new Error('GEMINI_API_KEY is not configured for the selected model.')
+
+    // Keep the normal gateway lightweight. The Google SDK is only loaded after
+    // this request has already qualified for the exact conversational fast path.
+    const { requestGeminiResponse } = await import('./modelProviders.ts')
     let visibleText = ''
     const response = await requestGeminiResponse({
       apiKey: input.geminiApiKey,
