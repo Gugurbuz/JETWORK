@@ -1,0 +1,55 @@
+name: Apply Final Reasoning Continuity Patch
+
+on:
+  push:
+    branches:
+      - fix/reasoning-final-continuity-hardening
+    paths:
+      - '.github/workflows/final-continuity-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reasoning-final-continuity-hardening
+          fetch-depth: 0
+      - name: Patch semantic continuity and REST enum casing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          semantic = Path('supabase/functions/_shared/semanticOrchestrator.ts')
+          text = semantic.read_text()
+          old_thinking = "thinkingConfig: { thinkingLevel: 'low' }"
+          new_thinking = "thinkingConfig: { thinkingLevel: 'LOW' }"
+          if old_thinking not in text:
+              raise SystemExit('Expected lowercase Gemini thinking level not found')
+          text = text.replace(old_thinking, new_thinking, 1)
+
+          old_state = """  const state = value.conversationState && typeof value.conversationState === 'object'\n    ? value.conversationState\n    : fallback.conversationState\n"""
+          new_state = """  const proposedState = value.conversationState && typeof value.conversationState === 'object'\n    ? value.conversationState\n    : fallback.conversationState\n  const fallbackRejectedHypotheses = fallback.conversationState?.rejectedHypotheses || []\n  const state: ConversationSemanticState | undefined = proposedState\n    ? {\n        ...proposedState,\n        rejectedHypotheses: [...new Set([\n          ...fallbackRejectedHypotheses,\n          ...(proposedState.rejectedHypotheses || []),\n        ])].slice(-6),\n      }\n    : fallback.conversationState\n"""
+          if old_state not in text:
+              raise SystemExit('Expected semantic state normalization block not found')
+          text = text.replace(old_state, new_state, 1)
+          semantic.write_text(text)
+
+          test = Path('src/services/__tests__/reasoningAgentLoopV3.test.ts')
+          test_text = test.read_text()
+          marker = "    expect(semanticSource).toContain(\"const GEMINI_SEMANTIC_MODEL = 'gemini-3.5-flash'\");\n"
+          additions = marker + "    expect(semanticSource).toContain(\"thinkingConfig: { thinkingLevel: 'LOW' }\");\n    expect(semanticSource).toContain('fallbackRejectedHypotheses');\n"
+          if marker not in test_text:
+              raise SystemExit('Expected semantic-model test marker not found')
+          test.write_text(test_text.replace(marker, additions, 1))
+          PY
+      - name: Commit final continuity patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/_shared/semanticOrchestrator.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
+          git commit -m "fix: preserve rejected hypotheses across semantic plans"
+          git push origin HEAD:fix/reasoning-final-continuity-hardening
