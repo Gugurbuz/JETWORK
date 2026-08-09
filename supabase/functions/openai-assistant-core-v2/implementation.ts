@@ -350,11 +350,15 @@ async function createReasoningRun(client: any, input: {
   promptVersionId: string
   intent: string
   complexity: string
+  requestedModel: string
+  configuredModel: string
 }) {
   const { data, error } = await client.from('assistant_reasoning_runs').upsert({
     turn_id: input.turnId, conversation_id: input.conversationId, workspace_id: input.workspaceId,
     owner_id: input.ownerId, prompt_version_id: input.promptVersionId, engine_version: ENGINE_VERSION,
-    intent: input.intent, complexity: input.complexity, status: 'running', updated_at: new Date().toISOString(),
+    intent: input.intent, complexity: input.complexity,
+    evidence_summary: { requestedModel: input.requestedModel, configuredModel: input.configuredModel },
+    status: 'running', updated_at: new Date().toISOString(),
   }, { onConflict: 'turn_id' }).select('id').single()
   if (error) { console.warn('Reasoning ledger unavailable:', error); return null }
   return String(data.id)
@@ -481,6 +485,14 @@ serve(async req => {
     const reasoningModel = modelReasoningUsesOpenAi ? configuredModel : promptModel
     if (configuredProvider === 'openai' && !openAiApiKey) return jsonResponse({ error: 'OPENAI_API_KEY is not configured for the selected model.' }, 503)
     if (configuredProvider === 'gemini' && !geminiApiKey) return jsonResponse({ error: 'GEMINI_API_KEY is not configured for the selected model.' }, 503)
+
+    console.info('ASSISTANT_MODEL_SELECTION', JSON.stringify({
+      messageId,
+      requestedModel,
+      configuredModel,
+      configuredProvider,
+      engine: ENGINE_VERSION,
+    }))
 
     const conversation = await getOrCreateConversation(adminClient, workspaceId, authData.user.id, prompt.id, configuredModel)
     const currentUserContent = [
@@ -671,6 +683,7 @@ serve(async req => {
         reasoningRunId = await createReasoningRun(adminClient, {
           turnId, conversationId: conversation.id, workspaceId, ownerId: authData.user.id,
           promptVersionId: prompt.id, intent: route.intent, complexity: route.complexity,
+          requestedModel, configuredModel,
         })
         emitStatus('routing', `Talep sınıflandırıldı: ${routeLabel(route)}`)
 
@@ -827,6 +840,10 @@ serve(async req => {
             await patchReasoningRun(adminClient, reasoningRunId, {
               plan, verification: verification || {}, execution_trace: trace,
               evidence_summary: {
+                requestedModel,
+                configuredModel,
+                responseModel,
+                provider: activeProvider,
                 evidenceItems: evidence.length,
                 sources: sources.length,
                 knowledgeSources: sources.filter(source => source.sourceType !== 'web').length,
