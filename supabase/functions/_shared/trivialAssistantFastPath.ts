@@ -100,7 +100,9 @@ async function requestOpenAiTrivialResponse(input: {
 
   return {
     text,
-    model: cleanString(payload.model || input.model, 80) || input.model,
+    // Persist the configured model id, not a provider-resolved snapshot id that
+    // may violate the assistant_conversations model constraint.
+    model: input.model,
     provider: 'openai',
     usage: numericUsage(payload.usage),
     fallbackUsed: false,
@@ -130,7 +132,7 @@ export async function requestTrivialAssistantResponse(input: {
     if (!visibleText.trim()) throw new Error('Gemini trivial fast path completed without a visible answer.')
     return {
       text: visibleText.trim(),
-      model: cleanString(response.model || input.model, 80) || input.model,
+      model: input.model,
       provider: 'gemini',
       usage: response.usage,
       fallbackUsed: false,
