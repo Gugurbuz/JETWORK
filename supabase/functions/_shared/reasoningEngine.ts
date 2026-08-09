@@ -69,34 +69,64 @@ const firstUserLine = (message: string) => (
   message.split('\n').map(line => line.trim()).find(Boolean) || message.trim()
 ).slice(0, 500)
 
-const TECHNICAL_PATTERN = /\b(?:sap|crm|c4c|abap|fica|billing|isu|is-u|s4|s\/4|cpi|webui|ninja|cost|class|sinif|method|metot|function|fonksiyon|tablo|alan|mapping|entegrasyon|servis|api|hata|dump|exception|badi|bapi|rfc|everh|vertrag|augbl|jira|sagile|z[a-z0-9_]{2,})\b/i
+const ROUTING_CONTEXT_PATTERN = /\[JETWORK_ROUTING_CONTEXT\]\s*([\s\S]*?)\s*\[END_JETWORK_ROUTING_CONTEXT\]/i
+const SYSTEM_ROUTING_MARKER = /\n\s*\[Sistem yönlendirmesi:/i
+const AMBIGUOUS_FOLLOW_UP_PATTERN = /^(?:\?|peki|neden|niye|ona bak|buna bak|bu neden|devam|ee+|hmm+|sonra|ne oldu)$/i
+
+export const routingSurfaceFromMessage = (message: string) => {
+  const contextMatch = message.match(ROUTING_CONTEXT_PATTERN)
+  const context = String(contextMatch?.[1] || '').trim()
+  const withoutContext = message.replace(ROUTING_CONTEXT_PATTERN, '').trim()
+  const systemMarkerIndex = withoutContext.search(SYSTEM_ROUTING_MARKER)
+  const current = (systemMarkerIndex >= 0
+    ? withoutContext.slice(0, systemMarkerIndex)
+    : withoutContext).trim()
+  return {
+    current,
+    context,
+    combined: [current, context].filter(Boolean).join('\n'),
+  }
+}
+
+const routingQuery = (message: string) => {
+  const surface = routingSurfaceFromMessage(message)
+  const currentLine = firstUserLine(surface.current)
+  if (surface.context && AMBIGUOUS_FOLLOW_UP_PATTERN.test(normalize(currentLine))) {
+    return firstUserLine(surface.context)
+  }
+  return currentLine
+}
+
+const TECHNICAL_PATTERN = /\b(?:sap|crm|c4c|abap|fica|billing|isu|is-u|s4|s\/4|cpi|webui|ninja|cost|teklif|quotation|sozlesme|maliyet|fiyatlandirma|urun|kampanya|tesisat|sayac|tarife|kod[a-z]*|class|sinif|method|metot|function|fonksiyon|tablo|alan|mapping|entegrasyon|servis|api|hata|dump|exception|badi|bapi|rfc|everh|vertrag|augbl|jira|sagile|z[a-z0-9_]{2,})\b/i
 // "kontrol" tek başına teşhis sinyali değildir: "borç kontrol entegrasyonu" gibi
 // fonksiyonel analiz taleplerini yanlışlıkla sap_diagnosis'a taşımamalıdır.
 const DIAGNOSIS_PATTERN = /\b(?:hata|neden|sebep|kok neden|root cause|calismiyor|olmuyor|veriyor|uyumsuz|ters kayit|debug|incele)\b/i
-const RESEARCH_PATTERN = /\b(?:arastir|araştır|web|internet|guncel|güncel|bugun|bugün|latest|son durum|kaynak bul|dis kaynak|dış kaynak)\b/i
+const RESEARCH_PATTERN = /\b(?:arastir|web|internet|google|kaynak bul|dis kaynak|online|latest|haber|piyasa|mevzuat|resmi dokuman)\b/i
 // Router normalize() sonrasında çalıştığı için Türkçe ek almış süreç ifadelerini de
 // kök üzerinden yakala (surec, sureci, surecin, surecler...).
 const ANALYSIS_PATTERN = /\b(?:analiz|tasarla|mimari|surec[a-z]*|entegrasyon|gereksinim[a-z]*|is kurali|kapsam|etki analizi)\b/i
-const DECISION_PATTERN = /\b(?:alternatif|secenek|seçenek|hangisi|karsilastir|karşılaştır|oner|öner|yaklasim|yaklaşım|cozum|çözüm)\b/i
-const PROJECT_PATTERN = /\b(?:roadmap|backlog|epic|sprint|proje|story|jira|efor|priorite|öncelik)\b/i
+const DECISION_PATTERN = /\b(?:alternatif|secenek|hangisi|karsilastir|oner|yaklasim|cozum)\b/i
+const PROJECT_PATTERN = /\b(?:roadmap|backlog|epic|sprint|proje|story|jira|efor|priorite|oncelik)\b/i
 const SYSTEM_DOCUMENT_PATTERN = /(?:<ba_analysis>|\[Sistem yönlendirmesi:[^\]]*(?:doküman|dokuman|revizyon|analiz)[^\]]*\])/i
 const DOCUMENT_COMMAND_PATTERN = /(?:\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b.{0,100}\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b|\b(?:olustur|hazirla|yaz|uret|revize|guncelle)\b.{0,100}\b(?:dokuman|belge|ihtiyac analizi|is analizi|kavramsal tasarim)\b)/i
-const EXPLICIT_WEB_PATTERN = /\b(?:web(?:'te|de|den)?|internette|internetten|google|dis kaynak|dış kaynak|online|guncel|güncel|bugun|bugün|latest|haber|piyasa|fiyat|mevzuat|resmi dokuman|resmî doküman)\b/i
+const EXPLICIT_WEB_PATTERN = /\b(?:web(?:'te|de|den)?|internet|internette|internetten|google|dis kaynak|online|latest|haber|piyasa|mevzuat|resmi dokuman)\b/i
 // Bu ifade normalize edilmiş metne uygulanır. "uçtan uca" => "uctan uca".
 // Sadece "entegrasyon" kelimesi ise tek başına high complexity gerekçesi değildir.
 const HIGH_COMPLEXITY_PATTERN = /\b(?:detayli|derin|uctan uca|tum|kapsamli|mimari|kok neden|refactor|workstream|senaryo|alternatifler)\b/i
 
 export function routeReasoningRequest(message: string, attachmentCount = 0): ReasoningRoute {
-  const normalized = normalize(message)
-  const userLine = firstUserLine(message)
-  const isDocument = SYSTEM_DOCUMENT_PATTERN.test(message) || DOCUMENT_COMMAND_PATTERN.test(normalized)
+  const surface = routingSurfaceFromMessage(message)
+  const normalizedCurrent = normalize(surface.current)
+  const normalized = normalize(surface.combined || surface.current)
+  const userLine = routingQuery(message)
+  const isDocument = SYSTEM_DOCUMENT_PATTERN.test(message) || DOCUMENT_COMMAND_PATTERN.test(normalizedCurrent)
   const isTechnical = TECHNICAL_PATTERN.test(normalized)
   const isDiagnosis = isTechnical && DIAGNOSIS_PATTERN.test(normalized)
-  const isResearch = RESEARCH_PATTERN.test(normalized)
+  const isResearch = RESEARCH_PATTERN.test(normalizedCurrent)
   const isAnalysis = ANALYSIS_PATTERN.test(normalized)
   const isDecision = DECISION_PATTERN.test(normalized)
   const isProject = PROJECT_PATTERN.test(normalized)
-  const explicitWeb = EXPLICIT_WEB_PATTERN.test(normalized)
+  const explicitWeb = EXPLICIT_WEB_PATTERN.test(normalizedCurrent)
 
   let intent: ReasoningIntent = 'simple_answer'
   if (isDocument) intent = 'document'
@@ -240,7 +270,7 @@ async function requestStructuredJson<T>(input: {
 }
 
 const fallbackPlan = (message: string, route: ReasoningRoute): ReasoningPlan => {
-  const query = firstUserLine(message).slice(0, 300)
+  const query = routingQuery(message).slice(0, 300)
   const steps: ReasoningPlanStep[] = []
   if (route.knowledgeRequired) steps.push({
     id: 'evidence-internal',
@@ -306,23 +336,23 @@ export async function buildReasoningPlan(input: {
         deterministicRoute: input.route,
         workspaceTitle: input.workspaceTitle || '',
         attachmentNames: input.attachmentNames || [],
-        userRequest: firstUserLine(input.message),
+        userRequest: routingQuery(input.message),
       }),
     })
     const proposed = result.value
     const plan: ReasoningPlan = {
       ...proposed,
-      intent: input.route.intent === 'document' ? 'document' : proposed.intent,
+      intent: input.route.intent,
       complexity: input.route.complexity === 'high' ? 'high' : proposed.complexity,
       knowledgeRequired: input.route.knowledgeRequired || proposed.knowledgeRequired,
-      webMode: input.route.webMode === 'required' ? 'required' : proposed.webMode,
+      webMode: input.route.webMode,
       verificationRequired: input.route.verificationRequired || proposed.verificationRequired,
       creativeMode: input.route.creativeMode || proposed.creativeMode,
       evidenceQueries: [...new Set((proposed.evidenceQueries || []).map(query => query.trim()).filter(Boolean))].slice(0, 5),
       steps: (proposed.steps || []).slice(0, 8),
     }
     if ((plan.knowledgeRequired || plan.webMode !== 'none') && !plan.evidenceQueries.length) {
-      plan.evidenceQueries = [firstUserLine(input.message).slice(0, 300)]
+      plan.evidenceQueries = [routingQuery(input.message).slice(0, 300)]
     }
     return { plan, usage: result.usage, plannerFallback: false }
   } catch (error) {
