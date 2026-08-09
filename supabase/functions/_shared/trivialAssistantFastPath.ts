@@ -122,6 +122,53 @@ async function requestOpenAiTrivialResponse(input: {
   }
 }
 
+async function requestGeminiTrivialResponse(input: {
+  apiKey: string
+  model: string
+  message: string
+}): Promise<TrivialAssistantFastPathResult> {
+  // Keep this configuration isolated from the shared reasoning/document provider.
+  // Gemini 3.1 Pro defaults to high thinking; exact greetings need low thinking
+  // and enough output headroom so internal reasoning cannot consume the answer.
+  const { GoogleGenAI } = await import('npm:@google/genai@1.52.0')
+  const ai = new GoogleGenAI({ apiKey: input.apiKey })
+  const response = await ai.models.generateContent({
+    model: input.model,
+    contents: [{ role: 'user', parts: [{ text: input.message }] }],
+    config: {
+      systemInstruction: TRIVIAL_FAST_PATH_INSTRUCTIONS,
+      maxOutputTokens: 320,
+      thinkingConfig: {
+        thinkingLevel: 'low',
+      },
+    },
+  } as any)
+
+  const candidateContent = (response as any)?.candidates?.[0]?.content
+  const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : []
+  const visibleText = parts
+    .filter((part: any) => !part?.thought && typeof part?.text === 'string')
+    .map((part: any) => part.text)
+    .join('')
+    .trim()
+
+  if (!visibleText) throw new Error('Gemini trivial fast path completed without a visible answer.')
+
+  const metadata = (response as any)?.usageMetadata || {}
+  return {
+    text: visibleText,
+    model: input.model,
+    provider: 'gemini',
+    usage: {
+      input_tokens: Number(metadata.promptTokenCount || 0),
+      output_tokens: Number(metadata.candidatesTokenCount || 0),
+      reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
+      total_tokens: Number(metadata.totalTokenCount || 0),
+    },
+    fallbackUsed: false,
+  }
+}
+
 export async function requestTrivialAssistantResponse(input: {
   message: string
   model: string
@@ -131,29 +178,11 @@ export async function requestTrivialAssistantResponse(input: {
   const provider = providerForTrivialFastPathModel(input.model)
   if (provider === 'gemini') {
     if (!input.geminiApiKey) throw new Error('GEMINI_API_KEY is not configured for the selected model.')
-
-    // Keep the normal gateway lightweight. The Google SDK is only loaded after
-    // this request has already qualified for the exact conversational fast path.
-    const { requestGeminiResponse } = await import('./modelProviders.ts')
-    let visibleText = ''
-    const response = await requestGeminiResponse({
+    return requestGeminiTrivialResponse({
       apiKey: input.geminiApiKey,
       model: input.model,
-      instructions: TRIVIAL_FAST_PATH_INSTRUCTIONS,
-      items: [{ role: 'user', content: input.message }],
-      tools: [],
-      allowTools: false,
-      maxOutputTokens: 160,
-      onText: delta => { visibleText += delta },
+      message: input.message,
     })
-    if (!visibleText.trim()) throw new Error('Gemini trivial fast path completed without a visible answer.')
-    return {
-      text: visibleText.trim(),
-      model: input.model,
-      provider: 'gemini',
-      usage: response.usage,
-      fallbackUsed: false,
-    }
   }
 
   if (!input.openAiApiKey) throw new Error('OPENAI_API_KEY is not configured for the selected model.')
