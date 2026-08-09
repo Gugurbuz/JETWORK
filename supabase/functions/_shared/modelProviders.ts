@@ -8,6 +8,8 @@ export const GEMINI_MODELS = new Set([
 ])
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
+export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
+const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 
 export type AssistantProvider = 'openai' | 'gemini'
 
@@ -78,6 +80,14 @@ const TRIVIAL_CONVERSATION_INSTRUCTIONS = [
   'Kullanıcının gündelik selamlaşma, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
   'Kullanıcı istemedikçe Enerjisa, SAP, süreç, teknik talep, yetenek listesi veya soru menüsü ekleme.',
   'Yanıtı en fazla iki kısa cümle tut.',
+].join('\n')
+
+const GEMINI_EVIDENCE_INSTRUCTIONS = [
+  '[JETWORK KANIT BÜTÜNLÜĞÜ - ZORUNLU]',
+  'SAP/CRM hata kodu, mesaj kodu, class, method, function, tablo, alan, ürün veya iş kuralı gibi kurumsal teknik ayrıntıları yalnız konuşmada veya JetWork tarafından sağlanan kanıtta açıkça yer alıyorsa kesin gerçek olarak yaz.',
+  'Kullanıcı belirli bir teknik kimlik soruyorsa (ör. ZCRM2-545), yakın kodlar veya benzer SAP süreçleri o kimlik için kanıt değildir.',
+  'İstenen teknik kimlik kanıtta birebir bulunmuyorsa bunu açıkça söyle; genel SAP bilgisinden class, method, mesaj metni, tetikleyici veya çözüm uydurma.',
+  'Kanıt ile çıkarımı ayır. Kanıtsız teknik çıkarımı kesinlik diliyle sunma.',
 ].join('\n')
 
 const parseToolOutput = (value: unknown): unknown => {
@@ -174,8 +184,13 @@ export async function requestGeminiResponse(input: {
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
   const trivialConversation = !input.allowTools && isTrivialConversationalTurn(input.items)
   const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.items
+  const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL
+    ? GEMINI_SUBSTANTIVE_MODEL
+    : input.model
   const config: Record<string, unknown> = {
-    systemInstruction: trivialConversation ? TRIVIAL_CONVERSATION_INSTRUCTIONS : input.instructions,
+    systemInstruction: trivialConversation
+      ? TRIVIAL_CONVERSATION_INSTRUCTIONS
+      : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
     abortSignal: input.signal,
   }
@@ -194,7 +209,7 @@ export async function requestGeminiResponse(input: {
   }
 
   const response = await ai.models.generateContent({
-    model: input.model,
+    model: executionModel,
     contents: toGeminiContents(effectiveItems),
     config,
   } as any)
@@ -230,7 +245,7 @@ export async function requestGeminiResponse(input: {
   return {
     id: String((response as any)?.responseId || crypto.randomUUID()),
     status: 'completed',
-    model: input.model,
+    model: executionModel,
     output,
     usage: {
       input_tokens: Number(metadata.promptTokenCount || 0),
