@@ -44,6 +44,12 @@ const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maxi
 
 const USER_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_USER_REQUESTS_PER_MINUTE', 6, 1, 60)
 const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQUESTS_PER_MINUTE', 30, 1, 240)
+const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
+const GEMINI_PRO_MODEL = 'gemini-3.1-pro-preview'
+const SYSTEM_ROUTING_MARKER = /\n\s*\[Sistem yönlendirmesi:/i
+const ROUTING_CONTEXT_PATTERN = /\[JETWORK_ROUTING_CONTEXT\][\s\S]*?\[END_JETWORK_ROUTING_CONTEXT\]/i
+const AMBIGUOUS_FOLLOW_UP_PATTERN = /^(?:\?|peki|neden|niye|ona bak|buna bak|bu neden|devam|ee+|hmm+|sonra|ne oldu)$/i
+const EXPLICIT_WEB_PATTERN = /\b(?:web(?:'te|de|den)?|internet|internette|internetten|google|dis kaynak|dış kaynak|online|latest|haber|piyasa|mevzuat|resmi dokuman|resmî doküman)\b/i
 
 interface AssistantGatewayBody {
   workspaceId?: unknown
@@ -63,6 +69,59 @@ const parseGatewayBody = (body: ArrayBuffer): AssistantGatewayBody | null => {
 }
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
+
+const normalizeRoutingText = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const rawUserMessage = (message: string) => {
+  const withoutRoutingContext = message.replace(ROUTING_CONTEXT_PATTERN, '').trim()
+  const systemMarkerIndex = withoutRoutingContext.search(SYSTEM_ROUTING_MARKER)
+  return (systemMarkerIndex >= 0
+    ? withoutRoutingContext.slice(0, systemMarkerIndex)
+    : withoutRoutingContext).trim()
+}
+
+const isExplicitGeminiModel = (model: string) => model.startsWith('gemini-')
+
+const encodeGatewayBody = (body: AssistantGatewayBody) => new TextEncoder().encode(JSON.stringify(body)).buffer
+
+const previousSubstantiveUserMessage = async (input: {
+  authorization: string
+  supabaseUrl: string
+  anonKey: string
+  workspaceId: string
+  messageId: string
+}) => {
+  const client = createClient(input.supabaseUrl, input.anonKey, {
+    global: { headers: { Authorization: input.authorization } },
+    auth: { persistSession: false },
+  })
+  const { data, error } = await client
+    .from('messages')
+    .select('id,text,created_at')
+    .eq('workspace_id', input.workspaceId)
+    .eq('role', 'user')
+    .neq('id', input.messageId)
+    .order('created_at', { ascending: false })
+    .limit(8)
+  if (error) {
+    console.warn('Assistant routing context could not be loaded:', error.message)
+    return ''
+  }
+  for (const row of data || []) {
+    const text = cleanString(row.text, 4_000)
+    const candidate = rawUserMessage(text)
+    if (!candidate) continue
+    if (AMBIGUOUS_FOLLOW_UP_PATTERN.test(normalizeRoutingText(candidate))) continue
+    return candidate
+  }
+  return ''
+}
 
 const sha256Text = async (value: string) => {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
@@ -338,6 +397,69 @@ serve(async req => {
     }, 502)
   }
 
+  let forwardedBody = body
+  let forwardedModel = requestedModel
+  if (parsedBody) {
+    const workspaceId = cleanString(parsedBody.workspaceId, 200)
+    const currentMessage = cleanString(parsedBody.message, 32_000)
+    const routingMessage = rawUserMessage(currentMessage)
+    const normalizedRoutingMessage = normalizeRoutingText(routingMessage)
+    const nextBody: AssistantGatewayBody = { ...parsedBody }
+    let bodyChanged = false
+
+    if (isExplicitGeminiModel(requestedModel) && EXPLICIT_WEB_PATTERN.test(normalizedRoutingMessage)) {
+      return jsonResponse({
+        error: 'Gemini seçiliyken JetWork başka bir sağlayıcının web aracına gizlice geçmez. Web araştırması için Otomatik veya OpenAI modelini seçin.',
+        code: 'GEMINI_PROVIDER_LOCK_WEB_UNAVAILABLE',
+      }, 409)
+    }
+
+    if (requestedModel === GEMINI_FLASH_LITE_MODEL) {
+      nextBody.model = GEMINI_PRO_MODEL
+      forwardedModel = GEMINI_PRO_MODEL
+      bodyChanged = true
+      logLatency('ASSISTANT_MODEL_POLICY', {
+        traceId,
+        messageId,
+        requestedModel,
+        forwardedModel,
+        reason: 'flash_lite_substantive_promoted_to_pro',
+      })
+    }
+
+    if (
+      workspaceId
+      && messageId
+      && routingMessage
+      && AMBIGUOUS_FOLLOW_UP_PATTERN.test(normalizedRoutingMessage)
+    ) {
+      const previousMessage = await previousSubstantiveUserMessage({
+        authorization,
+        supabaseUrl,
+        anonKey,
+        workspaceId,
+        messageId,
+      })
+      if (previousMessage) {
+        nextBody.message = [
+          currentMessage,
+          '',
+          '[JETWORK_ROUTING_CONTEXT]',
+          previousMessage,
+          '[END_JETWORK_ROUTING_CONTEXT]',
+        ].join('\n')
+        bodyChanged = true
+        logLatency('ASSISTANT_ROUTING_CONTEXT', {
+          traceId,
+          messageId,
+          contextAttached: true,
+        })
+      }
+    }
+
+    if (bodyChanged) forwardedBody = encodeGatewayBody(nextBody)
+  }
+
   let upstream: Response
   const upstreamStartedAtMs = Date.now()
   try {
@@ -352,7 +474,7 @@ serve(async req => {
         'Content-Type': req.headers.get('Content-Type') || 'application/json',
         'x-client-info': req.headers.get('x-client-info') || 'jetwork-stream-gateway/v1',
       },
-      body,
+      body: forwardedBody,
     })
   } catch (error) {
     const upstreamFailedAtMs = Date.now()
@@ -360,6 +482,7 @@ serve(async req => {
       traceId,
       messageId,
       requestedModel,
+      forwardedModel,
       outcome: 'core_unreachable',
       gatewayReceivedAtMs,
       bodyReadAtMs,
@@ -380,6 +503,7 @@ serve(async req => {
     traceId,
     messageId,
     requestedModel,
+    forwardedModel,
     outcome: upstream.ok ? 'core_headers_ready' : 'core_error_headers_ready',
     status: upstream.status,
     gatewayReceivedAtMs,
@@ -434,6 +558,7 @@ serve(async req => {
             traceId,
             messageId,
             requestedModel,
+            forwardedModel,
             downstreamCancelled,
             gatewayReceivedAtMs,
             coreHeadersAtMs,
