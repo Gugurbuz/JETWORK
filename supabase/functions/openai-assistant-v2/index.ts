@@ -1,9 +1,9 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'npm:@supabase/supabase-js@2.99.3'
-import { providerForModel } from '../_shared/modelProviders.ts'
 import { createSafeStreamSink } from '../_shared/safeStreamSink.ts'
 import {
   TRIVIAL_FAST_PATH_ENGINE_VERSION,
+  providerForTrivialFastPathModel,
   requestTrivialAssistantResponse,
   shouldUseTrivialAssistantFastPath,
 } from '../_shared/trivialAssistantFastPath.ts'
@@ -150,7 +150,7 @@ async function tryTrivialFastPath(input: {
     attachmentCount,
   })) return null
 
-  const provider = providerForModel(model)
+  const provider = providerForTrivialFastPathModel(model)
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY') || undefined
   const geminiApiKey = Deno.env.get('GEMINI_API_KEY') || undefined
   if ((provider === 'openai' && !openAiApiKey) || (provider === 'gemini' && !geminiApiKey)) return null
@@ -221,7 +221,7 @@ async function tryTrivialFastPath(input: {
       text: cachedText,
       conversationId,
       model: cachedModel,
-      provider: providerForModel(cachedModel),
+      provider: providerForTrivialFastPathModel(cachedModel),
       usage: claim.usage && typeof claim.usage === 'object' ? claim.usage as Record<string, number> : undefined,
       cached: true,
     })
