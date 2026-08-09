@@ -11,9 +11,11 @@ import type { AssistantProvider } from './modelProviders.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v2-agent-loop'
+const GEMINI_SEMANTIC_MODEL = 'gemini-3-flash-preview'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3-production-hardened'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const AGENT_LOOP_MARKER = '[JETWORK_AGENT_LOOP]'
+const DEGRADED_MARKER = 'degraded-agentic-fallback'
 
 export interface SemanticContextMessage {
   role: 'user' | 'assistant'
@@ -31,6 +33,7 @@ export interface PriorExecutionContext {
   provider?: string
   artifactStatus?: string
   artifactOperation?: string
+  semanticState?: ConversationSemanticState
 }
 
 export interface SemanticOrchestrationResult {
@@ -39,6 +42,7 @@ export interface SemanticOrchestrationResult {
   fallbackUsed: boolean
   provider: AssistantProvider
   model: string
+  errorMessage?: string
 }
 
 const planSchema = {
@@ -102,12 +106,18 @@ const instructions = [
   'Set webMode=required when the current request needs live/current public information or the user explicitly requires external web verification. Set webMode=if_internal_insufficient when public web may be useful only if internal/contextual evidence is insufficient. Otherwise use none.',
   'Choose capabilities, not a rigid research script. Do not prescribe search -> detail -> relations as a mandatory sequence; the answer model will observe tool results and decide its next action inside bounded runtime limits.',
   'Evidence queries and steps are hints only. Keep them compact and do not encode hidden chain-of-thought.',
-  'Set document/artifact only when the user is actually asking to create or revise an artifact. Incidental action verbs inside a technical sentence are not document commands.',
-  'For design/decision work, use decision mode when alternatives should be evaluated.',
+  'Set document/artifact only when the user is actually asking to create or revise an artifact.',
   'Produce a compact execution plan. No hidden chain-of-thought and no final user answer.',
 ].join('\n')
 
 const cleanText = (value: unknown, max = 4_000) => String(value || '').trim().slice(0, max)
+const normalizedFallbackText = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
 
 export const compactSemanticConversation = (messages: SemanticContextMessage[]) => {
   const recent = messages.slice(-10)
@@ -138,6 +148,17 @@ const lastAssistant = (messages: SemanticContextMessage[]) => {
   return ''
 }
 
+const inferFallbackUserMove = (
+  currentMessage: string,
+  continuation: boolean,
+): ConversationSemanticState['userMove'] => {
+  if (!continuation) return 'new_request'
+  const value = normalizedFallbackText(currentMessage)
+  if (/(^|\s)(hayir|degil|yanlis|olmadı|olmadi|o degil|bu degil|ayni sey degil)(\s|$)/i.test(value)) return 'rejection'
+  if (/(^|\s)(evet|dogru|aynen|tam olarak|o)(\s|$)/i.test(value) && value.length < 120) return 'confirmation'
+  return 'follow_up'
+}
+
 const fallbackPlan = (
   currentMessage: string,
   conversation: SemanticContextMessage[],
@@ -150,39 +171,57 @@ const fallbackPlan = (
     'none','simple_answer','sap_diagnosis','research','analysis','document','decision','project',
   ].includes(priorIntent) ? priorIntent : 'none'
   const continuation = Boolean(previousUser && validPriorIntent !== 'none')
-  const topic = cleanText(previousUser || currentMessage, 500)
-  const evidenceQueries = [previousUser, currentMessage].map(item => cleanText(item, 350)).filter(Boolean)
+  const userMove = inferFallbackUserMove(currentMessage, continuation)
+  const inheritedState = priorExecution?.semanticState
+  const rejectedHypotheses = [...(inheritedState?.rejectedHypotheses || [])]
+  if (userMove === 'rejection' && previousAssistant) {
+    rejectedHypotheses.push(`Önceki asistan hipotezi reddedildi: ${cleanText(previousAssistant, 420)}`)
+  }
+  const uniqueRejected = [...new Set(rejectedHypotheses.map(item => cleanText(item, 500)).filter(Boolean))].slice(-6)
+  const topic = cleanText(inheritedState?.topic || previousUser || currentMessage, 500)
+  const retainedContext = [
+    ...(inheritedState?.retainedContext || []),
+    previousUser,
+    previousAssistant,
+  ].map(item => cleanText(item, 500)).filter(Boolean)
   const state: ConversationSemanticState = {
     continuation,
     topic,
-    userMove: continuation ? 'follow_up' : 'new_request',
+    userMove,
     priorIntent: validPriorIntent,
-    rejectedHypotheses: [],
-    retainedContext: [previousUser, previousAssistant].map(item => cleanText(item, 500)).filter(Boolean),
-    openQuestions: [],
+    rejectedHypotheses: uniqueRejected,
+    retainedContext: [...new Set(retainedContext)].slice(-8),
+    openQuestions: [...new Set(inheritedState?.openQuestions || [])].slice(-6),
   }
   const preserveKnowledgeTask = continuation && (
     validPriorIntent === 'sap_diagnosis'
     || validPriorIntent === 'analysis'
     || priorExecution?.knowledgeUsed === true
   )
+  const fallbackIntent = preserveKnowledgeTask && validPriorIntent !== 'none' ? validPriorIntent : 'analysis'
+  const explicitWeb = /(^|\s)\/websearch\b/i.test(currentMessage)
+  const goal = [
+    cleanText(currentMessage, 800) || 'Kullanıcı talebini mevcut konuşma bağlamıyla güvenli biçimde yanıtla.',
+    continuation ? 'Bu tur önceki görev bağlamının devamıdır; önceki teknik bağlamı koru.' : '',
+    userMove === 'rejection'
+      ? 'Kullanıcı önceki asistan hipotezini reddetti. O hipotezi yeni doğrudan kanıt olmadan tekrar önerme; alternatifleri kurumsal kanıtla araştır.'
+      : '',
+    'Semantic planner geçici olarak kullanılamasa da araştırmayı sabit bir reçete ile değil, model kontrollü observe-decide-act döngüsüyle sürdür.',
+  ].filter(Boolean).join(' ')
+
   return {
-    intent: preserveKnowledgeTask && validPriorIntent !== 'none' ? validPriorIntent : 'analysis',
+    intent: fallbackIntent,
     complexity: priorExecution?.complexity === 'high' ? 'high' : 'medium',
-    executionMode: 'knowledge',
-    goal: cleanText(currentMessage, 800) || 'Kullanıcı talebini mevcut konuşma bağlamıyla güvenli biçimde yanıtla.',
+    executionMode: explicitWeb ? 'research' : 'knowledge',
+    goal,
     knowledgeRequired: true,
-    webMode: 'none',
-    verificationRequired: true,
+    webMode: explicitWeb ? 'required' : 'none',
+    verificationRequired: false,
     creativeMode: false,
-    evidenceQueries: [...new Set(evidenceQueries)].slice(0, 3),
-    steps: [
-      { id: 'evidence-internal', label: 'Kurumsal bağlamı ve ilgili kanıtı ara', toolHint: 'knowledge', successCriteria: 'Yanıt için kurumsal kanıt bulunur veya eksik olduğu doğrulanır.' },
-      { id: 'verify', label: 'Kanıt yeterliliğini doğrula', toolHint: 'verification', successCriteria: 'Kanıt ve belirsizlik ayrıştırılır.' },
-      { id: 'synthesize', label: 'Bağlama uygun yanıtı üret', toolHint: 'synthesis', successCriteria: 'Yanıt önceki konuşmayla tutarlı ve kanıta dayalıdır.' },
-    ],
+    evidenceQueries: [],
+    steps: [],
     conversationState: state,
-    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-safe-fallback`,
+    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-${DEGRADED_MARKER}`,
   }
 }
 
@@ -234,6 +273,7 @@ export const applyAgentLoopPolicy = (
   inputPlan: ReasoningPlan,
   provider: AssistantProvider,
 ): ReasoningPlan => {
+  const degraded = String(inputPlan.orchestratorVersion || '').includes(DEGRADED_MARKER)
   const plan: ReasoningPlan = {
     ...inputPlan,
     evidenceQueries: [...(inputPlan.evidenceQueries || [])],
@@ -241,7 +281,9 @@ export const applyAgentLoopPolicy = (
     conversationState: inputPlan.conversationState
       ? { ...inputPlan.conversationState }
       : inputPlan.conversationState,
-    orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+    orchestratorVersion: degraded
+      ? `${SEMANTIC_ORCHESTRATOR_VERSION}-${DEGRADED_MARKER}`
+      : SEMANTIC_ORCHESTRATOR_VERSION,
   }
 
   const needsEvidenceCapability = plan.knowledgeRequired || plan.webMode !== 'none'
@@ -266,14 +308,17 @@ export const applyAgentLoopPolicy = (
     plan.webMode = 'none'
   }
 
+  const rejected = plan.conversationState?.rejectedHypotheses || []
   const adaptiveDirective = [
     AGENT_LOOP_MARKER,
     'Araştırma sırasını önceden sabitleme. Mevcut araçlardan amaca uygun olanı seç, sonucu gözlemle ve kanıt yeterliyse dur.',
     'Sonuç zayıf, belirsiz veya çelişkiliyse sorguyu yeniden formüle et, başka kayıt/detay/ilişkiyi incele veya izin verilen başka capabilityye geç.',
     'Aynı başarısız çağrıyı anlamsızca tekrarlama. Kullanıcının reddettiği hipotezi yeni kanıt olmadan tekrar gerçek gibi sunma.',
+    rejected.length ? `Reddedilmiş hipotezleri dışla: ${rejected.map(item => cleanText(item, 220)).join(' | ')}` : '',
+    degraded ? 'Semantic planner degraded modda. Konuşma bağlamını ve önceki asistan cevabını doğrudan değerlendir; boşlukları tahminle doldurma.' : '',
     'Araç bütçesi biterse kanıt açığını açıkça belirt; boşluğu kendi bilginden uydurma.',
     ...capabilityRules,
-  ].join(' ')
+  ].filter(Boolean).join(' ')
 
   if (!hasAgentLoopDirective(plan.goal)) {
     plan.goal = `${cleanText(plan.goal, 1_000)}\n\n${adaptiveDirective}`.trim()
@@ -310,7 +355,6 @@ export const normalizeCachedSemanticPlan = (input: {
     const current = routingSurfaceFromMessage(input.currentMessage).current || input.currentMessage.trim()
     const fallback = fallbackPlan(current, compactSemanticConversation(input.conversation), input.priorExecution)
     const normalized = normalizePlan(input.value as ReasoningPlan, fallback)
-    if (String(normalized.orchestratorVersion || '').includes('safe-fallback')) return normalized
     const provider: AssistantProvider = normalized.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER) ? 'gemini' : 'openai'
     return applyAgentLoopPolicy(normalized, provider)
   } catch {
@@ -337,67 +381,94 @@ const geminiText = (payload: Record<string, unknown>) => {
   return parts.filter(part => part.thought !== true && typeof part.text === 'string').map(part => String(part.text)).join('').trim()
 }
 
+const errorDetail = (body: Record<string, unknown>, fallback: string) => {
+  const error = body.error && typeof body.error === 'object' ? body.error as Record<string, unknown> : undefined
+  return cleanText(error?.message || fallback, 1_500)
+}
+
+const isTransientStatus = (status: number) => status === 408 || status === 429 || status >= 500
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 async function requestOpenAiPlan(input: { apiKey: string; model: string; payload: Record<string, unknown>; signal?: AbortSignal }) {
-  const response = await fetch(OPENAI_RESPONSES_URL, {
-    method: 'POST', signal: input.signal,
-    headers: { Authorization: `Bearer ${input.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: input.model,
-      instructions,
-      input: JSON.stringify(input.payload),
-      reasoning: { effort: 'low' },
-      text: { format: { type: 'json_schema', name: 'jetwork_semantic_execution_plan', strict: true, schema: planSchema } },
-      max_output_tokens: 2_400,
-      store: false,
-    }),
-  })
-  const body = await response.json().catch(() => ({})) as Record<string, unknown>
-  if (!response.ok) {
-    const detail = (body.error as Record<string, unknown> | undefined)?.message
-    throw new Error(String(detail || `OpenAI semantic orchestration failed with ${response.status}.`))
+  let lastError = 'OpenAI semantic orchestration failed.'
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(OPENAI_RESPONSES_URL, {
+      method: 'POST', signal: input.signal,
+      headers: { Authorization: `Bearer ${input.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: input.model,
+        instructions,
+        input: JSON.stringify(input.payload),
+        reasoning: { effort: 'low' },
+        text: { format: { type: 'json_schema', name: 'jetwork_semantic_execution_plan', strict: true, schema: planSchema } },
+        max_output_tokens: 2_400,
+        store: false,
+      }),
+    })
+    const body = await response.json().catch(() => ({})) as Record<string, unknown>
+    if (response.ok) {
+      const text = openAiText(body)
+      if (!text) throw new Error('OpenAI semantic orchestration returned no structured text.')
+      return {
+        plan: JSON.parse(text) as ReasoningPlan,
+        usage: body.usage && typeof body.usage === 'object' ? body.usage as Record<string, number> : undefined,
+        model: input.model,
+      }
+    }
+    lastError = errorDetail(body, `OpenAI semantic orchestration failed with ${response.status}.`)
+    if (!isTransientStatus(response.status) || attempt === 1 || input.signal?.aborted) throw new Error(lastError)
+    await sleep(300 + Math.floor(Math.random() * 200))
   }
-  const text = openAiText(body)
-  if (!text) throw new Error('OpenAI semantic orchestration returned no structured text.')
-  return {
-    plan: JSON.parse(text) as ReasoningPlan,
-    usage: body.usage && typeof body.usage === 'object' ? body.usage as Record<string, number> : undefined,
-  }
+  throw new Error(lastError)
 }
 
 async function requestGeminiPlan(input: { apiKey: string; model: string; payload: Record<string, unknown>; signal?: AbortSignal }) {
-  const response = await fetch(`${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`, {
-    method: 'POST', signal: input.signal,
-    headers: { 'x-goog-api-key': input.apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: instructions }] },
-      contents: [{ role: 'user', parts: [{ text: JSON.stringify(input.payload) }] }],
-      generationConfig: {
-        maxOutputTokens: 2_400,
-        thinkingConfig: { thinkingLevel: 'low' },
-        responseMimeType: 'application/json',
-        responseSchema: planSchema,
-      },
-    }),
-  })
-  const body = await response.json().catch(() => ({})) as Record<string, unknown>
-  if (!response.ok) {
-    const detail = (body.error as Record<string, unknown> | undefined)?.message
-    throw new Error(String(detail || `Gemini semantic orchestration failed with ${response.status}.`))
+  const candidateModels = [...new Set([GEMINI_SEMANTIC_MODEL, input.model])]
+  let lastError = 'Gemini semantic orchestration failed.'
+
+  for (const model of candidateModels) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(`${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(model)}:generateContent`, {
+        method: 'POST', signal: input.signal,
+        headers: { 'x-goog-api-key': input.apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: instructions }] },
+          contents: [{ role: 'user', parts: [{ text: JSON.stringify(input.payload) }] }],
+          generationConfig: {
+            maxOutputTokens: 2_400,
+            thinkingConfig: { thinkingLevel: 'low' },
+            responseMimeType: 'application/json',
+            responseSchema: planSchema,
+          },
+        }),
+      })
+      const body = await response.json().catch(() => ({})) as Record<string, unknown>
+      if (response.ok) {
+        const text = geminiText(body)
+        if (!text) {
+          lastError = `Gemini semantic orchestration returned no structured text from ${model}.`
+          break
+        }
+        const metadata = body.usageMetadata && typeof body.usageMetadata === 'object'
+          ? body.usageMetadata as Record<string, unknown>
+          : {}
+        return {
+          plan: JSON.parse(text) as ReasoningPlan,
+          usage: {
+            input_tokens: Number(metadata.promptTokenCount || 0),
+            output_tokens: Number(metadata.candidatesTokenCount || 0),
+            reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
+            total_tokens: Number(metadata.totalTokenCount || 0),
+          },
+          model,
+        }
+      }
+      lastError = errorDetail(body, `Gemini semantic orchestration failed with ${response.status} on ${model}.`)
+      if (!isTransientStatus(response.status) || input.signal?.aborted) throw new Error(lastError)
+      if (attempt === 0) await sleep(350 + Math.floor(Math.random() * 250))
+    }
   }
-  const text = geminiText(body)
-  if (!text) throw new Error('Gemini semantic orchestration returned no structured text.')
-  const metadata = body.usageMetadata && typeof body.usageMetadata === 'object'
-    ? body.usageMetadata as Record<string, unknown>
-    : {}
-  return {
-    plan: JSON.parse(text) as ReasoningPlan,
-    usage: {
-      input_tokens: Number(metadata.promptTokenCount || 0),
-      output_tokens: Number(metadata.candidatesTokenCount || 0),
-      reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
-      total_tokens: Number(metadata.totalTokenCount || 0),
-    },
-  }
+  throw new Error(lastError)
 }
 
 export async function buildSemanticExecutionPlan(input: {
@@ -415,7 +486,13 @@ export async function buildSemanticExecutionPlan(input: {
   const conversation = compactSemanticConversation(input.conversation)
   const fallback = fallbackPlan(currentMessage, conversation, input.priorExecution)
   if (!input.apiKey) {
-    return { plan: fallback, fallbackUsed: true, provider: input.provider, model: input.model }
+    return {
+      plan: applyAgentLoopPolicy(fallback, input.provider),
+      fallbackUsed: true,
+      provider: input.provider,
+      model: input.model,
+      errorMessage: 'Semantic orchestration API key unavailable.',
+    }
   }
   const payload = {
     currentUserMessage: currentMessage,
@@ -434,11 +511,18 @@ export async function buildSemanticExecutionPlan(input: {
       usage: result.usage,
       fallbackUsed: false,
       provider: input.provider,
-      model: input.model,
+      model: result.model,
     }
   } catch (error) {
-    console.warn('Semantic orchestrator failed; conservative knowledge-first fallback will be used:', error)
-    return { plan: fallback, fallbackUsed: true, provider: input.provider, model: input.model }
+    const detail = error instanceof Error ? error.message : String(error)
+    console.warn('Semantic orchestrator failed; degraded agent loop will be used:', detail)
+    return {
+      plan: applyAgentLoopPolicy(fallback, input.provider),
+      fallbackUsed: true,
+      provider: input.provider,
+      model: input.model,
+      errorMessage: cleanText(detail, 1_500),
+    }
   }
 }
 
