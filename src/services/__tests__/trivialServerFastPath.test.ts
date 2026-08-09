@@ -64,6 +64,13 @@ describe('trivial assistant server fast path', () => {
     expect(failureMigration).toContain('turn_row.owner_id = v_owner_id');
   });
 
+  it('preserves the canonical turn-to-conversation lock ordering', () => {
+    expect(claimMigration).toContain('Lock-order invariant');
+    expect(claimMigration).toContain("'fallback'::text");
+    expect(claimMigration).not.toContain("set status = 'archived'");
+    expect(claimMigration).toContain('Same lock order as complete_assistant_turn');
+  });
+
   it('does not add greetings to durable substantive conversation state', () => {
     expect(claimMigration).toContain('Trivial turns deliberately do not append to durable state_items');
     expect(claimMigration).not.toContain('p_state_items');
