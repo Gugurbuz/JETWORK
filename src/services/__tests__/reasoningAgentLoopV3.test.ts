@@ -117,7 +117,7 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
 
     expect(result.fallbackUsed).toBe(true);
     expect(result.fallbackReason).toBe('missing-api-key');
-    expect(result.model).toBe('gemini-3-flash-preview');
+    expect(result.model).toBe('gemini-3.1-flash-lite-preview');
     expect(result.plan.intent).toBe('sap_diagnosis');
     expect(result.plan.knowledgeRequired).toBe(true);
     expect(result.plan.verificationRequired).toBe(false);
@@ -186,7 +186,8 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
       'utf8',
     );
 
-    expect(semanticSource).toContain("const GEMINI_SEMANTIC_MODEL = 'gemini-3-flash-preview'");
+    expect(semanticSource).toContain("const GEMINI_SEMANTIC_MODEL = 'gemini-3.1-flash-lite-preview'");
+    expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'LOW' }");
     expect(semanticSource).toContain('responseFormat: {');
     expect(semanticSource).toContain("mimeType: 'application/json'");
     expect(semanticSource).not.toContain("responseMimeType: 'application/json'");
