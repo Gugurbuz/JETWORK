@@ -133,7 +133,7 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.1-pro-preview',
-      message: 'Teklife Cost eklerken uyumsuzluk hatası alıyorum.',
+      message: 'Teklife kost eklerken bir hata aldım ama hata mesajını ya da kodunu yakalayamadım sadece yakalayabildi kelime uyumsuz yazıyordu',
       conversation: [
         { role: 'user', content: 'Selam' },
         { role: 'assistant', content: 'Selam! Sana nasıl yardımcı olabilirim?' },
