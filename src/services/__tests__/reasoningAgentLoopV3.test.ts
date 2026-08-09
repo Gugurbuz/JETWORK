@@ -187,6 +187,8 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     );
 
     expect(semanticSource).toContain("const GEMINI_SEMANTIC_MODEL = 'gemini-3.5-flash'");
+    expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'LOW' }");
+    expect(semanticSource).toContain('fallbackRejectedHypotheses');
     expect(semanticSource).toContain('responseFormat: {');
     expect(semanticSource).toContain("responseMimeType: 'application/json'");
     expect(semanticSource).toContain('compatibilityMode');
