@@ -218,7 +218,7 @@ const isRetryableGeminiError = (error: unknown) => {
   const candidate = error && typeof error === 'object' ? error as Record<string, unknown> : {}
   const numericCode = Number(candidate.code || candidate.statusCode || candidate.status)
   if ([408, 429, 500, 502, 503, 504].includes(numericCode)) return true
-  return /408|429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|high demand|temporar|timeout|timed out|network/i.test(geminiErrorText(error))
+  return /408|429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|AbortError|signal has been aborted|high demand|temporar|timeout|timed out|network/i.test(geminiErrorText(error))
 }
 
 const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
