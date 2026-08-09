@@ -8,6 +8,7 @@ const files = [
   'supabase/functions/_shared/modelProviders.ts',
   'supabase/functions/_shared/providerCircuitBreaker.ts',
   'supabase/functions/_shared/safeStreamSink.ts',
+  'supabase/functions/_shared/trivialAssistantFastPath.ts',
   'supabase/functions/ingest-knowledge-source/index.ts',
   'supabase/functions/normalize-artifact-v2/index.ts',
   'supabase/functions/openai-assistant/index.ts',
