@@ -553,9 +553,10 @@ serve(async req => {
       const evidence: string[] = []
       const toolResultCache = new Map<string, AssistantToolExecution>()
       let turnCompleted = false
+      // Once a turn is durably claimed, transport disconnects must not cancel the
+      // reasoning run. The gateway may lose its HTTP client while the core still
+      // needs to finish and persist the turn. RUN_TIMEOUT_MS remains the lifecycle guard.
       const runController = new AbortController()
-      const abortRun = () => runController.abort(req.signal.reason)
-      if (req.signal.aborted) abortRun(); else req.signal.addEventListener('abort', abortRun, { once: true })
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
 
       const emitStatus = (stage: string, label: string) => {
@@ -698,7 +699,7 @@ serve(async req => {
         await patchReasoningRun(adminClient, reasoningRunId, { plan, fallback_used: reasoningFallbackUsed, execution_trace: trace })
         emitStatus('planning', `Plan hazır: ${plan.steps.length} operasyonel adım`)
 
-        if (plan.knowledgeRequired) {
+        if (plan.knowledgeRequired && plan.evidenceQueries.length > 0) {
           emitStatus('searching_knowledge', 'JetWork Global + proje bilgi bankasında kanıt aranıyor...')
           await collectKnowledge(plan.evidenceQueries, plan, 'preflight')
           emitStatus('searching_knowledge', `${sources.filter(source => source.sourceType !== 'web').length} kurumsal kaynak izi toplandı`)
