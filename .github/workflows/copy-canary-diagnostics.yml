@@ -1,0 +1,31 @@
+name: Copy Production Canary Failure Diagnostics
+
+on:
+  push:
+    branches:
+      - fix/reasoning-final-continuity-hardening
+    paths:
+      - '.github/workflows/copy-canary-diagnostics.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reasoning-final-continuity-hardening
+          fetch-depth: 0
+      - name: Copy diagnostics-only production canary
+        run: |
+          git fetch origin fix/reasoning-semantic-model-and-failure-diagnostics --depth=1
+          git show FETCH_HEAD:scripts/run-reasoning-production-canary.ts > scripts/run-reasoning-production-canary.ts
+      - name: Commit diagnostics
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/run-reasoning-production-canary.ts
+          git commit -m "test: expose production reasoning failure details"
+          git push origin HEAD:fix/reasoning-final-continuity-hardening
