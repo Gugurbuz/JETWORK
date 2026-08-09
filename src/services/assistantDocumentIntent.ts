@@ -179,7 +179,7 @@ export function isExplicitDocumentRevisionRequest(
   const normalized = normalizeIntentText(message);
   if (!normalized) return false;
 
-  const hasRevisionVerb = REVISION_VERBS.some(verb => normalized.includes(verb));
+  const hasRevisionVerb = REVISION_VERBS.some(verb => hasExactPhrase(normalized, verb));
   const hasNaturalCorrection = NATURAL_CORRECTION_PATTERNS.some(pattern => pattern.test(normalized));
   if (!hasRevisionVerb && !hasNaturalCorrection) return false;
 
@@ -188,8 +188,8 @@ export function isExplicitDocumentRevisionRequest(
   const hasStructuredReference = /\b(?:fr|nfr)\s*\d+\b/.test(normalized)
     || /\b\d+(?:\s+\d+){1,3}\b/.test(normalized);
   const hasReplacementInstruction = (
-    normalized.includes('yerine')
-      && ['yaz', 'kullan', 'olsun', 'degistir'].some(verb => normalized.includes(verb))
+    hasExactPhrase(normalized, 'yerine')
+      && ['yaz', 'kullan', 'olsun', 'degistir'].some(verb => hasExactPhrase(normalized, verb))
   ) || hasNaturalCorrection;
   const hasChatTarget = CHAT_ONLY_TARGETS.some(target => normalized.includes(target));
   const looksLikeNaturalQuestion = /\b(?:ne|nasil)\s+(?:olmali|olacak)\b/.test(normalized);
