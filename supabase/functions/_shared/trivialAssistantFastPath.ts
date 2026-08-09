@@ -1,12 +1,14 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
+const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
 export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v1'
+export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite-preview'
 
 const OPENAI_FAST_PATH_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
 const GEMINI_FAST_PATH_MODELS = new Set([
   'gemini-3-flash-preview',
   'gemini-3.1-pro-preview',
-  'gemini-3.1-flash-lite-preview',
+  TRIVIAL_GEMINI_LATENCY_MODEL,
 ])
 
 export type TrivialFastPathProvider = 'openai' | 'gemini'
@@ -47,6 +49,10 @@ export interface TrivialAssistantFastPathResult {
 
 export const providerForTrivialFastPathModel = (model: string): TrivialFastPathProvider => (
   GEMINI_FAST_PATH_MODELS.has(model) ? 'gemini' : 'openai'
+)
+
+export const executionModelForTrivialFastPathModel = (model: string): string => (
+  model === 'gemini-3.1-pro-preview' ? TRIVIAL_GEMINI_LATENCY_MODEL : model
 )
 
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
@@ -122,39 +128,70 @@ async function requestOpenAiTrivialResponse(input: {
   }
 }
 
+const extractGeminiVisibleText = (payload: Record<string, unknown>): string => {
+  const candidates = Array.isArray(payload.candidates)
+    ? payload.candidates as Array<Record<string, unknown>>
+    : []
+  const content = candidates[0]?.content
+  const parts = content && typeof content === 'object' && Array.isArray((content as Record<string, unknown>).parts)
+    ? (content as Record<string, unknown>).parts as Array<Record<string, unknown>>
+    : []
+  return parts
+    .filter(part => part.thought !== true && typeof part.text === 'string')
+    .map(part => String(part.text))
+    .join('')
+    .trim()
+}
+
 async function requestGeminiTrivialResponse(input: {
   apiKey: string
   model: string
   message: string
 }): Promise<TrivialAssistantFastPathResult> {
-  // Keep this configuration isolated from the shared reasoning/document provider.
-  // Gemini 3.1 Pro defaults to high thinking; exact greetings need low thinking
-  // and enough output headroom so internal reasoning cannot consume the answer.
-  const { GoogleGenAI } = await import('npm:@google/genai@1.52.0')
-  const ai = new GoogleGenAI({ apiKey: input.apiKey })
-  const response = await ai.models.generateContent({
-    model: input.model,
-    contents: [{ role: 'user', parts: [{ text: input.message }] }],
-    config: {
-      systemInstruction: TRIVIAL_FAST_PATH_INSTRUCTIONS,
-      maxOutputTokens: 320,
-      thinkingConfig: {
-        thinkingLevel: 'low',
+  // Exact trivial turns are latency-sensitive and do not need the shared
+  // reasoning/document provider stack. Use the REST API directly so the Edge
+  // isolate does not need to resolve and initialize the Google SDK first.
+  const thinkingLevel = input.model === TRIVIAL_GEMINI_LATENCY_MODEL ? 'minimal' : 'low'
+  const response = await fetch(
+    `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'x-goog-api-key': input.apiKey,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: TRIVIAL_FAST_PATH_INSTRUCTIONS }],
+        },
+        contents: [{
+          role: 'user',
+          parts: [{ text: input.message }],
+        }],
+        generationConfig: {
+          maxOutputTokens: 320,
+          thinkingConfig: {
+            thinkingLevel,
+          },
+        },
+      }),
     },
-  } as any)
+  )
 
-  const candidateContent = (response as any)?.candidates?.[0]?.content
-  const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : []
-  const visibleText = parts
-    .filter((part: any) => !part?.thought && typeof part?.text === 'string')
-    .map((part: any) => part.text)
-    .join('')
-    .trim()
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+  if (!response.ok) {
+    const error = payload.error && typeof payload.error === 'object'
+      ? cleanString((payload.error as Record<string, unknown>).message, 1_000)
+      : ''
+    throw new Error(error || `Gemini GenerateContent API returned ${response.status}.`)
+  }
 
+  const visibleText = extractGeminiVisibleText(payload)
   if (!visibleText) throw new Error('Gemini trivial fast path completed without a visible answer.')
 
-  const metadata = (response as any)?.usageMetadata || {}
+  const metadata = payload.usageMetadata && typeof payload.usageMetadata === 'object'
+    ? payload.usageMetadata as Record<string, unknown>
+    : {}
   return {
     text: visibleText,
     model: input.model,
@@ -180,7 +217,7 @@ export async function requestTrivialAssistantResponse(input: {
     if (!input.geminiApiKey) throw new Error('GEMINI_API_KEY is not configured for the selected model.')
     return requestGeminiTrivialResponse({
       apiKey: input.geminiApiKey,
-      model: input.model,
+      model: executionModelForTrivialFastPathModel(input.model),
       message: input.message,
     })
   }
