@@ -44,19 +44,27 @@ describe('trivial assistant server fast path', () => {
     expect(gatewaySource).not.toContain("from '../_shared/modelProviders.ts'");
   });
 
-  it('lazy-loads the Gemini SDK only after a Gemini turn qualifies', () => {
-    expect(helperSource).toContain("await import('npm:@google/genai@1.52.0')");
-    expect(helperSource).toContain("provider === 'gemini'");
-    expect(helperSource).toContain('requestGeminiTrivialResponse');
-    expect(helperSource).toContain('requestOpenAiTrivialResponse');
+  it('routes only trivial Gemini Pro execution to Flash Lite while preserving truthful attribution', () => {
+    expect(helperSource).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite-preview'");
+    expect(helperSource).toContain("model === 'gemini-3.1-pro-preview' ? TRIVIAL_GEMINI_LATENCY_MODEL : model");
+    expect(helperSource).toContain('executionModelForTrivialFastPathModel(input.model)');
+    expect(helperSource).toContain('model: input.model');
+    expect(helperSource).toContain("provider: 'gemini'");
+  });
+
+  it('uses the Gemini REST API directly so trivial turns do not load the Google SDK', () => {
+    expect(helperSource).toContain('https://generativelanguage.googleapis.com/v1beta/models');
+    expect(helperSource).toContain(':generateContent');
+    expect(helperSource).toContain("'x-goog-api-key': input.apiKey");
+    expect(helperSource).not.toContain("@google/genai");
     expect(helperSource).not.toContain('requestGeminiResponse');
   });
 
   it('keeps Gemini greeting tuning isolated from the shared reasoning/document provider', () => {
     expect(helperSource).toContain('maxOutputTokens: 320');
     expect(helperSource).toContain('thinkingConfig: {');
-    expect(helperSource).toContain("thinkingLevel: 'low'");
-    expect(helperSource).toContain('Keep this configuration isolated from the shared reasoning/document provider.');
+    expect(helperSource).toContain("input.model === TRIVIAL_GEMINI_LATENCY_MODEL ? 'minimal' : 'low'");
+    expect(helperSource).toContain('Exact trivial turns are latency-sensitive');
   });
 
   it('keeps provider selection explicit without cross-provider fallback', () => {
