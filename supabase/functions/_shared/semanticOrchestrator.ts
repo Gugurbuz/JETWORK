@@ -18,6 +18,19 @@ export interface SemanticContextMessage {
   content: string
 }
 
+export interface PriorExecutionContext {
+  messageId?: string
+  intent?: string
+  complexity?: string
+  knowledgeUsed?: boolean
+  webUsed?: boolean
+  toolCallCount?: number
+  responseModel?: string
+  provider?: string
+  artifactStatus?: string
+  artifactOperation?: string
+}
+
 export interface SemanticOrchestrationResult {
   plan: ReasoningPlan
   usage?: Record<string, number>
@@ -77,29 +90,34 @@ const planSchema = {
 
 const instructions = [
   'You are the JetWork Semantic Orchestrator. You do not answer the user. You decide which execution path JetWork must run.',
-  'Understand the CURRENT USER MESSAGE in the context of the RECENT CONVERSATION. Natural conversation continuity is semantic; never rely on exact keywords, suffixes, regex-like matching or enumerated follow-up phrases.',
-  'A message such as “hayır o değildi”, “başka bir şeydi”, “sadece bu mu?”, “peki neden?” or any equivalent natural-language correction/follow-up can continue the prior task even when it repeats none of the prior domain nouns.',
-  'If the user corrects or rejects the previous assistant hypothesis during a technical/enterprise diagnosis, preserve that diagnosis intent, record the rejected hypothesis, require corporate knowledge again, and generate new evidence queries that exclude or challenge the rejected hypothesis.',
-  'Do not treat prior assistant claims as evidence. They are conversational context only. Corporate technical facts require JetWork knowledge evidence.',
-  'Set knowledgeRequired=true for SAP/CRM/C4C/IS-U/FICA/Billing/Jira/product/process facts, exact technical identifiers, internal business rules, or continuations of such tasks.',
-  'Set simple_answer/direct only when the request is genuinely self-contained and does not continue an unresolved enterprise/technical/document/project task.',
-  'Set webMode=required only when the CURRENT user request semantically asks for live/external/current public information. Historical conversation, generated documents, templates, or previous assistant wording must not create a web requirement.',
-  'Set document/artifact only when the user is actually asking to create or revise an artifact. Incidental verbs inside a technical sentence are not document commands.',
+  'Understand the CURRENT USER MESSAGE in the context of RECENT CONVERSATION and PRIOR EXECUTION metadata.',
+  'Conversation continuity is semantic. Resolve ellipsis, pronouns, corrections, rejections, confirmations and implicit references from context. Never depend on exact keywords, suffixes, regex-like matching or a fixed list of follow-up phrases.',
+  'If the current turn continues an unresolved enterprise or technical task, preserve the prior task intent even when the user does not repeat any domain nouns.',
+  'If the user corrects or rejects the previous assistant hypothesis during technical diagnosis, preserve diagnosis intent, record the rejected hypothesis, require corporate knowledge again, and generate new evidence queries that challenge or exclude the rejected hypothesis.',
+  'PRIOR EXECUTION metadata is authoritative about what JetWork actually did on the previous turn. Previous assistant prose is conversational context only and is never evidence.',
+  'Corporate technical facts require JetWork knowledge evidence. Set knowledgeRequired=true for internal SAP/CRM/C4C/IS-U/FICA/Billing/Jira/product/process facts, exact technical identifiers, internal business rules, or continuations of such tasks.',
+  'Set simple_answer/direct only when the current request is genuinely self-contained and does not continue an unresolved enterprise, technical, document, decision or project task.',
+  'Set webMode=required only when the CURRENT user request semantically asks for live/external/current public information. Historical conversation, generated documents, templates, prior assistant wording and prior web use must not create a new web requirement.',
+  'Set document/artifact only when the user is actually asking to create or revise an artifact. Incidental action verbs inside a technical sentence are not document commands.',
   'For design/decision work, use decision mode when alternatives should be evaluated. For technical diagnosis, prefer knowledge mode with verification.',
-  'Produce a compact execution plan. No hidden chain-of-thought, no final user answer.',
+  'Produce a compact execution plan. No hidden chain-of-thought and no final user answer.',
 ].join('\n')
 
 const cleanText = (value: unknown, max = 4_000) => String(value || '').trim().slice(0, max)
 
-const compactConversation = (messages: SemanticContextMessage[]) => {
+export const compactSemanticConversation = (messages: SemanticContextMessage[]) => {
   const recent = messages.slice(-10)
   const compact: SemanticContextMessage[] = []
   let characters = 0
-  for (const item of recent) {
+  // Newest turns are the highest-value context. Walk backwards and unshift so
+  // the final payload stays chronological while never dropping the latest turn
+  // merely because an older message consumed the character budget first.
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const item = recent[index]
     const content = cleanText(item.content, 2_500)
     if (!content) continue
     if (characters + content.length > 14_000) break
-    compact.push({ role: item.role, content })
+    compact.unshift({ role: item.role, content })
     characters += content.length
   }
   return compact
@@ -119,23 +137,37 @@ const lastAssistant = (messages: SemanticContextMessage[]) => {
   return ''
 }
 
-const fallbackPlan = (currentMessage: string, conversation: SemanticContextMessage[]): ReasoningPlan => {
+const fallbackPlan = (
+  currentMessage: string,
+  conversation: SemanticContextMessage[],
+  priorExecution?: PriorExecutionContext,
+): ReasoningPlan => {
   const previousUser = lastSubstantiveUser(conversation)
   const previousAssistant = lastAssistant(conversation)
+  const priorIntent = String(priorExecution?.intent || 'none') as ReasoningIntent | 'none'
+  const validPriorIntent: ReasoningIntent | 'none' = [
+    'none','simple_answer','sap_diagnosis','research','analysis','document','decision','project',
+  ].includes(priorIntent) ? priorIntent : 'none'
+  const continuation = Boolean(previousUser && validPriorIntent !== 'none')
   const topic = cleanText(previousUser || currentMessage, 500)
   const evidenceQueries = [previousUser, currentMessage].map(item => cleanText(item, 350)).filter(Boolean)
   const state: ConversationSemanticState = {
-    continuation: Boolean(previousUser),
+    continuation,
     topic,
-    userMove: previousUser ? 'follow_up' : 'new_request',
-    priorIntent: 'none',
+    userMove: continuation ? 'follow_up' : 'new_request',
+    priorIntent: validPriorIntent,
     rejectedHypotheses: [],
     retainedContext: [previousUser, previousAssistant].map(item => cleanText(item, 500)).filter(Boolean),
     openQuestions: [],
   }
+  const preserveKnowledgeTask = continuation && (
+    validPriorIntent === 'sap_diagnosis'
+    || validPriorIntent === 'analysis'
+    || priorExecution?.knowledgeUsed === true
+  )
   return {
-    intent: 'analysis',
-    complexity: 'medium',
+    intent: preserveKnowledgeTask && validPriorIntent !== 'none' ? validPriorIntent : 'analysis',
+    complexity: priorExecution?.complexity === 'high' ? 'high' : 'medium',
     executionMode: 'knowledge',
     goal: cleanText(currentMessage, 800) || 'Kullanıcı talebini mevcut konuşma bağlamıyla güvenli biçimde yanıtla.',
     knowledgeRequired: true,
@@ -159,6 +191,9 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
   const intent = intents.includes(value.intent) ? value.intent : fallback.intent
   const executionMode = value.executionMode && modes.includes(value.executionMode) ? value.executionMode : fallback.executionMode
   const evidenceQueries = [...new Set((value.evidenceQueries || []).map(query => cleanText(query, 400)).filter(Boolean))].slice(0, 5)
+  const state = value.conversationState && typeof value.conversationState === 'object'
+    ? value.conversationState
+    : fallback.conversationState
   const plan: ReasoningPlan = {
     ...fallback,
     ...value,
@@ -167,17 +202,45 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
     goal: cleanText(value.goal, 1_000) || fallback.goal,
     evidenceQueries,
     steps: Array.isArray(value.steps) ? value.steps.slice(0, 8) : fallback.steps,
+    conversationState: state,
     orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
   }
   if (plan.knowledgeRequired && !plan.evidenceQueries.length) {
     plan.evidenceQueries = fallback.evidenceQueries.length ? fallback.evidenceQueries : [fallback.goal.slice(0, 300)]
   }
-  if (plan.intent === 'sap_diagnosis' || plan.conversationState?.userMove === 'rejection' || plan.conversationState?.userMove === 'correction') {
+  if (
+    plan.intent === 'sap_diagnosis'
+    || plan.conversationState?.userMove === 'rejection'
+    || plan.conversationState?.userMove === 'correction'
+  ) {
+    plan.knowledgeRequired = true
+    plan.verificationRequired = true
+    if (plan.complexity === 'low') plan.complexity = 'medium'
+  }
+  if (plan.conversationState?.continuation && plan.conversationState.priorIntent === 'sap_diagnosis') {
+    plan.intent = 'sap_diagnosis'
+    plan.executionMode = 'knowledge'
     plan.knowledgeRequired = true
     plan.verificationRequired = true
     if (plan.complexity === 'low') plan.complexity = 'medium'
   }
   return plan
+}
+
+export const normalizeCachedSemanticPlan = (input: {
+  value: unknown
+  currentMessage: string
+  conversation: SemanticContextMessage[]
+  priorExecution?: PriorExecutionContext
+}): ReasoningPlan | null => {
+  if (!input.value || typeof input.value !== 'object') return null
+  try {
+    const current = routingSurfaceFromMessage(input.currentMessage).current || input.currentMessage.trim()
+    const fallback = fallbackPlan(current, compactSemanticConversation(input.conversation), input.priorExecution)
+    return normalizePlan(input.value as ReasoningPlan, fallback)
+  } catch {
+    return null
+  }
 }
 
 const openAiText = (payload: Record<string, unknown>) => {
@@ -268,19 +331,21 @@ export async function buildSemanticExecutionPlan(input: {
   model: string
   message: string
   conversation: SemanticContextMessage[]
+  priorExecution?: PriorExecutionContext
   workspaceTitle?: string
   attachmentNames?: string[]
   signal?: AbortSignal
 }): Promise<SemanticOrchestrationResult> {
   const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()
-  const conversation = compactConversation(input.conversation)
-  const fallback = fallbackPlan(currentMessage, conversation)
+  const conversation = compactSemanticConversation(input.conversation)
+  const fallback = fallbackPlan(currentMessage, conversation, input.priorExecution)
   if (!input.apiKey) {
     return { plan: fallback, fallbackUsed: true, provider: input.provider, model: input.model }
   }
   const payload = {
     currentUserMessage: currentMessage,
     recentConversation: conversation,
+    priorExecution: input.priorExecution || null,
     workspaceTitle: cleanText(input.workspaceTitle, 300),
     attachmentNames: (input.attachmentNames || []).map(name => cleanText(name, 240)).filter(Boolean).slice(0, 3),
   }
