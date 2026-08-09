@@ -146,6 +146,9 @@ begin
     on conflict (workspace_id, owner_id, message_id, request_hash) do nothing
     returning * into semantic_record;
 
+    -- Another request may have inserted the same semantic key after the first
+    -- lookup. Re-read it under lock and honor its state instead of sharing its
+    -- lease and executing the provider twice.
     if semantic_record.id is null then
       select *
         into semantic_record
@@ -155,6 +158,47 @@ begin
          and semantic_row.message_id = safe_message_id
          and semantic_row.request_hash = safe_request_hash
        for update;
+
+      if semantic_record.id is null then
+        raise exception 'semantic plan claim could not be created';
+      end if;
+
+      if semantic_record.status = 'completed' then
+        return query select
+          'completed'::text,
+          semantic_record.plan,
+          semantic_record.provider,
+          semantic_record.model,
+          semantic_record.usage,
+          null::uuid;
+        return;
+      end if;
+
+      if semantic_record.status = 'running'
+         and semantic_record.updated_at >= now() - interval '90 seconds' then
+        return query select
+          'in_progress'::text,
+          null::jsonb,
+          null::text,
+          null::text,
+          '{}'::jsonb,
+          null::uuid;
+        return;
+      end if;
+
+      update public.assistant_semantic_plans
+         set status = 'running',
+             attempt_count = attempt_count + 1,
+             lease_token = gen_random_uuid(),
+             plan = null,
+             provider = null,
+             model = null,
+             usage = '{}'::jsonb,
+             error_message = null,
+             completed_at = null,
+             updated_at = now()
+       where id = semantic_record.id
+       returning * into semantic_record;
     end if;
   else
     update public.assistant_semantic_plans
@@ -172,8 +216,8 @@ begin
      returning * into semantic_record;
   end if;
 
-  if semantic_record.id is null then
-    raise exception 'semantic plan claim could not be created';
+  if semantic_record.id is null or semantic_record.lease_token is null then
+    raise exception 'semantic plan lease could not be acquired';
   end if;
 
   return query select
@@ -209,6 +253,9 @@ begin
   end if;
   if not public.is_workspace_member(p_workspace_id) then
     raise exception 'workspace access denied' using errcode = '42501';
+  end if;
+  if p_plan is null or jsonb_typeof(p_plan) <> 'object' then
+    raise exception 'semantic plan must be a json object' using errcode = '22023';
   end if;
 
   update public.assistant_semantic_plans
