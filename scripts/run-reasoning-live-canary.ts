@@ -146,6 +146,30 @@ const cleanupWorkspace = async (projectId: string, workspaceId: string) => {
   await supabase.from('projects').delete().eq('id', projectId);
 };
 
+const persistCanaryUserMessage = async (input: {
+  messageId: string;
+  workspaceId: string;
+  user: { id: string; email?: string | null };
+  text: string;
+}) => {
+  const { error } = await supabase.from('messages').insert({
+    id: input.messageId,
+    workspace_id: input.workspaceId,
+    sender_name: input.user.email?.split('@')[0] || 'Golden Canary',
+    sender_role: 'Kullanıcı',
+    text: input.text,
+    is_ai: false,
+    role: 'user',
+    owner_id: input.user.id,
+    attachments: [],
+    reactions: [],
+    grounding_urls: [],
+    questions: [],
+    created_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`Canary user message could not be persisted: ${error.message}`);
+};
+
 const runScenario = async (
   token: string,
   user: { id: string; email?: string | null },
@@ -154,6 +178,13 @@ const runScenario = async (
   const { projectId, workspaceId } = await createWorkspace(user, scenario.id);
   const messageId = randomUUID();
   try {
+    await persistCanaryUserMessage({
+      messageId,
+      workspaceId,
+      user,
+      text: scenario.request,
+    });
+
     const response = await fetch(`${supabaseUrl}/functions/v1/${endpoint}`, {
       method: 'POST',
       headers: {
