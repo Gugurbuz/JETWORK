@@ -12,9 +12,9 @@ import type { AssistantProvider } from './modelProviders.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-const GEMINI_SEMANTIC_MODEL = 'gemini-3-flash-preview'
+const GEMINI_SEMANTIC_MODEL = 'gemini-3.5-flash'
 const SEMANTIC_RETRY_DELAYS_MS = [250, 750] as const
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3-resilient-agent-loop'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.1-resilient-agent-loop'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const AGENT_LOOP_MARKER = '[JETWORK_AGENT_LOOP]'
 
@@ -451,7 +451,13 @@ const geminiText = (payload: Record<string, unknown>) => {
 const retryableSemanticStatus = (status: number) => [429, 500, 502, 503, 504].includes(status)
 
 const semanticFailureCode = (error: unknown) => {
-  if (error instanceof SemanticProviderError) return `http-${error.status}`
+  if (error instanceof SemanticProviderError) {
+    const detail = normalizeFallbackText(error.message)
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 36)
+    return `http-${error.status}${detail ? `-${detail}` : ''}`
+  }
   const message = error instanceof Error ? error.message : String(error || '')
   if (/abort|timeout/i.test(message)) return 'timeout'
   if (/json|schema|structured/i.test(message)) return 'schema'
@@ -532,23 +538,36 @@ async function requestOpenAiPlan(input: { apiKey: string; model: string; payload
   }
 }
 
-async function requestGeminiPlan(input: { apiKey: string; model: string; payload: Record<string, unknown>; signal?: AbortSignal }) {
+const geminiGenerationConfig = (compatibilityMode: boolean) => compatibilityMode
+  ? {
+      maxOutputTokens: 2_400,
+      responseMimeType: 'application/json',
+    }
+  : {
+      maxOutputTokens: 2_400,
+      thinkingConfig: { thinkingLevel: 'low' },
+      responseFormat: {
+        text: {
+          mimeType: 'application/json',
+          schema: planSchema,
+        },
+      },
+    }
+
+async function requestGeminiPlanOnce(input: {
+  apiKey: string
+  model: string
+  payload: Record<string, unknown>
+  compatibilityMode: boolean
+  signal?: AbortSignal
+}) {
   const response = await fetch(`${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`, {
     method: 'POST', signal: input.signal,
     headers: { 'x-goog-api-key': input.apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: instructions }] },
       contents: [{ role: 'user', parts: [{ text: JSON.stringify(input.payload) }] }],
-      generationConfig: {
-        maxOutputTokens: 2_400,
-        thinkingConfig: { thinkingLevel: 'low' },
-        responseFormat: {
-          text: {
-            mimeType: 'application/json',
-            schema: planSchema,
-          },
-        },
-      },
+      generationConfig: geminiGenerationConfig(input.compatibilityMode),
     }),
   })
   const body = await response.json().catch(() => ({})) as Record<string, unknown>
@@ -569,6 +588,19 @@ async function requestGeminiPlan(input: { apiKey: string; model: string; payload
       reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
       total_tokens: Number(metadata.totalTokenCount || 0),
     },
+  }
+}
+
+async function requestGeminiPlan(input: { apiKey: string; model: string; payload: Record<string, unknown>; signal?: AbortSignal }) {
+  try {
+    return await requestGeminiPlanOnce({ ...input, compatibilityMode: false })
+  } catch (error) {
+    if (!(error instanceof SemanticProviderError) || error.status !== 400 || input.signal?.aborted) throw error
+    console.warn('Gemini semantic structured schema request returned HTTP 400; retrying in JSON compatibility mode.', {
+      model: input.model,
+      error: error.message.slice(0, 500),
+    })
+    return requestGeminiPlanOnce({ ...input, compatibilityMode: true })
   }
 }
 
