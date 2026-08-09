@@ -117,7 +117,7 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
 
     expect(result.fallbackUsed).toBe(true);
     expect(result.fallbackReason).toBe('missing-api-key');
-    expect(result.model).toBe('gemini-3-flash-preview');
+    expect(result.model).toBe('gemini-3.5-flash');
     expect(result.plan.intent).toBe('sap_diagnosis');
     expect(result.plan.knowledgeRequired).toBe(true);
     expect(result.plan.verificationRequired).toBe(false);
@@ -176,7 +176,7 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     expect(result.plan.goal).toContain('Yeni ve açık kanıt olmadan bunları tekrar aday gibi sunma');
   });
 
-  it('uses the current Gemini structured-output contract and resilient same-provider retries', () => {
+  it('uses a stable Gemini semantic model and recovers schema-contract HTTP 400s with JSON compatibility mode', () => {
     const semanticSource = readFileSync(
       new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
       'utf8',
@@ -186,10 +186,12 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
       'utf8',
     );
 
-    expect(semanticSource).toContain("const GEMINI_SEMANTIC_MODEL = 'gemini-3-flash-preview'");
+    expect(semanticSource).toContain("const GEMINI_SEMANTIC_MODEL = 'gemini-3.5-flash'");
     expect(semanticSource).toContain('responseFormat: {');
-    expect(semanticSource).toContain("mimeType: 'application/json'");
-    expect(semanticSource).not.toContain("responseMimeType: 'application/json'");
+    expect(semanticSource).toContain("responseMimeType: 'application/json'");
+    expect(semanticSource).toContain('compatibilityMode');
+    expect(semanticSource).toContain('requestGeminiPlanOnce');
+    expect(semanticSource).toContain('error.status !== 400');
     expect(semanticSource).toContain('withSemanticRetry');
     expect(providerSource).toContain('GEMINI_RETRY_DELAYS_MS');
     expect(providerSource).toContain('isRetryableGeminiError');
