@@ -9,7 +9,7 @@ on:
       - 'supabase/functions/openai-assistant-v2/**'
       - 'supabase/functions/openai-assistant-core-v2/**'
       - 'supabase/functions/_shared/**'
-      - 'scripts/run-reasoning-live-canary.ts'
+      - 'scripts/run-reasoning-production-canary.ts'
       - '.github/workflows/reasoning-live-canary.yml'
 
 permissions:
@@ -29,7 +29,6 @@ jobs:
       VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
       VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
       REASONING_CANARY_ENDPOINT: openai-assistant-v2
-      REASONING_CANARY_OUTPUT: evaluation/results/reasoning-live-canary.json
     steps:
       - name: Require canary credentials
         run: |
@@ -53,13 +52,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run production Reasoning canaries
-        run: pnpm exec tsx scripts/run-reasoning-live-canary.ts
-
-      - name: Upload quality report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: reasoning-live-canary-production
-          path: evaluation/results/reasoning-live-canary.json
-          if-no-files-found: ignore
+      - name: Run production continuity canary
+        run: pnpm exec tsx scripts/run-reasoning-production-canary.ts
