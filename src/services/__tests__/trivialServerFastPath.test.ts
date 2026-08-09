@@ -44,10 +44,19 @@ describe('trivial assistant server fast path', () => {
     expect(gatewaySource).not.toContain("from '../_shared/modelProviders.ts'");
   });
 
-  it('lazy-loads the provider SDK only after a Gemini turn qualifies', () => {
-    expect(helperSource).toContain("await import('./modelProviders.ts')");
+  it('lazy-loads the Gemini SDK only after a Gemini turn qualifies', () => {
+    expect(helperSource).toContain("await import('npm:@google/genai@1.52.0')");
     expect(helperSource).toContain("provider === 'gemini'");
+    expect(helperSource).toContain('requestGeminiTrivialResponse');
     expect(helperSource).toContain('requestOpenAiTrivialResponse');
+    expect(helperSource).not.toContain('requestGeminiResponse');
+  });
+
+  it('keeps Gemini greeting tuning isolated from the shared reasoning/document provider', () => {
+    expect(helperSource).toContain('maxOutputTokens: 320');
+    expect(helperSource).toContain('thinkingConfig: {');
+    expect(helperSource).toContain("thinkingLevel: 'low'");
+    expect(helperSource).toContain('Keep this configuration isolated from the shared reasoning/document provider.');
   });
 
   it('keeps provider selection explicit without cross-provider fallback', () => {
