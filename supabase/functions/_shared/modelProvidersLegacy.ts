@@ -12,6 +12,7 @@ export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const GEMINI_RETRY_DELAYS_MS = [300, 900] as const
+const GEMINI_ATTEMPT_TIMEOUT_MS = 20_000
 const GEMINI_PRO_CIRCUIT_BREAKER_MS = 30_000
 let geminiProUnavailableUntil = 0
 
@@ -203,7 +204,7 @@ const appendGroundingSources = (text: string, candidate: any) => {
 }
 
 const geminiErrorText = (error: unknown) => {
-  if (error instanceof Error) return error.message
+  if (error instanceof Error) return `${error.name}: ${error.message}`
   if (error && typeof error === 'object') {
     const candidate = error as Record<string, unknown>
     return String(candidate.message || candidate.status || candidate.code || '')
@@ -214,8 +215,8 @@ const geminiErrorText = (error: unknown) => {
 const isRetryableGeminiError = (error: unknown) => {
   const candidate = error && typeof error === 'object' ? error as Record<string, unknown> : {}
   const numericCode = Number(candidate.code || candidate.statusCode || candidate.status)
-  if ([429, 500, 502, 503, 504].includes(numericCode)) return true
-  return /429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|high demand|temporar/i.test(geminiErrorText(error))
+  if ([408, 429, 500, 502, 503, 504].includes(numericCode)) return true
+  return /408|429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|high demand|temporar|timeout|timed out|network/i.test(geminiErrorText(error))
 }
 
 const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
@@ -235,6 +236,33 @@ const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
     const timeout = setTimeout(() => finish(), milliseconds)
     signal?.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+const generateGeminiAttempt = async (input: {
+  ai: GoogleGenAI
+  model: string
+  contents: Array<Record<string, unknown>>
+  config: Record<string, unknown>
+  parentSignal?: AbortSignal
+}) => {
+  const controller = new AbortController()
+  const onParentAbort = () => controller.abort(input.parentSignal?.reason)
+  if (input.parentSignal?.aborted) controller.abort(input.parentSignal.reason)
+  else input.parentSignal?.addEventListener('abort', onParentAbort, { once: true })
+  const timeout = setTimeout(
+    () => controller.abort(new DOMException('Gemini provider attempt timed out.', 'TimeoutError')),
+    GEMINI_ATTEMPT_TIMEOUT_MS,
+  )
+  try {
+    return await input.ai.models.generateContent({
+      model: input.model,
+      contents: input.contents,
+      config: { ...input.config, abortSignal: controller.signal },
+    } as any)
+  } finally {
+    clearTimeout(timeout)
+    input.parentSignal?.removeEventListener('abort', onParentAbort)
+  }
 }
 
 async function generateGeminiContentWithResilience(input: {
@@ -260,11 +288,13 @@ async function generateGeminiContentWithResilience(input: {
     const model = models[modelIndex]
     for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt += 1) {
       try {
-        const response = await input.ai.models.generateContent({
+        const response = await generateGeminiAttempt({
+          ai: input.ai,
           model,
           contents: input.contents,
           config: input.config,
-        } as any)
+          parentSignal: input.signal,
+        })
         if (model === GEMINI_SUBSTANTIVE_MODEL) geminiProUnavailableUntil = 0
         return { response, model }
       } catch (error) {
@@ -321,7 +351,6 @@ export async function requestGeminiResponse(input: {
       ? TRIVIAL_CONVERSATION_INSTRUCTIONS
       : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
-    abortSignal: input.signal,
   }
 
   if (input.allowTools) {
