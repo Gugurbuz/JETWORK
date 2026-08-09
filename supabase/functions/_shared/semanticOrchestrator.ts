@@ -11,7 +11,9 @@ import type { AssistantProvider } from './modelProviders.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v1'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v2-agent-loop'
+export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const AGENT_LOOP_MARKER = '[JETWORK_AGENT_LOOP]'
 
 export interface SemanticContextMessage {
   role: 'user' | 'assistant'
@@ -89,17 +91,19 @@ const planSchema = {
 } as const
 
 const instructions = [
-  'You are the JetWork Semantic Orchestrator. You do not answer the user. You decide which execution path JetWork must run.',
+  'You are the JetWork Semantic Orchestrator. You do not answer the user. You choose capabilities and execution policy for the selected answer model.',
   'Understand the CURRENT USER MESSAGE in the context of RECENT CONVERSATION and PRIOR EXECUTION metadata.',
   'Conversation continuity is semantic. Resolve ellipsis, pronouns, corrections, rejections, confirmations and implicit references from context. Never depend on exact keywords, suffixes, regex-like matching or a fixed list of follow-up phrases.',
   'If the current turn continues an unresolved enterprise or technical task, preserve the prior task intent even when the user does not repeat any domain nouns.',
-  'If the user corrects or rejects the previous assistant hypothesis during technical diagnosis, preserve diagnosis intent, record the rejected hypothesis, require corporate knowledge again, and generate new evidence queries that challenge or exclude the rejected hypothesis.',
+  'If the user corrects or rejects the previous assistant hypothesis during technical diagnosis, preserve diagnosis intent, record the rejected hypothesis, and keep corporate knowledge capability available so the answer model can investigate alternatives.',
   'PRIOR EXECUTION metadata is authoritative about what JetWork actually did on the previous turn. Previous assistant prose is conversational context only and is never evidence.',
   'Corporate technical facts require JetWork knowledge evidence. Set knowledgeRequired=true for internal SAP/CRM/C4C/IS-U/FICA/Billing/Jira/product/process facts, exact technical identifiers, internal business rules, or continuations of such tasks.',
   'Set simple_answer/direct only when the current request is genuinely self-contained and does not continue an unresolved enterprise, technical, document, decision or project task.',
-  'Set webMode=required only when the CURRENT user request semantically asks for live/external/current public information. Historical conversation, generated documents, templates, prior assistant wording and prior web use must not create a new web requirement.',
+  'Set webMode=required when the current request needs live/current public information or the user explicitly requires external web verification. Set webMode=if_internal_insufficient when public web may be useful only if internal/contextual evidence is insufficient. Otherwise use none.',
+  'Choose capabilities, not a rigid research script. Do not prescribe search -> detail -> relations as a mandatory sequence; the answer model will observe tool results and decide its next action inside bounded runtime limits.',
+  'Evidence queries and steps are hints only. Keep them compact and do not encode hidden chain-of-thought.',
   'Set document/artifact only when the user is actually asking to create or revise an artifact. Incidental action verbs inside a technical sentence are not document commands.',
-  'For design/decision work, use decision mode when alternatives should be evaluated. For technical diagnosis, prefer knowledge mode with verification.',
+  'For design/decision work, use decision mode when alternatives should be evaluated.',
   'Produce a compact execution plan. No hidden chain-of-thought and no final user answer.',
 ].join('\n')
 
@@ -109,9 +113,6 @@ export const compactSemanticConversation = (messages: SemanticContextMessage[]) 
   const recent = messages.slice(-10)
   const compact: SemanticContextMessage[] = []
   let characters = 0
-  // Newest turns are the highest-value context. Walk backwards and unshift so
-  // the final payload stays chronological while never dropping the latest turn
-  // merely because an older message consumed the character budget first.
   for (let index = recent.length - 1; index >= 0; index -= 1) {
     const item = recent[index]
     const content = cleanText(item.content, 2_500)
@@ -227,6 +228,77 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
   return plan
 }
 
+const hasAgentLoopDirective = (goal: string) => goal.includes(AGENT_LOOP_MARKER)
+
+export const applyAgentLoopPolicy = (
+  inputPlan: ReasoningPlan,
+  provider: AssistantProvider,
+): ReasoningPlan => {
+  const plan: ReasoningPlan = {
+    ...inputPlan,
+    evidenceQueries: [...(inputPlan.evidenceQueries || [])],
+    steps: [...(inputPlan.steps || [])],
+    conversationState: inputPlan.conversationState
+      ? { ...inputPlan.conversationState }
+      : inputPlan.conversationState,
+    orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+  }
+
+  const needsEvidenceCapability = plan.knowledgeRequired || plan.webMode !== 'none'
+  if (!needsEvidenceCapability || plan.executionMode === 'artifact' || plan.intent === 'document') return plan
+
+  const requestedWebMode = plan.webMode
+  const providerNativeWeb = provider === 'gemini' && requestedWebMode !== 'none'
+  const requiredWeb = requestedWebMode === 'required'
+  const capabilityRules: string[] = []
+
+  if (plan.knowledgeRequired) {
+    capabilityRules.push('Kurumsal/teknik bir iddiayı kesinleştirmeden önce JetWork knowledge araçlarıyla kanıt ara.')
+  }
+  if (requiredWeb) {
+    capabilityRules.push('Kullanıcı güncel/dış doğrulama istediği için nihai yanıttan önce izin verilen web aracını kullan; ilk sonuç zayıfsa sorguyu değiştirip yeniden ara.')
+  } else if (requestedWebMode === 'if_internal_insufficient') {
+    capabilityRules.push('İç kanıt yetersiz, güncellik gerektiren veya dış doğrulama gereken noktada web aracına geçebilirsin.')
+  }
+  if (providerNativeWeb) {
+    capabilityRules.push(`${PROVIDER_WEB_CAPABILITY_MARKER} Public web araştırması için yalnız seçili Gemini sağlayıcısının native Google Search aracını kullan; OpenAI web aracına geçme.`)
+    plan.knowledgeRequired = true
+    plan.webMode = 'none'
+  }
+
+  const adaptiveDirective = [
+    AGENT_LOOP_MARKER,
+    'Araştırma sırasını önceden sabitleme. Mevcut araçlardan amaca uygun olanı seç, sonucu gözlemle ve kanıt yeterliyse dur.',
+    'Sonuç zayıf, belirsiz veya çelişkiliyse sorguyu yeniden formüle et, başka kayıt/detay/ilişkiyi incele veya izin verilen başka capabilityye geç.',
+    'Aynı başarısız çağrıyı anlamsızca tekrarlama. Kullanıcının reddettiği hipotezi yeni kanıt olmadan tekrar gerçek gibi sunma.',
+    'Araç bütçesi biterse kanıt açığını açıkça belirt; boşluğu kendi bilginden uydurma.',
+    ...capabilityRules,
+  ].join(' ')
+
+  if (!hasAgentLoopDirective(plan.goal)) {
+    plan.goal = `${cleanText(plan.goal, 1_000)}\n\n${adaptiveDirective}`.trim()
+  }
+
+  plan.evidenceQueries = []
+  plan.verificationRequired = false
+  plan.steps = [
+    {
+      id: 'adaptive-evidence-loop',
+      label: 'Kanıt ihtiyacını değerlendir ve araçları adaptif kullan',
+      toolHint: plan.knowledgeRequired ? 'knowledge' : (requestedWebMode !== 'none' ? 'web' : 'none'),
+      successCriteria: 'Model her araç sonucunu gözlemleyip yeterli kanıta ulaşana veya güvenli bütçe sınırına gelene kadar bir sonraki aksiyonu seçer.',
+    },
+    {
+      id: 'synthesize',
+      label: 'Toplanan kanıtlarla yanıtı sentezle',
+      toolHint: 'synthesis',
+      successCriteria: 'Doğrulanmış bilgi, çıkarım ve açık kanıt eksikleri ayrıştırılır.',
+    },
+  ]
+
+  return plan
+}
+
 export const normalizeCachedSemanticPlan = (input: {
   value: unknown
   currentMessage: string
@@ -237,7 +309,10 @@ export const normalizeCachedSemanticPlan = (input: {
   try {
     const current = routingSurfaceFromMessage(input.currentMessage).current || input.currentMessage.trim()
     const fallback = fallbackPlan(current, compactSemanticConversation(input.conversation), input.priorExecution)
-    return normalizePlan(input.value as ReasoningPlan, fallback)
+    const normalized = normalizePlan(input.value as ReasoningPlan, fallback)
+    if (String(normalized.orchestratorVersion || '').includes('safe-fallback')) return normalized
+    const provider: AssistantProvider = normalized.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER) ? 'gemini' : 'openai'
+    return applyAgentLoopPolicy(normalized, provider)
   } catch {
     return null
   }
@@ -353,8 +428,9 @@ export async function buildSemanticExecutionPlan(input: {
     const result = input.provider === 'gemini'
       ? await requestGeminiPlan({ apiKey: input.apiKey, model: input.model, payload, signal: input.signal })
       : await requestOpenAiPlan({ apiKey: input.apiKey, model: input.model, payload, signal: input.signal })
+    const normalized = normalizePlan(result.plan, fallback)
     return {
-      plan: normalizePlan(result.plan, fallback),
+      plan: applyAgentLoopPolicy(normalized, input.provider),
       usage: result.usage,
       fallbackUsed: false,
       provider: input.provider,

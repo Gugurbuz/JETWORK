@@ -65,6 +65,6 @@ export async function requestGeminiResponse(input: {
 export const cleanProviderItemsForOpenAi = (
   items: Array<Record<string, unknown>>,
 ) => sanitizeItems(items).map(item => {
-  const { _geminiContent: _metadata, ...clean } = item
+  const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
   return clean
 })

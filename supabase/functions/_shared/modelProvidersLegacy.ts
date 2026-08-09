@@ -10,6 +10,7 @@ export const GEMINI_MODELS = new Set([
 export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
+const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 
 export type AssistantProvider = 'openai' | 'gemini'
 
@@ -115,6 +116,8 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
       )
     }
 
+    if (item._geminiSkipContent === true) continue
+
     if (geminiContent && typeof geminiContent === 'object') {
       contents.push(geminiContent as Record<string, unknown>)
       continue
@@ -170,6 +173,32 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
   return contents
 }
 
+const groundingSources = (candidate: any): Array<{ title: string; url: string }> => {
+  const chunks = Array.isArray(candidate?.groundingMetadata?.groundingChunks)
+    ? candidate.groundingMetadata.groundingChunks
+    : []
+  const seen = new Set<string>()
+  const sources: Array<{ title: string; url: string }> = []
+  for (const chunk of chunks) {
+    const web = chunk?.web
+    const url = typeof web?.uri === 'string' ? web.uri.trim() : ''
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
+    seen.add(url)
+    sources.push({
+      title: typeof web?.title === 'string' && web.title.trim() ? web.title.trim() : 'Web kaynağı',
+      url,
+    })
+  }
+  return sources.slice(0, 8)
+}
+
+const appendGroundingSources = (text: string, candidate: any) => {
+  if (!text.trim()) return text
+  const sources = groundingSources(candidate)
+  if (!sources.length) return text
+  return `${text.trim()}\n\nKaynaklar:\n${sources.map((source, index) => `${index + 1}. [${source.title}](${source.url})`).join('\n')}`
+}
+
 export async function requestGeminiResponse(input: {
   apiKey: string
   model: string
@@ -187,6 +216,9 @@ export async function requestGeminiResponse(input: {
   const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL
     ? GEMINI_SUBSTANTIVE_MODEL
     : input.model
+  const providerWebEnabled = !trivialConversation
+    && input.allowTools
+    && input.instructions.includes(PROVIDER_WEB_CAPABILITY_MARKER)
   const config: Record<string, unknown> = {
     systemInstruction: trivialConversation
       ? TRIVIAL_CONVERSATION_INSTRUCTIONS
@@ -196,15 +228,18 @@ export async function requestGeminiResponse(input: {
   }
 
   if (input.allowTools) {
-    config.tools = [{
-      functionDeclarations: input.tools.map(tool => ({
-        name: tool.name,
-        description: tool.description,
-        parametersJsonSchema: tool.parameters,
-      })),
-    }]
+    const declarations = input.tools.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      parametersJsonSchema: tool.parameters,
+    }))
+    config.tools = [
+      ...(providerWebEnabled ? [{ googleSearch: {} }] : []),
+      ...(declarations.length ? [{ functionDeclarations: declarations }] : []),
+    ]
     config.toolConfig = {
-      functionCallingConfig: { mode: 'AUTO' },
+      ...(providerWebEnabled ? { includeServerSideToolInvocations: true } : {}),
+      functionCallingConfig: { mode: providerWebEnabled ? 'VALIDATED' : 'AUTO' },
     }
   }
 
@@ -214,24 +249,29 @@ export async function requestGeminiResponse(input: {
     config,
   } as any)
 
-  const candidateContent = (response as any)?.candidates?.[0]?.content
+  const candidate = (response as any)?.candidates?.[0]
+  const candidateContent = candidate?.content
   const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : []
-  const visibleText = parts
+  const rawVisibleText = parts
     .filter((part: any) => !part?.thought && typeof part?.text === 'string')
     .map((part: any) => part.text)
     .join('')
+  const visibleText = providerWebEnabled
+    ? appendGroundingSources(rawVisibleText, candidate)
+    : rawVisibleText
   if (visibleText) input.onText(visibleText)
 
   const functionCalls = parts.filter((part: any) => part?.functionCall)
   const output = functionCalls.length
-    ? functionCalls.map((part: any) => {
+    ? functionCalls.map((part: any, index: number) => {
         const call = part.functionCall || {}
         return {
           type: 'function_call',
           call_id: String(call.id || crypto.randomUUID()),
           name: String(call.name || ''),
           arguments: JSON.stringify(call.args || {}),
-          _geminiContent: { role: 'model', parts: [part] },
+          _geminiContent: index === 0 ? candidateContent : undefined,
+          _geminiSkipContent: index > 0,
         }
       })
     : [{
@@ -259,6 +299,6 @@ export async function requestGeminiResponse(input: {
 export const cleanProviderItemsForOpenAi = (
   items: Array<Record<string, unknown>>,
 ) => items.map(item => {
-  const { _geminiContent: _metadata, ...clean } = item
+  const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
   return clean
 })
