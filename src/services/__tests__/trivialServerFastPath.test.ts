@@ -17,6 +17,10 @@ const failureMigration = readFileSync(
   new URL('../../../supabase/migrations/20260809093100_trivial_assistant_fast_path_failure.sql', import.meta.url),
   'utf8',
 );
+const conflictHotfixMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260809102000_trivial_fast_path_turn_id_conflict_hotfix.sql', import.meta.url),
+  'utf8',
+);
 
 describe('trivial assistant server fast path', () => {
   it('only accepts exact conversational turns with an explicit provider model and no attachments', () => {
@@ -74,5 +78,12 @@ describe('trivial assistant server fast path', () => {
   it('does not add greetings to durable substantive conversation state', () => {
     expect(claimMigration).toContain('Trivial turns deliberately do not append to durable state_items');
     expect(claimMigration).not.toContain('p_state_items');
+  });
+
+  it('targets the reasoning-run unique constraint without ambiguous turn_id resolution', () => {
+    expect(conflictHotfixMigration).toContain(
+      'on conflict on constraint assistant_reasoning_runs_turn_id_key do update',
+    );
+    expect(conflictHotfixMigration).not.toContain('on conflict (turn_id) do update');
   });
 });
