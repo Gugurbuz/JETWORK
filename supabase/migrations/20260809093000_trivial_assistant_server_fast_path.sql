@@ -1,6 +1,12 @@
 -- Collapse the durable setup for exact conversational greetings into one DB
 -- round trip. The RPCs remain fail-closed: permanent auth user + workspace
 -- membership are validated before any assistant state is touched.
+--
+-- Lock-order invariant: existing assistant runtime code locks turn -> conversation.
+-- This fast path never locks or archives an existing conversation before calling
+-- claim_assistant_turn, so it cannot introduce the reverse conversation -> turn
+-- order. If the active conversation belongs to another model/prompt, the caller
+-- falls back to the normal core, which owns that lifecycle transition.
 
 create or replace function public.claim_trivial_assistant_turn(
   p_workspace_id text,
@@ -58,10 +64,12 @@ begin
   end if;
 
   if nullif(trim(coalesce(p_message_id, '')), '') is null
-     or nullif(trim(coalesce(p_request_hash, '')), '') is null then
+     or p_request_hash !~ '^[a-f0-9]{64}$' then
     raise exception using errcode = '22023', message = 'invalid_fast_path_request';
   end if;
 
+  -- Mirror the existing get_active_assistant_prompt contract exactly. Prompt
+  -- selection semantics are deliberately not changed by this latency feature.
   select prompt.id
     into v_prompt_id
     from public.assistant_prompt_versions prompt
@@ -74,37 +82,25 @@ begin
     raise exception using errcode = '55000', message = 'active_assistant_prompt_missing';
   end if;
 
+  -- Read only. Do not acquire the conversation row lock before the turn lock.
   select conversation.*
     into v_conversation
     from public.assistant_conversations conversation
    where conversation.workspace_id = p_workspace_id
-     and conversation.status = 'active'
-   for update;
+     and conversation.status = 'active';
 
   if v_conversation.id is not null
      and (v_conversation.prompt_version_id <> v_prompt_id or v_conversation.model <> p_model) then
-    if v_conversation.locked_turn_id is not null
-       and v_conversation.lock_expires_at > now() then
-      return query select
-        'busy'::text,
-        null::uuid,
-        v_conversation.id,
-        v_prompt_id,
-        null::uuid,
-        null::text,
-        '{}'::jsonb,
-        null::text;
-      return;
-    end if;
-
-    update public.assistant_conversations
-       set status = 'archived',
-           locked_turn_id = null,
-           lock_expires_at = null,
-           updated_at = now()
-     where id = v_conversation.id;
-
-    v_conversation.id := null;
+    return query select
+      'fallback'::text,
+      null::uuid,
+      v_conversation.id,
+      v_prompt_id,
+      null::uuid,
+      null::text,
+      '{}'::jsonb,
+      null::text;
+    return;
   end if;
 
   if v_conversation.id is null then
@@ -125,20 +121,20 @@ begin
     returning * into v_conversation;
 
     if v_conversation.id is null then
+      -- A concurrent request won the active-conversation race. Read the winner
+      -- without locking; claim_assistant_turn will enforce the canonical lock
+      -- order if it is compatible with this fast path.
       select conversation.*
         into v_conversation
         from public.assistant_conversations conversation
        where conversation.workspace_id = p_workspace_id
-         and conversation.status = 'active'
-       for update;
+         and conversation.status = 'active';
 
-      -- A concurrent normal/core request won the active-conversation race.
-      -- Do not rewrite its state; let the browser retry through the normal path.
       if v_conversation.id is null
          or v_conversation.prompt_version_id <> v_prompt_id
          or v_conversation.model <> p_model then
         return query select
-          'busy'::text,
+          'fallback'::text,
           null::uuid,
           v_conversation.id,
           v_prompt_id,
@@ -151,6 +147,8 @@ begin
     end if;
   end if;
 
+  -- Existing durable runtime owns idempotency, rate limiting, turn lease and the
+  -- canonical turn -> conversation lock order.
   select *
     into v_claim
     from public.claim_assistant_turn(
@@ -159,7 +157,7 @@ begin
       v_owner_id,
       v_prompt_id,
       left(p_message_id, 240),
-      left(p_request_hash, 256),
+      p_request_hash,
       greatest(1, least(p_user_limit_per_minute, 60)),
       greatest(1, least(p_workspace_limit_per_minute, 240))
     );
@@ -287,10 +285,18 @@ begin
   end if;
 
   if p_provider not in ('openai', 'gemini')
+     or p_response_model not in (
+       'gpt-5.6-sol',
+       'gpt-5.6',
+       'gemini-3-flash-preview',
+       'gemini-3.1-pro-preview',
+       'gemini-3.1-flash-lite-preview'
+     )
      or jsonb_typeof(coalesce(p_usage, '{}'::jsonb)) <> 'object' then
     raise exception using errcode = '22023', message = 'invalid_fast_path_completion';
   end if;
 
+  -- Same lock order as complete_assistant_turn: turn first, conversation second.
   select turn_row.*
     into v_turn
     from public.assistant_turns turn_row
@@ -320,7 +326,7 @@ begin
   -- must not pollute substantive BA context. The visible message is persisted by
   -- the normal messages flow, while conversation revision/idempotency stay intact.
   update public.assistant_conversations
-     set model = left(p_response_model, 80),
+     set model = p_response_model,
          revision = revision + 1,
          locked_turn_id = null,
          lock_expires_at = null,
@@ -332,7 +338,7 @@ begin
          response_text = left(coalesce(p_response_text, ''), 200000),
          source_refs = '[]'::jsonb,
          usage = coalesce(p_usage, '{}'::jsonb),
-         response_model = left(p_response_model, 80),
+         response_model = p_response_model,
          error_message = null,
          completed_at = now(),
          updated_at = now()
