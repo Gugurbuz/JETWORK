@@ -1,0 +1,81 @@
+name: Apply Durable Core Transport Patch
+
+on:
+  push:
+    branches:
+      - fix/reasoning-durable-core-transport
+    paths:
+      - '.github/workflows/durable-core-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/reasoning-durable-core-transport
+          fetch-depth: 0
+      - name: Decouple durable reasoning from transport aborts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          text = path.read_text()
+
+          old_abort = """      const runController = new AbortController()\n      const abortRun = () => runController.abort(req.signal.reason)\n      if (req.signal.aborted) abortRun(); else req.signal.addEventListener('abort', abortRun, { once: true })\n      const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)\n"""
+          new_abort = """      // Once a turn is durably claimed, transport disconnects must not cancel the\n      // reasoning run. The gateway may lose its HTTP client while the core still\n      // needs to finish and persist the turn. RUN_TIMEOUT_MS remains the lifecycle guard.\n      const runController = new AbortController()\n      const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)\n"""
+          if old_abort not in text:
+              raise SystemExit('Expected core transport-abort block not found')
+          text = text.replace(old_abort, new_abort, 1)
+
+          old_preflight = """        if (plan.knowledgeRequired) {\n          emitStatus('searching_knowledge', 'JetWork Global + proje bilgi bankasında kanıt aranıyor...')\n          await collectKnowledge(plan.evidenceQueries, plan, 'preflight')\n          emitStatus('searching_knowledge', `${sources.filter(source => source.sourceType !== 'web').length} kurumsal kaynak izi toplandı`)\n          sendEvent(controller, encoder, 'sources', { type: 'sources', sources })\n        }\n"""
+          new_preflight = """        if (plan.knowledgeRequired && plan.evidenceQueries.length > 0) {\n          emitStatus('searching_knowledge', 'JetWork Global + proje bilgi bankasında kanıt aranıyor...')\n          await collectKnowledge(plan.evidenceQueries, plan, 'preflight')\n          emitStatus('searching_knowledge', `${sources.filter(source => source.sourceType !== 'web').length} kurumsal kaynak izi toplandı`)\n          sendEvent(controller, encoder, 'sources', { type: 'sources', sources })\n        }\n"""
+          if old_preflight not in text:
+              raise SystemExit('Expected knowledge preflight block not found')
+          text = text.replace(old_preflight, new_preflight, 1)
+
+          listener_cleanup = "      req.signal.removeEventListener('abort', abortRun)\n"
+          if listener_cleanup in text:
+              text = text.replace(listener_cleanup, '', 1)
+          else:
+              print('No abort listener cleanup line found; continuing')
+
+          path.write_text(text)
+          PY
+      - name: Add regression tests
+        run: |
+          cat > src/services/__tests__/reasoningDurableCoreTransport.test.ts <<'EOF'
+          import { readFileSync } from 'node:fs';
+          import { describe, expect, it } from 'vitest';
+
+          describe('Reasoning Engine durable core transport lifecycle', () => {
+            const source = readFileSync(
+              new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
+              'utf8',
+            );
+
+            it('does not bind a durably claimed reasoning run to the incoming HTTP request signal', () => {
+              expect(source).toContain('transport disconnects must not cancel the');
+              expect(source).toContain('RUN_TIMEOUT_MS remains the lifecycle guard');
+              expect(source).not.toContain("req.signal.addEventListener('abort', abortRun");
+              expect(source).not.toContain("runController.abort(req.signal.reason)");
+              expect(source).toContain("runController.abort(new DOMException('Assistant run timed out.'");
+            });
+
+            it('does not execute or display a deterministic knowledge preflight for an adaptive plan with empty evidence queries', () => {
+              expect(source).toContain('if (plan.knowledgeRequired && plan.evidenceQueries.length > 0)');
+              expect(source).toContain("await collectKnowledge(plan.evidenceQueries, plan, 'preflight')");
+            });
+          });
+          EOF
+      - name: Commit durable core patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/openai-assistant-core-v2/implementation.ts src/services/__tests__/reasoningDurableCoreTransport.test.ts
+          git commit -m "fix: keep durable reasoning alive across transport aborts"
+          git push origin HEAD:fix/reasoning-durable-core-transport
