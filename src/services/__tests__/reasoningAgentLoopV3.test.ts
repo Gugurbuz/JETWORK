@@ -83,7 +83,7 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     expect(result.goal).toContain('OpenAI web aracına geçme');
   });
 
-  it('keeps the semantic failure path conservative and evidence-first', async () => {
+  it('keeps semantic-provider failure on the same adaptive agent loop instead of reverting to deterministic preflight', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.1-pro-preview',
@@ -102,12 +102,17 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     expect(result.fallbackUsed).toBe(true);
     expect(result.plan.intent).toBe('sap_diagnosis');
     expect(result.plan.knowledgeRequired).toBe(true);
-    expect(result.plan.verificationRequired).toBe(true);
-    expect(result.plan.evidenceQueries.length).toBeGreaterThan(0);
-    expect(result.plan.orchestratorVersion).toContain('safe-fallback');
+    expect(result.plan.verificationRequired).toBe(false);
+    expect(result.plan.evidenceQueries).toEqual([]);
+    expect(result.plan.steps.map(step => step.id)).toEqual(['adaptive-evidence-loop', 'synthesize']);
+    expect(result.plan.orchestratorVersion).toContain('degraded-agentic-fallback');
+    expect(result.plan.conversationState?.userMove).toBe('rejection');
+    expect(result.plan.conversationState?.rejectedHypotheses.join(' ')).toContain('Vade uyumsuzluğu olabilir');
+    expect(result.plan.goal).toContain('reddetti');
+    expect(result.plan.goal).toContain('[JETWORK_AGENT_LOOP]');
   });
 
-  it('configures Gemini 3 for native Google Search plus custom function calling in the same adaptive loop', () => {
+  it('configures Gemini 3 for native Google Search, continuation metadata and bounded transient-error recovery', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
       'utf8',
@@ -118,5 +123,8 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     expect(source).toContain("providerWebEnabled ? 'VALIDATED' : 'AUTO'");
     expect(source).toContain('_geminiSkipContent');
     expect(source).toContain('appendGroundingSources');
+    expect(source).toContain('isTransientGeminiError');
+    expect(source).toContain('GEMINI_ATTEMPT_TIMEOUT_MS');
+    expect(source).toContain('DEFAULT_GEMINI_MODEL');
   });
 });
