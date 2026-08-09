@@ -20,11 +20,12 @@ const failureMigration = readFileSync(
 
 describe('trivial assistant server fast path', () => {
   it('only accepts exact conversational turns with an explicit provider model and no attachments', () => {
-    expect(helperSource).toContain('isTrivialConversationalTurn');
+    expect(helperSource).toContain('TRIVIAL_CONVERSATION_PATTERN');
+    expect(helperSource).toMatch(/\^\(\?:selam/);
     expect(helperSource).toContain("model === 'auto'");
     expect(helperSource).toContain('input.attachmentCount > 0');
-    expect(helperSource).toContain('GEMINI_MODELS.has(model)');
-    expect(helperSource).toContain('OPENAI_MODELS.has(model)');
+    expect(helperSource).toContain('GEMINI_FAST_PATH_MODELS.has(model)');
+    expect(helperSource).toContain('OPENAI_FAST_PATH_MODELS.has(model)');
   });
 
   it('routes eligible turns through one claim RPC and keeps the normal core fallback', () => {
@@ -36,13 +37,19 @@ describe('trivial assistant server fast path', () => {
     expect(gatewaySource).toContain("'Access-Control-Max-Age': '86400'");
     expect(gatewaySource).toContain('edgeWaitUntil(completionPromise)');
     expect(gatewaySource).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
+    expect(gatewaySource).not.toContain("from '../_shared/modelProviders.ts'");
+  });
+
+  it('lazy-loads the provider SDK only after a Gemini turn qualifies', () => {
+    expect(helperSource).toContain("await import('./modelProviders.ts')");
+    expect(helperSource).toContain("provider === 'gemini'");
+    expect(helperSource).toContain('requestOpenAiTrivialResponse');
   });
 
   it('keeps provider selection explicit without cross-provider fallback', () => {
-    expect(helperSource).toContain("provider === 'gemini'");
-    expect(helperSource).toContain('requestOpenAiTrivialResponse');
     expect(helperSource).toContain('fallbackUsed: false');
     expect(helperSource).not.toContain('DEFAULT_GEMINI_MODEL');
+    expect(helperSource).not.toContain('DEFAULT_MODEL');
   });
 
   it('keeps the database RPC fail-closed and authenticated-only', () => {
