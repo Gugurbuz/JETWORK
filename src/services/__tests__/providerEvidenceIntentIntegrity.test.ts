@@ -9,6 +9,7 @@ import {
   SEMANTIC_PLAN_END,
   SEMANTIC_PLAN_START,
 } from '../../../supabase/functions/_shared/reasoningEngine';
+import { compactSemanticConversation } from '../../../supabase/functions/_shared/semanticOrchestrator';
 
 const gatewaySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url),
@@ -24,6 +25,10 @@ const reasoningSource = readFileSync(
 );
 const orchestratorSource = readFileSync(
   new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
+  'utf8',
+);
+const semanticCacheMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260809231500_semantic_orchestrator_plan_cache.sql', import.meta.url),
   'utf8',
 );
 const settingsSource = readFileSync(
@@ -120,6 +125,16 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(planned.plan.evidenceQueries).toContain('cost uyumsuz hata');
   });
 
+  it('prioritizes the newest conversation turns when semantic context is bounded', () => {
+    const messages = Array.from({ length: 10 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `${index}:${'x'.repeat(2_400)}`,
+    }));
+    const compact = compactSemanticConversation(messages);
+    expect(compact.at(-1)?.content.startsWith('9:')).toBe(true);
+    expect(compact.some(item => item.content.startsWith('0:'))).toBe(false);
+  });
+
   it('keeps generated document/template text out of routing surface', () => {
     const expandedMessage = [
       'Kurumsal yapıda kavramsal tasarım dokümanı hazırla.',
@@ -136,20 +151,53 @@ describe('provider, evidence and semantic intent integrity', () => {
   it('makes semantic orchestration the primary substantive decision layer', () => {
     expect(gatewaySource).toContain('buildSemanticExecutionPlan');
     expect(gatewaySource).toContain('loadSemanticContext');
+    expect(gatewaySource).toContain('get_reasoning_debug_runs');
     expect(gatewaySource).toContain('ASSISTANT_SEMANTIC_ORCHESTRATION');
     expect(gatewaySource).not.toContain('AMBIGUOUS_FOLLOW_UP_PATTERN');
     expect(gatewaySource).not.toContain('previousSubstantiveUserMessage');
     expect(orchestratorSource).toContain('currentUserMessage');
     expect(orchestratorSource).toContain('recentConversation');
-    expect(orchestratorSource).toContain('Natural conversation continuity is semantic');
+    expect(orchestratorSource).toContain('priorExecution');
+    expect(orchestratorSource).toContain('Conversation continuity is semantic');
     expect(reasoningSource).toContain('semanticPlanFromMessage');
     expect(reasoningSource).toContain('if (semanticPlan) return { plan: semanticPlan, plannerFallback: false }');
+  });
+
+  it('rate-limits and caches semantic planning before the provider call', () => {
+    expect(gatewaySource).toContain("client.rpc('claim_assistant_semantic_plan'");
+    expect(gatewaySource).toContain("client.rpc('complete_assistant_semantic_plan'");
+    expect(gatewaySource).toContain("client.rpc('fail_assistant_semantic_plan'");
+    expect(gatewaySource).toContain('semanticRequestHash');
+    expect(gatewaySource).toContain("semanticSource: 'cache' | 'provider' | 'fallback'");
+    expect(semanticCacheMigration).toContain('create table if not exists public.assistant_semantic_plans');
+    expect(semanticCacheMigration).toContain('public.is_workspace_member(p_workspace_id)');
+    expect(semanticCacheMigration).toContain("'in_progress'::text");
+    expect(semanticCacheMigration).toContain('unique (workspace_id, owner_id, message_id, request_hash)');
+    expect(semanticCacheMigration).toContain('to authenticated;');
+  });
+
+  it('keeps retries anchored to the original message-time context', () => {
+    expect(gatewaySource).toContain(".lt('created_at', currentCreatedAt)");
+    expect(gatewaySource).toContain('messageCreatedAt: context.currentCreatedAt');
+    expect(gatewaySource).toContain('conversation: context.conversation');
+    expect(gatewaySource).toContain('priorExecution: context.priorExecution || null');
+  });
+
+  it('does not send context-sensitive acknowledgements down the context-free trivial path', () => {
+    expect(gatewaySource).toContain("new Set(['tamam', 'ok', 'okay'])");
+    expect(gatewaySource).toContain('CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS.has(normalizeShortText(message))');
   });
 
   it('enforces provider isolation after semantic web intent instead of keyword routing', () => {
     expect(gatewaySource).toContain("semantic.plan.webMode === 'required'");
     expect(gatewaySource).toContain('GEMINI_PROVIDER_LOCK_WEB_UNAVAILABLE');
     expect(gatewaySource).not.toContain('EXPLICIT_WEB_PATTERN');
+  });
+
+  it('allows cross-provider semantic fallback only in Auto mode', () => {
+    expect(gatewaySource).toContain("requestedModel === 'auto'");
+    expect(gatewaySource).toContain("semanticProvider === 'openai'");
+    expect(gatewaySource).toContain('geminiApiKey');
   });
 
   it('does not expose the internal semantic plan to the final answer model', () => {
@@ -159,7 +207,7 @@ describe('provider, evidence and semantic intent integrity', () => {
   });
 
   it('promotes substantive Flash Lite execution to Gemini Pro while leaving exact trivial fast path separate', () => {
-    expect(providerSource).toContain("GEMINI_SUBSTANTIVE_MODEL");
+    expect(providerSource).toContain('GEMINI_SUBSTANTIVE_MODEL');
     expect(gatewaySource).toContain('substantiveModel(requestedModel)');
     expect(settingsSource).toContain('normalizeSelectableModel');
     expect(settingsSource).toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
