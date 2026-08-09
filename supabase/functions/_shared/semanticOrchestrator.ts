@@ -296,8 +296,18 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
   const intent = intents.includes(value.intent) ? value.intent : fallback.intent
   const executionMode = value.executionMode && modes.includes(value.executionMode) ? value.executionMode : fallback.executionMode
   const evidenceQueries = [...new Set((value.evidenceQueries || []).map(query => cleanText(query, 400)).filter(Boolean))].slice(0, 5)
-  const state = value.conversationState && typeof value.conversationState === 'object'
+  const proposedState = value.conversationState && typeof value.conversationState === 'object'
     ? value.conversationState
+    : fallback.conversationState
+  const fallbackRejectedHypotheses = fallback.conversationState?.rejectedHypotheses || []
+  const state: ConversationSemanticState | undefined = proposedState
+    ? {
+        ...proposedState,
+        rejectedHypotheses: [...new Set([
+          ...fallbackRejectedHypotheses,
+          ...(proposedState.rejectedHypotheses || []),
+        ])].slice(-6),
+      }
     : fallback.conversationState
   const plan: ReasoningPlan = {
     ...fallback,
@@ -545,7 +555,7 @@ const geminiGenerationConfig = (compatibilityMode: boolean) => compatibilityMode
     }
   : {
       maxOutputTokens: 2_400,
-      thinkingConfig: { thinkingLevel: 'low' },
+      thinkingConfig: { thinkingLevel: 'LOW' },
       responseFormat: {
         text: {
           mimeType: 'application/json',
