@@ -64,7 +64,6 @@ export const useMessages = (channelRef: any) => {
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const setShowNewItemModal = useUIStore(state => state.setShowNewItemModal);
   const setIsGenerating = useDocumentStore(state => state.setIsGenerating);
-  const selectedModel = useSettingsStore(state => state.selectedModel);
 
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
     const id = currentWorkspaceId;
@@ -94,6 +93,11 @@ export const useMessages = (channelRef: any) => {
       setShowNewItemModal(true);
       return;
     }
+
+    // Snapshot the model at the actual send boundary. A select change and an
+    // immediate submit can occur before React has re-rendered this hook, so a
+    // render-captured selectedModel can be one choice behind the UI.
+    const requestedModel = useSettingsStore.getState().selectedModel || 'auto';
 
     generationAbortRef.current?.abort(new DOMException('Superseded by a newer user message.', 'AbortError'));
     const generationController = new AbortController();
@@ -323,7 +327,7 @@ export const useMessages = (channelRef: any) => {
           workspaceId: currentWorkspaceId,
           messageId: msgId,
           message: messageText,
-          model: selectedModel,
+          model: requestedModel,
           chatAttachments: await prepareAssistantChatAttachments(preparedAttachments),
           signal: generationController.signal,
           onText: fullText => {
@@ -563,7 +567,7 @@ export const useMessages = (channelRef: any) => {
         projectMemory,
         knowledgeBase: turnContext.retrievedSources,
         analystContext: turnContext,
-        model: selectedModel,
+        model: requestedModel,
         systemInstruction,
         signal: generationController.signal,
         selectedNodeContent,

@@ -195,7 +195,7 @@ async function tryTrivialFastPath(input: {
     traceId: input.traceId,
     messageId,
     outcome,
-    model,
+    requestedModel: model,
     provider,
     claimMs: claimCompletedAtMs - claimStartedAtMs,
     gatewayToClaimMs: claimCompletedAtMs - input.gatewayReceivedAtMs,
@@ -272,7 +272,8 @@ async function tryTrivialFastPath(input: {
   logLatency('ASSISTANT_TRIVIAL_FAST_PATH_COMPLETE', {
     traceId: input.traceId,
     messageId,
-    model: result.model,
+    requestedModel: model,
+    responseModel: result.model,
     provider: result.provider,
     claimMs: claimCompletedAtMs - claimStartedAtMs,
     providerMs: providerCompletedAtMs - providerStartedAtMs,
@@ -310,6 +311,14 @@ serve(async req => {
   const bodyReadAtMs = Date.now()
   const parsedBody = parseGatewayBody(body)
   const messageId = cleanString(parsedBody?.messageId, 200)
+  const requestedModel = cleanString(parsedBody?.model, 80) || 'auto'
+
+  logLatency('ASSISTANT_GATEWAY_REQUEST', {
+    traceId,
+    messageId,
+    requestedModel,
+    bodyReadMs: bodyReadAtMs - gatewayReceivedAtMs,
+  })
 
   try {
     const fastPath = await tryTrivialFastPath({
@@ -350,6 +359,7 @@ serve(async req => {
     logLatency('ASSISTANT_GATEWAY_LATENCY', {
       traceId,
       messageId,
+      requestedModel,
       outcome: 'core_unreachable',
       gatewayReceivedAtMs,
       bodyReadAtMs,
@@ -369,6 +379,7 @@ serve(async req => {
   logLatency('ASSISTANT_GATEWAY_LATENCY', {
     traceId,
     messageId,
+    requestedModel,
     outcome: upstream.ok ? 'core_headers_ready' : 'core_error_headers_ready',
     status: upstream.status,
     gatewayReceivedAtMs,
@@ -422,6 +433,7 @@ serve(async req => {
           logLatency('ASSISTANT_GATEWAY_LATENCY_COMPLETE', {
             traceId,
             messageId,
+            requestedModel,
             downstreamCancelled,
             gatewayReceivedAtMs,
             coreHeadersAtMs,
