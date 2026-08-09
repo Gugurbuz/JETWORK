@@ -11,6 +11,9 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const GEMINI_RETRY_DELAYS_MS = [300, 900] as const
+const GEMINI_PRO_CIRCUIT_BREAKER_MS = 30_000
+let geminiProUnavailableUntil = 0
 
 export type AssistantProvider = 'openai' | 'gemini'
 
@@ -199,6 +202,100 @@ const appendGroundingSources = (text: string, candidate: any) => {
   return `${text.trim()}\n\nKaynaklar:\n${sources.map((source, index) => `${index + 1}. [${source.title}](${source.url})`).join('\n')}`
 }
 
+const geminiErrorText = (error: unknown) => {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const candidate = error as Record<string, unknown>
+    return String(candidate.message || candidate.status || candidate.code || '')
+  }
+  return String(error || '')
+}
+
+const isRetryableGeminiError = (error: unknown) => {
+  const candidate = error && typeof error === 'object' ? error as Record<string, unknown> : {}
+  const numericCode = Number(candidate.code || candidate.statusCode || candidate.status)
+  if ([429, 500, 502, 503, 504].includes(numericCode)) return true
+  return /429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|high demand|temporar/i.test(geminiErrorText(error))
+}
+
+const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
+  if (milliseconds <= 0) return
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onAbort = () => finish(signal?.reason || new DOMException('Aborted', 'AbortError'))
+    const timeout = setTimeout(() => finish(), milliseconds)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+async function generateGeminiContentWithResilience(input: {
+  ai: GoogleGenAI
+  model: string
+  contents: Array<Record<string, unknown>>
+  config: Record<string, unknown>
+  allowSameProviderModelFallback: boolean
+  signal?: AbortSignal
+}) {
+  const proCircuitOpen = input.model === GEMINI_SUBSTANTIVE_MODEL && Date.now() < geminiProUnavailableUntil
+  const models = proCircuitOpen
+    ? [DEFAULT_GEMINI_MODEL]
+    : [
+        input.model,
+        ...(input.allowSameProviderModelFallback && input.model === GEMINI_SUBSTANTIVE_MODEL
+          ? [DEFAULT_GEMINI_MODEL]
+          : []),
+      ]
+  let lastError: unknown
+
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
+    const model = models[modelIndex]
+    for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        const response = await input.ai.models.generateContent({
+          model,
+          contents: input.contents,
+          config: input.config,
+        } as any)
+        if (model === GEMINI_SUBSTANTIVE_MODEL) geminiProUnavailableUntil = 0
+        return { response, model }
+      } catch (error) {
+        lastError = error
+        if (input.signal?.aborted) throw error
+        if (!isRetryableGeminiError(error)) throw error
+        if (attempt < GEMINI_RETRY_DELAYS_MS.length) {
+          const delayMs = GEMINI_RETRY_DELAYS_MS[attempt]
+          console.warn('Gemini request failed transiently; retrying with exponential backoff', {
+            model,
+            attempt: attempt + 1,
+            delayMs,
+            error: geminiErrorText(error).slice(0, 500),
+          })
+          await delayWithAbort(delayMs, input.signal)
+          continue
+        }
+      }
+    }
+    if (modelIndex < models.length - 1) {
+      if (model === GEMINI_SUBSTANTIVE_MODEL) geminiProUnavailableUntil = Date.now() + GEMINI_PRO_CIRCUIT_BREAKER_MS
+      console.warn('Gemini Pro remained unavailable after retries; switching to same-provider Flash fallback', {
+        fromModel: model,
+        toModel: models[modelIndex + 1],
+        error: geminiErrorText(lastError).slice(0, 500),
+      })
+    }
+  }
+  throw lastError || new Error('Gemini request failed without an error payload.')
+}
+
 export async function requestGeminiResponse(input: {
   apiKey: string
   model: string
@@ -243,11 +340,16 @@ export async function requestGeminiResponse(input: {
     }
   }
 
-  const response = await ai.models.generateContent({
+  const generated = await generateGeminiContentWithResilience({
+    ai,
     model: executionModel,
     contents: toGeminiContents(effectiveItems),
     config,
-  } as any)
+    allowSameProviderModelFallback: !trivialConversation,
+    signal: input.signal,
+  })
+  const response = generated.response
+  const actualModel = generated.model
 
   const candidate = (response as any)?.candidates?.[0]
   const candidateContent = candidate?.content
@@ -285,7 +387,7 @@ export async function requestGeminiResponse(input: {
   return {
     id: String((response as any)?.responseId || crypto.randomUUID()),
     status: 'completed',
-    model: executionModel,
+    model: actualModel,
     output,
     usage: {
       input_tokens: Number(metadata.promptTokenCount || 0),

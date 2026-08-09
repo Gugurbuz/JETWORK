@@ -1,6 +1,7 @@
 import {
   SEMANTIC_PLAN_END,
   SEMANTIC_PLAN_START,
+  routeReasoningRequest,
   routingSurfaceFromMessage,
   type ConversationSemanticState,
   type ReasoningExecutionMode,
@@ -11,7 +12,9 @@ import type { AssistantProvider } from './modelProviders.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v2-agent-loop'
+const GEMINI_SEMANTIC_MODEL = 'gemini-3-flash-preview'
+const SEMANTIC_RETRY_DELAYS_MS = [250, 750] as const
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3-resilient-agent-loop'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const AGENT_LOOP_MARKER = '[JETWORK_AGENT_LOOP]'
 
@@ -37,8 +40,20 @@ export interface SemanticOrchestrationResult {
   plan: ReasoningPlan
   usage?: Record<string, number>
   fallbackUsed: boolean
+  fallbackReason?: string
   provider: AssistantProvider
   model: string
+}
+
+class SemanticProviderError extends Error {
+  constructor(
+    public readonly provider: AssistantProvider,
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'SemanticProviderError'
+  }
 }
 
 const planSchema = {
@@ -109,6 +124,77 @@ const instructions = [
 
 const cleanText = (value: unknown, max = 4_000) => String(value || '').trim().slice(0, max)
 
+const normalizeFallbackText = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[!?.,;:]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const FALLBACK_REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
+const FALLBACK_CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
+
+const fallbackUserMove = (message: string, continuation: boolean): ConversationSemanticState['userMove'] => {
+  const normalized = normalizeFallbackText(message)
+  if (FALLBACK_REJECTION_PATTERN.test(normalized)) return 'rejection'
+  if (FALLBACK_CORRECTION_PATTERN.test(normalized)) return 'correction'
+  return continuation ? 'follow_up' : 'new_request'
+}
+
+const hypothesisExcerpt = (value: string) => cleanText(value.replace(/\s+/g, ' '), 320)
+
+const collectFallbackRejectedHypotheses = (
+  conversation: SemanticContextMessage[],
+  currentMessage: string,
+): string[] => {
+  const rejected: string[] = []
+  let candidateAssistant = ''
+  for (const item of conversation) {
+    if (item.role === 'assistant') {
+      candidateAssistant = item.content
+      continue
+    }
+    if (candidateAssistant && fallbackUserMove(item.content, true) === 'rejection') {
+      const excerpt = hypothesisExcerpt(candidateAssistant)
+      if (excerpt && !rejected.includes(excerpt)) rejected.push(excerpt)
+    }
+    candidateAssistant = ''
+  }
+  if (candidateAssistant && fallbackUserMove(currentMessage, true) === 'rejection') {
+    const excerpt = hypothesisExcerpt(candidateAssistant)
+    if (excerpt && !rejected.includes(excerpt)) rejected.push(excerpt)
+  }
+  return rejected.slice(-6)
+}
+
+const fallbackTopic = (conversation: SemanticContextMessage[], currentMessage: string) => {
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    const item = conversation[index]
+    if (item.role !== 'user' || !item.content.trim()) continue
+    if (fallbackUserMove(item.content, true) === 'rejection') continue
+    const route = routeReasoningRequest(item.content)
+    if (route.intent !== 'simple_answer' || route.knowledgeRequired || route.webMode !== 'none') {
+      return cleanText(item.content, 500)
+    }
+  }
+  return cleanText(currentMessage, 500)
+}
+
+const executionModeForIntent = (
+  intent: ReasoningIntent,
+  knowledgeRequired: boolean,
+  webMode: ReasoningPlan['webMode'],
+): ReasoningExecutionMode => {
+  if (intent === 'document') return 'artifact'
+  if (intent === 'decision') return 'decision'
+  if (intent === 'project') return 'project'
+  if (intent === 'research' || webMode !== 'none') return 'research'
+  if (knowledgeRequired || intent === 'sap_diagnosis' || intent === 'analysis') return 'knowledge'
+  return 'direct'
+}
+
 export const compactSemanticConversation = (messages: SemanticContextMessage[]) => {
   const recent = messages.slice(-10)
   const compact: SemanticContextMessage[] = []
@@ -145,36 +231,54 @@ const fallbackPlan = (
 ): ReasoningPlan => {
   const previousUser = lastSubstantiveUser(conversation)
   const previousAssistant = lastAssistant(conversation)
+  const currentRoute = routeReasoningRequest(currentMessage)
   const priorIntent = String(priorExecution?.intent || 'none') as ReasoningIntent | 'none'
   const validPriorIntent: ReasoningIntent | 'none' = [
     'none','simple_answer','sap_diagnosis','research','analysis','document','decision','project',
   ].includes(priorIntent) ? priorIntent : 'none'
-  const continuation = Boolean(previousUser && validPriorIntent !== 'none')
-  const topic = cleanText(previousUser || currentMessage, 500)
-  const evidenceQueries = [previousUser, currentMessage].map(item => cleanText(item, 350)).filter(Boolean)
+  const activePriorIntent: ReasoningIntent | 'none' = validPriorIntent === 'simple_answer' ? 'none' : validPriorIntent
+  const continuation = Boolean(previousUser && activePriorIntent !== 'none')
+  const userMove = fallbackUserMove(currentMessage, continuation)
+  const preserveKnowledgeTask = continuation && (
+    activePriorIntent === 'sap_diagnosis'
+    || activePriorIntent === 'analysis'
+    || priorExecution?.knowledgeUsed === true
+  )
+  const intent: ReasoningIntent = preserveKnowledgeTask && activePriorIntent !== 'none'
+    ? activePriorIntent
+    : currentRoute.intent
+  const knowledgeRequired = preserveKnowledgeTask || currentRoute.knowledgeRequired || userMove === 'rejection' || userMove === 'correction'
+  const webMode = currentRoute.webMode
+  const topic = fallbackTopic(conversation, currentMessage)
+  const evidenceQueries = [topic, previousUser, currentMessage].map(item => cleanText(item, 350)).filter(Boolean)
+  const rejectedHypotheses = collectFallbackRejectedHypotheses(conversation, currentMessage)
+  const retainedContext = conversation
+    .slice(-6)
+    .map(item => cleanText(`${item.role}: ${item.content}`, 700))
+    .filter(Boolean)
   const state: ConversationSemanticState = {
     continuation,
     topic,
-    userMove: continuation ? 'follow_up' : 'new_request',
-    priorIntent: validPriorIntent,
-    rejectedHypotheses: [],
-    retainedContext: [previousUser, previousAssistant].map(item => cleanText(item, 500)).filter(Boolean),
+    userMove,
+    priorIntent: activePriorIntent,
+    rejectedHypotheses,
+    retainedContext: [
+      ...retainedContext,
+      ...(previousAssistant && !retainedContext.some(item => item.includes(previousAssistant.slice(0, 80)))
+        ? [cleanText(`assistant: ${previousAssistant}`, 700)]
+        : []),
+    ].slice(-8),
     openQuestions: [],
   }
-  const preserveKnowledgeTask = continuation && (
-    validPriorIntent === 'sap_diagnosis'
-    || validPriorIntent === 'analysis'
-    || priorExecution?.knowledgeUsed === true
-  )
   return {
-    intent: preserveKnowledgeTask && validPriorIntent !== 'none' ? validPriorIntent : 'analysis',
-    complexity: priorExecution?.complexity === 'high' ? 'high' : 'medium',
-    executionMode: 'knowledge',
+    intent,
+    complexity: currentRoute.complexity === 'high' || priorExecution?.complexity === 'high' ? 'high' : 'medium',
+    executionMode: executionModeForIntent(intent, knowledgeRequired, webMode),
     goal: cleanText(currentMessage, 800) || 'Kullanıcı talebini mevcut konuşma bağlamıyla güvenli biçimde yanıtla.',
-    knowledgeRequired: true,
-    webMode: 'none',
-    verificationRequired: true,
-    creativeMode: false,
+    knowledgeRequired,
+    webMode,
+    verificationRequired: knowledgeRequired || currentRoute.verificationRequired,
+    creativeMode: currentRoute.creativeMode,
     evidenceQueries: [...new Set(evidenceQueries)].slice(0, 3),
     steps: [
       { id: 'evidence-internal', label: 'Kurumsal bağlamı ve ilgili kanıtı ara', toolHint: 'knowledge', successCriteria: 'Yanıt için kurumsal kanıt bulunur veya eksik olduğu doğrulanır.' },
@@ -260,6 +364,9 @@ export const applyAgentLoopPolicy = (
   } else if (requestedWebMode === 'if_internal_insufficient') {
     capabilityRules.push('İç kanıt yetersiz, güncellik gerektiren veya dış doğrulama gereken noktada web aracına geçebilirsin.')
   }
+  if (plan.conversationState?.rejectedHypotheses?.length) {
+    capabilityRules.push(`Kullanıcının reddettiği önceki hipotezler: ${plan.conversationState.rejectedHypotheses.map(item => cleanText(item, 220)).join(' | ')}. Yeni ve açık kanıt olmadan bunları tekrar aday gibi sunma.`)
+  }
   if (providerNativeWeb) {
     capabilityRules.push(`${PROVIDER_WEB_CAPABILITY_MARKER} Public web araştırması için yalnız seçili Gemini sağlayıcısının native Google Search aracını kullan; OpenAI web aracına geçme.`)
     plan.knowledgeRequired = true
@@ -281,6 +388,7 @@ export const applyAgentLoopPolicy = (
 
   plan.evidenceQueries = []
   plan.verificationRequired = false
+  if (provider === 'openai' && requiredWeb) plan.webMode = 'if_internal_insufficient'
   plan.steps = [
     {
       id: 'adaptive-evidence-loop',
@@ -310,9 +418,12 @@ export const normalizeCachedSemanticPlan = (input: {
     const current = routingSurfaceFromMessage(input.currentMessage).current || input.currentMessage.trim()
     const fallback = fallbackPlan(current, compactSemanticConversation(input.conversation), input.priorExecution)
     const normalized = normalizePlan(input.value as ReasoningPlan, fallback)
-    if (String(normalized.orchestratorVersion || '').includes('safe-fallback')) return normalized
     const provider: AssistantProvider = normalized.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER) ? 'gemini' : 'openai'
-    return applyAgentLoopPolicy(normalized, provider)
+    const adapted = applyAgentLoopPolicy(normalized, provider)
+    if (String(normalized.orchestratorVersion || '').includes('safe-fallback')) {
+      adapted.orchestratorVersion = normalized.orchestratorVersion
+    }
+    return adapted
   } catch {
     return null
   }
@@ -337,6 +448,63 @@ const geminiText = (payload: Record<string, unknown>) => {
   return parts.filter(part => part.thought !== true && typeof part.text === 'string').map(part => String(part.text)).join('').trim()
 }
 
+const retryableSemanticStatus = (status: number) => [429, 500, 502, 503, 504].includes(status)
+
+const semanticFailureCode = (error: unknown) => {
+  if (error instanceof SemanticProviderError) return `http-${error.status}`
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (/abort|timeout/i.test(message)) return 'timeout'
+  if (/json|schema|structured/i.test(message)) return 'schema'
+  return 'provider-error'
+}
+
+const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
+  if (milliseconds <= 0) return
+  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: unknown) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onAbort = () => finish(signal?.reason || new DOMException('Aborted', 'AbortError'))
+    const timeout = setTimeout(() => finish(), milliseconds)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+async function withSemanticRetry<T>(
+  provider: AssistantProvider,
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= SEMANTIC_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error
+      if (signal?.aborted) throw error
+      const retryable = error instanceof SemanticProviderError
+        ? retryableSemanticStatus(error.status)
+        : /429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|high demand/i.test(error instanceof Error ? error.message : String(error))
+      if (!retryable || attempt >= SEMANTIC_RETRY_DELAYS_MS.length) throw error
+      const delayMs = SEMANTIC_RETRY_DELAYS_MS[attempt]
+      console.warn(`Semantic orchestrator ${provider} request failed transiently; retrying`, {
+        attempt: attempt + 1,
+        delayMs,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      await delayWithAbort(delayMs, signal)
+    }
+  }
+  throw lastError
+}
+
 async function requestOpenAiPlan(input: { apiKey: string; model: string; payload: Record<string, unknown>; signal?: AbortSignal }) {
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: 'POST', signal: input.signal,
@@ -354,7 +522,7 @@ async function requestOpenAiPlan(input: { apiKey: string; model: string; payload
   const body = await response.json().catch(() => ({})) as Record<string, unknown>
   if (!response.ok) {
     const detail = (body.error as Record<string, unknown> | undefined)?.message
-    throw new Error(String(detail || `OpenAI semantic orchestration failed with ${response.status}.`))
+    throw new SemanticProviderError('openai', response.status, String(detail || `OpenAI semantic orchestration failed with ${response.status}.`))
   }
   const text = openAiText(body)
   if (!text) throw new Error('OpenAI semantic orchestration returned no structured text.')
@@ -374,15 +542,19 @@ async function requestGeminiPlan(input: { apiKey: string; model: string; payload
       generationConfig: {
         maxOutputTokens: 2_400,
         thinkingConfig: { thinkingLevel: 'low' },
-        responseMimeType: 'application/json',
-        responseSchema: planSchema,
+        responseFormat: {
+          text: {
+            mimeType: 'application/json',
+            schema: planSchema,
+          },
+        },
       },
     }),
   })
   const body = await response.json().catch(() => ({})) as Record<string, unknown>
   if (!response.ok) {
     const detail = (body.error as Record<string, unknown> | undefined)?.message
-    throw new Error(String(detail || `Gemini semantic orchestration failed with ${response.status}.`))
+    throw new SemanticProviderError('gemini', response.status, String(detail || `Gemini semantic orchestration failed with ${response.status}.`))
   }
   const text = geminiText(body)
   if (!text) throw new Error('Gemini semantic orchestration returned no structured text.')
@@ -400,6 +572,23 @@ async function requestGeminiPlan(input: { apiKey: string; model: string; payload
   }
 }
 
+const resilientFallbackResult = (input: {
+  fallback: ReasoningPlan
+  provider: AssistantProvider
+  model: string
+  reason: string
+}): SemanticOrchestrationResult => {
+  const plan = applyAgentLoopPolicy(input.fallback, input.provider)
+  plan.orchestratorVersion = `${SEMANTIC_ORCHESTRATOR_VERSION}-safe-fallback-${input.reason}`.slice(0, 80)
+  return {
+    plan,
+    fallbackUsed: true,
+    fallbackReason: input.reason,
+    provider: input.provider,
+    model: input.model,
+  }
+}
+
 export async function buildSemanticExecutionPlan(input: {
   provider: AssistantProvider
   apiKey?: string
@@ -414,8 +603,14 @@ export async function buildSemanticExecutionPlan(input: {
   const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()
   const conversation = compactSemanticConversation(input.conversation)
   const fallback = fallbackPlan(currentMessage, conversation, input.priorExecution)
+  const semanticModel = input.provider === 'gemini' ? GEMINI_SEMANTIC_MODEL : input.model
   if (!input.apiKey) {
-    return { plan: fallback, fallbackUsed: true, provider: input.provider, model: input.model }
+    return resilientFallbackResult({
+      fallback,
+      provider: input.provider,
+      model: semanticModel,
+      reason: 'missing-api-key',
+    })
   }
   const payload = {
     currentUserMessage: currentMessage,
@@ -426,19 +621,30 @@ export async function buildSemanticExecutionPlan(input: {
   }
   try {
     const result = input.provider === 'gemini'
-      ? await requestGeminiPlan({ apiKey: input.apiKey, model: input.model, payload, signal: input.signal })
-      : await requestOpenAiPlan({ apiKey: input.apiKey, model: input.model, payload, signal: input.signal })
+      ? await withSemanticRetry('gemini', () => requestGeminiPlan({ apiKey: input.apiKey!, model: semanticModel, payload, signal: input.signal }), input.signal)
+      : await withSemanticRetry('openai', () => requestOpenAiPlan({ apiKey: input.apiKey!, model: semanticModel, payload, signal: input.signal }), input.signal)
     const normalized = normalizePlan(result.plan, fallback)
     return {
       plan: applyAgentLoopPolicy(normalized, input.provider),
       usage: result.usage,
       fallbackUsed: false,
       provider: input.provider,
-      model: input.model,
+      model: semanticModel,
     }
   } catch (error) {
-    console.warn('Semantic orchestrator failed; conservative knowledge-first fallback will be used:', error)
-    return { plan: fallback, fallbackUsed: true, provider: input.provider, model: input.model }
+    const reason = semanticFailureCode(error)
+    console.warn('Semantic orchestrator failed; resilient agentic fallback will be used:', {
+      provider: input.provider,
+      model: semanticModel,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return resilientFallbackResult({
+      fallback,
+      provider: input.provider,
+      model: semanticModel,
+      reason,
+    })
   }
 }
 
