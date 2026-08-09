@@ -29,6 +29,8 @@ interface ParsedEvent {
   payload: Record<string, unknown>;
 }
 
+type CanaryTurnError = Error & { canaryMessageId?: string };
+
 const parseSse = (raw: string): ParsedEvent[] => raw
   .split(/\r?\n\r?\n/)
   .map(block => block.trim())
@@ -152,7 +154,9 @@ const callAssistant = async (input: {
   });
   const raw = await response.text();
   if (!response.ok) {
-    throw new Error(`Canary endpoint ${response.status}: ${raw.slice(0, 1_000)}`);
+    const failure = new Error(`Canary endpoint ${response.status}: ${raw.slice(0, 1_000)}`) as CanaryTurnError;
+    failure.canaryMessageId = messageId;
+    throw failure;
   }
 
   const events = parseSse(raw);
@@ -172,7 +176,11 @@ const callAssistant = async (input: {
     if (type === 'error') errorMessage = String(item.payload.message || 'runtime error');
   }
   if (!completed || errorMessage || !answer.trim()) {
-    throw new Error(`Canary turn did not complete cleanly: completed=${completed}, error=${errorMessage || 'none'}, answerLength=${answer.length}`);
+    const failure = new Error(
+      `Canary turn did not complete cleanly: completed=${completed}, error=${errorMessage || 'none'}, answerLength=${answer.length}`,
+    ) as CanaryTurnError;
+    failure.canaryMessageId = messageId;
+    throw failure;
   }
   return { messageId, answer, responseModel, stages: [...new Set(stages)] };
 };
@@ -206,6 +214,31 @@ const readReasoningDetail = async (workspaceId: string, messageId: string) => {
     throw new Error(`Canary reasoning detail unavailable: ${detailError?.message || run.run_id}`);
   }
   return detail as Record<string, any>;
+};
+
+const printFailureDetail = async (workspaceId: string, error: CanaryTurnError) => {
+  if (!error.canaryMessageId) return;
+  try {
+    const detail = await readReasoningDetail(workspaceId, error.canaryMessageId);
+    console.error('Production reasoning failure detail:');
+    console.error(JSON.stringify({
+      messageId: error.canaryMessageId,
+      status: detail.status,
+      errorMessage: detail.errorMessage,
+      turnErrorMessage: detail.turnErrorMessage,
+      engineVersion: detail.engineVersion,
+      intent: detail.intent,
+      complexity: detail.complexity,
+      fallbackUsed: detail.fallbackUsed,
+      responseModel: detail.responseModel,
+      toolCallCount: detail.toolCallCount,
+      plan: detail.plan,
+      executionTrace: detail.executionTrace,
+      evidenceSummary: detail.evidenceSummary,
+    }, null, 2));
+  } catch (detailError) {
+    console.error(`Production reasoning failure detail could not be loaded: ${detailError instanceof Error ? detailError.message : String(detailError)}`);
+  }
 };
 
 const assertAdaptivePlan = (detail: Record<string, any>) => {
@@ -289,6 +322,9 @@ try {
     orchestratorVersion: detail.plan?.orchestratorVersion,
     rejectedHypotheses: detail.plan?.conversationState?.rejectedHypotheses || [],
   }, null, 2));
+} catch (error) {
+  await printFailureDetail(workspaceId, error as CanaryTurnError);
+  throw error;
 } finally {
   await cleanupWorkspace(projectId, workspaceId);
 }
