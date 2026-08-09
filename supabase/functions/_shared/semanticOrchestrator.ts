@@ -12,7 +12,7 @@ import type { AssistantProvider } from './modelProviders.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-const GEMINI_SEMANTIC_MODEL = 'gemini-3-flash-preview'
+const GEMINI_SEMANTIC_MODEL = 'gemini-3.1-flash-lite-preview'
 const SEMANTIC_RETRY_DELAYS_MS = [250, 750] as const
 export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3-resilient-agent-loop'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
@@ -541,7 +541,7 @@ async function requestGeminiPlan(input: { apiKey: string; model: string; payload
       contents: [{ role: 'user', parts: [{ text: JSON.stringify(input.payload) }] }],
       generationConfig: {
         maxOutputTokens: 2_400,
-        thinkingConfig: { thinkingLevel: 'low' },
+        thinkingConfig: { thinkingLevel: 'LOW' },
         responseFormat: {
           text: {
             mimeType: 'application/json',
