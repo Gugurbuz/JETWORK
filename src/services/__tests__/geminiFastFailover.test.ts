@@ -14,5 +14,8 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('const maxAttempts = immediateFailoverCandidate ? 1');
     expect(source).toContain('switching immediately to same-provider stable Flash fallback');
     expect(source).toContain('retrying once with bounded backoff');
+    expect(source).toContain('AbortError');
+    expect(source).toContain('signal has been aborted');
+    expect(source).toContain('if (input.signal?.aborted) throw error');
   });
 });
