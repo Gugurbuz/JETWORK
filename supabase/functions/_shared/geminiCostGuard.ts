@@ -1,19 +1,19 @@
 import type { ReasoningPlan } from './reasoningEngine.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
 
-export const GEMINI_COST_GUARD_VERSION = 'gemini-cost-guard-v1.1-scope-inventory'
+export const GEMINI_COST_GUARD_VERSION = 'gemini-cost-guard-v1.2-token-budget'
 export const GEMINI_AGENT_MODEL = 'gemini-3.5-flash-lite'
 export const GEMINI_SEMANTIC_MODEL = 'gemini-3.1-flash-lite'
 export const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\[JETWORK_SEMANTIC_PLAN\]\s*([\s\S]*?)\s*\[END_JETWORK_SEMANTIC_PLAN\]/i
-const MAX_CONVERSATION_CHARACTERS = 9_000
-const MAX_CONVERSATION_ITEM_CHARACTERS = 4_000
-const MAX_PROTOCOL_ITEMS = 8
+const MAX_CONVERSATION_CHARACTERS = 7_000
+const MAX_CONVERSATION_ITEM_CHARACTERS = 3_000
+const MAX_PROTOCOL_ITEMS = 6
 const MAX_TOOL_OUTPUT_CHARACTERS = 4_500
-const MAX_ENUMERATION_TOOL_OUTPUT_CHARACTERS = 9_000
-const MAX_SYNTHESIS_EVIDENCE_CHARACTERS = 22_000
-const MAX_SYNTHESIS_DRAFT_CHARACTERS = 4_000
+const MAX_ENUMERATION_TOOL_OUTPUT_CHARACTERS = 7_000
+const MAX_SYNTHESIS_EVIDENCE_CHARACTERS = 14_000
+const MAX_SYNTHESIS_DRAFT_CHARACTERS = 2_500
 
 const MODEL_PRICING_USD_PER_MILLION: Record<string, { input: number; output: number }> = {
   'gemini-3.1-pro-preview': { input: 2, output: 12 },
@@ -65,7 +65,7 @@ const compactConversationItems = (items: Array<Record<string, unknown>>) => {
     if (!content) continue
     const role = String(item.role || '') === 'user' ? 'user' : 'assistant'
     const compacted = role === 'assistant'
-      ? compactAssistantConversationMemory(content, 1_200)
+      ? compactAssistantConversationMemory(content, 1_000)
       : truncateText(content, MAX_CONVERSATION_ITEM_CHARACTERS)
     if (selected.length > 0 && characters + compacted.length > MAX_CONVERSATION_CHARACTERS) break
     selected.unshift({ role, content: compacted })
@@ -223,20 +223,30 @@ export const executedToolCallCount = (items: Array<Record<string, unknown>>) => 
   items.filter(item => String(item.type || '') === 'function_call_output').length
 )
 
+export const isBoundedKnowledgePlan = (plan: ReasoningPlan | null): boolean => Boolean(
+  plan
+  && plan.knowledgeRequired
+  && plan.webMode === 'none'
+  && plan.verificationRequired !== true
+  && plan.complexity !== 'high'
+  && ['simple_answer', 'analysis'].includes(plan.intent)
+)
+
 export const toolBudgetForPlan = (plan: ReasoningPlan | null): number => {
   if (!plan) return 4
   if (plan.enumerationTarget?.tool === 'list_class_inventory') return 1
   if (!plan.knowledgeRequired && plan.webMode === 'none') return 0
+  if (isBoundedKnowledgePlan(plan)) return 1
   const high = plan.complexity === 'high'
   switch (plan.intent) {
     case 'sap_diagnosis': return high ? 5 : 4
     case 'research': return high ? 5 : 4
-    case 'analysis': return high ? 5 : 4
+    case 'analysis': return high ? 5 : 3
     case 'decision': return high ? 4 : 3
     case 'project': return high ? 4 : 3
     case 'document': return plan.knowledgeRequired ? 2 : 0
-    case 'simple_answer': return plan.knowledgeRequired || plan.webMode !== 'none' ? 3 : 0
-    default: return high ? 5 : 4
+    case 'simple_answer': return plan.knowledgeRequired || plan.webMode !== 'none' ? 2 : 0
+    default: return high ? 5 : 3
   }
 }
 
