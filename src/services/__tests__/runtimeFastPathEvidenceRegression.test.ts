@@ -33,7 +33,7 @@ const embeddedPlan = (plan: Record<string, unknown>) => [
 ].join('\n');
 
 describe('production regression: trivial latency and evidence-required short answers', () => {
-  it('normalizes evidence-required simple answers into knowledge analysis before Cost Guard budgeting', () => {
+  it('normalizes evidence-required simple answers into bounded knowledge analysis before Cost Guard budgeting', () => {
     const plan = semanticPlanFromMessage(embeddedPlan({}));
     expect(plan).not.toBeNull();
     expect(plan).toMatchObject({
@@ -42,7 +42,7 @@ describe('production regression: trivial latency and evidence-required short ans
       knowledgeRequired: true,
       complexity: 'medium',
     });
-    expect(toolBudgetForPlan(plan)).toBe(4);
+    expect(toolBudgetForPlan(plan)).toBe(1);
   });
 
   it('keeps ordinary no-evidence simple answers direct and zero-tool', () => {
