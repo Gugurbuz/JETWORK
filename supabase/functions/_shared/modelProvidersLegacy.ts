@@ -248,7 +248,7 @@ async function generateGeminiContentWithResilience(input: {
   for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
     const model = models[modelIndex]
     const immediateFailoverCandidate = model === GEMINI_SUBSTANTIVE_MODEL && modelIndex < models.length - 1
-    const maxAttempts = immediateFailoverCandidate || input.finalSynthesis ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
+    const maxAttempts = immediateFailoverCandidate ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         const response = await generateGeminiAttempt({
