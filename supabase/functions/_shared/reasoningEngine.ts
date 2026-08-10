@@ -37,6 +37,13 @@ export type {
 }
 
 export type ReasoningExecutionMode = 'direct' | 'knowledge' | 'research' | 'artifact' | 'decision' | 'project'
+export type KnowledgeEnumerationTool = 'list_knowledge_catalog' | 'list_class_inventory'
+
+export interface KnowledgeEnumerationTarget {
+  tool: KnowledgeEnumerationTool
+  objectType: string | null
+  prefix: string | null
+}
 
 export interface ConversationSemanticState {
   continuation: boolean
@@ -44,6 +51,7 @@ export interface ConversationSemanticState {
   userMove: 'new_request' | 'follow_up' | 'correction' | 'rejection' | 'confirmation' | 'clarification' | 'topic_shift'
   priorIntent: ReasoningIntent | 'none'
   rejectedHypotheses: string[]
+  rejectedScopes: string[]
   retainedContext: string[]
   openQuestions: string[]
 }
@@ -51,6 +59,7 @@ export interface ConversationSemanticState {
 export interface ReasoningPlan extends LegacyReasoningPlan {
   executionMode?: ReasoningExecutionMode
   conversationState?: ConversationSemanticState
+  enumerationTarget?: KnowledgeEnumerationTarget
   orchestratorVersion?: string
 }
 
@@ -63,6 +72,20 @@ const cleanStringArray = (value: unknown, limit = 8, maxLength = 500): string[] 
     ? value.map(item => String(item || '').trim().slice(0, maxLength)).filter(Boolean).slice(0, limit)
     : []
 )
+
+const normalizeEnumerationTarget = (value: unknown): KnowledgeEnumerationTarget | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Record<string, unknown>
+  const tool = String(raw.tool || '') as KnowledgeEnumerationTool
+  if (!['list_knowledge_catalog','list_class_inventory'].includes(tool)) return undefined
+  const objectType = raw.objectType === null || raw.objectType === undefined
+    ? null
+    : String(raw.objectType || '').trim().slice(0, 40) || null
+  const prefix = raw.prefix === null || raw.prefix === undefined
+    ? null
+    : String(raw.prefix || '').trim().slice(0, 160) || null
+  return { tool, objectType, prefix }
+}
 
 const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
   if (!value || typeof value !== 'object') return null
@@ -89,6 +112,7 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
       ? priorIntent
       : 'none',
     rejectedHypotheses: cleanStringArray(stateRaw.rejectedHypotheses, 6),
+    rejectedScopes: cleanStringArray(stateRaw.rejectedScopes, 6),
     retainedContext: cleanStringArray(stateRaw.retainedContext, 8),
     openQuestions: cleanStringArray(stateRaw.openQuestions, 6),
   } : undefined
@@ -120,6 +144,7 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
       ? executionMode
       : undefined,
     conversationState,
+    enumerationTarget: normalizeEnumerationTarget(raw.enumerationTarget),
     orchestratorVersion: String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80),
   }
 }
