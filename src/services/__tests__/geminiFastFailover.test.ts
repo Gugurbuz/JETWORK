@@ -18,4 +18,16 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('signal has been aborted');
     expect(source).toContain('if (input.signal?.aborted) throw error');
   });
+
+  it('removes prior tool-call protocol items when Gemini must produce a final no-tool answer', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
+      'utf8',
+    );
+
+    expect(source).toContain('compactNoToolSynthesisItems');
+    expect(source).toContain("type === 'function_call' || type === 'function_call_output'");
+    expect(source).toContain('input.allowTools');
+    expect(source).toContain(': compactNoToolSynthesisItems(input.items)');
+  });
 });
