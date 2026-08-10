@@ -130,23 +130,26 @@ const MessageTimer = ({ isTyping }: { isTyping: boolean }) => {
 
 const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingText: string, isTyping: boolean, groundingUrls?: { uri: string; title: string }[] }) => {
   const getThinkingTitle = () => {
-    if (!thinkingText) return isTyping ? "Düşünüyor..." : "Düşünce Süreci";
+    if (!thinkingText) return "Düşünce Süreci";
     const matches = [...thinkingText.matchAll(/\*\*([^*]+)\*\*/g)];
     if (matches.length > 0) {
       return matches[matches.length - 1][1].trim();
     }
-    return isTyping ? "Düşünüyor..." : "Düşünce Süreci";
+    return "Düşünce Süreci";
   };
 
   return (
     <details className="group/reasoning mb-3 border border-theme-border/50 rounded-lg overflow-hidden bg-theme-surface/50">
       <summary className="flex items-center gap-2 cursor-pointer list-none select-none p-3 bg-theme-surface hover:bg-theme-bg transition-colors [&::-webkit-details-marker]:hidden">
-        {isTyping && (
-          <JetWorkLogo className="w-4 h-4" isSpinning={true} />
+        {isTyping ? (
+          <div className="min-w-0 flex-1">
+            <ThinkingIndicator />
+          </div>
+        ) : (
+          <span className="font-medium text-sm text-theme-text">
+            {getThinkingTitle()}
+          </span>
         )}
-        <span className="font-medium text-sm text-theme-text">
-          {getThinkingTitle()}
-        </span>
         <ChevronDown className="w-4 h-4 ml-auto text-theme-text-muted transition-transform group-open/reasoning:rotate-180" />
       </summary>
       
