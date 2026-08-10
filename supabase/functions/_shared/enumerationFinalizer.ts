@@ -6,6 +6,7 @@ export interface DeterministicEnumerationFinalization {
   complete: boolean
   nextCursor: string | null
   filterKey: string
+  toolName: string
 }
 
 type EnumerationRecord = {
@@ -15,15 +16,19 @@ type EnumerationRecord = {
   title: string
   summary: string
   sourceName: string
+  inventoryRole?: 'documented' | 'referenced'
 }
 
 type EnumerationGroup = {
   filterKey: string
+  toolName: string
   records: Map<string, EnumerationRecord>
   totalCount: number
   nextCursor: string | null
   pageCount: number
   lastSeenIndex: number
+  documentedCount?: number
+  referencedCount?: number
 }
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
@@ -45,16 +50,24 @@ const normalizeTechnicalIdentifier = (value: unknown) => cleanString(value, 240)
   .toLocaleLowerCase('en-US')
   .replace(/[^a-z0-9]+/g, '')
 
-const callFilterKey = (args: Record<string, unknown>) => [
-  cleanString(args.objectType, 40).toLocaleLowerCase('en-US'),
-  normalizeTechnicalIdentifier(args.prefix),
-].join('|')
+const callFilterKey = (toolName: string, args: Record<string, unknown>) => {
+  if (toolName === 'list_class_inventory') {
+    return ['class_inventory', normalizeTechnicalIdentifier(args.prefix)].join('|')
+  }
+  return [
+    cleanString(args.objectType, 40).toLocaleLowerCase('en-US'),
+    normalizeTechnicalIdentifier(args.prefix),
+  ].join('|')
+}
 
 const recordFromUnknown = (value: unknown): EnumerationRecord | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const row = value as Record<string, unknown>
   const canonicalKey = cleanString(row.canonicalKey, 320)
   if (!canonicalKey) return null
+  const inventoryRole = row.inventoryRole === 'documented' || row.inventoryRole === 'referenced'
+    ? row.inventoryRole
+    : undefined
   return {
     canonicalKey,
     objectType: cleanString(row.objectType, 40),
@@ -62,6 +75,7 @@ const recordFromUnknown = (value: unknown): EnumerationRecord | null => {
     title: cleanString(row.title, 700),
     summary: cleanString(row.summary, 700),
     sourceName: cleanString(row.sourceName, 240),
+    inventoryRole,
   }
 }
 
@@ -75,11 +89,39 @@ const displayRecordLine = (record: EnumerationRecord) => {
     const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     detail = detail.replace(new RegExp(`^${escapedName}\\s*(?:—|–|-|:)?\\s*`, 'i'), '').trim()
   }
-  if (!detail && record.summary) detail = record.summary
-  return detail ? `- **${name}:** ${detail}` : `- **${name}**`
+  if ((!detail || detail === name) && record.summary) detail = record.summary
+  return detail && detail !== name ? `- **${name}:** ${detail}` : `- **${name}**`
 }
 
-const buildText = (group: EnumerationGroup, complete: boolean) => {
+const buildClassInventoryText = (group: EnumerationGroup) => {
+  const records = [...group.records.values()].sort((left, right) => left.name.localeCompare(right.name))
+  const documented = records.filter(record => record.inventoryRole === 'documented')
+  const referenced = records.filter(record => record.inventoryRole !== 'documented')
+  const documentedCount = group.documentedCount ?? documented.length
+  const referencedCount = group.referencedCount ?? referenced.length
+  const meta = {
+    workSummary: [
+      `${records.length} sınıf adı bulundu: ${documentedCount} tam belgelenmiş envanter kaydı, ${referencedCount} referans/bağımlılık kaydı.`,
+    ],
+    questions: [],
+    actionSummary: `${records.length} class inventory kaydı deterministik olarak ayrıştırıldı.`,
+  }
+  return [
+    `Kurumsal class envanteri kaynağında **${group.totalCount} sınıf adı** bulundu. Bunların **${documentedCount} tanesi tam belgelenmiş sınıf**, **${referencedCount} tanesi ise envanter dokümanında referans verilen/bağımlı sınıf**:`,
+    '',
+    `### Tam belgelenmiş sınıflar (${documentedCount})`,
+    ...documented.map(displayRecordLine),
+    '',
+    `### Referans verilen sınıflar (${referencedCount})`,
+    ...referenced.map(displayRecordLine),
+    '',
+    '<jetwork_meta>',
+    JSON.stringify(meta),
+    '</jetwork_meta>',
+  ].join('\n')
+}
+
+const buildGenericText = (group: EnumerationGroup, complete: boolean) => {
   const records = [...group.records.values()].sort((left, right) => left.canonicalKey.localeCompare(right.canonicalKey))
   const collectedCount = records.length
   const intro = complete
@@ -108,26 +150,34 @@ const buildText = (group: EnumerationGroup, complete: boolean) => {
   ].join('\n')
 }
 
+const buildText = (group: EnumerationGroup, complete: boolean) => (
+  group.toolName === 'list_class_inventory' && complete
+    ? buildClassInventoryText(group)
+    : buildGenericText(group, complete)
+)
+
 export const buildDeterministicEnumerationFinalization = (
   items: Array<Record<string, unknown>>,
   options: { allowPartial?: boolean } = {},
 ): DeterministicEnumerationFinalization | null => {
-  const calls = new Map<string, { filterKey: string }>()
+  const calls = new Map<string, { filterKey: string; toolName: string }>()
   const groups = new Map<string, EnumerationGroup>()
 
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index]
     const type = cleanString(item.type, 80)
-    if (type === 'function_call' && cleanString(item.name, 120) === 'list_knowledge_catalog') {
+    if (type === 'function_call') {
+      const toolName = cleanString(item.name, 120)
+      if (!['list_knowledge_catalog','list_class_inventory'].includes(toolName)) continue
       const args = parseJsonObject(item.arguments) || {}
-      calls.set(cleanString(item.call_id, 240), { filterKey: callFilterKey(args) })
+      calls.set(cleanString(item.call_id, 240), { filterKey: callFilterKey(toolName, args), toolName })
       continue
     }
     if (type !== 'function_call_output') continue
     const call = calls.get(cleanString(item.call_id, 240))
     if (!call) continue
     const payload = parseJsonObject(item.output)
-    if (!payload || cleanString(payload.tool, 120) !== 'list_knowledge_catalog') continue
+    if (!payload || cleanString(payload.tool, 120) !== call.toolName) continue
     const recordsPayload = payload.records && typeof payload.records === 'object' && !Array.isArray(payload.records)
       ? payload.records as Record<string, unknown>
       : null
@@ -137,6 +187,7 @@ export const buildDeterministicEnumerationFinalization = (
     if (!group) {
       group = {
         filterKey: call.filterKey,
+        toolName: call.toolName,
         records: new Map<string, EnumerationRecord>(),
         totalCount: 0,
         nextCursor: null,
@@ -155,6 +206,8 @@ export const buildDeterministicEnumerationFinalization = (
     group.nextCursor = cleanString(recordsPayload.nextCursor, 320) || null
     group.pageCount += 1
     group.lastSeenIndex = index
+    if (Number.isFinite(Number(recordsPayload.documentedCount))) group.documentedCount = Math.max(0, Number(recordsPayload.documentedCount))
+    if (Number.isFinite(Number(recordsPayload.referencedCount))) group.referencedCount = Math.max(0, Number(recordsPayload.referencedCount))
   }
 
   const candidates = [...groups.values()]
@@ -176,5 +229,6 @@ export const buildDeterministicEnumerationFinalization = (
     complete,
     nextCursor: group.nextCursor,
     filterKey: group.filterKey,
+    toolName: group.toolName,
   }
 }
