@@ -1,7 +1,7 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v2-cost-guard'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v3-auto-safe'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -52,19 +52,22 @@ export interface TrivialAssistantFastPathResult {
 }
 
 export const providerForTrivialFastPathModel = (model: string): TrivialFastPathProvider => (
-  GEMINI_FAST_PATH_MODELS.has(model) ? 'gemini' : 'openai'
+  model === 'auto' || GEMINI_FAST_PATH_MODELS.has(model) ? 'gemini' : 'openai'
 )
 
 export const executionModelForTrivialFastPathModel = (model: string): string => (
-  model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW
+  model === 'auto' || model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW
     ? TRIVIAL_GEMINI_LATENCY_MODEL
     : model
 )
 
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
   const model = cleanString(input.model, 80)
-  if (!model || model === 'auto' || input.attachmentCount > 0) return false
-  if (!GEMINI_FAST_PATH_MODELS.has(model) && !OPENAI_FAST_PATH_MODELS.has(model)) return false
+  if (!model) return false
+  if (model !== 'auto' && !GEMINI_FAST_PATH_MODELS.has(model) && !OPENAI_FAST_PATH_MODELS.has(model)) return false
+  // An exact greeting/thanks is context-free by definition. Stale attachment state
+  // must not force it through semantic orchestration; context-sensitive acknowledgements
+  // such as "tamam" remain blocked by the gateway before this helper is called.
   return TRIVIAL_CONVERSATION_PATTERN.test(normalizeConversationText(input.message))
 }
 
@@ -222,7 +225,16 @@ export async function requestTrivialAssistantResponse(input: {
 }): Promise<TrivialAssistantFastPathResult> {
   const provider = providerForTrivialFastPathModel(input.model)
   if (provider === 'gemini') {
-    if (!input.geminiApiKey) throw new Error('GEMINI_API_KEY is not configured for the selected model.')
+    if (!input.geminiApiKey) {
+      if (input.model === 'auto' && input.openAiApiKey) {
+        return requestOpenAiTrivialResponse({
+          apiKey: input.openAiApiKey,
+          model: 'gpt-5.6-sol',
+          message: input.message,
+        })
+      }
+      throw new Error('GEMINI_API_KEY is not configured for the selected model.')
+    }
     return requestGeminiTrivialResponse({
       apiKey: input.geminiApiKey,
       model: executionModelForTrivialFastPathModel(input.model),
