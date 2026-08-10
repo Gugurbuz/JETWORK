@@ -206,11 +206,13 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(providerSource).toContain("if ('content' in clean) clean.content = sanitizeContent(clean.content)");
   });
 
-  it('promotes substantive Flash Lite execution to Gemini Pro while leaving exact trivial fast path separate', () => {
-    expect(providerSource).toContain('GEMINI_SUBSTANTIVE_MODEL');
-    expect(gatewaySource).toContain('substantiveModel(requestedModel)');
+  it('keeps Flash-Lite as a real low-cost option and separates cheap agent decisions from final synthesis', () => {
+    expect(providerSource).toContain('GEMINI_AGENT_MODEL');
+    expect(providerSource).toContain('buildGeminiFinalSynthesisItems');
+    expect(providerSource).toContain('cost_guard_agent_calls');
     expect(settingsSource).toContain('normalizeSelectableModel');
-    expect(settingsSource).toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
+    expect(settingsSource).toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'");
+    expect(settingsSource).not.toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
   });
 
   it('requires exact evidence for exact Gemini SAP/CRM identifiers', () => {
