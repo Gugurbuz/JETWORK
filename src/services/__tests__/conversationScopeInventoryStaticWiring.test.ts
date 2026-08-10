@@ -23,6 +23,6 @@ describe('conversation scope inventory static wiring', () => {
     const guard = readFileSync(new URL('../../../supabase/functions/_shared/geminiCostGuard.ts', import.meta.url), 'utf8');
     expect(providers).toContain('compactAssistantConversationMemory');
     expect(providers).toContain('cleanProviderItemsForOpenAi');
-    expect(guard).toContain('compactAssistantConversationMemory(content, 1_200)');
+    expect(guard).toContain('compactAssistantConversationMemory(content, 1_000)');
   });
 });

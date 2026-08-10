@@ -24,6 +24,7 @@ import {
   totalUsageTokens,
   type ReasoningDebugRunDetail,
   type ReasoningDebugRunSummary,
+  type ReasoningUsageStage,
 } from '../services/reasoningObservability';
 
 interface ReasoningDebugModalProps {
@@ -62,6 +63,12 @@ const formatDate = (value?: string) => {
     : parsed.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'medium' });
 };
 
+const formatUsd = (value?: number) => {
+  if (!Number.isFinite(value)) return '—';
+  const amount = value as number;
+  return `$${amount.toFixed(amount < 0.01 ? 6 : 4)}`;
+};
+
 const JsonBlock = ({ value }: { value: unknown }) => (
   <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-theme-bg p-3 text-[11px] leading-relaxed text-theme-text-muted ring-1 ring-theme-border/50">
     {JSON.stringify(value ?? {}, null, 2)}
@@ -74,6 +81,22 @@ const Metric = ({ label, value, icon }: { label: string; value: React.ReactNode;
       {icon}{label}
     </div>
     <div className="text-sm font-semibold text-theme-text">{value}</div>
+  </div>
+);
+
+const UsageStageCard = ({ label, stage }: { label: string; stage: ReasoningUsageStage }) => (
+  <div className="rounded-xl border border-theme-border/60 bg-theme-surface p-3">
+    <div className="flex items-start justify-between gap-2">
+      <div className="text-xs font-semibold text-theme-text">{label}</div>
+      <span className="rounded-full bg-theme-surface-hover px-2 py-0.5 text-[10px] text-theme-text-muted">
+        {stage.calls ?? 0} çağrı
+      </span>
+    </div>
+    <div className="mt-2 text-lg font-semibold text-theme-text">{stage.totalTokens.toLocaleString('tr-TR')} token</div>
+    <div className="mt-1 text-xs font-medium text-theme-text-muted">{formatUsd(stage.estimatedCostUsd)}</div>
+    <div className="mt-2 text-[10px] leading-relaxed text-theme-text-muted">
+      input {stage.inputTokens.toLocaleString('tr-TR')} · output {stage.outputTokens.toLocaleString('tr-TR')} · reasoning {stage.reasoningTokens.toLocaleString('tr-TR')}
+    </div>
   </div>
 );
 
@@ -118,7 +141,7 @@ function RunListItem({
       <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-theme-text-muted">
         <span>{formatLatency(run.latencyMs)}</span>
         <span>{run.toolCallCount} tool</span>
-        <span>{tokenCount == null ? '— token' : `${tokenCount} token`}</span>
+        <span>{tokenCount == null ? '— runtime token' : `${tokenCount.toLocaleString('tr-TR')} runtime token`}</span>
       </div>
       <div className="mt-2 text-[10px] text-theme-text-muted">{formatDate(run.startedAt)}</div>
     </button>
@@ -134,6 +157,12 @@ function DetailView({ detail, loading }: { detail: ReasoningDebugRunDetail | nul
   }
 
   const tokenCount = totalUsageTokens(detail.usage);
+  const breakdown = detail.usageBreakdown;
+  const combinedTokens = breakdown?.combined.totalTokens ?? tokenCount;
+  const combinedCost = breakdown?.combined.estimatedCostUsd
+    ?? detail.usage.estimated_total_cost_usd
+    ?? detail.usage.estimated_cost_usd;
+
   return (
     <div className="h-full overflow-y-auto px-4 pb-8 pt-4 md:px-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -147,18 +176,49 @@ function DetailView({ detail, loading }: { detail: ReasoningDebugRunDetail | nul
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
         <Metric label="Provider / model" value={`${providerLabel(detail.provider, detail.responseModel)} · ${detail.responseModel || detail.selectedModel || '—'}`} icon={<ServerCog size={12} />} />
         <Metric label="Latency" value={formatLatency(detail.latencyMs)} icon={<Clock3 size={12} />} />
-        <Metric label="Token" value={tokenCount ?? '—'} icon={<Sparkles size={12} />} />
-        <Metric label="Tool calls" value={detail.toolCallCount} icon={<Wrench size={12} />} />
+        <Metric label="Combined token" value={combinedTokens == null ? '—' : combinedTokens.toLocaleString('tr-TR')} icon={<Sparkles size={12} />} />
+        <Metric label="Tahmini maliyet" value={formatUsd(combinedCost)} icon={<Sparkles size={12} />} />
       </div>
 
       <div className="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4">
         <Metric label="Knowledge" value={detail.knowledgeUsed ? 'Kullanıldı' : 'Kullanılmadı'} icon={<Database size={12} />} />
         <Metric label="Web" value={detail.webUsed ? 'Kullanıldı' : 'Kullanılmadı'} icon={<Globe2 size={12} />} />
+        <Metric label="Tool calls" value={detail.toolCallCount} icon={<Wrench size={12} />} />
         <Metric label="Fallback" value={detail.fallbackUsed ? 'Evet' : 'Hayır'} icon={<RefreshCw size={12} />} />
+      </div>
+
+      {breakdown && (
+        <section className="mb-6">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-theme-text"><Sparkles size={14} /> Token / maliyet kırılımı</div>
+            {(breakdown.runtime.deterministicKnowledgeDispatches || breakdown.runtime.providerCallsAvoided) ? (
+              <div className="text-[10px] text-theme-text-muted">
+                {breakdown.runtime.deterministicKnowledgeDispatches || 0} deterministik knowledge · {breakdown.runtime.providerCallsAvoided || 0} provider çağrısı önlendi
+              </div>
+            ) : null}
+          </div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <UsageStageCard label="Semantic planner" stage={breakdown.semanticPlanner} />
+            <UsageStageCard label="Agent kararları" stage={breakdown.agent} />
+            <UsageStageCard label="Final synthesis" stage={breakdown.finalSynthesis} />
+            <div className="rounded-xl border border-theme-primary/30 bg-theme-primary/5 p-3">
+              <div className="text-xs font-semibold text-theme-text">Combined</div>
+              <div className="mt-2 text-lg font-semibold text-theme-text">{breakdown.combined.totalTokens.toLocaleString('tr-TR')} token</div>
+              <div className="mt-1 text-xs font-medium text-theme-text-muted">{formatUsd(breakdown.combined.estimatedCostUsd)}</div>
+              <div className="mt-2 text-[10px] leading-relaxed text-theme-text-muted">
+                Planner + tüm runtime provider çağrılarının toplamı. Embedding maliyeti ayrıca provider telemetry’sinde izlenir.
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <div className="mb-6 grid grid-cols-1 gap-2 md:grid-cols-2">
         <Metric label="Artifact" value={detail.artifact ? `${detail.artifact.status}${detail.artifact.documentVersionNumber ? ` · v${detail.artifact.documentVersionNumber}` : ''}` : 'Yok'} icon={<BrainCircuit size={12} />} />
+        <Metric label="Runtime token" value={tokenCount == null ? '—' : tokenCount.toLocaleString('tr-TR')} icon={<Sparkles size={12} />} />
       </div>
 
       {detail.errorMessage && (
@@ -222,6 +282,7 @@ function DetailView({ detail, loading }: { detail: ReasoningDebugRunDetail | nul
           responseModel: detail.responseModel,
           provider: detail.provider,
           usage: detail.usage,
+          usageBreakdown: detail.usageBreakdown,
           startedAt: detail.startedAt,
           completedAt: detail.completedAt,
           artifact: detail.artifact,

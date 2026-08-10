@@ -60,6 +60,29 @@ export interface ReasoningArtifactDebug {
   lastTransitionAt?: string;
 }
 
+export interface ReasoningUsageStage {
+  calls?: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface ReasoningUsageBreakdown {
+  semanticPlanner: ReasoningUsageStage;
+  agent: ReasoningUsageStage;
+  finalSynthesis: ReasoningUsageStage;
+  runtime: ReasoningUsageStage & {
+    deterministicKnowledgeDispatches?: number;
+    providerCallsAvoided?: number;
+  };
+  combined: {
+    totalTokens: number;
+    estimatedCostUsd: number;
+  };
+}
+
 export interface ReasoningDebugRunDetail {
   runId: string;
   turnId: string;
@@ -78,6 +101,7 @@ export interface ReasoningDebugRunDetail {
   responseModel?: string;
   provider?: string;
   usage: Record<string, number>;
+  usageBreakdown?: ReasoningUsageBreakdown | null;
   latencyMs?: number;
   startedAt: string;
   completedAt?: string;
@@ -107,6 +131,8 @@ const asNumber = (value: unknown): number | undefined => {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
+
+const numberOrZero = (value: unknown): number => asNumber(value) || 0;
 
 const clean = (value: unknown): string | undefined => {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -187,6 +213,39 @@ function mapToolRun(row: Record<string, unknown>): ReasoningToolRun {
   };
 }
 
+const mapUsageStage = (value: unknown): ReasoningUsageStage => {
+  const row = asObject(value);
+  return {
+    calls: asNumber(row.calls),
+    inputTokens: numberOrZero(row.inputTokens),
+    outputTokens: numberOrZero(row.outputTokens),
+    reasoningTokens: numberOrZero(row.reasoningTokens),
+    totalTokens: numberOrZero(row.totalTokens),
+    estimatedCostUsd: numberOrZero(row.estimatedCostUsd),
+  };
+};
+
+const mapUsageBreakdown = (value: unknown): ReasoningUsageBreakdown | null => {
+  const row = asObject(value);
+  if (!Object.keys(row).length) return null;
+  const runtimeRaw = asObject(row.runtime);
+  const combinedRaw = asObject(row.combined);
+  return {
+    semanticPlanner: mapUsageStage(row.semanticPlanner),
+    agent: mapUsageStage(row.agent),
+    finalSynthesis: mapUsageStage(row.finalSynthesis),
+    runtime: {
+      ...mapUsageStage(runtimeRaw),
+      deterministicKnowledgeDispatches: asNumber(runtimeRaw.deterministicKnowledgeDispatches),
+      providerCallsAvoided: asNumber(runtimeRaw.providerCallsAvoided),
+    },
+    combined: {
+      totalTokens: numberOrZero(combinedRaw.totalTokens),
+      estimatedCostUsd: numberOrZero(combinedRaw.estimatedCostUsd),
+    },
+  };
+};
+
 function mapDetail(raw: unknown): ReasoningDebugRunDetail | null {
   const row = asObject(raw);
   if (!row.runId && !row.run_id) return null;
@@ -221,6 +280,7 @@ function mapDetail(raw: unknown): ReasoningDebugRunDetail | null {
     responseModel: clean(row.responseModel || row.response_model),
     provider: clean(row.provider),
     usage: numericUsage(row.usage),
+    usageBreakdown: null,
     latencyMs: asNumber(row.latencyMs || row.latency_ms),
     startedAt: String(row.startedAt || row.started_at || ''),
     completedAt: clean(row.completedAt || row.completed_at),
@@ -250,7 +310,13 @@ export async function loadReasoningDebugRuns(input: {
 }
 
 export async function loadReasoningDebugRun(runId: string): Promise<ReasoningDebugRunDetail | null> {
-  const { data, error } = await supabase.rpc('get_reasoning_debug_run', { p_run_id: runId });
-  if (error) throw error;
-  return mapDetail(data);
+  const [detailResult, breakdownResult] = await Promise.all([
+    supabase.rpc('get_reasoning_debug_run', { p_run_id: runId }),
+    supabase.rpc('get_reasoning_usage_breakdown', { p_run_id: runId }),
+  ]);
+  if (detailResult.error) throw detailResult.error;
+  if (breakdownResult.error) throw breakdownResult.error;
+  const detail = mapDetail(detailResult.data);
+  if (detail) detail.usageBreakdown = mapUsageBreakdown(breakdownResult.data);
+  return detail;
 }

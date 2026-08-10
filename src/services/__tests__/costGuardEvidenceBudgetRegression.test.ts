@@ -3,7 +3,7 @@ import { toolBudgetForPlan } from '../../../supabase/functions/_shared/geminiCos
 
 describe('Cost Guard evidence budget invariant', () => {
   it('never gives a zero tool budget to a short answer that requires corporate evidence', () => {
-    expect(toolBudgetForPlan({
+    const budget = toolBudgetForPlan({
       intent: 'simple_answer',
       complexity: 'medium',
       knowledgeRequired: true,
@@ -13,7 +13,9 @@ describe('Cost Guard evidence budget invariant', () => {
       goal: 'kts ne demek',
       evidenceQueries: [],
       steps: [],
-    } as any)).toBe(3);
+    } as any);
+    expect(budget).toBeGreaterThan(0);
+    expect(budget).toBe(1);
   });
 
   it('keeps genuinely evidence-free short answers at zero tools', () => {

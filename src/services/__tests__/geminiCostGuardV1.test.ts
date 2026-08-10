@@ -18,6 +18,10 @@ const semanticSource = readFileSync(
   new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
   'utf8',
 );
+const gatewaySource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url),
+  'utf8',
+);
 const settingsStoreSource = readFileSync(
   new URL('../../store/useSettingsStore.ts', import.meta.url),
   'utf8',
@@ -36,17 +40,21 @@ describe('Gemini Cost Guard v1', () => {
     expect(settingsStoreSource).toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'");
   });
 
-  it('applies intent-sensitive tool budgets instead of the legacy global 14-call ceiling', () => {
+  it('forces bounded knowledge turns out of the repeated model-agent loop', () => {
     const base = {
       complexity: 'medium',
       knowledgeRequired: true,
       webMode: 'none',
+      verificationRequired: false,
     } as any;
     expect(toolBudgetForPlan({ ...base, intent: 'sap_diagnosis' })).toBe(4);
-    expect(toolBudgetForPlan({ ...base, intent: 'analysis' })).toBe(4);
+    expect(toolBudgetForPlan({ ...base, intent: 'analysis' })).toBe(1);
     expect(toolBudgetForPlan({ ...base, intent: 'document' })).toBe(2);
     expect(toolBudgetForPlan({ ...base, complexity: 'high', intent: 'research' })).toBe(5);
     expect(toolBudgetForPlan({ ...base, intent: 'simple_answer', knowledgeRequired: false })).toBe(0);
+    expect(providerWrapperSource).toContain('deterministic_knowledge_dispatch');
+    expect(providerWrapperSource).toContain("toolName: 'search_knowledge_catalog'");
+    expect(providerWrapperSource).toContain("toolName: 'get_abap_source'");
     expect(providerWrapperSource).toContain('executedTools >= toolBudget');
     expect(providerWrapperSource).toContain('cost_guard_forced_synthesis');
   });
@@ -71,7 +79,7 @@ describe('Gemini Cost Guard v1', () => {
     const finalItems = buildGeminiFinalSynthesisItems(items, 'taslak');
     const finalPayload = JSON.stringify(finalItems);
     expect(finalPayload).toContain('[JETWORK_TOOL_EVIDENCE]');
-    expect(finalPayload.length).toBeLessThan(32_000);
+    expect(finalPayload.length).toBeLessThan(24_000);
   });
 
   it('records a conservative Gemini cost estimate in usage metadata', () => {
@@ -84,19 +92,35 @@ describe('Gemini Cost Guard v1', () => {
     expect(usage?.estimated_cost_usd).toBeCloseTo(0.0055, 6);
   });
 
+  it('records agent and final usage separately for cost observability', () => {
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_input_tokens');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_output_tokens');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_reasoning_tokens');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_estimated_cost_usd');
+    expect(providerWrapperSource).toContain("stage: 'agent' | 'final'");
+  });
+
   it('keeps strong synthesis separate from cheap agent calls', () => {
     expect(providerWrapperSource).toContain('model: GEMINI_AGENT_MODEL');
     expect(providerWrapperSource).toContain('buildGeminiFinalSynthesisItems');
     expect(providerWrapperSource).toContain('cost_guard_agent_calls');
     expect(providerWrapperSource).toContain('cost_guard_final_calls');
-    expect(providerWrapperSource).toContain('maxOutputTokens: Math.min(input.maxOutputTokens, 1_200)');
+    expect(providerWrapperSource).toContain('maxOutputTokens: Math.min(input.maxOutputTokens, 900)');
+  });
+
+  it('keeps Auto on the fallback provider instead of retrying the failed provider in core', () => {
+    expect(gatewaySource).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'");
+    expect(gatewaySource).toContain('preferGeminiAuto');
+    expect(gatewaySource).toContain('AUTO_PROVIDER_CIRCUIT_BREAKER_MS');
+    expect(gatewaySource).toContain("requestedModel === 'auto' && semantic.provider === 'gemini'");
+    expect(gatewaySource).toContain('? DEFAULT_GEMINI_RUNTIME_MODEL');
   });
 
   it('moves semantic orchestration to stable Flash-Lite with minimal thinking and a small output budget', () => {
     expect(semanticSource).toContain("GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost");
-    expect(semanticSource).toContain("maxOutputTokens: 1_200");
+    expect(semanticSource).toContain('maxOutputTokens: 1_200');
     expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'minimal' }");
-    expect(semanticSource).toContain("SEMANTIC_RETRY_DELAYS_MS = [250]");
+    expect(semanticSource).toContain('SEMANTIC_RETRY_DELAYS_MS = [250]');
   });
 
   it('never runs the paid production continuity canary automatically', () => {
