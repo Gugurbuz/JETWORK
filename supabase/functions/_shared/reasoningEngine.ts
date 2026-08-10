@@ -97,6 +97,12 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
   if (!['low','medium','high'].includes(complexity)) return null
   if (!['none','required','if_internal_insufficient'].includes(webMode)) return null
   const executionMode = String(raw.executionMode || '') as ReasoningExecutionMode
+  const knowledgeRequired = raw.knowledgeRequired === true
+  const evidenceRequiredSimpleAnswer = knowledgeRequired && intent === 'simple_answer'
+  const normalizedIntent: ReasoningIntent = evidenceRequiredSimpleAnswer ? 'analysis' : intent
+  const normalizedExecutionMode: ReasoningExecutionMode | undefined = evidenceRequiredSimpleAnswer
+    ? 'knowledge'
+    : (['direct','knowledge','research','artifact','decision','project'].includes(executionMode) ? executionMode : undefined)
   const stateRaw = raw.conversationState && typeof raw.conversationState === 'object'
     ? raw.conversationState as Record<string, unknown>
     : undefined
@@ -131,18 +137,16 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
       }).slice(0, 8)
     : []
   return {
-    intent,
+    intent: normalizedIntent,
     complexity,
     goal: String(raw.goal || '').trim().slice(0, 1_000) || 'Kullanıcı talebini bağlamı koruyarak doğru yanıtla.',
-    knowledgeRequired: raw.knowledgeRequired === true,
+    knowledgeRequired,
     webMode,
     verificationRequired: raw.verificationRequired === true,
     creativeMode: raw.creativeMode === true,
     evidenceQueries: cleanStringArray(raw.evidenceQueries, 5, 400),
     steps,
-    executionMode: ['direct','knowledge','research','artifact','decision','project'].includes(executionMode)
-      ? executionMode
-      : undefined,
+    executionMode: normalizedExecutionMode,
     conversationState,
     enumerationTarget: normalizeEnumerationTarget(raw.enumerationTarget),
     orchestratorVersion: String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80),
