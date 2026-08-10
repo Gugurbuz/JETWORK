@@ -47,12 +47,18 @@ const knowledgePlan: ReasoningPlan = {
   },
 };
 
+const normalizeAnchor = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
+
 describe('long-chat context/evidence memory v1', () => {
   it('never drops an IYS identifier anchor while expanding a mixed enterprise query', () => {
     const variants = expandKnowledgeSearchQueries('IYS entegrasyonu');
     expect(variants.length).toBeGreaterThan(0);
     for (const variant of variants) {
-      expect(variant.toLocaleLowerCase('tr-TR').split(/\s+/)).toContain('iys');
+      expect(normalizeAnchor(variant).split(/\s+/)).toContain('iys');
     }
     expect(variants).not.toContain('entegrasyonu');
   });
