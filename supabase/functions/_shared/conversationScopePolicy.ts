@@ -13,7 +13,7 @@ const normalize = (value: string) => value
 
 const objectTypeFromMessage = (message: string) => {
   const text = normalize(message)
-  if (/\b(class|classes|sinif|siniflar|klas|klaslar)\b/.test(text)) return 'class'
+  if (/\b(class|classlar|classes|sinif|siniflar|klas|klaslar)\b/.test(text)) return 'class'
   if (/\b(method|methods|metot|metotlar)\b/.test(text)) return 'method'
   if (/\b(function|functions|fonksiyon|fonksiyonlar)\b/.test(text)) return 'function'
   if (/\b(message|messages|mesaj|mesajlar|hata|hatalar)\b/.test(text)) return 'message'
