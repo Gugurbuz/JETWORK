@@ -1,4 +1,4 @@
-﻿import { parse as parsePartialJson } from 'partial-json';
+import { parse as parsePartialJson } from 'partial-json';
 import { DocumentData, KnowledgeItem, Message, Question } from '../types';
 import { callGemini, callAiWithRetry } from './geminiService';
 import { runBaAgentLoop, AgentPhase } from './baAgentLoop';
