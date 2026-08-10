@@ -1,13 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="tr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JetWork</title>
+    <style>
+      /* Provider/model telemetry is operational metadata, not chat content.
+         Keep historical rows with previously persisted provider values clean too. */
+      .chat-scroll-container [title="openai"],
+      .chat-scroll-container [title="gemini"],
+      .chat-scroll-container [title^="gpt-"],
+      .chat-scroll-container [title^="gemini-"] {
+        display: none !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
