@@ -3,6 +3,7 @@ import {
   SEMANTIC_PLAN_START,
   routeReasoningRequest,
   routingSurfaceFromMessage,
+  type AssistantPromptProfile,
   type ConversationSemanticState,
   type ReasoningExecutionMode,
   type ReasoningIntent,
@@ -14,9 +15,8 @@ import { GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost } from './geminiCos
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const SEMANTIC_RETRY_DELAYS_MS = [250] as const
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.2-cost-guard'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.3-resolved-context'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
-const AGENT_LOOP_MARKER = '[JETWORK_AGENT_LOOP]'
 
 export interface SemanticContextMessage {
   role: 'user' | 'assistant'
@@ -34,6 +34,10 @@ export interface PriorExecutionContext {
   provider?: string
   artifactStatus?: string
   artifactOperation?: string
+  resolvedRequest?: string
+  activeEntities?: string[]
+  requestedEvidence?: string[]
+  verifiedFactRefs?: string[]
 }
 
 export interface SemanticOrchestrationResult {
@@ -68,6 +72,7 @@ const planSchema = {
     verificationRequired: { type: 'boolean' },
     creativeMode: { type: 'boolean' },
     evidenceQueries: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+    promptProfile: { type: 'string', enum: ['base','knowledge','research','document','artifact'] },
     steps: {
       type: 'array', maxItems: 8,
       items: {
@@ -90,39 +95,53 @@ const planSchema = {
         userMove: { type: 'string', enum: ['new_request','follow_up','correction','rejection','confirmation','clarification','topic_shift'] },
         priorIntent: { type: 'string', enum: ['none','simple_answer','sap_diagnosis','research','analysis','document','decision','project'] },
         rejectedHypotheses: { type: 'array', items: { type: 'string' }, maxItems: 6 },
-        retainedContext: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+        retainedContext: { type: 'array', items: { type: 'string' }, maxItems: 6 },
         openQuestions: { type: 'array', items: { type: 'string' }, maxItems: 6 },
+        resolvedRequest: { type: 'string' },
+        activeEntities: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+        requestedEvidence: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+        userDecisions: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+        verifiedFactRefs: { type: 'array', items: { type: 'string' }, maxItems: 12 },
       },
-      required: ['continuation','topic','userMove','priorIntent','rejectedHypotheses','retainedContext','openQuestions'],
+      required: [
+        'continuation','topic','userMove','priorIntent','rejectedHypotheses','retainedContext','openQuestions',
+        'resolvedRequest','activeEntities','requestedEvidence','userDecisions','verifiedFactRefs',
+      ],
       additionalProperties: false,
     },
     orchestratorVersion: { type: 'string' },
   },
   required: [
     'intent','complexity','executionMode','goal','knowledgeRequired','webMode','verificationRequired',
-    'creativeMode','evidenceQueries','steps','conversationState','orchestratorVersion',
+    'creativeMode','evidenceQueries','promptProfile','steps','conversationState','orchestratorVersion',
   ],
   additionalProperties: false,
 } as const
 
 const instructions = [
-  'You are the JetWork Semantic Orchestrator. You do not answer the user. You choose capabilities and execution policy for the selected answer model.',
-  'Understand the CURRENT USER MESSAGE in the context of RECENT CONVERSATION and PRIOR EXECUTION metadata.',
-  'Conversation continuity is semantic. Resolve ellipsis, pronouns, corrections, rejections, confirmations and implicit references from context. Never depend on exact keywords, suffixes, regex-like matching or a fixed list of follow-up phrases.',
-  'If the current turn continues an unresolved enterprise or technical task, preserve the prior task intent even when the user does not repeat any domain nouns.',
-  'If the user corrects or rejects the previous assistant hypothesis during technical diagnosis, preserve diagnosis intent, record the rejected hypothesis, and keep corporate knowledge capability available so the answer model can investigate alternatives.',
-  'PRIOR EXECUTION metadata is authoritative about what JetWork actually did on the previous turn. Previous assistant prose is conversational context only and is never evidence.',
-  'Corporate technical facts require JetWork knowledge evidence. Set knowledgeRequired=true for internal SAP/CRM/C4C/IS-U/FICA/Billing/Jira/product/process facts, exact technical identifiers, internal business rules, or continuations of such tasks.',
-  'Set simple_answer/direct only when the current request is genuinely self-contained and does not continue an unresolved enterprise, technical, document, decision or project task.',
-  'Set webMode=required when the current request needs live/current public information or the user explicitly requires external web verification. Set webMode=if_internal_insufficient when public web may be useful only if internal/contextual evidence is insufficient. Otherwise use none.',
-  'Choose capabilities, not a rigid research script. Do not prescribe search -> detail -> relations as a mandatory sequence; the answer model will observe tool results and decide its next action inside bounded runtime limits.',
-  'Evidence queries and steps are hints only. Keep them compact and do not encode hidden chain-of-thought.',
-  'Set document/artifact only when the user is actually asking to create or revise an artifact. Incidental action verbs inside a technical sentence are not document commands.',
-  'For design/decision work, use decision mode when alternatives should be evaluated.',
-  'Produce a compact execution plan. No hidden chain-of-thought and no final user answer.',
+  'You are the JetWork Semantic Orchestrator. You do not answer the user; you resolve the task and choose capabilities.',
+  'Resolve the CURRENT USER MESSAGE using RECENT CONVERSATION and PRIOR EXECUTION metadata.',
+  'For follow-ups such as "tam kod ver", "hata mesajı nedir", "onu göster", corrections and pronouns, produce a self-contained conversationState.resolvedRequest that explicitly carries the active topic/entity from prior USER messages or verifiedFactRefs.',
+  'Never promote previous assistant prose into a verified fact. Previous assistant text may indicate conversational topic only; it is not evidence and must not invent activeEntities.',
+  'activeEntities must contain literal/canonical enterprise identifiers that are explicit in user messages, verifiedFactRefs, or authoritative prior execution metadata. Never invent acronym expansions.',
+  'requestedEvidence describes what proof is requested, for example message_text, trigger_rule, abap_source, document_content, definition, process_rule, comparison or decision.',
+  'userDecisions contains only explicit user answers/decisions that may safely carry into an artifact or later turn. Do not put model assumptions there.',
+  'Corporate technical facts require JetWork knowledge evidence. Set knowledgeRequired=true for internal SAP/CRM/C4C/IS-U/FICA/Billing/Jira/product/process facts, exact technical identifiers and continuations of those tasks.',
+  'Evidence queries must search the resolved request/entity, not the raw elliptical message. Keep them compact.',
+  'Set simple_answer/direct only for genuinely self-contained non-enterprise turns.',
+  'Set webMode=required for explicitly live/current public verification; if_internal_insufficient only when external verification may be needed after internal evidence.',
+  'Set document/artifact only when the user is creating/revising an artifact. Incidental words like analyze or create inside a technical statement are not artifact commands.',
+  'Keep goal concise. Never append agent-loop policy, tool instructions or hidden chain-of-thought to goal.',
+  'Produce a compact structured execution plan; no final user answer.',
 ].join('\n')
 
 const cleanText = (value: unknown, max = 4_000) => String(value || '').trim().slice(0, max)
+const cleanArray = (value: unknown, limit: number, maxLength: number) => (
+  Array.isArray(value)
+    ? value.map(item => cleanText(item, maxLength)).filter(Boolean).slice(0, limit)
+    : []
+)
+const unique = (values: string[]) => [...new Set(values.map(item => item.trim()).filter(Boolean))]
 
 const normalizeFallbackText = (value: string) => value
   .toLocaleLowerCase('tr-TR')
@@ -135,6 +154,17 @@ const normalizeFallbackText = (value: string) => value
 
 const FALLBACK_REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
 const FALLBACK_CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
+const TECHNICAL_ENTITY_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]+)*|CHECK_[A-Z0-9_]+|NINJA_[A-Z0-9_]+|[A-Z][A-Z0-9_]{2,}-\d{2,4})\b/g
+const MESSAGE_CODE_PATTERN = /\b([A-Z][A-Z0-9_]{2,})\s*[- ]\s*(\d{2,4})\b/g
+
+const canonicalizeEntity = (value: string) => value.trim().replace(/\s+/g, '').replace(/_?-(?=\d+$)/, '-').toUpperCase()
+
+const extractTechnicalEntities = (text: string): string[] => {
+  const values: string[] = []
+  for (const match of text.toUpperCase().matchAll(TECHNICAL_ENTITY_PATTERN)) values.push(canonicalizeEntity(match[0]))
+  for (const match of text.toUpperCase().matchAll(MESSAGE_CODE_PATTERN)) values.push(`${match[1]}-${match[2]}`)
+  return unique(values).slice(0, 10)
+}
 
 const fallbackUserMove = (message: string, continuation: boolean): ConversationSemanticState['userMove'] => {
   const normalized = normalizeFallbackText(message)
@@ -143,12 +173,83 @@ const fallbackUserMove = (message: string, continuation: boolean): ConversationS
   return continuation ? 'follow_up' : 'new_request'
 }
 
-const hypothesisExcerpt = (value: string) => cleanText(value.replace(/\s+/g, ' '), 320)
+const requestedEvidenceFor = (message: string): string[] => {
+  const normalized = normalizeFallbackText(message)
+  const evidence: string[] = []
+  if (/\b(?:kod|source|kaynak kod|abap|implementasyon|metot|method|fonksiyon)\b/.test(normalized)) evidence.push('abap_source')
+  if (/\b(?:hata mesaji|mesaj metni|message text|mesaji nedir)\b/.test(normalized)) evidence.push('message_text')
+  if (/\b(?:hangi kosul|kosulda|tetik|neden|ne zaman)\b/.test(normalized)) evidence.push('trigger_rule')
+  if (/\b(?:dokuman|belge|icerik)\b/.test(normalized)) evidence.push('document_content')
+  if (/\b(?:ne demek|nedir|acilimi|tanimi)\b/.test(normalized)) evidence.push('definition')
+  if (/\b(?:karsilastir|alternatif|hangisi|karar)\b/.test(normalized)) evidence.push('comparison')
+  return unique(evidence.length ? evidence : ['relevant_evidence'])
+}
 
-const collectFallbackRejectedHypotheses = (
-  conversation: SemanticContextMessage[],
-  currentMessage: string,
-): string[] => {
+const explicitUserDecisions = (messages: SemanticContextMessage[], currentMessage: string): string[] => {
+  const candidates = [...messages.filter(item => item.role === 'user').slice(-4).map(item => item.content), currentMessage]
+  const decisions: string[] = []
+  for (const candidate of candidates) {
+    for (const line of candidate.split(/\r?\n/)) {
+      const clean = cleanText(line, 500)
+      if (!clean) continue
+      if (/^(?:\*\*)?(?:cevap|karar|kabul|seçim|secim)(?:\*\*)?\s*:/iu.test(clean)) decisions.push(clean)
+    }
+  }
+  return unique(decisions).slice(-10)
+}
+
+const lastSubstantiveUser = (messages: SemanticContextMessage[]) => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'user' && messages[index].content.trim()) return messages[index].content.trim()
+  }
+  return ''
+}
+
+const lastAssistant = (messages: SemanticContextMessage[]) => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'assistant' && messages[index].content.trim()) return messages[index].content.trim()
+  }
+  return ''
+}
+
+const fallbackTopic = (conversation: SemanticContextMessage[], currentMessage: string) => {
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    const item = conversation[index]
+    if (item.role !== 'user' || !item.content.trim()) continue
+    if (fallbackUserMove(item.content, true) === 'rejection') continue
+    const route = routeReasoningRequest(item.content)
+    if (route.intent !== 'simple_answer' || route.knowledgeRequired || route.webMode !== 'none') return cleanText(item.content, 500)
+  }
+  return cleanText(currentMessage, 500)
+}
+
+const priorUserEntities = (conversation: SemanticContextMessage[]) => unique(
+  conversation.filter(item => item.role === 'user').slice(-6).flatMap(item => extractTechnicalEntities(item.content)),
+).slice(-10)
+
+const resolveRequest = (input: {
+  currentMessage: string
+  continuation: boolean
+  activeEntities: string[]
+  requestedEvidence: string[]
+  topic: string
+  priorResolved?: string
+}) => {
+  const current = cleanText(input.currentMessage, 700)
+  if (!input.continuation) return current
+  const currentEntities = extractTechnicalEntities(current)
+  if (currentEntities.length) return current
+  const entity = input.activeEntities[0]
+  if (!entity) return cleanText(`${input.topic}: ${current}`, 900)
+  const requested = input.requestedEvidence[0]
+  if (requested === 'abap_source') return `${entity} için istenen ABAP kaynak/implementasyon kodunu getir: ${current}`
+  if (requested === 'message_text') return `${entity} için doğrulanmış exact hata mesajı metnini getir: ${current}`
+  if (requested === 'trigger_rule') return `${entity} için doğrulanmış tetiklenme koşulunu getir: ${current}`
+  return `${entity} bağlamında ${current}`
+}
+
+const hypothesisExcerpt = (value: string) => cleanText(value.replace(/\s+/g, ' '), 320)
+const collectFallbackRejectedHypotheses = (conversation: SemanticContextMessage[], currentMessage: string): string[] => {
   const rejected: string[] = []
   let candidateAssistant = ''
   for (const item of conversation) {
@@ -169,19 +270,6 @@ const collectFallbackRejectedHypotheses = (
   return rejected.slice(-6)
 }
 
-const fallbackTopic = (conversation: SemanticContextMessage[], currentMessage: string) => {
-  for (let index = conversation.length - 1; index >= 0; index -= 1) {
-    const item = conversation[index]
-    if (item.role !== 'user' || !item.content.trim()) continue
-    if (fallbackUserMove(item.content, true) === 'rejection') continue
-    const route = routeReasoningRequest(item.content)
-    if (route.intent !== 'simple_answer' || route.knowledgeRequired || route.webMode !== 'none') {
-      return cleanText(item.content, 500)
-    }
-  }
-  return cleanText(currentMessage, 500)
-}
-
 const executionModeForIntent = (
   intent: ReasoningIntent,
   knowledgeRequired: boolean,
@@ -195,33 +283,33 @@ const executionModeForIntent = (
   return 'direct'
 }
 
+const promptProfileFor = (
+  intent: ReasoningIntent,
+  executionMode: ReasoningExecutionMode,
+  knowledgeRequired: boolean,
+  webMode: ReasoningPlan['webMode'],
+): AssistantPromptProfile => {
+  if (executionMode === 'artifact') return 'artifact'
+  if (intent === 'document') return 'document'
+  if (webMode !== 'none' || intent === 'research') return 'research'
+  if (knowledgeRequired || ['analysis','sap_diagnosis'].includes(intent)) return 'knowledge'
+  return 'base'
+}
+
 export const compactSemanticConversation = (messages: SemanticContextMessage[]) => {
-  const recent = messages.slice(-10)
+  const recent = messages.slice(-8)
   const compact: SemanticContextMessage[] = []
   let characters = 0
   for (let index = recent.length - 1; index >= 0; index -= 1) {
     const item = recent[index]
-    const content = cleanText(item.content, 2_500)
+    const max = item.role === 'assistant' ? 900 : 1_600
+    const content = cleanText(item.content, max)
     if (!content) continue
-    if (characters + content.length > 14_000) break
+    if (characters + content.length > 8_000) break
     compact.unshift({ role: item.role, content })
     characters += content.length
   }
   return compact
-}
-
-const lastSubstantiveUser = (messages: SemanticContextMessage[]) => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'user' && messages[index].content.trim()) return messages[index].content.trim()
-  }
-  return ''
-}
-
-const lastAssistant = (messages: SemanticContextMessage[]) => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'assistant' && messages[index].content.trim()) return messages[index].content.trim()
-  }
-  return ''
 }
 
 const fallbackPlan = (
@@ -244,17 +332,30 @@ const fallbackPlan = (
     || activePriorIntent === 'analysis'
     || priorExecution?.knowledgeUsed === true
   )
-  const intent: ReasoningIntent = preserveKnowledgeTask && activePriorIntent !== 'none'
-    ? activePriorIntent
-    : currentRoute.intent
+  const intent: ReasoningIntent = preserveKnowledgeTask && activePriorIntent !== 'none' ? activePriorIntent : currentRoute.intent
   const knowledgeRequired = preserveKnowledgeTask || currentRoute.knowledgeRequired || userMove === 'rejection' || userMove === 'correction'
   const webMode = currentRoute.webMode
   const topic = fallbackTopic(conversation, currentMessage)
-  const evidenceQueries = [topic, previousUser, currentMessage].map(item => cleanText(item, 350)).filter(Boolean)
+  const currentEntities = extractTechnicalEntities(currentMessage)
+  const activeEntities = unique([
+    ...currentEntities,
+    ...(priorExecution?.activeEntities || []),
+    ...(priorExecution?.verifiedFactRefs || []),
+    ...priorUserEntities(conversation),
+  ]).slice(0, 10)
+  const requestedEvidence = requestedEvidenceFor(currentMessage)
+  const resolvedRequest = resolveRequest({
+    currentMessage,
+    continuation,
+    activeEntities,
+    requestedEvidence,
+    topic,
+    priorResolved: priorExecution?.resolvedRequest,
+  })
   const rejectedHypotheses = collectFallbackRejectedHypotheses(conversation, currentMessage)
   const retainedContext = conversation
-    .slice(-6)
-    .map(item => cleanText(`${item.role}: ${item.content}`, 700))
+    .slice(-4)
+    .map(item => cleanText(`${item.role}: ${item.content}`, 420))
     .filter(Boolean)
   const state: ConversationSemanticState = {
     continuation,
@@ -264,29 +365,38 @@ const fallbackPlan = (
     rejectedHypotheses,
     retainedContext: [
       ...retainedContext,
-      ...(previousAssistant && !retainedContext.some(item => item.includes(previousAssistant.slice(0, 80)))
-        ? [cleanText(`assistant: ${previousAssistant}`, 700)]
+      ...(previousAssistant && !retainedContext.some(item => item.includes(previousAssistant.slice(0, 60)))
+        ? [cleanText(`assistant-topic-only: ${previousAssistant}`, 320)]
         : []),
-    ].slice(-8),
+    ].slice(-5),
     openQuestions: [],
+    resolvedRequest,
+    activeEntities,
+    requestedEvidence,
+    userDecisions: explicitUserDecisions(conversation, currentMessage),
+    verifiedFactRefs: unique(priorExecution?.verifiedFactRefs || []).slice(0, 12),
   }
+  const executionMode = executionModeForIntent(intent, knowledgeRequired, webMode)
+  const evidenceQueries = knowledgeRequired
+    ? unique([resolvedRequest, ...activeEntities].map(item => cleanText(item, 350))).slice(0, 3)
+    : []
   return {
     intent,
     complexity: currentRoute.complexity === 'high' || priorExecution?.complexity === 'high' ? 'high' : 'medium',
-    executionMode: executionModeForIntent(intent, knowledgeRequired, webMode),
-    goal: cleanText(currentMessage, 800) || 'Kullanıcı talebini mevcut konuşma bağlamıyla güvenli biçimde yanıtla.',
+    executionMode,
+    goal: resolvedRequest || cleanText(currentMessage, 800),
     knowledgeRequired,
     webMode,
-    verificationRequired: knowledgeRequired || currentRoute.verificationRequired,
+    verificationRequired: currentRoute.verificationRequired || intent === 'sap_diagnosis',
     creativeMode: currentRoute.creativeMode,
-    evidenceQueries: [...new Set(evidenceQueries)].slice(0, 3),
+    evidenceQueries,
     steps: [
-      { id: 'evidence-internal', label: 'Kurumsal bağlamı ve ilgili kanıtı ara', toolHint: 'knowledge', successCriteria: 'Yanıt için kurumsal kanıt bulunur veya eksik olduğu doğrulanır.' },
-      { id: 'verify', label: 'Kanıt yeterliliğini doğrula', toolHint: 'verification', successCriteria: 'Kanıt ve belirsizlik ayrıştırılır.' },
-      { id: 'synthesize', label: 'Bağlama uygun yanıtı üret', toolHint: 'synthesis', successCriteria: 'Yanıt önceki konuşmayla tutarlı ve kanıta dayalıdır.' },
+      ...(knowledgeRequired ? [{ id: 'evidence-internal', label: 'Çözümlenmiş talep için kurumsal kanıtı getir', toolHint: 'knowledge' as const, successCriteria: 'Aktif entity/talebi destekleyen doğrulanmış kanıt bulunur veya eksik olduğu belirlenir.' }] : []),
+      { id: 'synthesize', label: 'Kanıt ve konuşma bağlamıyla yanıtı üret', toolHint: 'synthesis', successCriteria: 'Yanıt resolvedRequest ile uyumludur ve kanıtsız teknik gerçek üretmez.' },
     ],
     conversationState: state,
     orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-safe-fallback`,
+    promptProfile: promptProfileFor(intent, executionMode, knowledgeRequired, webMode),
   }
 }
 
@@ -295,44 +405,66 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
   const modes: ReasoningExecutionMode[] = ['direct','knowledge','research','artifact','decision','project']
   const intent = intents.includes(value.intent) ? value.intent : fallback.intent
   const executionMode = value.executionMode && modes.includes(value.executionMode) ? value.executionMode : fallback.executionMode
-  const evidenceQueries = [...new Set((value.evidenceQueries || []).map(query => cleanText(query, 400)).filter(Boolean))].slice(0, 5)
-  const proposedState = value.conversationState && typeof value.conversationState === 'object'
-    ? value.conversationState
-    : fallback.conversationState
-  const fallbackRejectedHypotheses = fallback.conversationState?.rejectedHypotheses || []
-  const state: ConversationSemanticState | undefined = proposedState
-    ? {
-        ...proposedState,
-        rejectedHypotheses: [...new Set([
-          ...fallbackRejectedHypotheses,
-          ...(proposedState.rejectedHypotheses || []),
-        ])].slice(-6),
-      }
-    : fallback.conversationState
+  const proposedState = value.conversationState && typeof value.conversationState === 'object' ? value.conversationState : fallback.conversationState
+  const fallbackState = fallback.conversationState
+  const continuation = proposedState?.continuation === true || fallbackState?.continuation === true
+  const modelEntities = cleanArray(proposedState?.activeEntities, 10, 180)
+  const activeEntities = unique([
+    ...modelEntities,
+    ...(fallbackState?.activeEntities || []),
+    ...(fallbackState?.verifiedFactRefs || []),
+  ]).slice(0, 10)
+  const requestedEvidence = unique([
+    ...cleanArray(proposedState?.requestedEvidence, 8, 120),
+    ...(fallbackState?.requestedEvidence || []),
+  ]).slice(0, 8)
+  const modelResolved = cleanText(proposedState?.resolvedRequest, 900)
+  const fallbackResolved = cleanText(fallbackState?.resolvedRequest, 900)
+  const resolvedRequest = continuation && activeEntities.length && !activeEntities.some(entity => modelResolved.toUpperCase().includes(entity.toUpperCase()))
+    ? fallbackResolved || modelResolved
+    : modelResolved || fallbackResolved
+  const state: ConversationSemanticState | undefined = proposedState ? {
+    ...proposedState,
+    continuation,
+    topic: cleanText(proposedState.topic || fallbackState?.topic, 500),
+    rejectedHypotheses: unique([...(fallbackState?.rejectedHypotheses || []), ...(proposedState.rejectedHypotheses || [])]).slice(-6),
+    rejectedScopes: unique([...(fallbackState?.rejectedScopes || []), ...(proposedState.rejectedScopes || [])]).slice(-6),
+    retainedContext: cleanArray(proposedState.retainedContext?.length ? proposedState.retainedContext : fallbackState?.retainedContext, 6, 500),
+    openQuestions: cleanArray(proposedState.openQuestions, 6, 500),
+    resolvedRequest,
+    activeEntities,
+    requestedEvidence,
+    userDecisions: unique([...(fallbackState?.userDecisions || []), ...cleanArray(proposedState.userDecisions, 10, 500)]).slice(-10),
+    verifiedFactRefs: unique([...(fallbackState?.verifiedFactRefs || []), ...cleanArray(proposedState.verifiedFactRefs, 12, 320)]).slice(0, 12),
+  } : fallbackState
+  const normalizedExecutionMode = executionMode || executionModeForIntent(intent, Boolean(value.knowledgeRequired), value.webMode)
+  const profile = String(value.promptProfile || '') as AssistantPromptProfile
+  const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
+    ? profile
+    : promptProfileFor(intent, normalizedExecutionMode, Boolean(value.knowledgeRequired), value.webMode)
+  const evidenceQueries = unique([
+    ...cleanArray(value.evidenceQueries, 5, 400),
+    ...(state?.resolvedRequest ? [state.resolvedRequest] : []),
+  ]).slice(0, 5)
   const plan: ReasoningPlan = {
     ...fallback,
     ...value,
     intent,
-    executionMode,
-    goal: cleanText(value.goal, 1_000) || fallback.goal,
+    executionMode: normalizedExecutionMode,
+    goal: cleanText(state?.resolvedRequest || value.goal || fallback.goal, 1_000),
     evidenceQueries,
     steps: Array.isArray(value.steps) ? value.steps.slice(0, 8) : fallback.steps,
     conversationState: state,
     orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+    promptProfile,
   }
-  if (plan.knowledgeRequired && !plan.evidenceQueries.length) {
-    plan.evidenceQueries = fallback.evidenceQueries.length ? fallback.evidenceQueries : [fallback.goal.slice(0, 300)]
-  }
-  if (
-    plan.intent === 'sap_diagnosis'
-    || plan.conversationState?.userMove === 'rejection'
-    || plan.conversationState?.userMove === 'correction'
-  ) {
+  if (plan.knowledgeRequired && !plan.evidenceQueries.length && state?.resolvedRequest) plan.evidenceQueries = [state.resolvedRequest]
+  if (plan.intent === 'sap_diagnosis' || state?.userMove === 'rejection' || state?.userMove === 'correction') {
     plan.knowledgeRequired = true
     plan.verificationRequired = true
     if (plan.complexity === 'low') plan.complexity = 'medium'
   }
-  if (plan.conversationState?.continuation && plan.conversationState.priorIntent === 'sap_diagnosis') {
+  if (state?.continuation && state.priorIntent === 'sap_diagnosis') {
     plan.intent = 'sap_diagnosis'
     plan.executionMode = 'knowledge'
     plan.knowledgeRequired = true
@@ -342,78 +474,58 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
   return plan
 }
 
-const hasAgentLoopDirective = (goal: string) => goal.includes(AGENT_LOOP_MARKER)
+const boundedKnowledgePlan = (plan: ReasoningPlan) => Boolean(
+  plan.knowledgeRequired
+  && plan.webMode === 'none'
+  && plan.verificationRequired !== true
+  && plan.complexity !== 'high'
+  && ['simple_answer','analysis'].includes(plan.intent)
+)
 
-export const applyAgentLoopPolicy = (
-  inputPlan: ReasoningPlan,
-  provider: AssistantProvider,
-): ReasoningPlan => {
+export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: AssistantProvider): ReasoningPlan => {
   const plan: ReasoningPlan = {
     ...inputPlan,
     evidenceQueries: [...(inputPlan.evidenceQueries || [])],
     steps: [...(inputPlan.steps || [])],
-    conversationState: inputPlan.conversationState
-      ? { ...inputPlan.conversationState }
-      : inputPlan.conversationState,
+    conversationState: inputPlan.conversationState ? { ...inputPlan.conversationState } : inputPlan.conversationState,
     orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
   }
-
   const needsEvidenceCapability = plan.knowledgeRequired || plan.webMode !== 'none'
   if (!needsEvidenceCapability || plan.executionMode === 'artifact' || plan.intent === 'document') return plan
 
   const requestedWebMode = plan.webMode
   const providerNativeWeb = provider === 'gemini' && requestedWebMode !== 'none'
   const requiredWeb = requestedWebMode === 'required'
-  const capabilityRules: string[] = []
-
-  if (plan.knowledgeRequired) {
-    capabilityRules.push('Kurumsal/teknik bir iddiayı kesinleştirmeden önce JetWork knowledge araçlarıyla kanıt ara.')
-  }
-  if (requiredWeb) {
-    capabilityRules.push('Kullanıcı güncel/dış doğrulama istediği için nihai yanıttan önce izin verilen web aracını kullan; ilk sonuç zayıfsa sorguyu değiştirip yeniden ara.')
-  } else if (requestedWebMode === 'if_internal_insufficient') {
-    capabilityRules.push('İç kanıt yetersiz, güncellik gerektiren veya dış doğrulama gereken noktada web aracına geçebilirsin.')
-  }
-  if (plan.conversationState?.rejectedHypotheses?.length) {
-    capabilityRules.push(`Kullanıcının reddettiği önceki hipotezler: ${plan.conversationState.rejectedHypotheses.map(item => cleanText(item, 220)).join(' | ')}. Yeni ve açık kanıt olmadan bunları tekrar aday gibi sunma.`)
-  }
   if (providerNativeWeb) {
-    capabilityRules.push(`${PROVIDER_WEB_CAPABILITY_MARKER} Public web araştırması için yalnız seçili Gemini sağlayıcısının native Google Search aracını kullan; OpenAI web aracına geçme.`)
+    plan.goal = `${cleanText(plan.goal, 850)}\n${PROVIDER_WEB_CAPABILITY_MARKER}`.trim()
     plan.knowledgeRequired = true
     plan.webMode = 'none'
+  } else if (provider === 'openai' && requiredWeb) {
+    plan.webMode = 'if_internal_insufficient'
   }
 
-  const adaptiveDirective = [
-    AGENT_LOOP_MARKER,
-    'Araştırma sırasını önceden sabitleme. Mevcut araçlardan amaca uygun olanı seç, sonucu gözlemle ve kanıt yeterliyse dur.',
-    'Sonuç zayıf, belirsiz veya çelişkiliyse sorguyu yeniden formüle et, başka kayıt/detay/ilişkiyi incele veya izin verilen başka capabilityye geç.',
-    'Aynı başarısız çağrıyı anlamsızca tekrarlama. Kullanıcının reddettiği hipotezi yeni kanıt olmadan tekrar gerçek gibi sunma.',
-    'Araç bütçesi biterse kanıt açığını açıkça belirt; boşluğu kendi bilginden uydurma.',
-    ...capabilityRules,
-  ].join(' ')
-
-  if (!hasAgentLoopDirective(plan.goal)) {
-    plan.goal = `${cleanText(plan.goal, 1_000)}\n\n${adaptiveDirective}`.trim()
+  // Short grounded knowledge turns are resolved deterministically by the provider
+  // boundary from conversationState.resolvedRequest. Avoid a duplicate core preflight
+  // search; complex/research turns keep compact evidence queries.
+  if (boundedKnowledgePlan(plan)) plan.evidenceQueries = []
+  else if (plan.knowledgeRequired && !plan.evidenceQueries.length && plan.conversationState?.resolvedRequest) {
+    plan.evidenceQueries = [cleanText(plan.conversationState.resolvedRequest, 350)]
   }
 
-  plan.evidenceQueries = []
-  plan.verificationRequired = false
-  if (provider === 'openai' && requiredWeb) plan.webMode = 'if_internal_insufficient'
   plan.steps = [
     {
       id: 'adaptive-evidence-loop',
-      label: 'Kanıt ihtiyacını değerlendir ve araçları adaptif kullan',
+      label: 'Çözümlenmiş talep için en uygun kanıt capabilitysini kullan',
       toolHint: plan.knowledgeRequired ? 'knowledge' : (requestedWebMode !== 'none' ? 'web' : 'none'),
-      successCriteria: 'Model her araç sonucunu gözlemleyip yeterli kanıta ulaşana veya güvenli bütçe sınırına gelene kadar bir sonraki aksiyonu seçer.',
+      successCriteria: 'Sadece talebi gerçekten destekleyen kanıt tutulur; zayıf adaylar citation sayılmaz.',
     },
     {
       id: 'synthesize',
-      label: 'Toplanan kanıtlarla yanıtı sentezle',
+      label: 'Doğrulanmış kanıtlarla yanıtı sentezle',
       toolHint: 'synthesis',
-      successCriteria: 'Doğrulanmış bilgi, çıkarım ve açık kanıt eksikleri ayrıştırılır.',
+      successCriteria: 'Yanıt resolvedRequest ile tutarlı ve kanıt sınırları açık olacak şekilde üretilir.',
     },
   ]
-
   return plan
 }
 
@@ -430,8 +542,8 @@ export const normalizeCachedSemanticPlan = (input: {
     const normalized = normalizePlan(input.value as ReasoningPlan, fallback)
     const provider: AssistantProvider = normalized.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER) ? 'gemini' : 'openai'
     const adapted = applyAgentLoopPolicy(normalized, provider)
-    if (String(normalized.orchestratorVersion || '').includes('safe-fallback')) {
-      adapted.orchestratorVersion = normalized.orchestratorVersion
+    if (String((input.value as ReasoningPlan).orchestratorVersion || '').includes('safe-fallback')) {
+      adapted.orchestratorVersion = String((input.value as ReasoningPlan).orchestratorVersion).slice(0, 80)
     }
     return adapted
   } catch {
@@ -459,7 +571,6 @@ const geminiText = (payload: Record<string, unknown>) => {
 }
 
 const retryableSemanticStatus = (status: number) => [429, 500, 502, 503, 504].includes(status)
-
 const semanticFailureCode = (error: unknown) => {
   if (error instanceof SemanticProviderError) {
     const detail = normalizeFallbackText(error.message)
@@ -493,11 +604,7 @@ const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
   })
 }
 
-async function withSemanticRetry<T>(
-  provider: AssistantProvider,
-  operation: () => Promise<T>,
-  signal?: AbortSignal,
-): Promise<T> {
+async function withSemanticRetry<T>(provider: AssistantProvider, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   let lastError: unknown
   for (let attempt = 0; attempt <= SEMANTIC_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
@@ -531,7 +638,7 @@ async function requestOpenAiPlan(input: { apiKey: string; model: string; payload
       input: JSON.stringify(input.payload),
       reasoning: { effort: 'low' },
       text: { format: { type: 'json_schema', name: 'jetwork_semantic_execution_plan', strict: true, schema: planSchema } },
-      max_output_tokens: 1_200,
+      max_output_tokens: 1_400,
       store: false,
     }),
   })
@@ -549,19 +656,11 @@ async function requestOpenAiPlan(input: { apiKey: string; model: string; payload
 }
 
 const geminiGenerationConfig = (compatibilityMode: boolean) => compatibilityMode
-  ? {
-      maxOutputTokens: 1_200,
-      responseMimeType: 'application/json',
-    }
+  ? { maxOutputTokens: 1_400, responseMimeType: 'application/json' }
   : {
-      maxOutputTokens: 1_200,
+      maxOutputTokens: 1_400,
       thinkingConfig: { thinkingLevel: 'minimal' },
-      responseFormat: {
-        text: {
-          mimeType: 'application/json',
-          schema: planSchema,
-        },
-      },
+      responseFormat: { text: { mimeType: 'application/json', schema: planSchema } },
     }
 
 async function requestGeminiPlanOnce(input: {
@@ -587,19 +686,14 @@ async function requestGeminiPlanOnce(input: {
   }
   const text = geminiText(body)
   if (!text) throw new Error('Gemini semantic orchestration returned no structured text.')
-  const metadata = body.usageMetadata && typeof body.usageMetadata === 'object'
-    ? body.usageMetadata as Record<string, unknown>
-    : {}
+  const metadata = body.usageMetadata && typeof body.usageMetadata === 'object' ? body.usageMetadata as Record<string, unknown> : {}
   const rawUsage = {
     input_tokens: Number(metadata.promptTokenCount || 0),
     output_tokens: Number(metadata.candidatesTokenCount || 0),
     reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
     total_tokens: Number(metadata.totalTokenCount || 0),
   }
-  return {
-    plan: JSON.parse(text) as ReasoningPlan,
-    usage: usageWithGeminiEstimatedCost(input.model, rawUsage),
-  }
+  return { plan: JSON.parse(text) as ReasoningPlan, usage: usageWithGeminiEstimatedCost(input.model, rawUsage) }
 }
 
 async function requestGeminiPlan(input: { apiKey: string; model: string; payload: Record<string, unknown>; signal?: AbortSignal }) {
@@ -648,17 +742,13 @@ export async function buildSemanticExecutionPlan(input: {
   const fallback = fallbackPlan(currentMessage, conversation, input.priorExecution)
   const semanticModel = input.provider === 'gemini' ? GEMINI_SEMANTIC_MODEL : input.model
   if (!input.apiKey) {
-    return resilientFallbackResult({
-      fallback,
-      provider: input.provider,
-      model: semanticModel,
-      reason: 'missing-api-key',
-    })
+    return resilientFallbackResult({ fallback, provider: input.provider, model: semanticModel, reason: 'missing-api-key' })
   }
   const payload = {
     currentUserMessage: currentMessage,
     recentConversation: conversation,
     priorExecution: input.priorExecution || null,
+    fallbackResolvedState: fallback.conversationState || null,
     workspaceTitle: cleanText(input.workspaceTitle, 300),
     attachmentNames: (input.attachmentNames || []).map(name => cleanText(name, 240)).filter(Boolean).slice(0, 3),
   }
@@ -676,18 +766,13 @@ export async function buildSemanticExecutionPlan(input: {
     }
   } catch (error) {
     const reason = semanticFailureCode(error)
-    console.warn('Semantic orchestrator failed; resilient agentic fallback will be used:', {
+    console.warn('Semantic orchestrator failed; resolved-context fallback will be used:', {
       provider: input.provider,
       model: semanticModel,
       reason,
       error: error instanceof Error ? error.message : String(error),
     })
-    return resilientFallbackResult({
-      fallback,
-      provider: input.provider,
-      model: semanticModel,
-      reason,
-    })
+    return resilientFallbackResult({ fallback, provider: input.provider, model: semanticModel, reason })
   }
 }
 
