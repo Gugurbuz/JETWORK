@@ -10,13 +10,15 @@ describe('Gemini answer provider resilience', () => {
 
     expect(source).toContain("export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'");
     expect(source).toContain('GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 10_000');
-    expect(source).toContain('GEMINI_FALLBACK_ATTEMPT_TIMEOUT_MS = 18_000');
-    expect(source).toContain('const maxAttempts = immediateFailoverCandidate ? 1');
+    expect(source).toContain('GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000');
+    expect(source).toContain('GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000');
+    expect(source).toContain('immediateFailoverCandidate || input.finalSynthesis ? 1');
     expect(source).toContain('switching immediately to same-provider stable Flash fallback');
     expect(source).toContain('retrying once with bounded backoff');
     expect(source).toContain('AbortError');
     expect(source).toContain('signal has been aborted');
     expect(source).toContain('if (input.signal?.aborted) throw error');
+    expect(source).toContain('finalSynthesis: !input.allowTools && !trivialConversation');
   });
 
   it('removes prior tool-call protocol items when Gemini must produce a final no-tool answer', () => {
