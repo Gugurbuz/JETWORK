@@ -11,9 +11,13 @@ const normalize = (value: string) => value
   .replace(/\s+/g, ' ')
   .trim()
 
-const CLASS_TOKENS = new Set(['class', 'classlar', 'classes', 'sinif', 'siniflar', 'klas', 'klaslar'])
+const CLASS_TOKENS = new Set([
+  'class', 'classlar', 'classlari', 'classes',
+  'sinif', 'siniflar', 'siniflari',
+  'klas', 'klaslar', 'klaslari',
+])
 const INVENTORY_TOKENS = new Set([
-  'hangi', 'var', 'mevcut', 'envanter', 'inventory', 'liste', 'listele', 'listeleyin',
+  'hangi', 'var', 'mevcut', 'envanter', 'envanteri', 'inventory', 'liste', 'listele', 'listeleyin',
   'tum', 'tumu', 'tumunu', 'hepsi', 'hepsini', 'kac', 'adet',
 ])
 const ALLOWED_TOKENS = new Set([...CLASS_TOKENS, ...INVENTORY_TOKENS])
