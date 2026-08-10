@@ -68,7 +68,6 @@
 html.theme-energetic {
   color-scheme: light;
 
-  /* JetWork logo palette + neutral graphite. */
   --theme-bg: rgba(255, 252, 244, .62);
   --theme-surface: rgba(255, 255, 255, .78);
   --theme-surface-hover: rgba(255, 246, 214, .88);
@@ -95,12 +94,10 @@ html.theme-energetic #root {
   background: #fff9ec !important;
 }
 
-/* Kill the legacy green / pink blanket gradient on every Energetic surface. */
 html.theme-energetic .bg-theme-bg {
   background: rgba(255, 252, 244, .58) !important;
 }
 
-/* The application shell is now the living JetWork canvas. */
 html.theme-energetic #root > div.bg-theme-bg {
   isolation: isolate;
   overflow: hidden;
@@ -113,7 +110,6 @@ html.theme-energetic #root > div.bg-theme-bg {
   animation: energetic-canvas-shift 20s ease-in-out infinite alternate;
 }
 
-/* Giant nested-square JetWork marks — brand geometry, not generic blobs. */
 html.theme-energetic #root > div.bg-theme-bg::before {
   content: "";
   position: absolute;
@@ -131,7 +127,6 @@ html.theme-energetic #root > div.bg-theme-bg::before {
   animation: energetic-mark-drift 26s ease-in-out infinite;
 }
 
-/* A slow warm light ribbon and almost invisible dot field. */
 html.theme-energetic #root > div.bg-theme-bg::after {
   content: "";
   position: absolute;
@@ -158,7 +153,6 @@ html.theme-energetic #root > div.bg-theme-bg::after {
     energetic-dot-drift 38s linear infinite;
 }
 
-/* Existing generic App blobs are deliberately subdued. */
 html.theme-energetic #root > div.bg-theme-bg > .absolute.inset-0.z-0 {
   opacity: .15;
   filter: saturate(.75) blur(8px);
@@ -168,7 +162,6 @@ html.theme-energetic #root > div.bg-theme-bg > :not(.absolute.inset-0.z-0) {
   position: relative;
 }
 
-/* Sidebar: one translucent working rail, not another card. */
 html.theme-energetic aside {
   background:
     linear-gradient(180deg, rgba(255,255,255,.82), rgba(255,252,244,.64)) !important;
@@ -214,7 +207,6 @@ html.theme-energetic aside button.w-full.bg-theme-surface-hover {
     0 7px 19px rgba(92, 64, 5, .055);
 }
 
-/* The center workspace is visually one continuous surface. */
 html.theme-energetic main,
 html.theme-energetic [data-testid="workspace-chat-surface"],
 html.theme-energetic [data-testid="workspace-chat-surface"] > div,
@@ -236,7 +228,6 @@ html.theme-energetic .chat-scroll-container::before {
     radial-gradient(520px circle at 20% 82%, rgba(24, 26, 31, .018), transparent 72%);
 }
 
-/* Chat header is a thin glass shelf. */
 html.theme-energetic header.sticky.bg-theme-bg {
   background: linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,252,245,.60)) !important;
   border-bottom-color: rgba(99, 82, 49, .14) !important;
@@ -247,7 +238,6 @@ html.theme-energetic header.sticky.bg-theme-bg {
   backdrop-filter: blur(22px) saturate(135%);
 }
 
-/* AI and user messages get distinct JetWork/graphite personalities. */
 html.theme-energetic [data-testid="chat-message"] {
   box-shadow: 0 8px 26px rgba(54, 39, 8, .035);
   backdrop-filter: blur(10px);
@@ -275,7 +265,6 @@ html.theme-energetic [data-testid="chat-message"] .prose a {
   color: #b86d00;
 }
 
-/* Starter prompts float subtly over the animated scene. */
 html.theme-energetic .chat-scroll-container button.bg-theme-surface\/60 {
   background: rgba(255,255,255,.58) !important;
   -webkit-backdrop-filter: blur(14px);
@@ -291,7 +280,6 @@ html.theme-energetic .chat-scroll-container button.bg-theme-surface\/60:hover {
   box-shadow: 0 14px 34px rgba(255,152,0,.085);
 }
 
-/* Composer tray: transparent bridge into one floating input object. */
 html.theme-energetic .chat-scroll-container + div {
   background: linear-gradient(180deg, rgba(255,252,244,.18), rgba(255,249,235,.68)) !important;
   border-top-color: rgba(99, 82, 49, .11) !important;
@@ -330,7 +318,6 @@ html.theme-energetic [contenteditable="true"]:focus-visible {
   box-shadow: 0 0 0 3px rgba(255,193,7,.09);
 }
 
-/* Primary actions use yellow as energy, while graphite supplies visual weight. */
 html.theme-energetic button.bg-theme-primary {
   background: linear-gradient(135deg, #ffd34d, #ffc107 52%, #ffad00) !important;
   color: #181a1f !important;
@@ -352,7 +339,6 @@ html.theme-energetic button.bg-theme-primary:active:not(:disabled) {
   transform: translateY(0);
 }
 
-/* Generic glass panels remain quiet so the animated background owns the scene. */
 html.theme-energetic .glass-panel {
   background: linear-gradient(145deg, rgba(255,255,255,.77), rgba(255,250,237,.58));
   border-color: rgba(105, 87, 52, .15);
@@ -363,7 +349,6 @@ html.theme-energetic .glass-panel {
   backdrop-filter: blur(18px) saturate(132%);
 }
 
-/* BA canvas opens as a layer of the same workspace, not a separate app. */
 html.theme-energetic [data-testid="document-canvas-shell"] {
   background: rgba(255,250,238,.38) !important;
   box-shadow: -18px 0 48px rgba(74, 52, 8, .035);
@@ -406,7 +391,6 @@ html.theme-energetic [role="separator"]:focus-visible {
   box-shadow: 0 0 16px rgba(255,152,0,.07);
 }
 
-/* Thinking state is strictly JetWork yellow/orange + graphite. */
 html.theme-energetic .jetwork-thinking {
   background: rgba(255,193,7,.075) !important;
   border-color: rgba(255,193,7,.28) !important;
@@ -436,7 +420,6 @@ html.theme-energetic .jetwork-thinking-spark {
   box-shadow: 0 0 8px rgba(255,152,0,.68);
 }
 
-/* Warm, narrow scrollbars. */
 html.theme-energetic * {
   scrollbar-color: rgba(186, 137, 24, .30) transparent;
 }
