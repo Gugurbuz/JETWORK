@@ -48,11 +48,19 @@ export const providerForModel = (model: string): AssistantProvider => {
 }
 
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[END_JETWORK_SEMANTIC_PLAN\]\s*/gi
+const INTERNAL_EVIDENCE_PATTERN = /\n?\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]\s*/gi
 
 export const stripInternalSemanticPlan = (value: string) => value
   .replace(INTERNAL_SEMANTIC_PLAN_PATTERN, '\n')
   .replace(/\n{3,}/g, '\n\n')
   .trim()
+
+export const stripDuplicatedInlineEvidence = (value: string) => value
+  .replace(INTERNAL_EVIDENCE_PATTERN, '\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim()
+
+const sanitizeProviderInstructions = (value: string) => stripDuplicatedInlineEvidence(stripInternalSemanticPlan(value))
 
 const textFromContent = (content: unknown): string => {
   if (typeof content === 'string') return content
@@ -66,14 +74,16 @@ const textFromContent = (content: unknown): string => {
   }).filter(Boolean).join('\n')
 }
 
+const sanitizeTextContent = (value: string) => stripDuplicatedInlineEvidence(stripInternalSemanticPlan(value))
+
 const sanitizeContent = (content: unknown): unknown => {
-  if (typeof content === 'string') return stripInternalSemanticPlan(content)
+  if (typeof content === 'string') return sanitizeTextContent(content)
   if (!Array.isArray(content)) return content
   return content.map(part => {
-    if (typeof part === 'string') return stripInternalSemanticPlan(part)
+    if (typeof part === 'string') return sanitizeTextContent(part)
     if (!part || typeof part !== 'object') return part
     const clean = { ...(part as Record<string, unknown>) }
-    if (typeof clean.text === 'string') clean.text = stripInternalSemanticPlan(clean.text)
+    if (typeof clean.text === 'string') clean.text = sanitizeTextContent(clean.text)
     return clean
   })
 }
@@ -243,7 +253,7 @@ const finalizeWithRequestedModel = async (input: {
   const finalResponse = withRequestedModelObservability(withStageUsage(await legacyRequestGeminiResponse({
     apiKey: input.apiKey,
     model: input.requestedModel,
-    instructions: `${input.instructions}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan kanıta dayalı nihai kullanıcı yanıtını üret.`,
+    instructions: `${sanitizeProviderInstructions(input.instructions)}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan kanıta dayalı nihai kullanıcı yanıtını üret.`,
     items: buildGeminiFinalSynthesisItems(input.items, input.agentDraft || ''),
     tools: input.tools,
     allowTools: false,
@@ -306,10 +316,12 @@ export async function requestGeminiResponse(input: {
   }
 
   const sanitizedItems = sanitizeItems(input.items)
+  const providerInstructions = sanitizeProviderInstructions(input.instructions)
 
   if (!input.allowTools) {
     return withRequestedModelObservability(withStageUsage(await legacyRequestGeminiResponse({
       ...input,
+      instructions: providerInstructions,
       model: requestedModel,
       items: sanitizedItems,
     }), 'final', { cost_guard_final_calls: 1 }), requestedModel)
@@ -321,7 +333,7 @@ export async function requestGeminiResponse(input: {
     return finalizeWithRequestedModel({
       apiKey: input.apiKey,
       requestedModel,
-      instructions: input.instructions,
+      instructions: providerInstructions,
       items: sanitizedItems,
       tools: input.tools,
       maxOutputTokens: input.maxOutputTokens,
@@ -334,7 +346,7 @@ export async function requestGeminiResponse(input: {
   const agentResponse = withStageUsage(await legacyRequestGeminiResponse({
     ...input,
     model: GEMINI_AGENT_MODEL,
-    instructions: `${input.instructions}\n\n${costGuardAgentInstruction({ budget: toolBudget, executed: executedTools, plan })}`,
+    instructions: `${providerInstructions}\n\n${costGuardAgentInstruction({ budget: toolBudget, executed: executedTools, plan })}`,
     items: compactGeminiAgentItems(sanitizedItems),
     allowTools: true,
     maxOutputTokens: Math.min(input.maxOutputTokens, 900),
@@ -352,7 +364,7 @@ export async function requestGeminiResponse(input: {
   return finalizeWithRequestedModel({
     apiKey: input.apiKey,
     requestedModel,
-    instructions: input.instructions,
+    instructions: providerInstructions,
     items: sanitizedItems,
     tools: input.tools,
     maxOutputTokens: input.maxOutputTokens,
