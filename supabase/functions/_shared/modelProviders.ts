@@ -26,6 +26,7 @@ import {
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
+import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
 import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
@@ -75,7 +76,6 @@ const textFromContent = (content: unknown): string => {
 }
 
 const sanitizeTextContent = (value: string) => stripDuplicatedInlineEvidence(stripInternalSemanticPlan(value))
-
 const sanitizeContent = (content: unknown): unknown => {
   if (typeof content === 'string') return sanitizeTextContent(content)
   if (!Array.isArray(content)) return content
@@ -89,7 +89,7 @@ const sanitizeContent = (content: unknown): unknown => {
 }
 
 const compactAssistantContent = (content: unknown): unknown => {
-  if (typeof content === 'string') return compactAssistantConversationMemory(content, 1_200)
+  if (typeof content === 'string') return compactAssistantConversationMemory(content, 800)
   if (!Array.isArray(content)) return content
   const text = content.map(part => {
     if (typeof part === 'string') return part
@@ -99,7 +99,7 @@ const compactAssistantContent = (content: unknown): unknown => {
       : ''
   }).filter(Boolean).join('\n')
   if (!text) return content
-  return compactAssistantConversationMemory(text, 1_200)
+  return compactAssistantConversationMemory(text, 800)
 }
 
 const sanitizeItems = (items: Array<Record<string, unknown>>) => items.map(item => {
@@ -110,9 +110,7 @@ const sanitizeItems = (items: Array<Record<string, unknown>>) => items.map(item 
   return clean
 })
 
-export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => (
-  legacyIsTrivialConversationalTurn(sanitizeItems(items))
-)
+export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => legacyIsTrivialConversationalTurn(sanitizeItems(items))
 
 const withEstimatedCost = (
   response: NormalizedModelResponse,
@@ -181,6 +179,52 @@ const latestUserText = (items: Array<Record<string, unknown>>) => {
   return ''
 }
 
+const resolvedKnowledgeQuery = (items: Array<Record<string, unknown>>, plan: ReasoningPlan | null) => {
+  const resolved = String(plan?.conversationState?.resolvedRequest || '').trim()
+  if (resolved) return resolved.slice(0, 300)
+  const evidenceQuery = String(plan?.evidenceQueries?.[0] || '').trim()
+  if (evidenceQuery) return evidenceQuery.slice(0, 300)
+  return latestUserText(items).slice(0, 300)
+}
+
+const normalizeEvidenceText = (value: unknown) => String(value || '')
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9_/-]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const normalizeEntity = (value: unknown) => normalizeEvidenceText(value).replace(/^message\s+/, '')
+const activeEntityAnchors = (plan: ReasoningPlan | null) => (
+  (plan?.conversationState?.activeEntities || [])
+    .map(normalizeEntity)
+    .filter(Boolean)
+    .slice(0, 10)
+)
+
+const recordEvidenceSurface = (record: Record<string, unknown>) => normalizeEvidenceText([
+  record.canonicalKey,
+  record.objectName,
+  record.title,
+  record.summary,
+  record.evidenceExcerpt,
+  record.sourceName,
+].filter(Boolean).join(' '))
+
+const recordSupportsPlan = (record: Record<string, unknown>, plan: ReasoningPlan | null) => {
+  const anchors = activeEntityAnchors(plan)
+  const surface = recordEvidenceSurface(record)
+  if (anchors.length) {
+    return anchors.some(anchor => surface.includes(anchor) || surface.includes(anchor.replace(/-/g, ' ')))
+  }
+  const lexical = Number(record.lexicalScore || 0)
+  const vector = Number(record.vectorScore || 0)
+  const score = Number(record.score || 0)
+  return lexical >= 0.38 || vector >= 0.72 || score >= 0.68
+}
+
 const toolNamesByCallId = (items: Array<Record<string, unknown>>) => {
   const names = new Map<string, string>()
   for (const item of items) {
@@ -200,16 +244,68 @@ const detailDispatchForRecord = (record: Record<string, unknown>): BoundedKnowle
   return { toolName: 'get_knowledge_object', args: { canonicalKey }, stage: 'detail' }
 }
 
+const directDetailFromPlan = (plan: ReasoningPlan | null): BoundedKnowledgeDispatch | null => {
+  if (!plan?.conversationState) return null
+  const evidence = new Set(plan.conversationState.requestedEvidence || [])
+  const entities = plan.conversationState.activeEntities || []
+  for (const rawEntity of entities) {
+    const entity = String(rawEntity || '').trim()
+    if (!entity) continue
+    if (entity.toLocaleLowerCase('en-US').startsWith('message:')) {
+      return { toolName: 'get_message_detail', args: { messageCode: entity }, stage: 'detail' }
+    }
+    if (evidence.has('message_text') && /^[A-Z][A-Z0-9_]+-\d{2,4}$/i.test(entity)) {
+      return { toolName: 'get_message_detail', args: { messageCode: entity }, stage: 'detail' }
+    }
+    if (/^(?:method|class|function):/i.test(entity) && evidence.has('abap_source')) {
+      return { toolName: 'get_abap_source', args: { canonicalKey: entity }, stage: 'detail' }
+    }
+  }
+  return null
+}
+
+const filteredSearchOutput = (value: unknown, plan: ReasoningPlan | null): string => {
+  const parsed = parseJsonObject(value)
+  if (!parsed || String(parsed.tool || '') !== 'search_knowledge_catalog') return String(value || '')
+  const records = Array.isArray(parsed.records)
+    ? parsed.records.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
+    : []
+  const relevant = records.filter(record => recordSupportsPlan(record, plan))
+  return JSON.stringify({
+    ...parsed,
+    records: relevant,
+    relevanceFiltered: relevant.length !== records.length,
+    candidateCount: records.length,
+    verifiedCandidateCount: relevant.length,
+  })
+}
+
+const sanitizeBoundedKnowledgeEvidence = (
+  items: Array<Record<string, unknown>>,
+  plan: ReasoningPlan | null,
+) => {
+  if (!isBoundedKnowledgePlan(plan)) return items
+  const names = toolNamesByCallId(items)
+  return items.map(item => {
+    if (String(item.type || '') !== 'function_call_output') return item
+    const callName = names.get(String(item.call_id || '')) || ''
+    if (callName !== 'search_knowledge_catalog') return item
+    return { ...item, output: filteredSearchOutput(item.output, plan) }
+  })
+}
+
 const buildBoundedKnowledgeDispatch = (
   items: Array<Record<string, unknown>>,
   plan: ReasoningPlan | null,
 ): BoundedKnowledgeDispatch | null => {
   if (!isBoundedKnowledgePlan(plan)) return null
-  const userText = latestUserText(items)
+  const userText = resolvedKnowledgeQuery(items, plan)
   if (!userText || userText.length > 320 || /\[UNTRUSTED_CHAT_ATTACHMENT_/i.test(userText)) return null
 
   const outputs = items.filter(item => String(item.type || '') === 'function_call_output')
   if (outputs.length === 0) {
+    const direct = directDetailFromPlan(plan)
+    if (direct) return direct
     return {
       toolName: 'search_knowledge_catalog',
       args: { query: userText, objectTypes: null, limit: 6 },
@@ -222,7 +318,7 @@ const buildBoundedKnowledgeDispatch = (
   const output = outputs[0]
   const callName = names.get(String(output.call_id || '')) || ''
   if (callName !== 'search_knowledge_catalog') return null
-  const parsed = parseJsonObject(output.output)
+  const parsed = parseJsonObject(filteredSearchOutput(output.output, plan))
   const records = Array.isArray(parsed?.records)
     ? parsed.records.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
     : []
@@ -249,12 +345,14 @@ const finalizeWithRequestedModel = async (input: {
   agentDraft?: string
   priorUsage?: Record<string, number>
   forced?: boolean
+  plan?: ReasoningPlan | null
 }): Promise<NormalizedModelResponse> => {
+  const finalItems = sanitizeBoundedKnowledgeEvidence(input.items, input.plan || null)
   const finalResponse = withRequestedModelObservability(withStageUsage(await legacyRequestGeminiResponse({
     apiKey: input.apiKey,
     model: input.requestedModel,
-    instructions: `${sanitizeProviderInstructions(input.instructions)}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan kanıta dayalı nihai kullanıcı yanıtını üret.`,
-    items: buildGeminiFinalSynthesisItems(input.items, input.agentDraft || ''),
+    instructions: `${composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), input.plan || null)}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan yalnız doğrulanmış kanıta dayalı nihai kullanıcı yanıtını üret. Search candidate kayıtları tek başına doğrulanmış fact/citation değildir.`,
+    items: buildGeminiFinalSynthesisItems(finalItems, input.agentDraft || ''),
     tools: input.tools,
     allowTools: false,
     maxOutputTokens: input.maxOutputTokens,
@@ -265,10 +363,7 @@ const finalizeWithRequestedModel = async (input: {
     ...(input.forced ? { cost_guard_forced_synthesis: 1 } : {}),
   }), input.requestedModel)
 
-  return {
-    ...finalResponse,
-    usage: mergeNumericUsage(input.priorUsage, finalResponse.usage),
-  }
+  return { ...finalResponse, usage: mergeNumericUsage(input.priorUsage, finalResponse.usage) }
 }
 
 export async function requestGeminiResponse(input: {
@@ -315,8 +410,8 @@ export async function requestGeminiResponse(input: {
     }
   }
 
-  const sanitizedItems = sanitizeItems(input.items)
-  const providerInstructions = sanitizeProviderInstructions(input.instructions)
+  const sanitizedItems = sanitizeBoundedKnowledgeEvidence(sanitizeItems(input.items), plan)
+  const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
 
   if (!input.allowTools) {
     return withRequestedModelObservability(withStageUsage(await legacyRequestGeminiResponse({
@@ -340,6 +435,7 @@ export async function requestGeminiResponse(input: {
       onText: input.onText,
       signal: input.signal,
       forced: true,
+      plan,
     })
   }
 
@@ -372,13 +468,13 @@ export async function requestGeminiResponse(input: {
     signal: input.signal,
     agentDraft: draft,
     priorUsage: agentResponse.usage,
+    plan,
   })
 }
 
-export const cleanProviderItemsForOpenAi = (
-  items: Array<Record<string, unknown>>,
-) => {
-  const cleaned = sanitizeItems(items).map(item => {
+export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>>) => {
+  const plan = extractSemanticPlanFromItems(items)
+  const cleaned = sanitizeBoundedKnowledgeEvidence(sanitizeItems(items), plan).map(item => {
     const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
     return clean
   })
