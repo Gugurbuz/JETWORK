@@ -67,3 +67,45 @@ jobs:
           path: dist
           if-no-files-found: error
           retention-days: 3
+
+  publish-production-assets:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified production artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jetwork-production-dist-${{ github.sha }}
+          path: published
+
+      - name: Rewrite asset URLs to immutable deployment branch
+        shell: bash
+        env:
+          CDN_BASE: https://cdn.jsdelivr.net/gh/${{ github.repository }}@jetwork-production-assets
+        run: |
+          set -euo pipefail
+          for css in published/assets/index-*.css; do
+            sed -i "s#url(/assets/#url(${CDN_BASE}/assets/#g" "$css"
+          done
+          sed -i "s#src=\"/assets/#src=\"${CDN_BASE}/assets/#g; s#href=\"/assets/#href=\"${CDN_BASE}/assets/#g" published/index.html
+          touch published/.nojekyll
+
+      - name: Publish verified assets branch
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd published
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b jetwork-production-assets
+          git add -A
+          git commit -m "deploy: verified frontend assets ${GITHUB_SHA}"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin HEAD:jetwork-production-assets
