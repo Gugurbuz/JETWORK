@@ -1,3 +1,5 @@
+import { CLASS_INVENTORY_TOOL, executeClassInventoryTool } from './classInventoryTool.ts'
+
 export interface AssistantSourceRef {
   sourceId?: string
   sourceName: string
@@ -58,6 +60,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
       additionalProperties: false,
     },
   },
+  CLASS_INVENTORY_TOOL,
   {
     type: 'function',
     name: 'get_abap_source',
@@ -445,6 +448,7 @@ export async function executeAssistantTool(
     return searchCatalog(client, workspaceId, query, args.objectTypes, clampLimit(args.limit, 6, 8))
   }
   if (toolName === 'list_knowledge_catalog') return listCatalog(client, workspaceId, args)
+  if (toolName === 'list_class_inventory') return executeClassInventoryTool(client, workspaceId, args)
   if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
