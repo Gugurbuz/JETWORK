@@ -2,15 +2,6 @@ name: Reasoning Live Canary
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'supabase/functions/openai-assistant-v2/**'
-      - 'supabase/functions/openai-assistant-core-v2/**'
-      - 'supabase/functions/_shared/**'
-      - 'scripts/run-reasoning-production-canary.ts'
-      - '.github/workflows/reasoning-live-canary.yml'
 
 permissions:
   contents: read

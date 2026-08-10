@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReasoningPlan } from '../../../supabase/functions/_shared/reasoningEngine';
+import { GEMINI_SEMANTIC_MODEL } from '../../../supabase/functions/_shared/geminiCostGuard';
 import {
   applyAgentLoopPolicy,
   buildSemanticExecutionPlan,
@@ -117,7 +118,7 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
 
     expect(result.fallbackUsed).toBe(true);
     expect(result.fallbackReason).toBe('missing-api-key');
-    expect(result.model).toBe('gemini-3.5-flash');
+    expect(result.model).toBe(GEMINI_SEMANTIC_MODEL);
     expect(result.plan.intent).toBe('sap_diagnosis');
     expect(result.plan.knowledgeRequired).toBe(true);
     expect(result.plan.verificationRequired).toBe(false);
@@ -186,8 +187,9 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
       'utf8',
     );
 
-    expect(semanticSource).toContain("const GEMINI_SEMANTIC_MODEL = 'gemini-3.5-flash'");
-    expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'LOW' }");
+    expect(GEMINI_SEMANTIC_MODEL).toBe('gemini-3.1-flash-lite');
+    expect(semanticSource).toContain("GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost");
+    expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'minimal' }");
     expect(semanticSource).toContain('fallbackRejectedHypotheses');
     expect(semanticSource).toContain('responseFormat: {');
     expect(semanticSource).toContain("responseMimeType: 'application/json'");

@@ -1,23 +1,43 @@
 import {
-  DEFAULT_GEMINI_MODEL,
-  GEMINI_MODELS,
+  DEFAULT_GEMINI_MODEL as LEGACY_DEFAULT_GEMINI_MODEL,
+  GEMINI_MODELS as LEGACY_GEMINI_MODELS,
   GEMINI_SUBSTANTIVE_MODEL,
   OPENAI_MODELS,
   isTrivialConversationalTurn as legacyIsTrivialConversationalTurn,
-  providerForModel,
+  providerForModel as legacyProviderForModel,
   requestGeminiResponse as legacyRequestGeminiResponse,
   type AssistantProvider,
   type NormalizedModelResponse,
 } from './modelProvidersLegacy.ts'
+import {
+  GEMINI_AGENT_MODEL,
+  GEMINI_SEMANTIC_MODEL,
+  buildGeminiFinalSynthesisItems,
+  compactGeminiAgentItems,
+  costGuardAgentInstruction,
+  executedToolCallCount,
+  extractSemanticPlanFromItems,
+  mergeNumericUsage,
+  normalizeGeminiRequestedModel,
+  responseHasFunctionCall,
+  responseVisibleText,
+  toolBudgetForPlan,
+  usageWithGeminiEstimatedCost,
+} from './geminiCostGuard.ts'
 
-export {
-  DEFAULT_GEMINI_MODEL,
-  GEMINI_MODELS,
-  GEMINI_SUBSTANTIVE_MODEL,
-  OPENAI_MODELS,
-  providerForModel,
-}
+export const DEFAULT_GEMINI_MODEL = LEGACY_DEFAULT_GEMINI_MODEL
+export const GEMINI_MODELS = new Set([
+  ...LEGACY_GEMINI_MODELS,
+  GEMINI_AGENT_MODEL,
+  GEMINI_SEMANTIC_MODEL,
+])
+export { GEMINI_AGENT_MODEL, GEMINI_SEMANTIC_MODEL, GEMINI_SUBSTANTIVE_MODEL, OPENAI_MODELS }
 export type { AssistantProvider, NormalizedModelResponse }
+
+export const providerForModel = (model: string): AssistantProvider => {
+  const normalized = normalizeGeminiRequestedModel(model)
+  return GEMINI_MODELS.has(normalized) ? 'gemini' : legacyProviderForModel(normalized)
+}
 
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[END_JETWORK_SEMANTIC_PLAN\]\s*/gi
 
@@ -48,6 +68,48 @@ export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>
   legacyIsTrivialConversationalTurn(sanitizeItems(items))
 )
 
+const withEstimatedCost = (
+  response: NormalizedModelResponse,
+  markers: Record<string, number> = {},
+): NormalizedModelResponse => ({
+  ...response,
+  usage: usageWithGeminiEstimatedCost(String(response.model || ''), response.usage, markers),
+})
+
+const finalizeWithRequestedModel = async (input: {
+  apiKey: string
+  requestedModel: string
+  instructions: string
+  items: Array<Record<string, unknown>>
+  tools: ReadonlyArray<Record<string, unknown>>
+  maxOutputTokens: number
+  onText: (text: string) => void
+  signal?: AbortSignal
+  agentDraft?: string
+  priorUsage?: Record<string, number>
+  forced?: boolean
+}): Promise<NormalizedModelResponse> => {
+  const finalResponse = withEstimatedCost(await legacyRequestGeminiResponse({
+    apiKey: input.apiKey,
+    model: input.requestedModel,
+    instructions: `${input.instructions}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan kanıta dayalı nihai kullanıcı yanıtını üret.`,
+    items: buildGeminiFinalSynthesisItems(input.items, input.agentDraft || ''),
+    tools: input.tools,
+    allowTools: false,
+    maxOutputTokens: input.maxOutputTokens,
+    onText: input.onText,
+    signal: input.signal,
+  }), {
+    cost_guard_final_calls: 1,
+    ...(input.forced ? { cost_guard_forced_synthesis: 1 } : {}),
+  })
+
+  return {
+    ...finalResponse,
+    usage: mergeNumericUsage(input.priorUsage, finalResponse.usage),
+  }
+}
+
 export async function requestGeminiResponse(input: {
   apiKey: string
   model: string
@@ -59,7 +121,64 @@ export async function requestGeminiResponse(input: {
   onText: (text: string) => void
   signal?: AbortSignal
 }): Promise<NormalizedModelResponse> {
-  return legacyRequestGeminiResponse({ ...input, items: sanitizeItems(input.items) })
+  const requestedModel = normalizeGeminiRequestedModel(input.model)
+  const plan = extractSemanticPlanFromItems(input.items)
+  const sanitizedItems = sanitizeItems(input.items)
+
+  if (!input.allowTools) {
+    return withEstimatedCost(await legacyRequestGeminiResponse({
+      ...input,
+      model: requestedModel,
+      items: sanitizedItems,
+    }), { cost_guard_final_calls: 1 })
+  }
+
+  const executedTools = executedToolCallCount(sanitizedItems)
+  const toolBudget = toolBudgetForPlan(plan)
+  if (executedTools >= toolBudget) {
+    return finalizeWithRequestedModel({
+      apiKey: input.apiKey,
+      requestedModel,
+      instructions: input.instructions,
+      items: sanitizedItems,
+      tools: input.tools,
+      maxOutputTokens: input.maxOutputTokens,
+      onText: input.onText,
+      signal: input.signal,
+      forced: true,
+    })
+  }
+
+  const agentResponse = withEstimatedCost(await legacyRequestGeminiResponse({
+    ...input,
+    model: GEMINI_AGENT_MODEL,
+    instructions: `${input.instructions}\n\n${costGuardAgentInstruction({ budget: toolBudget, executed: executedTools, plan })}`,
+    items: compactGeminiAgentItems(sanitizedItems),
+    allowTools: true,
+    maxOutputTokens: Math.min(input.maxOutputTokens, 1_200),
+    onText: () => {},
+  }), { cost_guard_agent_calls: 1 })
+
+  if (responseHasFunctionCall(agentResponse)) return agentResponse
+
+  const draft = responseVisibleText(agentResponse)
+  if (String(agentResponse.model || '') !== GEMINI_AGENT_MODEL || requestedModel === GEMINI_AGENT_MODEL) {
+    if (draft) input.onText(draft)
+    return agentResponse
+  }
+
+  return finalizeWithRequestedModel({
+    apiKey: input.apiKey,
+    requestedModel,
+    instructions: input.instructions,
+    items: sanitizedItems,
+    tools: input.tools,
+    maxOutputTokens: input.maxOutputTokens,
+    onText: input.onText,
+    signal: input.signal,
+    agentDraft: draft,
+    priorUsage: agentResponse.usage,
+  })
 }
 
 export const cleanProviderItemsForOpenAi = (

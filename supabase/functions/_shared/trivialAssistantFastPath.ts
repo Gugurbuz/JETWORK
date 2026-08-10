@@ -1,14 +1,18 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v1'
-export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite-preview'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v2-cost-guard'
+export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
+const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
 const OPENAI_FAST_PATH_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
 const GEMINI_FAST_PATH_MODELS = new Set([
   'gemini-3-flash-preview',
   'gemini-3.1-pro-preview',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   TRIVIAL_GEMINI_LATENCY_MODEL,
+  DEPRECATED_GEMINI_FLASH_LITE_PREVIEW,
 ])
 
 export type TrivialFastPathProvider = 'openai' | 'gemini'
@@ -52,7 +56,9 @@ export const providerForTrivialFastPathModel = (model: string): TrivialFastPathP
 )
 
 export const executionModelForTrivialFastPathModel = (model: string): string => (
-  model === 'gemini-3.1-pro-preview' ? TRIVIAL_GEMINI_LATENCY_MODEL : model
+  model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW
+    ? TRIVIAL_GEMINI_LATENCY_MODEL
+    : model
 )
 
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
@@ -151,7 +157,9 @@ async function requestGeminiTrivialResponse(input: {
   // Exact trivial turns are latency-sensitive and do not need the shared
   // reasoning/document provider stack. Use the REST API directly so the Edge
   // isolate does not need to resolve and initialize the Google SDK first.
-  const thinkingLevel = input.model === TRIVIAL_GEMINI_LATENCY_MODEL ? 'minimal' : 'low'
+  const thinkingLevel = input.model === TRIVIAL_GEMINI_LATENCY_MODEL || input.model === 'gemini-3.5-flash-lite'
+    ? 'minimal'
+    : 'low'
   const response = await fetch(
     `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`,
     {
@@ -169,7 +177,7 @@ async function requestGeminiTrivialResponse(input: {
           parts: [{ text: input.message }],
         }],
         generationConfig: {
-          maxOutputTokens: 320,
+          maxOutputTokens: 160,
           thinkingConfig: {
             thinkingLevel,
           },

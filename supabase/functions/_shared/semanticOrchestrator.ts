@@ -9,12 +9,12 @@ import {
   type ReasoningPlan,
 } from './reasoningEngine.ts'
 import type { AssistantProvider } from './modelProviders.ts'
+import { GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost } from './geminiCostGuard.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
-const GEMINI_SEMANTIC_MODEL = 'gemini-3.5-flash'
-const SEMANTIC_RETRY_DELAYS_MS = [250, 750] as const
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.1-resilient-agent-loop'
+const SEMANTIC_RETRY_DELAYS_MS = [250] as const
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.2-cost-guard'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const AGENT_LOOP_MARKER = '[JETWORK_AGENT_LOOP]'
 
@@ -531,7 +531,7 @@ async function requestOpenAiPlan(input: { apiKey: string; model: string; payload
       input: JSON.stringify(input.payload),
       reasoning: { effort: 'low' },
       text: { format: { type: 'json_schema', name: 'jetwork_semantic_execution_plan', strict: true, schema: planSchema } },
-      max_output_tokens: 2_400,
+      max_output_tokens: 1_200,
       store: false,
     }),
   })
@@ -550,12 +550,12 @@ async function requestOpenAiPlan(input: { apiKey: string; model: string; payload
 
 const geminiGenerationConfig = (compatibilityMode: boolean) => compatibilityMode
   ? {
-      maxOutputTokens: 2_400,
+      maxOutputTokens: 1_200,
       responseMimeType: 'application/json',
     }
   : {
-      maxOutputTokens: 2_400,
-      thinkingConfig: { thinkingLevel: 'LOW' },
+      maxOutputTokens: 1_200,
+      thinkingConfig: { thinkingLevel: 'minimal' },
       responseFormat: {
         text: {
           mimeType: 'application/json',
@@ -590,14 +590,15 @@ async function requestGeminiPlanOnce(input: {
   const metadata = body.usageMetadata && typeof body.usageMetadata === 'object'
     ? body.usageMetadata as Record<string, unknown>
     : {}
+  const rawUsage = {
+    input_tokens: Number(metadata.promptTokenCount || 0),
+    output_tokens: Number(metadata.candidatesTokenCount || 0),
+    reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
+    total_tokens: Number(metadata.totalTokenCount || 0),
+  }
   return {
     plan: JSON.parse(text) as ReasoningPlan,
-    usage: {
-      input_tokens: Number(metadata.promptTokenCount || 0),
-      output_tokens: Number(metadata.candidatesTokenCount || 0),
-      reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
-      total_tokens: Number(metadata.totalTokenCount || 0),
-    },
+    usage: usageWithGeminiEstimatedCost(input.model, rawUsage),
   }
 }
 

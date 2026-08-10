@@ -226,12 +226,12 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                             <option value="auto">Otomatik — OpenAI, gerekirse Gemini (Önerilen)</option>
                             <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>
                             <option value="gpt-5.6">OpenAI GPT-5.6</option>
-                            <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview</option>
+                            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite — Ekonomik</option>
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash — Dengeli</option>
+                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview — Karmaşık / yüksek maliyet</option>
                           </select>
                           <p className="mt-2 text-xs text-theme-text-muted">
-                            Otomatik seçim OpenAI kullanılamadığında aynı bilgi bankası ve araç akışıyla Gemini'ye geçer.
+                            Cost Guard araştırma ve tool kararlarını otomatik olarak düşük maliyetli Flash-Lite modeliyle yürütür; seçtiğiniz güçlü model yalnız gerektiğinde nihai sentez için kullanılır.
                           </p>
                         </div>
                       ) : (
@@ -242,12 +242,12 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                             onChange={(e) => setModel(e.target.value)}
                             className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
                           >
-                            <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Varsayılan)</option>
+                            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (Ekonomik)</option>
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Dengeli)</option>
                             <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Karmaşık Görevler)</option>
-                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite Preview (Hızlı)</option>
                           </select>
                           <p className="text-xs text-theme-text-muted mt-2">
-                            Kullanılacak Gemini modelini seçin. Pro modeller daha karmaşık analizler yaparken, Flash modeller daha hızlı yanıt verir.
+                            Flash-Lite yüksek hacimli günlük kullanım için en düşük maliyetli seçenektir; Pro yalnız gerçekten karmaşık sentezlerde tercih edilmelidir.
                           </p>
                         </div>
                       )}
