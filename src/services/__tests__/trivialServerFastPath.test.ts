@@ -33,6 +33,15 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain('Stale attachment state');
   });
 
+  it('uses exact deterministic greeting responses instead of culturally expanding the greeting', () => {
+    expect(helperSource).toContain("['selam', 'Selam! Nasıl yardımcı olabilirim?']");
+    expect(helperSource).toContain("['merhaba', 'Merhaba! Nasıl yardımcı olabilirim?']");
+    expect(helperSource).toContain("['selamun aleykum', 'Aleykümselam! Nasıl yardımcı olabilirim?']");
+    expect(helperSource).toContain('deterministicTrivialResponseForMessage(input.message)');
+    expect(helperSource).toContain('usage: { deterministic_fast_path: 1 }');
+    expect(helperSource).toContain('Selamlaşma ifadesini başka bir selamlaşma biçimine dönüştürme');
+  });
+
   it('routes eligible turns through one claim RPC and keeps the normal core fallback', () => {
     expect(gatewaySource).toContain("client.rpc('claim_trivial_assistant_turn'");
     expect(gatewaySource).toContain('requestTrivialAssistantResponse');
@@ -54,7 +63,7 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain("provider: 'gemini'");
   });
 
-  it('uses the Gemini REST API directly so trivial turns do not load the Google SDK', () => {
+  it('uses the Gemini REST API directly so non-deterministic trivial turns do not load the Google SDK', () => {
     expect(helperSource).toContain('https://generativelanguage.googleapis.com/v1beta/models');
     expect(helperSource).toContain(':generateContent');
     expect(helperSource).toContain("'x-goog-api-key': input.apiKey");
