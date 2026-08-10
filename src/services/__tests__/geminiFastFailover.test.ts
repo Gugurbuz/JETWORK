@@ -24,6 +24,21 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('finalSynthesis: !input.allowTools && !trivialConversation');
   });
 
+  it('recovers a final answer from completed tool evidence after transient Gemini tool-loop failure', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
+      'utf8',
+    );
+
+    expect(source).toContain('compactToolRecoveryItems');
+    expect(source).toContain('[JETWORK_TOOL_EVIDENCE]');
+    expect(source).toContain('Gemini tool loop exhausted transient retries; forcing one bounded no-tool recovery synthesis');
+    expect(source).toContain('delete recoveryConfig.tools');
+    expect(source).toContain('delete recoveryConfig.toolConfig');
+    expect(source).toContain('timeoutMs: GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS');
+    expect(source).toContain('contents: toGeminiContents(compactToolRecoveryItems(input.items))');
+  });
+
   it('removes prior tool-call protocol items when Gemini must produce a final no-tool answer', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
