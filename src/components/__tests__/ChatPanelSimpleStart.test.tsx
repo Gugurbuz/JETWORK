@@ -54,6 +54,8 @@ describe('ChatPanel simple BA start', () => {
     }]);
 
     expect(html).toContain('jetwork-thinking');
+    expect(html).toContain('jetwork-thinking-orb');
+    expect(html).toContain('jetwork-thinking-dots');
     expect(html).toContain('Düşünüyor');
   });
 });

@@ -100,15 +100,27 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
 
 const ThinkingIndicator = ({ label = 'Düşünüyor' }: { label?: string }) => (
   <div
-    className="jetwork-thinking relative inline-flex w-fit items-center gap-2 overflow-hidden rounded-full border border-theme-primary/20 bg-theme-primary/5 px-3 py-1.5 pr-4 text-theme-primary shadow-sm"
+    data-testid="thinking-indicator"
+    className="jetwork-thinking inline-flex w-fit items-center gap-2.5 rounded-full border border-[#FFC107]/30 bg-[#FFC107]/10 px-2.5 py-1.5 pr-4 text-theme-text shadow-[0_10px_28px_rgba(255,152,0,0.14)] backdrop-blur"
     aria-live="polite"
   >
-    <span className="jetwork-thinking-logo pointer-events-none absolute left-3 top-1/2 z-10">
-      <JetWorkLogo className="h-4 w-4 animate-spin drop-shadow-[0_0_8px_rgba(255,193,7,0.45)]" />
+    <span className="jetwork-thinking-orb" aria-hidden="true">
+      <span className="jetwork-thinking-ring" />
+      <span className="jetwork-thinking-core">
+        <JetWorkLogo className="h-4 w-4" />
+      </span>
+      <span className="jetwork-thinking-spark jetwork-thinking-spark-one" />
+      <span className="jetwork-thinking-spark jetwork-thinking-spark-two" />
     </span>
-    <span className="h-4 w-4 shrink-0 opacity-0" aria-hidden="true" />
-    <span className="jetwork-thinking-text relative text-xs font-semibold tracking-tight">
-      {label}
+    <span className="inline-flex items-center gap-1.5">
+      <span className="jetwork-thinking-text text-xs font-semibold tracking-tight">
+        {label}
+      </span>
+      <span className="jetwork-thinking-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
     </span>
   </div>
 );
