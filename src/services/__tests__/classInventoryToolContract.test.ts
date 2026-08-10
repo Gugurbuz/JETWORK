@@ -7,6 +7,7 @@ describe('class inventory tool contract', () => {
     expect(inventory).toBeTruthy();
     expect(JSON.stringify(inventory)).toContain('fully documented class entries');
     const search = ASSISTANT_KNOWLEDGE_TOOLS.find(tool => tool.name === 'search_knowledge_catalog');
-    expect(JSON.stringify(search)).toContain('not for exhaustive listing');
+    expect(JSON.stringify(search)).toContain('candidate evidence');
+    expect(JSON.stringify(search)).toContain('not citations');
   });
 });

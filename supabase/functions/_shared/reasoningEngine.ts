@@ -38,6 +38,7 @@ export type {
 
 export type ReasoningExecutionMode = 'direct' | 'knowledge' | 'research' | 'artifact' | 'decision' | 'project'
 export type KnowledgeEnumerationTool = 'list_knowledge_catalog' | 'list_class_inventory'
+export type AssistantPromptProfile = 'base' | 'knowledge' | 'research' | 'document' | 'artifact'
 
 export interface KnowledgeEnumerationTarget {
   tool: KnowledgeEnumerationTool
@@ -54,6 +55,11 @@ export interface ConversationSemanticState {
   rejectedScopes?: string[]
   retainedContext: string[]
   openQuestions: string[]
+  resolvedRequest?: string
+  activeEntities?: string[]
+  requestedEvidence?: string[]
+  userDecisions?: string[]
+  verifiedFactRefs?: string[]
 }
 
 export interface ReasoningPlan extends LegacyReasoningPlan {
@@ -61,6 +67,7 @@ export interface ReasoningPlan extends LegacyReasoningPlan {
   conversationState?: ConversationSemanticState
   enumerationTarget?: KnowledgeEnumerationTarget
   orchestratorVersion?: string
+  promptProfile?: AssistantPromptProfile
 }
 
 export const SEMANTIC_PLAN_START = '[JETWORK_SEMANTIC_PLAN]'
@@ -71,6 +78,18 @@ const cleanStringArray = (value: unknown, limit = 8, maxLength = 500): string[] 
   Array.isArray(value)
     ? value.map(item => String(item || '').trim().slice(0, maxLength)).filter(Boolean).slice(0, limit)
     : []
+)
+
+const normalizeKnownEntityAlias = (value: string) => {
+  const raw = String(value || '').trim()
+  const upper = raw.toLocaleUpperCase('tr-TR')
+  if (/^ZCRMCOST[- ]\d{2,4}$/.test(upper)) return upper.replace(/^ZCRMCOST[- ]/, 'ZCRM_COST-')
+  if (/^MESSAGE:ZCRMCOST-\d{2,4}$/i.test(raw)) return raw.toLocaleLowerCase('en-US').replace('message:zcrmcost-', 'message:zcrm_cost-')
+  return raw
+}
+
+const normalizeEntityArray = (value: unknown, limit = 10, maxLength = 320) => (
+  [...new Set(cleanStringArray(value, limit * 2, maxLength).map(normalizeKnownEntityAlias))].slice(0, limit)
 )
 
 const normalizeEnumerationTarget = (value: unknown): KnowledgeEnumerationTarget | undefined => {
@@ -85,6 +104,19 @@ const normalizeEnumerationTarget = (value: unknown): KnowledgeEnumerationTarget 
     ? null
     : String(raw.prefix || '').trim().slice(0, 160) || null
   return { tool, objectType, prefix }
+}
+
+const promptProfileForPlan = (
+  intent: ReasoningIntent,
+  executionMode: ReasoningExecutionMode | undefined,
+  knowledgeRequired: boolean,
+  webMode: WebMode,
+): AssistantPromptProfile => {
+  if (intent === 'document') return executionMode === 'artifact' ? 'artifact' : 'document'
+  if (executionMode === 'artifact') return 'artifact'
+  if (webMode !== 'none' || intent === 'research') return 'research'
+  if (knowledgeRequired || ['analysis','sap_diagnosis'].includes(intent)) return 'knowledge'
+  return 'base'
 }
 
 const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
@@ -119,8 +151,13 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
       : 'none',
     rejectedHypotheses: cleanStringArray(stateRaw.rejectedHypotheses, 6),
     rejectedScopes: cleanStringArray(stateRaw.rejectedScopes, 6),
-    retainedContext: cleanStringArray(stateRaw.retainedContext, 8),
-    openQuestions: cleanStringArray(stateRaw.openQuestions, 6),
+    retainedContext: cleanStringArray(stateRaw.retainedContext, 8, 700),
+    openQuestions: cleanStringArray(stateRaw.openQuestions, 6, 500),
+    resolvedRequest: String(stateRaw.resolvedRequest || '').trim().slice(0, 900) || undefined,
+    activeEntities: normalizeEntityArray(stateRaw.activeEntities, 10, 180),
+    requestedEvidence: cleanStringArray(stateRaw.requestedEvidence, 8, 120),
+    userDecisions: cleanStringArray(stateRaw.userDecisions, 10, 500),
+    verifiedFactRefs: normalizeEntityArray(stateRaw.verifiedFactRefs, 12, 320),
   } : undefined
   const steps = Array.isArray(raw.steps)
     ? raw.steps.map((step, index) => {
@@ -136,6 +173,10 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
         }
       }).slice(0, 8)
     : []
+  const profile = String(raw.promptProfile || '') as AssistantPromptProfile
+  const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
+    ? profile
+    : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode)
   return {
     intent: normalizedIntent,
     complexity,
@@ -150,6 +191,7 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
     conversationState,
     enumerationTarget: normalizeEnumerationTarget(raw.enumerationTarget),
     orchestratorVersion: String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80),
+    promptProfile,
   }
 }
 

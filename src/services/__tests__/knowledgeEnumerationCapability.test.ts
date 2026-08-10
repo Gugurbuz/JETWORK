@@ -38,7 +38,7 @@ const makeEnumerationOutput = (start: number, count: number, totalCount = 62, ne
 });
 
 describe('Knowledge enumeration/list capability', () => {
-  it('exposes a dedicated paginated list tool without widening semantic search', () => {
+  it('exposes a dedicated paginated list tool without widening semantic candidate search', () => {
     const tool = ASSISTANT_KNOWLEDGE_TOOLS.find(candidate => candidate.name === 'list_knowledge_catalog');
     expect(tool).toBeTruthy();
     expect(JSON.stringify(tool)).toContain('nextCursor');
@@ -46,7 +46,8 @@ describe('Knowledge enumeration/list capability', () => {
 
     const searchTool = ASSISTANT_KNOWLEDGE_TOOLS.find(candidate => candidate.name === 'search_knowledge_catalog');
     expect(searchTool).toBeTruthy();
-    expect(JSON.stringify(searchTool)).toContain('not for exhaustive listing');
+    expect(JSON.stringify(searchTool)).toContain('candidate evidence');
+    expect(JSON.stringify(searchTool)).toContain('not citations');
   });
 
   it('calls the paginated RPC and preserves totalCount/nextCursor metadata', async () => {
@@ -56,18 +57,16 @@ describe('Knowledge enumeration/list capability', () => {
         rpcCalls.push({ name, args });
         return {
           data: {
-            items: [
-              {
-                canonicalKey: 'message:zcrm_cost-000',
-                objectType: 'message',
-                name: 'ZCRM_COST-000',
-                title: 'ZCRM_COST-000 — En az 1 en fazla 5 kayıt için işlem yapılabilir.',
-                summary: 'Seçim hatası',
-                sourceId: 'source-1',
-                sourceName: 'CRM_Hata_Bilgi_Bankasi.md',
-                scope: 'global',
-              },
-            ],
+            items: [{
+              canonicalKey: 'message:zcrm_cost-000',
+              objectType: 'message',
+              name: 'ZCRM_COST-000',
+              title: 'ZCRM_COST-000 — En az 1 en fazla 5 kayıt için işlem yapılabilir.',
+              summary: 'Seçim hatası',
+              sourceId: 'source-1',
+              sourceName: 'CRM_Hata_Bilgi_Bankasi.md',
+              scope: 'global',
+            }],
             totalCount: 62,
             nextCursor: 'message:zcrm_cost-024',
           },
@@ -77,22 +76,12 @@ describe('Knowledge enumeration/list capability', () => {
     };
 
     const result = await executeAssistantTool(client, 'workspace-1', 'list_knowledge_catalog', {
-      objectType: 'message',
-      prefix: 'ZCRM_COST',
-      cursor: null,
-      limit: 25,
+      objectType: 'message', prefix: 'ZCRM_COST', cursor: null, limit: 25,
     });
-
     expect(rpcCalls).toHaveLength(1);
     expect(rpcCalls[0]).toEqual({
       name: 'list_knowledge_catalog_v2',
-      args: {
-        p_workspace_id: 'workspace-1',
-        p_object_type: 'message',
-        p_prefix: 'ZCRM_COST',
-        p_cursor: null,
-        p_limit: 25,
-      },
+      args: { p_workspace_id: 'workspace-1', p_object_type: 'message', p_prefix: 'ZCRM_COST', p_cursor: null, p_limit: 25 },
     });
     const payload = JSON.parse(result.output);
     expect(payload.records.totalCount).toBe(62);
@@ -106,7 +95,6 @@ describe('Knowledge enumeration/list capability', () => {
     const compacted = compactEnumerationToolOutput(original, 9_000);
     expect(compacted).toBeTruthy();
     expect(compacted!.length).toBeLessThanOrEqual(9_000);
-
     const parsed = JSON.parse(compacted!);
     expect(parsed.tool).toBe('list_knowledge_catalog');
     expect(parsed.records.items).toHaveLength(25);
@@ -125,7 +113,6 @@ describe('Knowledge enumeration/list capability', () => {
       { type: 'function_call', call_id: 'p3', name: 'list_knowledge_catalog', arguments: '{}' },
       { type: 'function_call_output', call_id: 'p3', output: makeEnumerationOutput(50, 12, 62, null) },
     ];
-
     const agentItems = compactGeminiAgentItems(items);
     const pageOutputs = agentItems
       .filter(item => 'type' in item && item.type === 'function_call_output')
@@ -145,12 +132,7 @@ describe('Knowledge enumeration/list capability', () => {
     const instruction = costGuardAgentInstruction({
       budget: 4,
       executed: 1,
-      plan: {
-        intent: 'analysis',
-        complexity: 'medium',
-        knowledgeRequired: true,
-        webMode: 'none',
-      } as any,
+      plan: { intent: 'analysis', complexity: 'medium', knowledgeRequired: true, webMode: 'none' } as any,
     });
     expect(instruction).toContain('list_knowledge_catalog');
     expect(instruction).toContain('nextCursor');

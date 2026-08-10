@@ -117,7 +117,7 @@ const compactToolRecoveryItems = (items: Array<Record<string, unknown>>) => {
     ...conversational,
     {
       role: 'user',
-      content: `[JETWORK_TOOL_EVIDENCE]\n${toolEvidence.join('\n\n').slice(0, 40_000)}\n[END_JETWORK_TOOL_EVIDENCE]`,
+      content: `[JETWORK_TOOL_EVIDENCE]\n${toolEvidence.join('\n\n').slice(0, 14_000)}\n[END_JETWORK_TOOL_EVIDENCE]`,
     },
   ]
 }
@@ -334,10 +334,20 @@ export async function requestGeminiResponse(input: {
   const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.allowTools ? input.items : compactNoToolSynthesisItems(input.items)
   const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL ? GEMINI_SUBSTANTIVE_MODEL : input.model
   const providerWebEnabled = !trivialConversation && input.allowTools && input.instructions.includes(PROVIDER_WEB_CAPABILITY_MARKER)
-  const artifactSynthesis = !trivialConversation && input.instructions.includes('Intent: document')
+  const artifactSynthesis = !trivialConversation && (input.instructions.includes('Intent: document') || input.instructions.includes('[JETWORK PROMPT PROFILE: artifact]'))
+  const finalSynthesis = !input.allowTools && !trivialConversation
   const config: Record<string, unknown> = {
     systemInstruction: trivialConversation ? TRIVIAL_CONVERSATION_INSTRUCTIONS : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
+  }
+  if (artifactSynthesis) {
+    // Artifact generation needs some planning headroom, but the former default
+    // thinking level consumed thousands of reasoning tokens for templated output.
+    config.thinkingConfig = { thinkingLevel: 'low' }
+  } else if (finalSynthesis && executionModel === DEFAULT_GEMINI_MODEL) {
+    // Grounded answer synthesis should spend tokens on evidence/output rather than
+    // hidden reasoning after tools have already resolved the task.
+    config.thinkingConfig = { thinkingLevel: 'minimal' }
   }
   if (input.allowTools) {
     const declarations = input.tools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters }))
@@ -356,7 +366,7 @@ export async function requestGeminiResponse(input: {
       contents: toGeminiContents(effectiveItems),
       config,
       allowSameProviderModelFallback: !trivialConversation,
-      finalSynthesis: !input.allowTools && !trivialConversation,
+      finalSynthesis,
       artifactSynthesis,
       signal: input.signal,
     })
