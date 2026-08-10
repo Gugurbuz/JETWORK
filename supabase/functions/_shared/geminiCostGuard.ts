@@ -235,7 +235,7 @@ export const toolBudgetForPlan = (plan: ReasoningPlan | null): number => {
     case 'decision': return high ? 4 : 3
     case 'project': return high ? 4 : 3
     case 'document': return plan.knowledgeRequired ? 2 : 0
-    case 'simple_answer': return 0
+    case 'simple_answer': return plan.knowledgeRequired || plan.webMode !== 'none' ? 3 : 0
     default: return high ? 5 : 4
   }
 }
