@@ -39,6 +39,12 @@ const challengesScopeCompleteness = (message: string) => {
   return /\b(baska|daha cok|eksik|tamami|tumunu|hepsi|yok mu|olmali|olmaliydi|degil)\b/.test(text)
 }
 
+const definitionLookupIdentifier = (message: string): string | null => {
+  const text = normalize(message)
+  const match = text.match(/^([a-z0-9_]{2,40})\s+(?:ne demek|nedir|ne anlama gelir|acilimi(?: nedir| ne)?|what is|meaning|stands for)\b/i)
+  return match?.[1] ? cleanText(match[1], 40) : null
+}
+
 const latestAssistant = (conversation: SemanticContextMessage[]) => {
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     if (conversation[index].role === 'assistant') return cleanText(conversation[index].content.replace(/\s+/g, ' '), 260)
@@ -64,6 +70,55 @@ export const applyConversationScopeInventoryPolicy = (input: {
           openQuestions: [...(input.plan.conversationState.openQuestions || [])],
         }
       : undefined,
+  }
+
+  const definitionIdentifier = definitionLookupIdentifier(input.currentMessage)
+  if (definitionIdentifier) {
+    plan.intent = 'analysis'
+    plan.complexity = 'low'
+    plan.executionMode = 'knowledge'
+    plan.knowledgeRequired = true
+    plan.verificationRequired = true
+    plan.webMode = 'none'
+    plan.evidenceQueries = [definitionIdentifier, cleanText(input.currentMessage, 300)]
+    plan.goal = [
+      cleanText(input.currentMessage, 700),
+      `[JETWORK_DEFINITION_LOOKUP] identifier=${definitionIdentifier}.`,
+      'Bu kısa terim veya kısaltmanın kurum içi anlamını yalnız JetWork bilgi bankası kanıtı açıkça destekliyorsa kurumsal gerçek olarak sun.',
+      'Bilgi bankasında doğrudan destekleyen kanıt yoksa doğrulanmış kurum içi tanım bulunamadığını açıkça söyle; Enerjisa, SAP veya başka bir kurumsal açılım uydurma.',
+      'Genel bir anlam vermek gerçekten yararlıysa onu kurum içi tanımdan açıkça ayır ve olasılık dili kullan.',
+    ].join('\n')
+    plan.steps = [
+      {
+        id: 'lookup-definition',
+        label: `${definitionIdentifier} için kurumsal kanıt ara`,
+        toolHint: 'knowledge',
+        successCriteria: 'Terimi doğrudan destekleyen yayımlanmış kanıt bulunur veya bulunamadığı doğrulanır.',
+      },
+      {
+        id: 'verify-definition',
+        label: 'Tanımın kanıtla desteklendiğini doğrula',
+        toolHint: 'verification',
+        successCriteria: 'Kurumsal tanım yalnız doğrudan kanıt varsa kesin ifade edilir.',
+      },
+      {
+        id: 'answer-definition',
+        label: 'Kanıt durumunu açıkça belirterek yanıtla',
+        toolHint: 'synthesis',
+        successCriteria: 'Kanıtsız kurumsal açılım üretilmez.',
+      },
+    ]
+    plan.conversationState = {
+      continuation: false,
+      topic: definitionIdentifier,
+      userMove: 'new_request',
+      priorIntent: plan.conversationState?.priorIntent || 'none',
+      rejectedHypotheses: [...(plan.conversationState?.rejectedHypotheses || [])],
+      rejectedScopes: [...(plan.conversationState?.rejectedScopes || [])],
+      retainedContext: [...(plan.conversationState?.retainedContext || [])].slice(-8),
+      openQuestions: [],
+    }
+    return plan
   }
 
   const objectType = objectTypeFromMessage(input.currentMessage)
