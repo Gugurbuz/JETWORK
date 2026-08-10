@@ -23,13 +23,14 @@ const conflictHotfixMigration = readFileSync(
 );
 
 describe('trivial assistant server fast path', () => {
-  it('only accepts exact conversational turns with an explicit provider model and no attachments', () => {
+  it('keeps exact conversational turns eligible for auto routing even when stale attachment state exists', () => {
     expect(helperSource).toContain('TRIVIAL_CONVERSATION_PATTERN');
     expect(helperSource).toMatch(/\^\(\?:selam/);
-    expect(helperSource).toContain("model === 'auto'");
-    expect(helperSource).toContain('input.attachmentCount > 0');
-    expect(helperSource).toContain('GEMINI_FAST_PATH_MODELS.has(model)');
-    expect(helperSource).toContain('OPENAI_FAST_PATH_MODELS.has(model)');
+    expect(helperSource).toContain("model !== 'auto'");
+    expect(helperSource).not.toContain("model === 'auto' || input.attachmentCount > 0");
+    expect(helperSource).toContain("model === 'auto' || GEMINI_FAST_PATH_MODELS.has(model)");
+    expect(helperSource).toContain("model === 'auto' || model === 'gemini-3.1-pro-preview'");
+    expect(helperSource).toContain('Stale attachment state');
   });
 
   it('routes eligible turns through one claim RPC and keeps the normal core fallback', () => {
@@ -44,10 +45,10 @@ describe('trivial assistant server fast path', () => {
     expect(gatewaySource).not.toContain("from '../_shared/modelProviders.ts'");
   });
 
-  it('routes trivial Gemini Pro and retired preview execution to stable Flash Lite', () => {
+  it('routes trivial Gemini Pro, auto, and retired preview execution to stable Flash Lite', () => {
     expect(helperSource).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'");
     expect(helperSource).toContain("DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'");
-    expect(helperSource).toContain("model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW");
+    expect(helperSource).toContain("model === 'auto' || model === 'gemini-3.1-pro-preview'");
     expect(helperSource).toContain('executionModelForTrivialFastPathModel(input.model)');
     expect(helperSource).toContain('model: input.model');
     expect(helperSource).toContain("provider: 'gemini'");
@@ -68,10 +69,16 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain('Exact trivial turns are latency-sensitive');
   });
 
-  it('keeps provider selection explicit without cross-provider fallback', () => {
+  it('keeps provider isolation for explicit model selection while allowing auto to choose a low-cost provider', () => {
     expect(helperSource).toContain('fallbackUsed: false');
     expect(helperSource).not.toContain('DEFAULT_GEMINI_MODEL');
     expect(helperSource).not.toContain('DEFAULT_MODEL');
+    expect(helperSource).toContain("if (input.model === 'auto' && input.openAiApiKey)");
+  });
+
+  it('keeps context-sensitive acknowledgements out of the context-free fast path at the gateway', () => {
+    expect(gatewaySource).toContain("CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])");
+    expect(gatewaySource).toContain('CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS.has(normalizeShortText(message))');
   });
 
   it('keeps the database RPC fail-closed and authenticated-only', () => {
