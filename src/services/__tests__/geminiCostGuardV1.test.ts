@@ -93,10 +93,11 @@ describe('Gemini Cost Guard v1', () => {
   });
 
   it('records agent and final usage separately for cost observability', () => {
-    expect(providerWrapperSource).toContain('cost_guard_agent_input_tokens');
-    expect(providerWrapperSource).toContain('cost_guard_final_input_tokens');
-    expect(providerWrapperSource).toContain('cost_guard_agent_estimated_cost_usd');
-    expect(providerWrapperSource).toContain('cost_guard_final_estimated_cost_usd');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_input_tokens');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_output_tokens');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_reasoning_tokens');
+    expect(providerWrapperSource).toContain('cost_guard_${stage}_estimated_cost_usd');
+    expect(providerWrapperSource).toContain("stage: 'agent' | 'final'");
   });
 
   it('keeps strong synthesis separate from cheap agent calls', () => {
