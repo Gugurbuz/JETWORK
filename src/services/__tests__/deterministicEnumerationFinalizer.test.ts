@@ -98,6 +98,7 @@ describe('deterministic enumeration finalizer', () => {
     ];
     const result = buildDeterministicEnumerationFinalization(items);
     expect(result).toMatchObject({ totalCount: 1, collectedCount: 1, complete: true });
-    expect(result!.text).toContain('**EVER:** EVER');
+    expect(result!.text).toContain('**EVER**');
+    expect(result!.text).not.toContain('**EVER:** EVER');
   });
 });
