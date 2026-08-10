@@ -51,7 +51,9 @@ const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQ
 const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite'
 const LEGACY_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const GEMINI_PRO_MODEL = 'gemini-3.1-pro-preview'
+const DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol'
+const AUTO_PROVIDER_CIRCUIT_BREAKER_MS = 5 * 60 * 1000
 const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
 
 interface AssistantGatewayBody {
@@ -294,11 +296,22 @@ async function loadSemanticContext(input: {
     artifactStatus: cleanString(previousRun.artifact_status, 80),
     artifactOperation: cleanString(previousRun.artifact_operation, 80),
   } : undefined
+  const currentCreatedAtMs = Date.parse(currentCreatedAt)
+  const previousStartedAtMs = Date.parse(String(previousRun?.started_at || ''))
+  const preferGeminiAuto = Boolean(
+    previousRun?.fallback_used === true
+    && cleanString(previousRun?.provider, 40) === 'gemini'
+    && Number.isFinite(currentCreatedAtMs)
+    && Number.isFinite(previousStartedAtMs)
+    && currentCreatedAtMs >= previousStartedAtMs
+    && currentCreatedAtMs - previousStartedAtMs <= AUTO_PROVIDER_CIRCUIT_BREAKER_MS
+  )
 
   return {
     client,
     conversation,
     priorExecution,
+    preferGeminiAuto,
     currentCreatedAt,
     workspaceTitle: cleanString(workspaceResult.data.title, 300),
   }
@@ -461,12 +474,18 @@ serve(async req => {
     console.error('Semantic context could not be loaded:', errorMessage(contextError))
     return jsonResponse({ error: 'Konuşma bağlamı hazırlanamadı. Lütfen tekrar deneyin.', code: 'SEMANTIC_CONTEXT_UNAVAILABLE' }, 503)
   }
+  if (requestedModel === 'auto' && context.preferGeminiAuto && geminiApiKey) {
+    semanticProvider = 'gemini'
+    semanticModel = GEMINI_PRO_MODEL
+    semanticApiKey = geminiApiKey
+  }
   const attachmentNames = Array.isArray(parsedBody.chatAttachments)
     ? parsedBody.chatAttachments.map((item: any) => cleanString(item?.name, 240)).filter(Boolean)
     : []
   const semanticRequestHash = await sha256Text(JSON.stringify({
     orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
     requestedModel,
+    autoProviderPreference: requestedModel === 'auto' && context.preferGeminiAuto ? 'gemini' : 'default',
     currentMessage,
     messageCreatedAt: context.currentCreatedAt,
     conversation: context.conversation,
@@ -604,7 +623,10 @@ serve(async req => {
     semantic.plan.webMode = 'none'
   }
 
-  const forwardedModel = substantiveModel(requestedModel)
+  const autoProviderSticky = requestedModel === 'auto' && semantic.provider === 'gemini'
+  const forwardedModel = autoProviderSticky
+    ? DEFAULT_GEMINI_RUNTIME_MODEL
+    : substantiveModel(requestedModel)
   const nextBody: AssistantGatewayBody = {
     ...parsedBody,
     model: forwardedModel,
@@ -615,6 +637,8 @@ serve(async req => {
     messageId,
     requestedModel,
     forwardedModel,
+    autoProviderSticky,
+    autoCircuitBreakerActive: requestedModel === 'auto' && context.preferGeminiAuto,
     orchestrationProvider: semantic.provider,
     orchestrationModel: semantic.model,
     orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
