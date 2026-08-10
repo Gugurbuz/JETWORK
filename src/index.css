@@ -39,25 +39,46 @@
     50% { fill: var(--theme-text); }
   }
 
-  @keyframes thinking-logo-sweep {
-    0%, 14% {
-      left: 0.75rem;
-      opacity: 1;
+  @keyframes thinking-ring-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes thinking-core-pulse {
+    0%, 100% {
+      transform: scale(0.94);
+      filter: drop-shadow(0 0 6px rgba(255, 193, 7, 0.2));
     }
-    58% {
-      left: calc(100% - 1.75rem);
-      opacity: 1;
+    50% {
+      transform: scale(1.04);
+      filter: drop-shadow(0 0 11px rgba(255, 152, 0, 0.5));
     }
-    74%, 100% {
-      left: calc(100% - 1.75rem);
-      opacity: 0;
+  }
+
+  @keyframes thinking-spark-drift {
+    0%, 100% {
+      opacity: 0.35;
+      transform: translate3d(0, 0, 0) scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: translate3d(4px, -3px, 0) scale(1.05);
     }
   }
 
   @keyframes thinking-text-shimmer {
-    0% { background-position: 180% 50%; }
-    58% { background-position: -40% 50%; }
-    100% { background-position: -40% 50%; }
+    0% { background-position: 170% 50%; }
+    100% { background-position: -60% 50%; }
+  }
+
+  @keyframes thinking-dot-bounce {
+    0%, 80%, 100% {
+      opacity: 0.35;
+      transform: translateY(0);
+    }
+    40% {
+      opacity: 1;
+      transform: translateY(-3px);
+    }
   }
 }
 
@@ -71,31 +92,120 @@
   .animate-swap-white {
     animation: swap-white 1.5s infinite ease-in-out;
   }
-  .jetwork-thinking-logo {
-    animation: thinking-logo-sweep 2.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
-    transform: translateY(-50%);
+  .jetwork-thinking-orb {
+    position: relative;
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    isolation: isolate;
+  }
+  .jetwork-thinking-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      conic-gradient(
+        from 0deg,
+        #ffc107 0deg,
+        #ff9800 96deg,
+        #f36896 158deg,
+        #002d72 230deg,
+        #ffc107 360deg
+      );
+    box-shadow:
+      0 0 0 1px rgba(255, 193, 7, 0.2),
+      0 0 16px rgba(255, 152, 0, 0.4);
+    animation: thinking-ring-spin 0.9s linear infinite;
+  }
+  .jetwork-thinking-ring::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: inherit;
+    background:
+      radial-gradient(circle at 38% 28%, rgba(255, 255, 255, 0.55), transparent 34%),
+      var(--theme-surface);
+  }
+  .jetwork-thinking-core {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    width: 1.25rem;
+    height: 1.25rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.45rem;
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.92), rgba(255, 152, 0, 0.92));
+    animation: thinking-core-pulse 1.35s ease-in-out infinite;
+  }
+  .jetwork-thinking-spark {
+    position: absolute;
+    z-index: 2;
+    width: 0.28rem;
+    height: 0.28rem;
+    border-radius: 9999px;
+    background: #fff3c4;
+    box-shadow: 0 0 8px rgba(255, 193, 7, 0.9);
+    animation: thinking-spark-drift 1.25s ease-in-out infinite;
+  }
+  .jetwork-thinking-spark-one {
+    right: 0.2rem;
+    top: 0.25rem;
+  }
+  .jetwork-thinking-spark-two {
+    bottom: 0.25rem;
+    left: 0.25rem;
+    animation-delay: 0.45s;
   }
   .jetwork-thinking-text {
     background: linear-gradient(
       100deg,
-      currentColor 0%,
-      currentColor 34%,
-      color-mix(in srgb, var(--theme-primary) 35%, white) 50%,
-      currentColor 66%,
-      currentColor 100%
+      var(--theme-text) 0%,
+      var(--theme-text) 30%,
+      #ffc107 48%,
+      #ff9800 58%,
+      var(--theme-text) 75%,
+      var(--theme-text) 100%
     );
-    background-size: 220% 100%;
+    background-size: 260% 100%;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    animation: thinking-text-shimmer 2.8s ease-in-out infinite;
+    animation: thinking-text-shimmer 2s ease-in-out infinite;
+  }
+  .jetwork-thinking-dots {
+    display: inline-flex;
+    gap: 0.18rem;
+    padding-top: 0.3rem;
+  }
+  .jetwork-thinking-dots span {
+    display: block;
+    width: 0.22rem;
+    height: 0.22rem;
+    border-radius: 9999px;
+    background: #ff9800;
+    box-shadow: 0 0 6px rgba(255, 152, 0, 0.75);
+    animation: thinking-dot-bounce 1.05s ease-in-out infinite;
+  }
+  .jetwork-thinking-dots span:nth-child(2) {
+    animation-delay: 0.14s;
+  }
+  .jetwork-thinking-dots span:nth-child(3) {
+    animation-delay: 0.28s;
   }
   @media (prefers-reduced-motion: reduce) {
-    .jetwork-thinking-logo,
-    .jetwork-thinking-text {
+    .jetwork-thinking-ring,
+    .jetwork-thinking-core,
+    .jetwork-thinking-spark,
+    .jetwork-thinking-text,
+    .jetwork-thinking-dots span {
       animation: none;
     }
-    .jetwork-thinking-logo {
+    .jetwork-thinking-spark {
       opacity: 1;
     }
     .jetwork-thinking-text {
