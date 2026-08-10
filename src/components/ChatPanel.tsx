@@ -12,6 +12,7 @@ import { useDataStore } from '../store/useDataStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { KnowledgeBankModal } from './KnowledgeBankModal';
+import { JetWorkLogo } from './JetWorkLogo';
 
 const contextualQuestionOptions = (question: Question): string[] => {
   return (question.options || [])
@@ -97,24 +98,19 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
   );
 };
 
-const JETWORK_OUTER = "#FFC107";
-const JETWORK_INNER = "#FF9800";
-
-const JetWorkLogo = ({ className, isSpinning, isColorSwapping, color, innerColor, centerColor }: { className?: string, isSpinning?: boolean, isColorSwapping?: boolean, color?: string, innerColor?: string, centerColor?: string }) => {
-  const outerFill = color || JETWORK_OUTER;
-  const middleFill = innerColor || "var(--theme-surface)";
-  const centerFill = centerColor || (color ? color : JETWORK_INNER);
-  return (
-    <svg viewBox="0 0 100 100" className={cn("shrink-0", className, isSpinning && "animate-spin")}>
-      <rect x="10" y="10" width="80" height="80" fill={outerFill} className={cn(isColorSwapping && "animate-swap-black")} />
-      <rect x="30" y="30" width="40" height="40" fill={middleFill} className={cn(isColorSwapping && "animate-swap-white")} />
-      <rect x="42" y="42" width="16" height="16" fill={centerFill} className={cn(isColorSwapping && "animate-swap-black")} />
-    </svg>
-  );
-};
-
-const MonogramSpinner = () => (
-  <JetWorkLogo className="w-4 h-4" isColorSwapping={true} />
+const ThinkingIndicator = ({ label = 'Düşünüyor' }: { label?: string }) => (
+  <div
+    className="jetwork-thinking relative inline-flex w-fit items-center gap-2 overflow-hidden rounded-full border border-theme-primary/20 bg-theme-primary/5 px-3 py-1.5 pr-4 text-theme-primary shadow-sm"
+    aria-live="polite"
+  >
+    <span className="jetwork-thinking-logo pointer-events-none absolute left-3 top-1/2 z-10">
+      <JetWorkLogo className="h-4 w-4 animate-spin drop-shadow-[0_0_8px_rgba(255,193,7,0.45)]" />
+    </span>
+    <span className="h-4 w-4 shrink-0 opacity-0" aria-hidden="true" />
+    <span className="jetwork-thinking-text relative text-xs font-semibold tracking-tight">
+      {label}
+    </span>
+  </div>
 );
 
 const MessageTimer = ({ isTyping }: { isTyping: boolean }) => {
@@ -134,12 +130,12 @@ const MessageTimer = ({ isTyping }: { isTyping: boolean }) => {
 
 const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingText: string, isTyping: boolean, groundingUrls?: { uri: string; title: string }[] }) => {
   const getThinkingTitle = () => {
-    if (!thinkingText) return isTyping ? "Ajan Düşünüyor..." : "Ajanın Düşünce Süreci";
+    if (!thinkingText) return isTyping ? "Düşünüyor..." : "Düşünce Süreci";
     const matches = [...thinkingText.matchAll(/\*\*([^*]+)\*\*/g)];
     if (matches.length > 0) {
       return matches[matches.length - 1][1].trim();
     }
-    return isTyping ? "Ajan Düşünüyor..." : "Ajanın Düşünce Süreci";
+    return isTyping ? "Düşünüyor..." : "Düşünce Süreci";
   };
 
   return (
@@ -393,10 +389,7 @@ const MessageItem = memo(({
         >
           {msg.isTyping && !msg.text && !msg.thinkingText ? (
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-theme-primary animate-pulse">
-                <MonogramSpinner />
-                <span>{msg.phaseLabel || 'Strateji Belirleniyor...'}</span>
-              </div>
+              <ThinkingIndicator />
               {msg.phase && (
                 <div className="flex items-center gap-1.5 mt-1 w-full max-w-[220px]">
                   {(['PLAN', 'RESEARCH', 'REFLECT', 'ACT'] as const).map((p) => {
@@ -507,13 +500,12 @@ const MessageItem = memo(({
           )}
           
           {msg.role === 'model' && msg.isTyping && msg.text && (
-            <div className="mt-4 p-4 bg-theme-surface border border-theme-border border-dashed rounded-xl shadow-sm flex items-center gap-3 animate-pulse">
-              <JetWorkLogo className="w-4 h-4" isSpinning={true} />
-              <span className="text-sm font-medium text-theme-text-muted">
-                {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-                  ? 'Yanıt hazırlanıyor...'
-                  : 'Dokümanlar versiyonlanıyor...'}
-              </span>
+            <div className="mt-4 rounded-xl border border-dashed border-theme-border bg-theme-surface p-4 shadow-sm">
+              <ThinkingIndicator
+                label={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+                  ? 'Yanıt hazırlanıyor'
+                  : 'Dokümanlar versiyonlanıyor'}
+              />
             </div>
           )}
 

@@ -38,6 +38,27 @@
     0%, 100% { fill: var(--theme-surface); }
     50% { fill: var(--theme-text); }
   }
+
+  @keyframes thinking-logo-sweep {
+    0%, 14% {
+      left: 0.75rem;
+      opacity: 1;
+    }
+    58% {
+      left: calc(100% - 1.75rem);
+      opacity: 1;
+    }
+    74%, 100% {
+      left: calc(100% - 1.75rem);
+      opacity: 0;
+    }
+  }
+
+  @keyframes thinking-text-shimmer {
+    0% { background-position: 180% 50%; }
+    58% { background-position: -40% 50%; }
+    100% { background-position: -40% 50%; }
+  }
 }
 
 @layer utilities {
@@ -49,6 +70,38 @@
   }
   .animate-swap-white {
     animation: swap-white 1.5s infinite ease-in-out;
+  }
+  .jetwork-thinking-logo {
+    animation: thinking-logo-sweep 2.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+    transform: translateY(-50%);
+  }
+  .jetwork-thinking-text {
+    background: linear-gradient(
+      100deg,
+      currentColor 0%,
+      currentColor 34%,
+      color-mix(in srgb, var(--theme-primary) 35%, white) 50%,
+      currentColor 66%,
+      currentColor 100%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: thinking-text-shimmer 2.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .jetwork-thinking-logo,
+    .jetwork-thinking-text {
+      animation: none;
+    }
+    .jetwork-thinking-logo {
+      opacity: 1;
+    }
+    .jetwork-thinking-text {
+      background: none;
+      color: inherit;
+    }
   }
 }
 
