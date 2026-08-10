@@ -239,6 +239,7 @@ async function generateGeminiContentWithResilience(input: {
   config: Record<string, unknown>
   allowSameProviderModelFallback: boolean
   finalSynthesis: boolean
+  artifactSynthesis: boolean
   signal?: AbortSignal
 }) {
   const canFailOverFromPro = input.allowSameProviderModelFallback && input.model === GEMINI_SUBSTANTIVE_MODEL
@@ -248,7 +249,7 @@ async function generateGeminiContentWithResilience(input: {
   for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
     const model = models[modelIndex]
     const immediateFailoverCandidate = model === GEMINI_SUBSTANTIVE_MODEL && modelIndex < models.length - 1
-    const maxAttempts = immediateFailoverCandidate ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
+    const maxAttempts = immediateFailoverCandidate || input.artifactSynthesis ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         const response = await generateGeminiAttempt({
@@ -258,7 +259,7 @@ async function generateGeminiContentWithResilience(input: {
           config: input.config,
           timeoutMs: model === GEMINI_SUBSTANTIVE_MODEL
             ? GEMINI_PRO_ATTEMPT_TIMEOUT_MS
-            : input.finalSynthesis
+            : input.finalSynthesis || input.artifactSynthesis
               ? GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS
               : GEMINI_TOOL_ATTEMPT_TIMEOUT_MS,
           parentSignal: input.signal,
@@ -305,6 +306,7 @@ export async function requestGeminiResponse(input: {
   const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.allowTools ? input.items : compactNoToolSynthesisItems(input.items)
   const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL ? GEMINI_SUBSTANTIVE_MODEL : input.model
   const providerWebEnabled = !trivialConversation && input.allowTools && input.instructions.includes(PROVIDER_WEB_CAPABILITY_MARKER)
+  const artifactSynthesis = !trivialConversation && input.instructions.includes('Intent: document')
   const config: Record<string, unknown> = {
     systemInstruction: trivialConversation ? TRIVIAL_CONVERSATION_INSTRUCTIONS : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
@@ -324,6 +326,7 @@ export async function requestGeminiResponse(input: {
     config,
     allowSameProviderModelFallback: !trivialConversation,
     finalSynthesis: !input.allowTools && !trivialConversation,
+    artifactSynthesis,
     signal: input.signal,
   })
   const response = generated.response
