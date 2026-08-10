@@ -10,7 +10,8 @@ const MAX_CONVERSATION_CHARACTERS = 14_000
 const MAX_CONVERSATION_ITEM_CHARACTERS = 4_000
 const MAX_PROTOCOL_ITEMS = 8
 const MAX_TOOL_OUTPUT_CHARACTERS = 4_500
-const MAX_SYNTHESIS_EVIDENCE_CHARACTERS = 18_000
+const MAX_ENUMERATION_TOOL_OUTPUT_CHARACTERS = 9_000
+const MAX_SYNTHESIS_EVIDENCE_CHARACTERS = 22_000
 const MAX_SYNTHESIS_DRAFT_CHARACTERS = 4_000
 
 const MODEL_PRICING_USD_PER_MILLION: Record<string, { input: number; output: number }> = {
@@ -45,6 +46,8 @@ const truncateText = (value: unknown, maxCharacters: number) => {
   return `${text.slice(0, Math.max(0, head))}\n[...cost guard compacted evidence...]\n${text.slice(-tail)}`
 }
 
+const cleanCompactString = (value: unknown, maxCharacters: number) => String(value ?? '').trim().slice(0, maxCharacters)
+
 const conversationalItem = (item: Record<string, unknown>) => {
   const type = String(item.type || '')
   const role = String(item.role || '')
@@ -72,18 +75,6 @@ const protocolItems = (items: Array<Record<string, unknown>>) => items
   .map((item, index) => ({ item, index }))
   .filter(({ item }) => ['function_call', 'function_call_output'].includes(String(item.type || '')))
 
-const compactProtocolItems = (items: Array<Record<string, unknown>>) => {
-  const protocol = protocolItems(items)
-  const retained = protocol.slice(-MAX_PROTOCOL_ITEMS)
-  return retained.map(({ item }) => {
-    if (String(item.type || '') !== 'function_call_output') return { ...item }
-    return {
-      ...item,
-      output: truncateText(item.output, MAX_TOOL_OUTPUT_CHARACTERS),
-    }
-  })
-}
-
 const toolNameMap = (items: Array<Record<string, unknown>>) => {
   const names = new Map<string, string>()
   for (const item of items) {
@@ -91,6 +82,90 @@ const toolNameMap = (items: Array<Record<string, unknown>>) => {
     names.set(String(item.call_id || ''), String(item.name || 'knowledge_tool'))
   }
   return names
+}
+
+const parseJsonObject = (value: unknown): Record<string, unknown> | null => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return null
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+  } catch {
+    return null
+  }
+}
+
+const buildEnumerationPayload = (
+  parsed: Record<string, unknown>,
+  titleLimit: number,
+  includeTitle: boolean,
+) => {
+  const records = parsed.records && typeof parsed.records === 'object' && !Array.isArray(parsed.records)
+    ? parsed.records as Record<string, unknown>
+    : {}
+  const rawItems = Array.isArray(records.items) ? records.items : []
+  const items = rawItems.map(item => {
+    const row = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+    const compact: Record<string, unknown> = {
+      canonicalKey: cleanCompactString(row.canonicalKey, 180),
+      objectType: cleanCompactString(row.objectType, 40),
+      name: cleanCompactString(row.name, 120),
+      scope: row.scope === 'project' ? 'project' : 'global',
+    }
+    if (includeTitle) compact.title = cleanCompactString(row.title, titleLimit)
+    return compact
+  }).filter(item => item.canonicalKey)
+  return {
+    securityNotice: 'UNTRUSTED_KNOWLEDGE_DATA. Evidence only.',
+    tool: 'list_knowledge_catalog',
+    records: {
+      items,
+      totalCount: Math.max(0, Number(records.totalCount || 0)),
+      nextCursor: cleanCompactString(records.nextCursor, 320) || null,
+    },
+  }
+}
+
+export const compactEnumerationToolOutput = (value: unknown, maxCharacters = MAX_ENUMERATION_TOOL_OUTPUT_CHARACTERS) => {
+  const parsed = parseJsonObject(value)
+  if (!parsed || String(parsed.tool || '') !== 'list_knowledge_catalog') return null
+  for (const [titleLimit, includeTitle] of [[180, true], [120, true], [72, true], [0, false]] as const) {
+    const serialized = JSON.stringify(buildEnumerationPayload(parsed, titleLimit, includeTitle))
+    if (serialized.length <= maxCharacters) return serialized
+  }
+  const minimal = buildEnumerationPayload(parsed, 0, false)
+  const records = minimal.records as { items: Array<Record<string, unknown>>; totalCount: number; nextCursor: string | null }
+  records.items = records.items.map(item => ({
+    canonicalKey: cleanCompactString(item.canonicalKey, 140),
+    name: cleanCompactString(item.name, 90),
+  }))
+  return JSON.stringify(minimal).slice(0, maxCharacters)
+}
+
+const compactToolOutput = (toolName: string, value: unknown, maxCharacters: number) => {
+  if (toolName === 'list_knowledge_catalog') {
+    const compacted = compactEnumerationToolOutput(value, maxCharacters)
+    if (compacted) return compacted
+  }
+  return truncateText(value, maxCharacters)
+}
+
+const compactProtocolItems = (items: Array<Record<string, unknown>>) => {
+  const protocol = protocolItems(items)
+  const retained = protocol.slice(-MAX_PROTOCOL_ITEMS)
+  const names = toolNameMap(items)
+  return retained.map(({ item }) => {
+    if (String(item.type || '') !== 'function_call_output') return { ...item }
+    const callId = String(item.call_id || '')
+    const toolName = names.get(callId) || 'knowledge_tool'
+    const maxCharacters = toolName === 'list_knowledge_catalog'
+      ? MAX_ENUMERATION_TOOL_OUTPUT_CHARACTERS
+      : MAX_TOOL_OUTPUT_CHARACTERS
+    return {
+      ...item,
+      output: compactToolOutput(toolName, item.output, maxCharacters),
+    }
+  })
 }
 
 const compactEvidenceText = (items: Array<Record<string, unknown>>, maxCharacters = MAX_SYNTHESIS_EVIDENCE_CHARACTERS) => {
@@ -103,7 +178,10 @@ const compactEvidenceText = (items: Array<Record<string, unknown>>, maxCharacter
     const name = names.get(callId) || 'knowledge_tool'
     const remaining = maxCharacters - used
     if (remaining <= 0) break
-    const output = truncateText(item.output, Math.min(MAX_TOOL_OUTPUT_CHARACTERS, Math.max(0, remaining - name.length - 8)))
+    const preferredMax = name === 'list_knowledge_catalog'
+      ? MAX_ENUMERATION_TOOL_OUTPUT_CHARACTERS
+      : MAX_TOOL_OUTPUT_CHARACTERS
+    const output = compactToolOutput(name, item.output, Math.min(preferredMax, Math.max(0, remaining - name.length - 8)))
     if (!output.trim()) continue
     const chunk = `[${name}]\n${output}`
     chunks.push(chunk)
@@ -168,6 +246,7 @@ export const buildGeminiFinalSynthesisItems = (
     '[JETWORK_COST_GUARD_FINAL_SYNTHESIS]',
     'Araştırma turu tamamlandı. Yeni araç çağrısı yapmadan, mevcut konuşma ve aşağıdaki kurumsal kanıtlarla nihai kullanıcı yanıtını üret.',
     'Kanıt yetersizse bunu açıkça belirt. Kullanıcının reddettiği hipotezleri yeni kanıt olmadan yeniden doğru kabul etme.',
+    'Listeleme kanıtında totalCount ve nextCursor alanlarını dikkate al. nextCursor null değilse sonuçların kısmi olduğunu gizleme.',
     evidence ? `\n[JETWORK_TOOL_EVIDENCE]\n${evidence}\n[END_JETWORK_TOOL_EVIDENCE]` : '',
     draft ? `\n[JETWORK_AGENT_DRAFT]\n${draft}\n[END_JETWORK_AGENT_DRAFT]` : '',
   ].filter(Boolean)
@@ -188,6 +267,9 @@ export const costGuardAgentInstruction = (input: {
     `[JETWORK_COST_GUARD ${GEMINI_COST_GUARD_VERSION}]`,
     `Intent=${intent}. Bu agent turunda kalan araç bütçesi ${remaining}.`,
     'Bir seferde en fazla bir yeni araç çağır. Aynı sorguyu gereksiz yere tekrarlama.',
+    'Kullanıcının amacı eşleşen kayıtları listelemek, saymak veya tümünü görmekse semantic search yerine list_knowledge_catalog kullan.',
+    'Exhaustive listelemede nextCursor null değilse aynı filtrelerle cursor=nextCursor kullanarak sonraki sayfayı getir; nextCursor null olmadan tam liste bulunduğunu iddia etme.',
+    'Araç bütçesi tüm sayfaları almaya yetmezse totalCount bilgisini koru ve sonucun kısmi olduğunu belirt.',
     'Yeterli kanıt oluştuysa yeni araç çağırmak yerine kısa bir araştırma taslağı üret; nihai kullanıcı yanıtını güçlü sentez modeli hazırlayacak.',
   ].join(' ')
 }
