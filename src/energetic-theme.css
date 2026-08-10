@@ -1,330 +1,448 @@
 /*
- * JetWork Energetic 2.0
+ * JetWork Energetic 3.0
  *
- * This file is intentionally isolated from the shared theme layer.
- * Every visual rule is scoped to html.theme-energetic so Monochrome
- * and Ocean keep their existing appearance and behavior.
+ * Intentionally isolated from shared themes. Every rule is scoped to
+ * html.theme-energetic so Monochrome and Ocean remain untouched.
  */
 
-@keyframes energetic-ambient-drift {
-  0%, 100% {
-    transform: translate3d(-1.5%, -1%, 0) scale(1);
+@keyframes energetic-canvas-shift {
+  0% {
+    background-position: 0% 0%, 100% 10%, 10% 100%, 50% 50%;
   }
   50% {
-    transform: translate3d(2%, 1.5%, 0) scale(1.045);
+    background-position: 16% 10%, 84% 26%, 26% 86%, 50% 50%;
+  }
+  100% {
+    background-position: 4% 22%, 96% 6%, 8% 72%, 50% 50%;
   }
 }
 
-@keyframes energetic-grid-drift {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 28px 28px;
-  }
+@keyframes energetic-orbit-a {
+  0%, 100% { transform: translate3d(-7%, -5%, 0) scale(1); }
+  35% { transform: translate3d(7%, 4%, 0) scale(1.08); }
+  70% { transform: translate3d(1%, 10%, 0) scale(0.96); }
+}
+
+@keyframes energetic-orbit-b {
+  0%, 100% { transform: translate3d(5%, 8%, 0) scale(1.02); }
+  45% { transform: translate3d(-8%, -5%, 0) scale(0.94); }
+  75% { transform: translate3d(-2%, 3%, 0) scale(1.1); }
+}
+
+@keyframes energetic-ribbon-sweep {
+  0% { transform: translate3d(-13%, -5%, 0) rotate(-8deg) scale(1.2); }
+  50% { transform: translate3d(4%, 3%, 0) rotate(-3deg) scale(1.24); }
+  100% { transform: translate3d(13%, -2%, 0) rotate(1deg) scale(1.2); }
+}
+
+@keyframes energetic-dot-drift {
+  from { background-position: 0 0; }
+  to { background-position: 32px 32px; }
 }
 
 @keyframes energetic-warm-breathe {
   0%, 100% {
     box-shadow:
-      0 0 0 1px rgba(255, 193, 7, 0.16),
+      0 0 0 1px rgba(255, 193, 7, 0.18),
       0 10px 28px rgba(255, 152, 0, 0.12);
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(255, 193, 7, 0.28),
-      0 14px 36px rgba(255, 152, 0, 0.18);
+      0 0 0 1px rgba(255, 193, 7, 0.34),
+      0 16px 42px rgba(255, 152, 0, 0.22);
   }
+}
+
+@keyframes energetic-logo-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-2px) rotate(1deg); }
 }
 
 html.theme-energetic {
   color-scheme: light;
 
-  /* JetWork logo-led palette */
-  --theme-bg: #fffdf8;
-  --theme-surface: rgba(255, 255, 255, 0.84);
-  --theme-surface-hover: rgba(255, 247, 218, 0.9);
+  /* No legacy green / moss / pink palette. JetWork only. */
+  --theme-bg: rgba(255, 251, 241, 0.64);
+  --theme-surface: rgba(255, 255, 255, 0.76);
+  --theme-surface-hover: rgba(255, 245, 207, 0.86);
   --theme-primary: #ffc107;
-  --theme-primary-hover: #efaa00;
+  --theme-primary-hover: #eea700;
   --theme-primary-fg: #181a1f;
   --theme-text: #1b1d21;
-  --theme-text-muted: #756f63;
-  --theme-border: rgba(132, 111, 66, 0.2);
-  --theme-glass: rgba(255, 255, 255, 0.72);
-  --theme-glass-border: rgba(255, 193, 7, 0.18);
+  --theme-text-muted: #6f685d;
+  --theme-border: rgba(119, 94, 40, 0.18);
+  --theme-glass: rgba(255, 255, 255, 0.67);
+  --theme-glass-border: rgba(255, 193, 7, 0.2);
 
   --energetic-yellow: #ffc107;
   --energetic-orange: #ff9800;
+  --energetic-gold: #ffb300;
   --energetic-ink: #181a1f;
-  --energetic-canvas: #fffdf8;
-  --energetic-soft: #fff6d8;
-  --energetic-line: rgba(132, 111, 66, 0.2);
-  --energetic-amber-shadow: rgba(255, 152, 0, 0.12);
+  --energetic-cream: #fff9ec;
+  --energetic-soft: #fff3c6;
+  --energetic-line: rgba(118, 91, 33, 0.17);
 }
 
-/*
- * The legacy Energetic theme paints every .bg-theme-bg node with the same
- * green/pink gradient. Reset those internal surfaces first, then give only
- * the application shell the new ambient JetWork background.
- */
 html.theme-energetic body,
 html.theme-energetic #root {
-  background: var(--energetic-canvas) !important;
+  background: #fff9eb !important;
 }
 
+/* Reset the old Energetic blanket gradient on internal bg-theme-bg nodes. */
 html.theme-energetic .bg-theme-bg {
-  background: var(--theme-bg) !important;
+  background: rgba(255, 252, 244, 0.62) !important;
 }
 
+/* Main application shell: the visible living background. */
 html.theme-energetic #root > .bg-theme-bg {
   isolation: isolate;
+  overflow: hidden;
   background:
-    radial-gradient(920px circle at 5% 4%, rgba(255, 193, 7, 0.13), transparent 46%),
-    radial-gradient(760px circle at 96% 92%, rgba(255, 152, 0, 0.09), transparent 48%),
-    linear-gradient(180deg, #fffefa 0%, #fffaf1 48%, #fffdf8 100%) !important;
+    radial-gradient(900px 680px at 4% 5%, rgba(255, 193, 7, 0.30), transparent 60%),
+    radial-gradient(850px 620px at 96% 10%, rgba(255, 152, 0, 0.22), transparent 62%),
+    radial-gradient(920px 700px at 82% 96%, rgba(255, 193, 7, 0.20), transparent 63%),
+    linear-gradient(135deg, #fffef9 0%, #fff7e5 42%, #fffdf7 70%, #fff5dc 100%) !important;
+  background-size: 125% 125%, 130% 130%, 135% 135%, 100% 100%;
+  animation: energetic-canvas-shift 18s ease-in-out infinite alternate;
 }
 
-/* Slow, almost imperceptible brand-light movement behind the workspace. */
+/* Large moving warm light fields. */
 html.theme-energetic #root > .bg-theme-bg::before {
   content: "";
   position: absolute;
   z-index: 0;
-  inset: -22%;
+  inset: -28%;
   pointer-events: none;
   background:
-    radial-gradient(circle at 18% 24%, rgba(255, 193, 7, 0.15), transparent 23%),
-    radial-gradient(circle at 76% 68%, rgba(255, 152, 0, 0.1), transparent 25%),
-    radial-gradient(circle at 58% 12%, rgba(255, 218, 112, 0.08), transparent 20%);
-  filter: blur(28px);
-  animation: energetic-ambient-drift 24s ease-in-out infinite;
+    radial-gradient(circle at 22% 28%, rgba(255, 200, 34, 0.34) 0%, rgba(255, 193, 7, 0.13) 24%, transparent 49%),
+    radial-gradient(circle at 76% 62%, rgba(255, 144, 0, 0.24) 0%, rgba(255, 152, 0, 0.09) 28%, transparent 53%);
+  filter: blur(38px) saturate(112%);
+  animation: energetic-orbit-a 21s ease-in-out infinite;
 }
 
-/* A very subtle AI-workspace dot texture; it disappears toward the center. */
+/* Slow amber light ribbons + subtle dot texture. */
 html.theme-energetic #root > .bg-theme-bg::after {
   content: "";
   position: absolute;
   z-index: 0;
-  inset: 0;
+  inset: -24%;
   pointer-events: none;
-  opacity: 0.16;
-  background-image: radial-gradient(rgba(255, 152, 0, 0.28) 0.65px, transparent 0.65px);
-  background-size: 28px 28px;
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.65), transparent 44%, transparent 72%, rgba(0, 0, 0, 0.35));
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.65), transparent 44%, transparent 72%, rgba(0, 0, 0, 0.35));
-  animation: energetic-grid-drift 30s linear infinite;
+  opacity: 0.48;
+  background-image:
+    linear-gradient(
+      108deg,
+      transparent 0%,
+      transparent 29%,
+      rgba(255, 193, 7, 0.08) 34%,
+      rgba(255, 152, 0, 0.20) 36%,
+      rgba(255, 193, 7, 0.07) 40%,
+      transparent 47%,
+      transparent 100%
+    ),
+    radial-gradient(rgba(222, 154, 0, 0.25) 0.65px, transparent 0.75px);
+  background-size: 100% 100%, 32px 32px;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.92), rgba(0,0,0,.44) 50%, rgba(0,0,0,.75));
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.92), rgba(0,0,0,.44) 50%, rgba(0,0,0,.75));
+  animation:
+    energetic-ribbon-sweep 24s ease-in-out infinite alternate,
+    energetic-dot-drift 34s linear infinite;
 }
 
-/* Existing App.tsx glow blobs stay useful, but become ambient rather than loud. */
+/* App.tsx already has blur blobs. Re-purpose them as a second moving light layer. */
 html.theme-energetic #root > .bg-theme-bg > .absolute.inset-0.z-0 {
-  opacity: 0.38;
-  filter: saturate(0.92);
+  opacity: 0.52;
+  filter: saturate(1.04) blur(2px);
+  animation: energetic-orbit-b 19s ease-in-out infinite;
 }
 
-/* Sidebar: warm translucent rail with depth, not a yellow panel. */
+/* Structural content must sit above the animated canvas. */
+html.theme-energetic #root > .bg-theme-bg > :not(.absolute.inset-0.z-0) {
+  position: relative;
+}
+
+/* Sidebar becomes a floating glass rail. */
 html.theme-energetic aside {
-  background: rgba(255, 255, 255, 0.78) !important;
-  border-right-color: rgba(173, 141, 62, 0.2) !important;
-  box-shadow: 16px 0 42px rgba(100, 74, 18, 0.055);
-  -webkit-backdrop-filter: blur(20px) saturate(142%);
-  backdrop-filter: blur(20px) saturate(142%);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.82), rgba(255,251,240,.69)) !important;
+  border-right-color: rgba(159, 121, 36, 0.18) !important;
+  box-shadow:
+    18px 0 52px rgba(111, 78, 7, 0.08),
+    inset -1px 0 0 rgba(255,255,255,.8);
+  -webkit-backdrop-filter: blur(26px) saturate(145%);
+  backdrop-filter: blur(26px) saturate(145%);
+}
+
+html.theme-energetic aside::after {
+  content: "";
+  position: absolute;
+  top: 10%;
+  right: -1px;
+  width: 1px;
+  height: 42%;
+  pointer-events: none;
+  background: linear-gradient(transparent, rgba(255, 152, 0, .72), transparent);
+  opacity: .55;
+}
+
+html.theme-energetic aside svg[aria-label="JetWork"] {
+  filter: drop-shadow(0 6px 12px rgba(255, 152, 0, .18));
+  animation: energetic-logo-float 4.5s ease-in-out infinite;
 }
 
 html.theme-energetic aside button {
   transition-property: color, background-color, border-color, box-shadow, transform, opacity;
-  transition-duration: 160ms;
+  transition-duration: 170ms;
 }
 
 html.theme-energetic aside button:hover {
-  box-shadow: 0 6px 18px rgba(105, 78, 15, 0.055);
+  background-color: rgba(255, 246, 214, .72) !important;
+  box-shadow: 0 7px 20px rgba(112, 78, 5, 0.07);
 }
 
-/* Active recent chat/project row: a small orange edge and soft amber wash. */
 html.theme-energetic aside button.w-full.bg-theme-surface-hover {
-  background: linear-gradient(90deg, rgba(255, 193, 7, 0.16), rgba(255, 255, 255, 0.62)) !important;
+  background:
+    linear-gradient(90deg, rgba(255, 193, 7, 0.20), rgba(255, 247, 219, 0.68) 52%, rgba(255,255,255,.48)) !important;
   box-shadow:
-    inset 2px 0 0 rgba(255, 152, 0, 0.92),
-    0 7px 20px rgba(130, 96, 12, 0.055);
+    inset 3px 0 0 #ff9800,
+    0 8px 22px rgba(127, 89, 7, 0.08);
 }
 
-/* Glass is reserved for structural panels rather than every small control. */
-html.theme-energetic .glass-panel {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(255, 252, 244, 0.7));
-  border-color: rgba(176, 143, 67, 0.16);
-  box-shadow:
-    0 18px 52px rgba(86, 62, 13, 0.055),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  -webkit-backdrop-filter: blur(18px) saturate(138%);
-  backdrop-filter: blur(18px) saturate(138%);
+/* Main chat surface is translucent so the living background is actually visible. */
+html.theme-energetic [data-testid="workspace-chat-surface"],
+html.theme-energetic [data-testid="workspace-chat-surface"] > div,
+html.theme-energetic .chat-scroll-container {
+  background: transparent !important;
 }
 
-/* Chat header floats lightly over the conversation surface. */
+html.theme-energetic .chat-scroll-container {
+  position: relative;
+}
+
+html.theme-energetic .chat-scroll-container::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(460px circle at 68% 18%, rgba(255, 193, 7, .075), transparent 70%),
+    radial-gradient(520px circle at 24% 82%, rgba(255, 152, 0, .05), transparent 72%);
+}
+
+/* Header floats over the background rather than cutting it with a solid bar. */
 html.theme-energetic header.sticky.bg-theme-bg {
-  background: rgba(255, 253, 248, 0.82) !important;
-  border-bottom-color: rgba(153, 126, 67, 0.18) !important;
-  box-shadow: 0 10px 32px rgba(94, 67, 12, 0.045);
-  -webkit-backdrop-filter: blur(18px) saturate(138%);
-  backdrop-filter: blur(18px) saturate(138%);
-}
-
-/* Keep the message field visually anchored without turning it into a neon box. */
-html.theme-energetic .chat-scroll-container + div {
-  background: linear-gradient(180deg, rgba(255, 253, 248, 0.68), rgba(255, 253, 248, 0.94)) !important;
-  border-top-color: rgba(153, 126, 67, 0.16) !important;
-  box-shadow: 0 -18px 44px rgba(93, 65, 8, 0.045) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(138%);
-  backdrop-filter: blur(18px) saturate(138%);
-}
-
-/* Chat composer: warm focus halo using the JetWork logo tones. */
-html.theme-energetic form > .relative.flex.flex-col.bg-theme-bg.border-theme-border.rounded-2xl {
-  background: rgba(255, 255, 255, 0.88) !important;
-  border-color: rgba(153, 126, 67, 0.22) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,251,241,.66)) !important;
+  border-bottom-color: rgba(151, 116, 36, 0.16) !important;
   box-shadow:
-    0 10px 30px rgba(78, 58, 15, 0.055),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-  backdrop-filter: blur(14px) saturate(135%);
-  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+    0 14px 42px rgba(95, 66, 5, 0.06),
+    inset 0 -1px 0 rgba(255,255,255,.76);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
+  backdrop-filter: blur(24px) saturate(145%);
+}
+
+/* Generic glass panels/cards. */
+html.theme-energetic .glass-panel,
+html.theme-energetic .bg-theme-surface {
+  border-color: rgba(157, 122, 43, 0.17);
+}
+
+html.theme-energetic .glass-panel {
+  background: linear-gradient(145deg, rgba(255,255,255,.80), rgba(255,249,234,.62));
+  box-shadow:
+    0 18px 52px rgba(93, 64, 5, 0.065),
+    inset 0 1px 0 rgba(255,255,255,.88);
+  -webkit-backdrop-filter: blur(20px) saturate(138%);
+  backdrop-filter: blur(20px) saturate(138%);
+}
+
+/* Empty-state prompt cards lift instead of simply changing color. */
+html.theme-energetic .chat-scroll-container button.bg-theme-surface\/60 {
+  background: rgba(255,255,255,.62) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(103, 72, 7, .045);
+  transition: transform 170ms ease, box-shadow 170ms ease, border-color 170ms ease, background 170ms ease;
+}
+
+html.theme-energetic .chat-scroll-container button.bg-theme-surface\/60:hover {
+  transform: translateY(-2px);
+  background: rgba(255,250,235,.86) !important;
+  border-color: rgba(255,193,7,.48) !important;
+  box-shadow: 0 14px 34px rgba(255,152,0,.10);
+}
+
+/* Composer tray and field float as one glass object. */
+html.theme-energetic .chat-scroll-container + div {
+  background: linear-gradient(180deg, rgba(255,252,244,.28), rgba(255,249,235,.76)) !important;
+  border-top-color: rgba(151, 116, 36, .13) !important;
+  box-shadow: 0 -24px 58px rgba(94, 66, 6, .055) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+}
+
+html.theme-energetic form > .relative.flex.flex-col.bg-theme-bg.border-theme-border.rounded-2xl {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.91), rgba(255,251,241,.83)) !important;
+  border-color: rgba(147, 111, 31, .21) !important;
+  box-shadow:
+    0 14px 38px rgba(85, 58, 2, .075),
+    inset 0 1px 0 rgba(255,255,255,.96);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  backdrop-filter: blur(18px) saturate(145%);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, background 180ms ease;
 }
 
 html.theme-energetic form > .relative.flex.flex-col.bg-theme-bg.border-theme-border.rounded-2xl:focus-within {
-  background: rgba(255, 255, 255, 0.96) !important;
-  border-color: rgba(255, 193, 7, 0.72) !important;
+  background: rgba(255,255,255,.97) !important;
+  border-color: rgba(255,193,7,.72) !important;
+  transform: translateY(-1px);
   box-shadow:
-    0 0 0 3px rgba(255, 193, 7, 0.08),
-    0 16px 40px rgba(255, 152, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    0 0 0 3px rgba(255,193,7,.09),
+    0 19px 48px rgba(255,152,0,.14),
+    inset 0 1px 0 rgba(255,255,255,.98);
 }
 
-/* Inputs and selectors get the same focus language across modals and panels. */
+/* Controls inherit JetWork focus language. */
 html.theme-energetic input:focus-visible,
 html.theme-energetic textarea:focus-visible,
 html.theme-energetic select:focus-visible,
 html.theme-energetic [contenteditable="true"]:focus-visible {
-  border-color: rgba(255, 193, 7, 0.72) !important;
-  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.1);
+  border-color: rgba(255,193,7,.74) !important;
+  box-shadow: 0 0 0 3px rgba(255,193,7,.10);
 }
 
-/* Primary actions: brand color as light/energy, not as a large surface color. */
+html.theme-energetic select {
+  background-color: rgba(255,255,255,.68) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* Brand actions feel energetic without turning the entire UI yellow. */
 html.theme-energetic button.bg-theme-primary {
+  background-image: linear-gradient(135deg, #ffd249 0%, #ffc107 48%, #ffad00 100%);
   box-shadow:
-    0 8px 22px rgba(255, 152, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
-  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
-  transition-duration: 160ms;
+    0 9px 24px rgba(255,152,0,.18),
+    inset 0 1px 0 rgba(255,255,255,.36);
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
 }
 
 html.theme-energetic button.bg-theme-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
+  transform: translateY(-1px) scale(1.01);
+  filter: saturate(1.04);
   box-shadow:
-    0 11px 27px rgba(255, 152, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    0 13px 30px rgba(255,152,0,.24),
+    inset 0 1px 0 rgba(255,255,255,.40);
 }
 
 html.theme-energetic button.bg-theme-primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow:
-    0 5px 15px rgba(255, 152, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transform: translateY(0) scale(.99);
 }
 
-/* BA/document side stays paper-like, with warm depth around it. */
+/* Remove stray non-brand blue from writing-help affordances in this theme only. */
+html.theme-energetic .text-blue-500 {
+  color: #ff9800 !important;
+}
+
+/* BA/document side: paper remains readable while its shell joins the animated scene. */
 html.theme-energetic [data-testid="document-canvas-shell"] {
-  background: rgba(255, 252, 245, 0.72) !important;
+  background: rgba(255, 250, 237, .56) !important;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
 html.theme-energetic [data-testid="document-canvas-shell"] > div:first-child {
-  background: rgba(255, 255, 255, 0.82) !important;
-  border-bottom-color: rgba(153, 126, 67, 0.18) !important;
-  box-shadow: 0 10px 28px rgba(96, 69, 12, 0.045);
-  -webkit-backdrop-filter: blur(16px) saturate(135%);
-  backdrop-filter: blur(16px) saturate(135%);
+  background: linear-gradient(180deg, rgba(255,255,255,.84), rgba(255,250,237,.72)) !important;
+  border-bottom-color: rgba(151, 116, 36, .16) !important;
+  box-shadow: 0 12px 34px rgba(98, 67, 6, .055);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
 }
 
 html.theme-energetic .document-paper {
-  background: #ffffff;
-  border-color: rgba(177, 145, 68, 0.2);
+  background: #fff;
+  border-color: rgba(161, 126, 45, .19);
   box-shadow:
-    0 28px 80px rgba(79, 57, 10, 0.09),
-    0 4px 16px rgba(255, 152, 0, 0.035),
-    inset 0 1px 0 rgba(255, 255, 255, 0.98);
+    0 32px 86px rgba(81, 55, 2, .105),
+    0 6px 20px rgba(255,152,0,.04),
+    inset 0 1px 0 rgba(255,255,255,.98);
 }
 
 html.theme-energetic [data-testid="document-canvas-open"] {
-  background: rgba(255, 255, 255, 0.7) !important;
-  border-left-color: rgba(153, 126, 67, 0.18) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(135%);
-  backdrop-filter: blur(16px) saturate(135%);
+  background: rgba(255,255,255,.65) !important;
+  border-left-color: rgba(151, 116, 36, .16) !important;
+  box-shadow: -10px 0 30px rgba(108, 75, 7, .04);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
 }
 
 html.theme-energetic [data-testid="document-canvas-open"]:hover {
-  background: rgba(255, 248, 221, 0.9) !important;
-  box-shadow: -8px 0 26px rgba(255, 152, 0, 0.07);
+  background: rgba(255,245,207,.88) !important;
+  box-shadow: -12px 0 34px rgba(255,152,0,.09);
 }
 
 html.theme-energetic [role="separator"]:hover,
 html.theme-energetic [role="separator"]:focus-visible {
-  border-color: rgba(255, 193, 7, 0.5) !important;
-  box-shadow: 0 0 18px rgba(255, 152, 0, 0.08);
+  border-color: rgba(255,193,7,.56) !important;
+  box-shadow: 0 0 22px rgba(255,152,0,.10);
 }
 
-/* Existing thinking UI loses the unrelated pink/blue spectrum in Energetic. */
+/* Knowledge / reasoning surfaces use warm glass, not legacy pastel greens. */
+html.theme-energetic details.bg-theme-surface\/50,
+html.theme-energetic [data-testid="interactive-questions"] {
+  background: rgba(255,255,255,.58) !important;
+  border-color: rgba(151,116,36,.16) !important;
+  box-shadow: 0 10px 28px rgba(95,66,5,.045);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+/* Thinking state becomes pure JetWork amber/orange. */
 html.theme-energetic .jetwork-thinking {
-  background: rgba(255, 193, 7, 0.08) !important;
-  border-color: rgba(255, 193, 7, 0.3) !important;
-  animation: energetic-warm-breathe 2.4s ease-in-out infinite;
+  background: rgba(255,193,7,.09) !important;
+  border-color: rgba(255,193,7,.34) !important;
+  animation: energetic-warm-breathe 2.2s ease-in-out infinite;
 }
 
 html.theme-energetic .jetwork-thinking-ring {
   background: conic-gradient(
     from 0deg,
     #ffc107 0deg,
-    #ff9800 108deg,
-    #ffd45a 190deg,
-    #ffad00 278deg,
+    #ff9800 105deg,
+    #ffd75c 190deg,
+    #ffad00 285deg,
     #ffc107 360deg
   );
   box-shadow:
-    0 0 0 1px rgba(255, 193, 7, 0.2),
-    0 0 15px rgba(255, 152, 0, 0.28);
+    0 0 0 1px rgba(255,193,7,.22),
+    0 0 17px rgba(255,152,0,.34);
 }
 
 html.theme-energetic .jetwork-thinking-core {
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.98), rgba(255, 152, 0, 0.94));
+  background: linear-gradient(135deg, rgba(255,210,73,.99), rgba(255,152,0,.96));
 }
 
 html.theme-energetic .jetwork-thinking-spark {
-  background: #fff3c4;
-  box-shadow: 0 0 8px rgba(255, 152, 0, 0.72);
+  background: #fff4c7;
+  box-shadow: 0 0 9px rgba(255,152,0,.8);
 }
 
-/* Warm scrollbars keep long chats/documents visually coherent but unobtrusive. */
+/* Warm, quiet scrollbars. */
 html.theme-energetic * {
-  scrollbar-color: rgba(205, 157, 36, 0.34) transparent;
+  scrollbar-color: rgba(205,157,36,.36) transparent;
 }
 
 html.theme-energetic *::-webkit-scrollbar-thumb {
-  background: rgba(205, 157, 36, 0.28);
-  border: 3px solid transparent;
-  background-clip: padding-box;
+  background: rgba(205,157,36,.32);
   border-radius: 999px;
 }
 
-html.theme-energetic *::-webkit-scrollbar-thumb:hover {
-  background: rgba(214, 147, 8, 0.42);
-  border: 3px solid transparent;
-  background-clip: padding-box;
-}
-
+/* Keep motion respectful when the OS requests less animation. */
 @media (prefers-reduced-motion: reduce) {
+  html.theme-energetic #root > .bg-theme-bg,
   html.theme-energetic #root > .bg-theme-bg::before,
   html.theme-energetic #root > .bg-theme-bg::after,
+  html.theme-energetic #root > .bg-theme-bg > .absolute.inset-0.z-0,
+  html.theme-energetic aside svg[aria-label="JetWork"],
   html.theme-energetic .jetwork-thinking {
     animation: none !important;
-  }
-
-  html.theme-energetic button.bg-theme-primary:hover:not(:disabled),
-  html.theme-energetic button.bg-theme-primary:active:not(:disabled) {
-    transform: none;
   }
 }
