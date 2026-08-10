@@ -16,6 +16,8 @@ import {
   type SemanticContextMessage,
   type SemanticOrchestrationResult,
 } from '../_shared/semanticOrchestrator.ts'
+import { compactSemanticContextMessage } from '../_shared/conversationMemory.ts'
+import { applyConversationScopeInventoryPolicy } from '../_shared/conversationScopePolicy.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,7 +44,8 @@ const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maxi
 }
 const USER_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_USER_REQUESTS_PER_MINUTE', 6, 1, 60)
 const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQUESTS_PER_MINUTE', 30, 1, 240)
-const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
+const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite'
+const LEGACY_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const GEMINI_PRO_MODEL = 'gemini-3.1-pro-preview'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol'
 const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
@@ -123,9 +126,6 @@ async function tryTrivialFastPath(input: {
   const model = cleanString(input.parsedBody.model, 80)
   const attachmentCount = Array.isArray(input.parsedBody.chatAttachments) ? input.parsedBody.chatAttachments.length : 0
 
-  // Acknowledgements can be answers to a prior question/approval and therefore
-  // require semantic context. Keep only genuinely context-free social turns on
-  // the latency fast path.
   if (CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS.has(normalizeShortText(message))) return null
   if (!workspaceId || !messageId || !message || !shouldUseTrivialAssistantFastPath({ message, model, attachmentCount })) return null
 
@@ -265,10 +265,10 @@ async function loadSemanticContext(input: {
   }
   const conversation: SemanticContextMessage[] = [...(messagesResult.data || [])]
     .reverse()
-    .map((row: any) => ({
-      role: row.role === 'user' ? 'user' as const : 'assistant' as const,
-      content: cleanString(row.text, 4_000),
-    }))
+    .map((row: any) => {
+      const role = row.role === 'user' ? 'user' as const : 'assistant' as const
+      return { role, content: compactSemanticContextMessage(role, row.text) }
+    })
     .filter(item => item.content)
 
   const previousRun = (priorRunsResult.data || []).find((row: any) => {
@@ -301,7 +301,7 @@ async function loadSemanticContext(input: {
 }
 
 const substantiveModel = (requestedModel: string) => (
-  requestedModel === GEMINI_FLASH_LITE_MODEL ? GEMINI_PRO_MODEL : requestedModel
+  requestedModel === LEGACY_GEMINI_FLASH_LITE_MODEL ? GEMINI_FLASH_LITE_MODEL : requestedModel
 )
 const orchestrationProvider = (requestedModel: string, openAiKey?: string) => {
   if (requestedModel === 'auto') return openAiKey ? 'openai' as const : 'gemini' as const
@@ -372,7 +372,7 @@ serve(async req => {
     ? parsedBody.chatAttachments.map((item: any) => cleanString(item?.name, 240)).filter(Boolean)
     : []
   const semanticRequestHash = await sha256Text(JSON.stringify({
-    orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
     requestedModel,
     currentMessage,
     messageCreatedAt: context.currentCreatedAt,
@@ -419,7 +419,7 @@ serve(async req => {
     semanticProvider = semanticClaim?.provider === 'gemini' ? 'gemini' : 'openai'
     semanticModel = cleanString(semanticClaim?.model, 120) || semanticModel
     semantic = {
-      plan: cachedPlan,
+      plan: applyConversationScopeInventoryPolicy({ plan: cachedPlan, currentMessage, conversation: context.conversation }),
       usage: semanticClaim?.usage && typeof semanticClaim.usage === 'object'
         ? semanticClaim.usage as Record<string, number>
         : undefined,
@@ -444,8 +444,6 @@ serve(async req => {
       attachmentNames,
     })
 
-    // Auto mode may cross providers; an explicit provider never does. This is
-    // the only semantic-orchestration cross-provider fallback path.
     if (
       semantic.fallbackUsed
       && requestedModel === 'auto'
@@ -466,6 +464,12 @@ serve(async req => {
         attachmentNames,
       })
     }
+
+    semantic.plan = applyConversationScopeInventoryPolicy({
+      plan: semantic.plan,
+      currentMessage,
+      conversation: context.conversation,
+    })
 
     if (semantic.fallbackUsed) {
       semanticSource = 'fallback'
@@ -520,13 +524,17 @@ serve(async req => {
     forwardedModel,
     orchestrationProvider: semantic.provider,
     orchestrationModel: semantic.model,
-    orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
     semanticSource,
     intent: semantic.plan.intent,
     executionMode: semantic.plan.executionMode,
     continuation: semantic.plan.conversationState?.continuation === true,
     userMove: semantic.plan.conversationState?.userMove,
     priorIntent: semantic.plan.conversationState?.priorIntent,
+    topic: semantic.plan.conversationState?.topic,
+    rejectedScopes: semantic.plan.conversationState?.rejectedScopes?.length || 0,
+    enumerationTool: semantic.plan.enumerationTarget?.tool,
+    enumerationObjectType: semantic.plan.enumerationTarget?.objectType,
     knowledgeRequired: semantic.plan.knowledgeRequired,
     webMode: semantic.plan.webMode,
     fallbackUsed: semantic.fallbackUsed,
@@ -536,8 +544,6 @@ serve(async req => {
   let upstream: Response
   const upstreamStartedAtMs = Date.now()
   try {
-    // Do not attach req.signal: the durable core turn must finish even if the
-    // browser navigates away after submission.
     upstream = await fetch(`${supabaseUrl}/functions/v1/openai-assistant-core-v2`, {
       method: 'POST',
       headers: {
