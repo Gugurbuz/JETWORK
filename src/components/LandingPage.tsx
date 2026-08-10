@@ -2,17 +2,9 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, Mail, Lock, User } from 'lucide-react';
 import { signInWithGoogle, signInWithUsernameOrEmail, createUserWithEmailAndPassword, signInAnonymously } from '../supabase';
+import { JetWorkLogo } from './JetWorkLogo';
 
 interface LandingPageProps {}
-
-// Minimalist Swiss Logo
-const SwissLogo = () => (
-  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="32" height="32" fill="#FFC107" />
-    <rect x="8" y="8" width="16" height="16" fill="white" />
-    <rect x="12" y="12" width="8" height="8" fill="#FF9800" />
-  </svg>
-);
 
 export function LandingPage({}: LandingPageProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -76,7 +68,7 @@ export function LandingPage({}: LandingPageProps) {
       {/* Top Navigation Bar */}
       <header className="relative z-10 flex items-center justify-between px-8 py-6 border-b border-theme-border bg-theme-bg transition-colors duration-300">
         <div className="flex items-center gap-3">
-          <SwissLogo />
+          <JetWorkLogo className="h-8 w-8" innerColor="#ffffff" />
           <span className="text-xl font-display font-bold tracking-tight text-theme-text">JetWork</span>
         </div>
         <div className="hidden sm:block text-xs font-medium tracking-widest uppercase text-theme-text-muted">

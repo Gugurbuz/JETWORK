@@ -25,6 +25,7 @@ import { cn } from '../lib/utils';
 import { useDataStore } from '../store/useDataStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { JetWorkLogo } from './JetWorkLogo';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 type Lifecycle = 'active' | 'archived' | 'trash';
@@ -58,21 +59,6 @@ const readCollapsedPreference = (): boolean => {
     return false;
   }
 };
-
-const SwissLogo = ({ compact = false }: { compact?: boolean }) => (
-  <svg
-    width={compact ? 26 : 28}
-    height={compact ? 26 : 28}
-    viewBox="0 0 32 32"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-label="JetWork"
-  >
-    <rect width="32" height="32" rx="7" fill="#FFC107" />
-    <rect x="8" y="8" width="16" height="16" rx="2" fill="var(--theme-surface)" />
-    <rect x="12" y="12" width="8" height="8" rx="1" fill="#FF9800" />
-  </svg>
-);
 
 const lifecycleLabel: Record<Lifecycle, string> = {
   active: 'Aktif',
@@ -231,7 +217,7 @@ export function Sidebar(props: SidebarProps) {
           className={cn('flex items-center rounded-xl transition-colors hover:bg-theme-surface-hover', compact ? 'p-2' : 'gap-2 px-2 py-1.5')}
           title={compact ? 'Menüyü genişlet' : undefined}
         >
-          <SwissLogo compact={compact} />
+          <JetWorkLogo className={compact ? 'h-[26px] w-[26px]' : 'h-7 w-7'} />
           {!compact && <span className="text-[15px] font-semibold tracking-tight text-theme-text">JetWork</span>}
         </button>
         {!compact && (
