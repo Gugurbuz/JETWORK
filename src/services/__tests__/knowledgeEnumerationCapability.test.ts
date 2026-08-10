@@ -128,8 +128,8 @@ describe('Knowledge enumeration/list capability', () => {
 
     const agentItems = compactGeminiAgentItems(items);
     const pageOutputs = agentItems
-      .filter(item => item.type === 'function_call_output')
-      .map(item => JSON.parse(String(item.output)));
+      .filter(item => 'type' in item && item.type === 'function_call_output')
+      .map(item => JSON.parse(String('output' in item ? item.output || '' : '')));
     expect(pageOutputs).toHaveLength(3);
     expect(pageOutputs.flatMap(page => page.records.items)).toHaveLength(62);
     expect(pageOutputs[2].records.nextCursor).toBeNull();
