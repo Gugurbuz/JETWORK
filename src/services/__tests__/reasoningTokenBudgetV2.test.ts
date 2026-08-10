@@ -36,6 +36,9 @@ describe('Reasoning token budget v2', () => {
 
   it('loads and renders planner, agent, final and combined usage separately', () => {
     expect(observabilitySource).toContain("supabase.rpc('get_reasoning_usage_breakdown'");
+    expect(observabilitySource).toContain('hasStageUsageTelemetry');
+    expect(observabilitySource).toContain("key.startsWith('cost_guard_agent_')");
+    expect(observabilitySource).toContain("key.startsWith('cost_guard_final_')");
     expect(debugModalSource).toContain('Token / maliyet kırılımı');
     expect(debugModalSource).toContain('Semantic planner');
     expect(debugModalSource).toContain('Agent kararları');

@@ -148,6 +148,11 @@ const numericUsage = (value: unknown): Record<string, number> => {
   );
 };
 
+const hasStageUsageTelemetry = (usage: Record<string, number>): boolean => (
+  Object.keys(usage).some(key =>
+    key.startsWith('cost_guard_agent_') || key.startsWith('cost_guard_final_'))
+);
+
 export const totalUsageTokens = (usage: Record<string, number>): number | undefined => {
   const explicit = usage.total_tokens ?? usage.totalTokenCount ?? usage.total_tokens_count;
   if (Number.isFinite(explicit)) return explicit;
@@ -317,6 +322,8 @@ export async function loadReasoningDebugRun(runId: string): Promise<ReasoningDeb
   if (detailResult.error) throw detailResult.error;
   if (breakdownResult.error) throw breakdownResult.error;
   const detail = mapDetail(detailResult.data);
-  if (detail) detail.usageBreakdown = mapUsageBreakdown(breakdownResult.data);
+  if (detail && hasStageUsageTelemetry(detail.usage)) {
+    detail.usageBreakdown = mapUsageBreakdown(breakdownResult.data);
+  }
   return detail;
 }
