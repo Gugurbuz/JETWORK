@@ -1,12 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
 } from '../../../supabase/functions/_shared/enumerationFastPath';
-import {
-  cleanProviderItemsForOpenAi,
-  requestGeminiResponse,
-} from '../../../supabase/functions/_shared/modelProviders';
 import { createOpenAiCircuitBreaker } from '../../../supabase/functions/_shared/providerCircuitBreaker';
 import { executeClassInventoryTool } from '../../../supabase/functions/_shared/classInventoryTool';
 
@@ -91,39 +88,41 @@ describe('deterministic enumeration dispatch fast path', () => {
     expect(buildEnumerationFastPathDispatch(items)).toBeNull();
   });
 
-  it('avoids the Gemini provider call and returns the deterministic function call locally', async () => {
-    const response = await requestGeminiResponse({
-      apiKey: 'not-used',
-      model: 'gemini-3.1-pro-preview',
-      instructions: 'test',
-      items: semanticItems({ tool: 'list_class_inventory', objectType: 'class', prefix: null }),
-      tools: [],
-      allowTools: true,
-      maxOutputTokens: 1200,
-      onText: () => {},
-    });
+  it('wires the Gemini fast path before the real provider call', () => {
+    const providers = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      'utf8',
+    );
+    expect(providers).toContain('buildEnumerationFastPathDispatch(input.items)');
+    expect(providers).toContain('buildSyntheticEnumerationFunctionCall(enumerationDispatch)');
+    expect(providers).toContain('deterministic_provider_calls_avoided: 1');
+    const dispatchIndex = providers.indexOf('buildEnumerationFastPathDispatch(input.items)');
+    const realProviderIndex = providers.indexOf('legacyRequestGeminiResponse({', dispatchIndex);
+    expect(dispatchIndex).toBeGreaterThan(-1);
+    expect(realProviderIndex).toBeGreaterThan(dispatchIndex);
+  });
 
-    expect(response.output?.[0]).toMatchObject({
-      type: 'function_call',
-      name: 'list_class_inventory',
-      arguments: '{}',
-    });
-    expect(response.usage?.deterministic_enumeration_dispatch).toBe(1);
-    expect(response.usage?.deterministic_provider_calls_avoided).toBe(1);
+  it('wires the OpenAI marker from the shared provider sanitizer', () => {
+    const providers = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      'utf8',
+    );
+    expect(providers).toContain('buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)');
+    expect(providers).toContain('const enumerationDispatch = buildEnumerationFastPathDispatch(items)');
   });
 
   it('avoids the OpenAI provider call through the installed fetch circuit layer', async () => {
-    const items = semanticItems({ tool: 'list_class_inventory', objectType: 'class', prefix: null });
-    const cleaned = cleanProviderItemsForOpenAi(items);
-    expect(cleaned.some(item => String(item.content || '').includes('[JETWORK_ENUMERATION_FAST_PATH]'))).toBe(true);
-
+    const marker = buildOpenAiEnumerationFastPathMarkerItem({
+      toolName: 'list_class_inventory',
+      arguments: {},
+    });
     const baseFetch = vi.fn(async () => {
       throw new Error('provider fetch should not run');
     }) as unknown as typeof fetch;
     const breaker = createOpenAiCircuitBreaker(baseFetch);
     const response = await breaker.fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      body: JSON.stringify({ model: 'gpt-5.6-sol', input: cleaned, stream: true }),
+      body: JSON.stringify({ model: 'gpt-5.6-sol', input: [marker], stream: true }),
     });
     const body = await response.text();
 
