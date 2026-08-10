@@ -18,6 +18,10 @@ import {
 } from '../_shared/semanticOrchestrator.ts'
 import { compactSemanticContextMessage } from '../_shared/conversationMemory.ts'
 import { applyConversationScopeInventoryPolicy } from '../_shared/conversationScopePolicy.ts'
+import {
+  AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION,
+  buildAuthoritativeInventoryFastPlan,
+} from '../_shared/authoritativeInventoryFastPath.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -314,6 +318,81 @@ const orchestrationModel = (requestedModel: string, provider: 'openai'|'gemini')
     : GEMINI_PRO_MODEL
 }
 
+async function tryAuthoritativeInventoryFastPath(input: {
+  authorization: string
+  supabaseUrl: string
+  anonKey: string
+  parsedBody: AssistantGatewayBody
+  workspaceId: string
+  messageId: string
+  currentMessage: string
+  requestedModel: string
+  traceId: string
+  gatewayReceivedAtMs: number
+}): Promise<Response | null> {
+  if (Array.isArray(input.parsedBody.chatAttachments) && input.parsedBody.chatAttachments.length > 0) return null
+  const plan = buildAuthoritativeInventoryFastPlan(input.currentMessage)
+  if (!plan) return null
+
+  const forwardedModel = substantiveModel(input.requestedModel)
+  const nextBody: AssistantGatewayBody = {
+    ...input.parsedBody,
+    model: forwardedModel,
+    message: attachSemanticPlan(input.currentMessage, plan),
+  }
+  const upstreamStartedAtMs = Date.now()
+  logLatency('ASSISTANT_AUTHORITATIVE_INVENTORY_FAST_PATH', {
+    traceId: input.traceId,
+    messageId: input.messageId,
+    requestedModel: input.requestedModel,
+    forwardedModel,
+    orchestratorVersion: AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION,
+    enumerationTool: plan.enumerationTarget?.tool,
+    semanticPlannerBypassed: true,
+    gatewayToDispatchMs: upstreamStartedAtMs - input.gatewayReceivedAtMs,
+  })
+
+  let upstream: Response
+  try {
+    upstream = await fetch(`${input.supabaseUrl}/functions/v1/openai-assistant-core-v2`, {
+      method: 'POST',
+      headers: {
+        Authorization: input.authorization,
+        apikey: input.anonKey,
+        'Content-Type': 'application/json',
+        'x-client-info': `jetwork-authoritative-inventory-fast-path/${AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION}`,
+      },
+      body: JSON.stringify(nextBody),
+    })
+  } catch (error) {
+    console.error('Authoritative inventory fast path could not reach reasoning core:', errorMessage(error))
+    return jsonResponse({ error: 'Asistan reasoning servisine bağlanılamadı. Lütfen tekrar deneyin.', code: 'REASONING_CORE_UNREACHABLE' }, 502)
+  }
+
+  const coreHeadersAtMs = Date.now()
+  logLatency('ASSISTANT_AUTHORITATIVE_INVENTORY_FAST_PATH_LATENCY', {
+    traceId: input.traceId,
+    messageId: input.messageId,
+    status: upstream.status,
+    coreHeadersMs: coreHeadersAtMs - upstreamStartedAtMs,
+    gatewayToCoreHeadersMs: coreHeadersAtMs - input.gatewayReceivedAtMs,
+  })
+
+  if (!upstream.ok || !upstream.body) {
+    const responseBody = await upstream.arrayBuffer().catch(() => new ArrayBuffer(0))
+    return new Response(responseBody, {
+      status: upstream.status || 502,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
+        'X-JetWork-Stream-Gateway': 'v3',
+      },
+    })
+  }
+
+  return new Response(upstream.body, { headers: gatewayHeaders })
+}
+
 serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
@@ -347,6 +426,20 @@ serve(async req => {
   if (!workspaceId || !messageId || !currentMessage) {
     return jsonResponse({ error: 'workspaceId, messageId and message are required.' }, 400)
   }
+
+  const authoritativeInventoryFastPath = await tryAuthoritativeInventoryFastPath({
+    authorization,
+    supabaseUrl,
+    anonKey,
+    parsedBody,
+    workspaceId,
+    messageId,
+    currentMessage,
+    requestedModel,
+    traceId,
+    gatewayReceivedAtMs,
+  })
+  if (authoritativeInventoryFastPath) return authoritativeInventoryFastPath
 
   const openAiApiKey = Deno.env.get('OPENAI_API_KEY') || undefined
   const geminiApiKey = Deno.env.get('GEMINI_API_KEY') || undefined
