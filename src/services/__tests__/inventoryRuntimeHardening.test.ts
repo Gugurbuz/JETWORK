@@ -18,6 +18,10 @@ const plan = (): ReasoningPlan => ({
   },
 });
 
+const stripSqlComments = (value: string) => value
+  .replace(/--.*$/gm, '')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
+
 describe('Inventory Runtime Hardening', () => {
   it('makes the dedicated class inventory capability exhaustive and argument-immutable', () => {
     const tool = ASSISTANT_KNOWLEDGE_TOOLS.find(candidate => candidate.name === 'list_class_inventory') as any;
@@ -89,15 +93,16 @@ describe('Inventory Runtime Hardening', () => {
 
   it('keeps the replacement inventory RPC read-only and side-effect free', () => {
     const sql = readFileSync(new URL('../../../supabase/migrations/20260810143800_class_inventory_readonly_rpc.sql', import.meta.url), 'utf8');
-    expect(sql).toContain('language plpgsql');
-    expect(sql).toContain('stable');
-    expect(sql).toContain('public.is_workspace_member(p_workspace_id)');
-    expect(sql).toContain('public.is_project_member_v2(current_project_id)');
-    expect(sql).not.toContain('resolve_knowledge_context(');
-    expect(sql).not.toMatch(/\binsert\s+into\b/i);
-    expect(sql).not.toMatch(/\bupdate\s+public\./i);
-    expect(sql).not.toMatch(/\bdelete\s+from\b/i);
-    expect(sql).toContain('from anon');
-    expect(sql).toContain('to authenticated');
+    const executableSql = stripSqlComments(sql);
+    expect(executableSql).toContain('language plpgsql');
+    expect(executableSql).toContain('stable');
+    expect(executableSql).toContain('public.is_workspace_member(p_workspace_id)');
+    expect(executableSql).toContain('public.is_project_member_v2(current_project_id)');
+    expect(executableSql).not.toContain('resolve_knowledge_context(');
+    expect(executableSql).not.toMatch(/\binsert\s+into\b/i);
+    expect(executableSql).not.toMatch(/\bupdate\s+public\./i);
+    expect(executableSql).not.toMatch(/\bdelete\s+from\b/i);
+    expect(executableSql).toContain('from anon');
+    expect(executableSql).toContain('to authenticated');
   });
 });
