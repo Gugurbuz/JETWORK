@@ -1,7 +1,7 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v3-auto-safe'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v4-deterministic-greetings'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -19,7 +19,8 @@ export type TrivialFastPathProvider = 'openai' | 'gemini'
 
 const TRIVIAL_FAST_PATH_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
-  'Kullanıcının gündelik selamlaşma, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
+  'Kullanıcının gündelik teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
+  'Selamlaşma ifadesini başka bir selamlaşma biçimine dönüştürme; örneğin "selam" ifadesine "aleykümselam" deme.',
   'Kullanıcı istemedikçe Enerjisa, SAP, süreç, teknik talep, yetenek listesi veya soru menüsü ekleme.',
   'Yanıtı en fazla iki kısa cümle tut.',
 ].join('\n')
@@ -33,7 +34,30 @@ const normalizeConversationText = (value: string) => value
   .replace(/\s+/g, ' ')
   .trim()
 
-const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|naber|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
+const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|naber|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
+
+const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
+  ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
+  ['selamlar', 'Selam! Nasıl yardımcı olabilirim?'],
+  ['merhaba', 'Merhaba! Nasıl yardımcı olabilirim?'],
+  ['selamun aleykum', 'Aleykümselam! Nasıl yardımcı olabilirim?'],
+  ['selam aleykum', 'Aleykümselam! Nasıl yardımcı olabilirim?'],
+  ['sa', 'Aleykümselam! Nasıl yardımcı olabilirim?'],
+  ['hey', 'Hey! Nasıl yardımcı olabilirim?'],
+  ['hi', 'Hi! How can I help?'],
+  ['hello', 'Hello! How can I help?'],
+  ['gunaydin', 'Günaydın! Nasıl yardımcı olabilirim?'],
+  ['iyi aksamlar', 'İyi akşamlar! Nasıl yardımcı olabilirim?'],
+  ['iyi geceler', 'İyi geceler! Nasıl yardımcı olabilirim?'],
+  ['nasilsin', 'İyiyim, teşekkürler. Sana nasıl yardımcı olabilirim?'],
+  ['naber', 'İyiyim, teşekkürler. Sana nasıl yardımcı olabilirim?'],
+  ['tesekkur', 'Rica ederim!'],
+  ['tesekkurler', 'Rica ederim!'],
+  ['tesekkur ederim', 'Rica ederim!'],
+  ['sag ol', 'Rica ederim!'],
+  ['sagol', 'Rica ederim!'],
+  ['eyvallah', 'Rica ederim!'],
+])
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 
@@ -59,6 +83,10 @@ export const executionModelForTrivialFastPathModel = (model: string): string => 
   model === 'auto' || model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW
     ? TRIVIAL_GEMINI_LATENCY_MODEL
     : model
+)
+
+export const deterministicTrivialResponseForMessage = (message: string): string | null => (
+  DETERMINISTIC_TRIVIAL_RESPONSES.get(normalizeConversationText(message)) || null
 )
 
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
@@ -224,6 +252,17 @@ export async function requestTrivialAssistantResponse(input: {
   geminiApiKey?: string
 }): Promise<TrivialAssistantFastPathResult> {
   const provider = providerForTrivialFastPathModel(input.model)
+  const deterministicText = deterministicTrivialResponseForMessage(input.message)
+  if (deterministicText) {
+    return {
+      text: deterministicText,
+      model: executionModelForTrivialFastPathModel(input.model),
+      provider,
+      usage: { deterministic_fast_path: 1 },
+      fallbackUsed: false,
+    }
+  }
+
   if (provider === 'gemini') {
     if (!input.geminiApiKey) {
       if (input.model === 'auto' && input.openAiApiKey) {
