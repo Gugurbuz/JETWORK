@@ -1,0 +1,330 @@
+/*
+ * JetWork Energetic 2.0
+ *
+ * This file is intentionally isolated from the shared theme layer.
+ * Every visual rule is scoped to html.theme-energetic so Monochrome
+ * and Ocean keep their existing appearance and behavior.
+ */
+
+@keyframes energetic-ambient-drift {
+  0%, 100% {
+    transform: translate3d(-1.5%, -1%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2%, 1.5%, 0) scale(1.045);
+  }
+}
+
+@keyframes energetic-grid-drift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 28px 28px;
+  }
+}
+
+@keyframes energetic-warm-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 193, 7, 0.16),
+      0 10px 28px rgba(255, 152, 0, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 193, 7, 0.28),
+      0 14px 36px rgba(255, 152, 0, 0.18);
+  }
+}
+
+html.theme-energetic {
+  color-scheme: light;
+
+  /* JetWork logo-led palette */
+  --theme-bg: #fffdf8;
+  --theme-surface: rgba(255, 255, 255, 0.84);
+  --theme-surface-hover: rgba(255, 247, 218, 0.9);
+  --theme-primary: #ffc107;
+  --theme-primary-hover: #efaa00;
+  --theme-primary-fg: #181a1f;
+  --theme-text: #1b1d21;
+  --theme-text-muted: #756f63;
+  --theme-border: rgba(132, 111, 66, 0.2);
+  --theme-glass: rgba(255, 255, 255, 0.72);
+  --theme-glass-border: rgba(255, 193, 7, 0.18);
+
+  --energetic-yellow: #ffc107;
+  --energetic-orange: #ff9800;
+  --energetic-ink: #181a1f;
+  --energetic-canvas: #fffdf8;
+  --energetic-soft: #fff6d8;
+  --energetic-line: rgba(132, 111, 66, 0.2);
+  --energetic-amber-shadow: rgba(255, 152, 0, 0.12);
+}
+
+/*
+ * The legacy Energetic theme paints every .bg-theme-bg node with the same
+ * green/pink gradient. Reset those internal surfaces first, then give only
+ * the application shell the new ambient JetWork background.
+ */
+html.theme-energetic body,
+html.theme-energetic #root {
+  background: var(--energetic-canvas) !important;
+}
+
+html.theme-energetic .bg-theme-bg {
+  background: var(--theme-bg) !important;
+}
+
+html.theme-energetic #root > .bg-theme-bg {
+  isolation: isolate;
+  background:
+    radial-gradient(920px circle at 5% 4%, rgba(255, 193, 7, 0.13), transparent 46%),
+    radial-gradient(760px circle at 96% 92%, rgba(255, 152, 0, 0.09), transparent 48%),
+    linear-gradient(180deg, #fffefa 0%, #fffaf1 48%, #fffdf8 100%) !important;
+}
+
+/* Slow, almost imperceptible brand-light movement behind the workspace. */
+html.theme-energetic #root > .bg-theme-bg::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -22%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(255, 193, 7, 0.15), transparent 23%),
+    radial-gradient(circle at 76% 68%, rgba(255, 152, 0, 0.1), transparent 25%),
+    radial-gradient(circle at 58% 12%, rgba(255, 218, 112, 0.08), transparent 20%);
+  filter: blur(28px);
+  animation: energetic-ambient-drift 24s ease-in-out infinite;
+}
+
+/* A very subtle AI-workspace dot texture; it disappears toward the center. */
+html.theme-energetic #root > .bg-theme-bg::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  background-image: radial-gradient(rgba(255, 152, 0, 0.28) 0.65px, transparent 0.65px);
+  background-size: 28px 28px;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.65), transparent 44%, transparent 72%, rgba(0, 0, 0, 0.35));
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.65), transparent 44%, transparent 72%, rgba(0, 0, 0, 0.35));
+  animation: energetic-grid-drift 30s linear infinite;
+}
+
+/* Existing App.tsx glow blobs stay useful, but become ambient rather than loud. */
+html.theme-energetic #root > .bg-theme-bg > .absolute.inset-0.z-0 {
+  opacity: 0.38;
+  filter: saturate(0.92);
+}
+
+/* Sidebar: warm translucent rail with depth, not a yellow panel. */
+html.theme-energetic aside {
+  background: rgba(255, 255, 255, 0.78) !important;
+  border-right-color: rgba(173, 141, 62, 0.2) !important;
+  box-shadow: 16px 0 42px rgba(100, 74, 18, 0.055);
+  -webkit-backdrop-filter: blur(20px) saturate(142%);
+  backdrop-filter: blur(20px) saturate(142%);
+}
+
+html.theme-energetic aside button {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: 160ms;
+}
+
+html.theme-energetic aside button:hover {
+  box-shadow: 0 6px 18px rgba(105, 78, 15, 0.055);
+}
+
+/* Active recent chat/project row: a small orange edge and soft amber wash. */
+html.theme-energetic aside button.w-full.bg-theme-surface-hover {
+  background: linear-gradient(90deg, rgba(255, 193, 7, 0.16), rgba(255, 255, 255, 0.62)) !important;
+  box-shadow:
+    inset 2px 0 0 rgba(255, 152, 0, 0.92),
+    0 7px 20px rgba(130, 96, 12, 0.055);
+}
+
+/* Glass is reserved for structural panels rather than every small control. */
+html.theme-energetic .glass-panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(255, 252, 244, 0.7));
+  border-color: rgba(176, 143, 67, 0.16);
+  box-shadow:
+    0 18px 52px rgba(86, 62, 13, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  -webkit-backdrop-filter: blur(18px) saturate(138%);
+  backdrop-filter: blur(18px) saturate(138%);
+}
+
+/* Chat header floats lightly over the conversation surface. */
+html.theme-energetic header.sticky.bg-theme-bg {
+  background: rgba(255, 253, 248, 0.82) !important;
+  border-bottom-color: rgba(153, 126, 67, 0.18) !important;
+  box-shadow: 0 10px 32px rgba(94, 67, 12, 0.045);
+  -webkit-backdrop-filter: blur(18px) saturate(138%);
+  backdrop-filter: blur(18px) saturate(138%);
+}
+
+/* Keep the message field visually anchored without turning it into a neon box. */
+html.theme-energetic .chat-scroll-container + div {
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.68), rgba(255, 253, 248, 0.94)) !important;
+  border-top-color: rgba(153, 126, 67, 0.16) !important;
+  box-shadow: 0 -18px 44px rgba(93, 65, 8, 0.045) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(138%);
+  backdrop-filter: blur(18px) saturate(138%);
+}
+
+/* Chat composer: warm focus halo using the JetWork logo tones. */
+html.theme-energetic form > .relative.flex.flex-col.bg-theme-bg.border-theme-border.rounded-2xl {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border-color: rgba(153, 126, 67, 0.22) !important;
+  box-shadow:
+    0 10px 30px rgba(78, 58, 15, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  backdrop-filter: blur(14px) saturate(135%);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+html.theme-energetic form > .relative.flex.flex-col.bg-theme-bg.border-theme-border.rounded-2xl:focus-within {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(255, 193, 7, 0.72) !important;
+  box-shadow:
+    0 0 0 3px rgba(255, 193, 7, 0.08),
+    0 16px 40px rgba(255, 152, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+/* Inputs and selectors get the same focus language across modals and panels. */
+html.theme-energetic input:focus-visible,
+html.theme-energetic textarea:focus-visible,
+html.theme-energetic select:focus-visible,
+html.theme-energetic [contenteditable="true"]:focus-visible {
+  border-color: rgba(255, 193, 7, 0.72) !important;
+  box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.1);
+}
+
+/* Primary actions: brand color as light/energy, not as a large surface color. */
+html.theme-energetic button.bg-theme-primary {
+  box-shadow:
+    0 8px 22px rgba(255, 152, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: 160ms;
+}
+
+html.theme-energetic button.bg-theme-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 11px 27px rgba(255, 152, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+html.theme-energetic button.bg-theme-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    0 5px 15px rgba(255, 152, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+/* BA/document side stays paper-like, with warm depth around it. */
+html.theme-energetic [data-testid="document-canvas-shell"] {
+  background: rgba(255, 252, 245, 0.72) !important;
+}
+
+html.theme-energetic [data-testid="document-canvas-shell"] > div:first-child {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-bottom-color: rgba(153, 126, 67, 0.18) !important;
+  box-shadow: 0 10px 28px rgba(96, 69, 12, 0.045);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+
+html.theme-energetic .document-paper {
+  background: #ffffff;
+  border-color: rgba(177, 145, 68, 0.2);
+  box-shadow:
+    0 28px 80px rgba(79, 57, 10, 0.09),
+    0 4px 16px rgba(255, 152, 0, 0.035),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98);
+}
+
+html.theme-energetic [data-testid="document-canvas-open"] {
+  background: rgba(255, 255, 255, 0.7) !important;
+  border-left-color: rgba(153, 126, 67, 0.18) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+
+html.theme-energetic [data-testid="document-canvas-open"]:hover {
+  background: rgba(255, 248, 221, 0.9) !important;
+  box-shadow: -8px 0 26px rgba(255, 152, 0, 0.07);
+}
+
+html.theme-energetic [role="separator"]:hover,
+html.theme-energetic [role="separator"]:focus-visible {
+  border-color: rgba(255, 193, 7, 0.5) !important;
+  box-shadow: 0 0 18px rgba(255, 152, 0, 0.08);
+}
+
+/* Existing thinking UI loses the unrelated pink/blue spectrum in Energetic. */
+html.theme-energetic .jetwork-thinking {
+  background: rgba(255, 193, 7, 0.08) !important;
+  border-color: rgba(255, 193, 7, 0.3) !important;
+  animation: energetic-warm-breathe 2.4s ease-in-out infinite;
+}
+
+html.theme-energetic .jetwork-thinking-ring {
+  background: conic-gradient(
+    from 0deg,
+    #ffc107 0deg,
+    #ff9800 108deg,
+    #ffd45a 190deg,
+    #ffad00 278deg,
+    #ffc107 360deg
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 193, 7, 0.2),
+    0 0 15px rgba(255, 152, 0, 0.28);
+}
+
+html.theme-energetic .jetwork-thinking-core {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.98), rgba(255, 152, 0, 0.94));
+}
+
+html.theme-energetic .jetwork-thinking-spark {
+  background: #fff3c4;
+  box-shadow: 0 0 8px rgba(255, 152, 0, 0.72);
+}
+
+/* Warm scrollbars keep long chats/documents visually coherent but unobtrusive. */
+html.theme-energetic * {
+  scrollbar-color: rgba(205, 157, 36, 0.34) transparent;
+}
+
+html.theme-energetic *::-webkit-scrollbar-thumb {
+  background: rgba(205, 157, 36, 0.28);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+html.theme-energetic *::-webkit-scrollbar-thumb:hover {
+  background: rgba(214, 147, 8, 0.42);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-energetic #root > .bg-theme-bg::before,
+  html.theme-energetic #root > .bg-theme-bg::after,
+  html.theme-energetic .jetwork-thinking {
+    animation: none !important;
+  }
+
+  html.theme-energetic button.bg-theme-primary:hover:not(:disabled),
+  html.theme-energetic button.bg-theme-primary:active:not(:disabled) {
+    transform: none;
+  }
+}
