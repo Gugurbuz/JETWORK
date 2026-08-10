@@ -51,7 +51,7 @@ export interface ConversationSemanticState {
   userMove: 'new_request' | 'follow_up' | 'correction' | 'rejection' | 'confirmation' | 'clarification' | 'topic_shift'
   priorIntent: ReasoningIntent | 'none'
   rejectedHypotheses: string[]
-  rejectedScopes: string[]
+  rejectedScopes?: string[]
   retainedContext: string[]
   openQuestions: string[]
 }
