@@ -82,6 +82,17 @@ const compactConversationalItems = (items: Array<Record<string, unknown>>) => {
   return items
 }
 
+const compactNoToolSynthesisItems = (items: Array<Record<string, unknown>>) => items.flatMap(item => {
+  const type = String(item.type || '')
+  const role = String(item.role || '')
+  if (type === 'function_call' || type === 'function_call_output') return []
+  const text = textFromContent(item.content)
+  if (!text) return []
+  if (!type && (role === 'user' || role === 'assistant')) return [{ role, content: text }]
+  if (type === 'message') return [{ role: role === 'user' ? 'user' : 'assistant', content: text }]
+  return []
+})
+
 const TRIVIAL_CONVERSATION_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
   'Kullanıcının gündelik selamlaşma, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
@@ -349,7 +360,11 @@ export async function requestGeminiResponse(input: {
 }): Promise<NormalizedModelResponse> {
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
   const trivialConversation = !input.allowTools && isTrivialConversationalTurn(input.items)
-  const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.items
+  const effectiveItems = trivialConversation
+    ? compactConversationalItems(input.items)
+    : input.allowTools
+      ? input.items
+      : compactNoToolSynthesisItems(input.items)
   const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL
     ? GEMINI_SUBSTANTIVE_MODEL
     : input.model
