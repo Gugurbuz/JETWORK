@@ -200,7 +200,8 @@ describe('Reasoning Engine v3 adaptive agent loop', () => {
     expect(providerSource).toContain('generateGeminiContentWithResilience');
     expect(providerSource).toContain('GEMINI_PRO_CIRCUIT_BREAKER_MS');
     expect(providerSource).toContain('GEMINI_PRO_ATTEMPT_TIMEOUT_MS');
-    expect(providerSource).toContain('GEMINI_FALLBACK_ATTEMPT_TIMEOUT_MS');
+    expect(providerSource).toContain('GEMINI_TOOL_ATTEMPT_TIMEOUT_MS');
+    expect(providerSource).toContain('GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS');
     expect(providerSource).toContain('generateGeminiAttempt');
     expect(providerSource).toContain('same-provider stable Flash fallback');
   });
