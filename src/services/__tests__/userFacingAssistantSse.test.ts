@@ -26,12 +26,12 @@ function sourceFrom(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 describe('user-facing assistant SSE boundary', () => {
-  it('removes status events while preserving visible response frames', async () => {
+  it('removes status events and provider telemetry while preserving visible response frames', async () => {
     const source = sourceFrom([
       'event: status\ndata: {"type":"status","stage":"planning","label":"Plan hazır"}\n\n',
       'event: text_delta\ndata: {"type":"text_delta","delta":"Merhaba"}\n\n',
       'event: sources\ndata: {"type":"sources","sources":[]}\n\n',
-      'event: completed\ndata: {"type":"completed","model":"gpt-5.6-sol"}\n\n',
+      'event: completed\ndata: {"type":"completed","conversationId":"c1","model":"gemini-3.1-flash-lite","provider":"gemini","fallbackUsed":false,"usage":{"total_tokens":12},"reasoningEngine":"reasoning-engine-v2"}\n\n',
       'data: [DONE]\n\n',
     ]);
 
@@ -42,6 +42,11 @@ describe('user-facing assistant SSE boundary', () => {
     expect(output).toContain('Merhaba');
     expect(output).toContain('event: sources');
     expect(output).toContain('event: completed');
+    expect(output).toContain('"conversationId":"c1"');
+    expect(output).not.toContain('gemini-3.1-flash-lite');
+    expect(output).not.toContain('"provider"');
+    expect(output).not.toContain('"usage"');
+    expect(output).not.toContain('reasoning-engine-v2');
     expect(output).toContain('data: [DONE]');
   });
 

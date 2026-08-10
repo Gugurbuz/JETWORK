@@ -6,7 +6,7 @@ import {
 } from '../assistantPresentationMetadata';
 
 describe('assistant presentation metadata', () => {
-  it('separates the visible answer from safe presentation metadata', () => {
+  it('keeps normal Q&A free of work-summary and action-summary chrome', () => {
     const parsed = parseAssistantPresentationMetadata(`
 Kısa kullanıcı cevabı burada.
 
@@ -29,7 +29,7 @@ Kısa kullanıcı cevabı burada.
     `);
 
     expect(parsed.visibleText).toBe('Kısa kullanıcı cevabı burada.');
-    expect(parsed.workSummary).toContain('Talebi mevcut sohbet bağlamıyla karşılaştırdım.');
+    expect(parsed.workSummary).toBeUndefined();
     expect(parsed.questions).toEqual([
       {
         id: 'q1',
@@ -37,7 +37,26 @@ Kısa kullanıcı cevabı burada.
         options: ['Evet', 'Hayır'],
       },
     ]);
-    expect(parsed.actionSummary).toBe('Sonucu teknik kanıtla eşleştirip cevapladım.');
+    expect(parsed.actionSummary).toBeUndefined();
+  });
+
+  it('keeps operational metadata available for explicit artifact maturation', () => {
+    const parsed = parseAssistantPresentationMetadata(`
+Dokümanı tamamlamak için iki kararı netleştirmem gerekiyor.
+<jetwork_meta>
+${JSON.stringify({
+  workSummary: ['Mevcut dokümanı kontrol ettim.'],
+  questions: [{ id: 'q1', text: 'Offline kullanım gerekli mi?', options: ['Evet', 'Hayır'] }],
+  actionSummary: 'Cevabından sonra dokümanı oluşturmaya devam edeceğim.',
+})}
+</jetwork_meta>
+    `);
+
+    expect(parsed.workSummary).toContain('Mevcut dokümanı kontrol ettim.');
+    expect(parsed.actionSummary).toBe('Cevabından sonra dokümanı oluşturmaya devam edeceğim.');
+    expect(parsed.questions).toEqual([
+      { id: 'q1', text: 'Offline kullanım gerekli mi?', options: [] },
+    ]);
   });
 
   it('strips model-suggested options from artifact maturation questions', () => {
@@ -80,6 +99,7 @@ ${JSON.stringify({
     `);
 
     expect(parsed.questions).toBeUndefined();
+    expect(parsed.actionSummary).toBe('Dokümanı oluşturdum.');
   });
 
   it('detects artifact maturation context without treating ordinary analysis as artifact work', () => {

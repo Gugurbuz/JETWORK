@@ -111,18 +111,20 @@ export function parseAssistantPresentationMetadata(
     const workSummary = asWorkSummary(metadata.workSummary);
     const actionSummary = cleanText(metadata.actionSummary, 1_000) || undefined;
     const artifactCompleted = looksLikeCompletedEnerjisaArtifact(visibleText);
+    const artifactMaturation = isArtifactMaturationContext({ visibleText, actionSummary });
+    const exposeOperationalMetadata = artifactCompleted || artifactMaturation;
     const questions = artifactCompleted
       ? undefined
-      : asQuestions(
-          metadata.questions,
-          isArtifactMaturationContext({ visibleText, actionSummary }),
-        );
+      : asQuestions(metadata.questions, artifactMaturation);
 
     return {
       visibleText,
-      workSummary,
+      // Work summaries and "Ne yaptım?" are operational metadata, not normal
+      // conversation content. Keep them available only while an explicit
+      // document/artifact workflow is being matured or completed.
+      workSummary: exposeOperationalMetadata ? workSummary : undefined,
       questions,
-      actionSummary,
+      actionSummary: exposeOperationalMetadata ? actionSummary : undefined,
     };
   } catch {
     // Metadata must never break the user-facing answer.
