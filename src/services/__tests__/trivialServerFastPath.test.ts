@@ -44,9 +44,10 @@ describe('trivial assistant server fast path', () => {
     expect(gatewaySource).not.toContain("from '../_shared/modelProviders.ts'");
   });
 
-  it('routes only trivial Gemini Pro execution to Flash Lite while preserving truthful attribution', () => {
-    expect(helperSource).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite-preview'");
-    expect(helperSource).toContain("model === 'gemini-3.1-pro-preview' ? TRIVIAL_GEMINI_LATENCY_MODEL : model");
+  it('routes trivial Gemini Pro and retired preview execution to stable Flash Lite', () => {
+    expect(helperSource).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'");
+    expect(helperSource).toContain("DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'");
+    expect(helperSource).toContain("model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW");
     expect(helperSource).toContain('executionModelForTrivialFastPathModel(input.model)');
     expect(helperSource).toContain('model: input.model');
     expect(helperSource).toContain("provider: 'gemini'");
@@ -60,10 +61,10 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).not.toContain('requestGeminiResponse');
   });
 
-  it('keeps Gemini greeting tuning isolated from the shared reasoning/document provider', () => {
-    expect(helperSource).toContain('maxOutputTokens: 320');
+  it('keeps Gemini greeting tuning cheap and isolated from shared reasoning', () => {
+    expect(helperSource).toContain('maxOutputTokens: 160');
     expect(helperSource).toContain('thinkingConfig: {');
-    expect(helperSource).toContain("input.model === TRIVIAL_GEMINI_LATENCY_MODEL ? 'minimal' : 'low'");
+    expect(helperSource).toContain("? 'minimal'");
     expect(helperSource).toContain('Exact trivial turns are latency-sensitive');
   });
 
