@@ -33,8 +33,8 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
 
   // Keep this list aligned with public.messages. UI-only fields must never reach PostgREST:
   // an unknown column makes the complete message write fail with HTTP 400.
-  // Runtime progress/reasoning labels are transient observability metadata in the single
-  // assistant runtime and must never become durable user-visible conversation content.
+  // Runtime progress/reasoning/provider labels are transient observability metadata in the
+  // single assistant runtime and must never become durable user-visible conversation content.
   const candidates: Record<string, unknown> = {
     id: message.id,
     workspace_id: workspaceId,
@@ -67,9 +67,9 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     knowledge_sources: message.knowledgeSources,
     is_error: message.isError === true,
     retry_payload: retryPayload,
-    provider: message.provider,
-    response_model: message.responseModel,
-    fallback_used: message.fallbackUsed,
+    provider: hidesPrivateRuntimeTelemetry ? null : message.provider,
+    response_model: hidesPrivateRuntimeTelemetry ? null : message.responseModel,
+    fallback_used: hidesPrivateRuntimeTelemetry ? false : message.fallbackUsed,
   };
   const payload = Object.fromEntries(
     Object.entries(candidates).filter(([, value]) => value !== undefined),
