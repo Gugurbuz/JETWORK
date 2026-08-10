@@ -1,3 +1,5 @@
+import { buildOpenAiEnumerationFastPathResponse } from './enumerationFastPath.ts'
+
 export type OpenAiFailureCategory =
   | 'quota_or_billing'
   | 'rate_limit'
@@ -82,6 +84,18 @@ const isOpenAiRequest = (input: Parameters<typeof fetch>[0]): boolean => {
   }
 }
 
+const requestJsonBody = (init?: RequestInit): Record<string, unknown> | null => {
+  if (typeof init?.body !== 'string') return null
+  try {
+    const parsed = JSON.parse(init.body)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
 const responseErrorMessage = async (response: Response): Promise<string> => {
   try {
     const payload = await response.clone().json() as Record<string, unknown>
@@ -133,6 +147,12 @@ export function createOpenAiCircuitBreaker(
 
   const wrappedFetch: typeof fetch = async (input, init) => {
     if (!isOpenAiRequest(input)) return baseFetch(input, init)
+
+    const enumerationFastPath = buildOpenAiEnumerationFastPathResponse(requestJsonBody(init))
+    if (enumerationFastPath) {
+      console.info('[provider-circuit] deterministic enumeration dispatch; OpenAI provider call avoided')
+      return enumerationFastPath
+    }
 
     if (state.reason && state.blockedUntil > now()) {
       return new Response(JSON.stringify({

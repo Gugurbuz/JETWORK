@@ -25,6 +25,11 @@ import {
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
+import {
+  buildEnumerationFastPathDispatch,
+  buildOpenAiEnumerationFastPathMarkerItem,
+  buildSyntheticEnumerationFunctionCall,
+} from './enumerationFastPath.ts'
 
 export const DEFAULT_GEMINI_MODEL = LEGACY_DEFAULT_GEMINI_MODEL
 export const GEMINI_MODELS = new Set([
@@ -155,6 +160,21 @@ export async function requestGeminiResponse(input: {
 }): Promise<NormalizedModelResponse> {
   const requestedModel = normalizeGeminiRequestedModel(input.model)
   const plan = extractSemanticPlanFromItems(input.items)
+  const enumerationDispatch = input.allowTools ? buildEnumerationFastPathDispatch(input.items) : null
+  if (enumerationDispatch) {
+    return {
+      id: `jetwork-enum-fast:${crypto.randomUUID()}`,
+      status: 'completed',
+      model: GEMINI_AGENT_MODEL,
+      output: [buildSyntheticEnumerationFunctionCall(enumerationDispatch)],
+      usage: {
+        deterministic_enumeration_dispatch: 1,
+        deterministic_provider_calls_avoided: 1,
+        cost_guard_agent_calls_avoided: 1,
+      },
+    }
+  }
+
   const sanitizedItems = sanitizeItems(input.items)
 
   if (!input.allowTools) {
@@ -215,7 +235,13 @@ export async function requestGeminiResponse(input: {
 
 export const cleanProviderItemsForOpenAi = (
   items: Array<Record<string, unknown>>,
-) => sanitizeItems(items).map(item => {
-  const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
-  return clean
-})
+) => {
+  const cleaned = sanitizeItems(items).map(item => {
+    const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
+    return clean
+  })
+  const enumerationDispatch = buildEnumerationFastPathDispatch(items)
+  return enumerationDispatch
+    ? [...cleaned, buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)]
+    : cleaned
+}
