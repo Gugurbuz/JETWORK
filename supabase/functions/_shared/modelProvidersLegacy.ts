@@ -14,7 +14,8 @@ const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const GEMINI_RETRY_DELAYS_MS = [350] as const
 const GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 10_000
-const GEMINI_FALLBACK_ATTEMPT_TIMEOUT_MS = 18_000
+const GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000
+const GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000
 const GEMINI_PRO_CIRCUIT_BREAKER_MS = 60_000
 let geminiProUnavailableUntil = 0
 
@@ -110,90 +111,52 @@ const GEMINI_EVIDENCE_INSTRUCTIONS = [
 
 const parseToolOutput = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
+  try { return JSON.parse(value) } catch { return value }
 }
 
 const toGeminiContents = (items: Array<Record<string, unknown>>) => {
   const contents: Array<Record<string, unknown>> = []
   const callNames = new Map<string, string>()
-
   for (const item of items) {
     const type = String(item.type || '')
     const role = String(item.role || '')
     const geminiContent = item._geminiContent
-
-    if (type === 'function_call') {
-      callNames.set(
-        String(item.call_id || ''),
-        String(item.name || ''),
-      )
-    }
-
+    if (type === 'function_call') callNames.set(String(item.call_id || ''), String(item.name || ''))
     if (item._geminiSkipContent === true) continue
-
     if (geminiContent && typeof geminiContent === 'object') {
       contents.push(geminiContent as Record<string, unknown>)
       continue
     }
-
     if ((role === 'user' || role === 'assistant') && !type) {
       const text = textFromContent(item.content)
       if (text) contents.push({ role: role === 'assistant' ? 'model' : 'user', parts: [{ text }] })
       continue
     }
-
     if (type === 'message') {
       const text = textFromContent(item.content)
       if (text) contents.push({ role: role === 'user' ? 'user' : 'model', parts: [{ text }] })
       continue
     }
-
     if (type === 'function_call') {
       const callId = String(item.call_id || crypto.randomUUID())
       const name = String(item.name || '')
       callNames.set(callId, name)
       let args: Record<string, unknown> = {}
-      try {
-        args = JSON.parse(String(item.arguments || '{}'))
-      } catch {
-        args = {}
-      }
-      contents.push({
-        role: 'model',
-        parts: [{
-          functionCall: { id: callId, name, args },
-        }],
-      })
+      try { args = JSON.parse(String(item.arguments || '{}')) } catch { args = {} }
+      contents.push({ role: 'model', parts: [{ functionCall: { id: callId, name, args } }] })
       continue
     }
-
     if (type === 'function_call_output') {
       const callId = String(item.call_id || '')
       const name = callNames.get(callId) || 'knowledge_tool'
-      contents.push({
-        role: 'user',
-        parts: [{
-          functionResponse: {
-            id: callId,
-            name,
-            response: { output: parseToolOutput(item.output) },
-          },
-        }],
-      })
+      contents.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { output: parseToolOutput(item.output) } } }] })
     }
   }
-
   return contents
 }
 
 const groundingSources = (candidate: any): Array<{ title: string; url: string }> => {
-  const chunks = Array.isArray(candidate?.groundingMetadata?.groundingChunks)
-    ? candidate.groundingMetadata.groundingChunks
-    : []
+  const chunks = Array.isArray(candidate?.groundingMetadata?.groundingChunks) ? candidate.groundingMetadata.groundingChunks : []
   const seen = new Set<string>()
   const sources: Array<{ title: string; url: string }> = []
   for (const chunk of chunks) {
@@ -201,10 +164,7 @@ const groundingSources = (candidate: any): Array<{ title: string; url: string }>
     const url = typeof web?.uri === 'string' ? web.uri.trim() : ''
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
     seen.add(url)
-    sources.push({
-      title: typeof web?.title === 'string' && web.title.trim() ? web.title.trim() : 'Web kaynağı',
-      url,
-    })
+    sources.push({ title: typeof web?.title === 'string' && web.title.trim() ? web.title.trim() : 'Web kaynağı', url })
   }
   return sources.slice(0, 8)
 }
@@ -263,16 +223,9 @@ const generateGeminiAttempt = async (input: {
   const onParentAbort = () => controller.abort(input.parentSignal?.reason)
   if (input.parentSignal?.aborted) controller.abort(input.parentSignal.reason)
   else input.parentSignal?.addEventListener('abort', onParentAbort, { once: true })
-  const timeout = setTimeout(
-    () => controller.abort(new DOMException('Gemini provider attempt timed out.', 'TimeoutError')),
-    input.timeoutMs,
-  )
+  const timeout = setTimeout(() => controller.abort(new DOMException('Gemini provider attempt timed out.', 'TimeoutError')), input.timeoutMs)
   try {
-    return await input.ai.models.generateContent({
-      model: input.model,
-      contents: input.contents,
-      config: { ...input.config, abortSignal: controller.signal },
-    } as any)
+    return await input.ai.models.generateContent({ model: input.model, contents: input.contents, config: { ...input.config, abortSignal: controller.signal } } as any)
   } finally {
     clearTimeout(timeout)
     input.parentSignal?.removeEventListener('abort', onParentAbort)
@@ -285,23 +238,17 @@ async function generateGeminiContentWithResilience(input: {
   contents: Array<Record<string, unknown>>
   config: Record<string, unknown>
   allowSameProviderModelFallback: boolean
+  finalSynthesis: boolean
   signal?: AbortSignal
 }) {
   const canFailOverFromPro = input.allowSameProviderModelFallback && input.model === GEMINI_SUBSTANTIVE_MODEL
   const proCircuitOpen = canFailOverFromPro && Date.now() < geminiProUnavailableUntil
-  const models = proCircuitOpen
-    ? [DEFAULT_GEMINI_MODEL]
-    : [
-        input.model,
-        ...(canFailOverFromPro ? [DEFAULT_GEMINI_MODEL] : []),
-      ]
+  const models = proCircuitOpen ? [DEFAULT_GEMINI_MODEL] : [input.model, ...(canFailOverFromPro ? [DEFAULT_GEMINI_MODEL] : [])]
   let lastError: unknown
-
   for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
     const model = models[modelIndex]
     const immediateFailoverCandidate = model === GEMINI_SUBSTANTIVE_MODEL && modelIndex < models.length - 1
-    const maxAttempts = immediateFailoverCandidate ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
-
+    const maxAttempts = immediateFailoverCandidate || input.finalSynthesis ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         const response = await generateGeminiAttempt({
@@ -311,7 +258,9 @@ async function generateGeminiContentWithResilience(input: {
           config: input.config,
           timeoutMs: model === GEMINI_SUBSTANTIVE_MODEL
             ? GEMINI_PRO_ATTEMPT_TIMEOUT_MS
-            : GEMINI_FALLBACK_ATTEMPT_TIMEOUT_MS,
+            : input.finalSynthesis
+              ? GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS
+              : GEMINI_TOOL_ATTEMPT_TIMEOUT_MS,
           parentSignal: input.signal,
         })
         if (model === GEMINI_SUBSTANTIVE_MODEL) geminiProUnavailableUntil = 0
@@ -320,24 +269,17 @@ async function generateGeminiContentWithResilience(input: {
         lastError = error
         if (input.signal?.aborted) throw error
         if (!isRetryableGeminiError(error)) throw error
-
         if (immediateFailoverCandidate) {
           geminiProUnavailableUntil = Date.now() + GEMINI_PRO_CIRCUIT_BREAKER_MS
           console.warn('Gemini Pro failed transiently; switching immediately to same-provider stable Flash fallback', {
-            fromModel: model,
-            toModel: models[modelIndex + 1],
-            error: geminiErrorText(error).slice(0, 500),
+            fromModel: model, toModel: models[modelIndex + 1], error: geminiErrorText(error).slice(0, 500),
           })
           break
         }
-
         if (attempt < maxAttempts - 1) {
           const delayMs = GEMINI_RETRY_DELAYS_MS[Math.min(attempt, GEMINI_RETRY_DELAYS_MS.length - 1)]
           console.warn('Gemini request failed transiently; retrying once with bounded backoff', {
-            model,
-            attempt: attempt + 1,
-            delayMs,
-            error: geminiErrorText(error).slice(0, 500),
+            model, attempt: attempt + 1, delayMs, error: geminiErrorText(error).slice(0, 500),
           })
           await delayWithAbort(delayMs, input.signal)
         }
@@ -360,101 +302,53 @@ export async function requestGeminiResponse(input: {
 }): Promise<NormalizedModelResponse> {
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
   const trivialConversation = !input.allowTools && isTrivialConversationalTurn(input.items)
-  const effectiveItems = trivialConversation
-    ? compactConversationalItems(input.items)
-    : input.allowTools
-      ? input.items
-      : compactNoToolSynthesisItems(input.items)
-  const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL
-    ? GEMINI_SUBSTANTIVE_MODEL
-    : input.model
-  const providerWebEnabled = !trivialConversation
-    && input.allowTools
-    && input.instructions.includes(PROVIDER_WEB_CAPABILITY_MARKER)
+  const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.allowTools ? input.items : compactNoToolSynthesisItems(input.items)
+  const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL ? GEMINI_SUBSTANTIVE_MODEL : input.model
+  const providerWebEnabled = !trivialConversation && input.allowTools && input.instructions.includes(PROVIDER_WEB_CAPABILITY_MARKER)
   const config: Record<string, unknown> = {
-    systemInstruction: trivialConversation
-      ? TRIVIAL_CONVERSATION_INSTRUCTIONS
-      : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
+    systemInstruction: trivialConversation ? TRIVIAL_CONVERSATION_INSTRUCTIONS : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
   }
-
   if (input.allowTools) {
-    const declarations = input.tools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parametersJsonSchema: tool.parameters,
-    }))
-    config.tools = [
-      ...(providerWebEnabled ? [{ googleSearch: {} }] : []),
-      ...(declarations.length ? [{ functionDeclarations: declarations }] : []),
-    ]
+    const declarations = input.tools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters }))
+    config.tools = [...(providerWebEnabled ? [{ googleSearch: {} }] : []), ...(declarations.length ? [{ functionDeclarations: declarations }] : [])]
     config.toolConfig = {
       ...(providerWebEnabled ? { includeServerSideToolInvocations: true } : {}),
       functionCallingConfig: { mode: providerWebEnabled ? 'VALIDATED' : 'AUTO' },
     }
   }
-
   const generated = await generateGeminiContentWithResilience({
     ai,
     model: executionModel,
     contents: toGeminiContents(effectiveItems),
     config,
     allowSameProviderModelFallback: !trivialConversation,
+    finalSynthesis: !input.allowTools && !trivialConversation,
     signal: input.signal,
   })
   const response = generated.response
   const actualModel = generated.model
-
   const candidate = (response as any)?.candidates?.[0]
   const candidateContent = candidate?.content
   const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : []
-  const rawVisibleText = parts
-    .filter((part: any) => !part?.thought && typeof part?.text === 'string')
-    .map((part: any) => part.text)
-    .join('')
-  const visibleText = providerWebEnabled
-    ? appendGroundingSources(rawVisibleText, candidate)
-    : rawVisibleText
+  const rawVisibleText = parts.filter((part: any) => !part?.thought && typeof part?.text === 'string').map((part: any) => part.text).join('')
+  const visibleText = providerWebEnabled ? appendGroundingSources(rawVisibleText, candidate) : rawVisibleText
   if (visibleText) input.onText(visibleText)
-
   const functionCalls = parts.filter((part: any) => part?.functionCall)
   const output = functionCalls.length
     ? functionCalls.map((part: any, index: number) => {
         const call = part.functionCall || {}
-        return {
-          type: 'function_call',
-          call_id: String(call.id || crypto.randomUUID()),
-          name: String(call.name || ''),
-          arguments: JSON.stringify(call.args || {}),
-          _geminiContent: index === 0 ? candidateContent : undefined,
-          _geminiSkipContent: index > 0,
-        }
+        return { type: 'function_call', call_id: String(call.id || crypto.randomUUID()), name: String(call.name || ''), arguments: JSON.stringify(call.args || {}), _geminiContent: index === 0 ? candidateContent : undefined, _geminiSkipContent: index > 0 }
       })
-    : [{
-        type: 'message',
-        role: 'assistant',
-        content: [{ type: 'output_text', text: visibleText, annotations: [] }],
-        _geminiContent: candidateContent,
-      }]
-
+    : [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: visibleText, annotations: [] }], _geminiContent: candidateContent }]
   const metadata = (response as any)?.usageMetadata || {}
   return {
-    id: String((response as any)?.responseId || crypto.randomUUID()),
-    status: 'completed',
-    model: actualModel,
-    output,
-    usage: {
-      input_tokens: Number(metadata.promptTokenCount || 0),
-      output_tokens: Number(metadata.candidatesTokenCount || 0),
-      reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
-      total_tokens: Number(metadata.totalTokenCount || 0),
-    },
+    id: String((response as any)?.responseId || crypto.randomUUID()), status: 'completed', model: actualModel, output,
+    usage: { input_tokens: Number(metadata.promptTokenCount || 0), output_tokens: Number(metadata.candidatesTokenCount || 0), reasoning_tokens: Number(metadata.thoughtsTokenCount || 0), total_tokens: Number(metadata.totalTokenCount || 0) },
   }
 }
 
-export const cleanProviderItemsForOpenAi = (
-  items: Array<Record<string, unknown>>,
-) => items.map(item => {
+export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>>) => items.map(item => {
   const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
   return clean
 })
