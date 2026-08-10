@@ -22,12 +22,13 @@ const relationTypes = [
 
 const nullableArray = (items: Record<string, unknown>) => ({ type: ['array', 'null'], items })
 const nullableInteger = (minimum: number, maximum: number) => ({ type: ['integer', 'null'], minimum, maximum })
+const nullableString = (maxLength: number) => ({ type: ['string', 'null'], maxLength })
 
 export const ASSISTANT_KNOWLEDGE_TOOLS = [
   {
     type: 'function',
     name: 'search_knowledge_catalog',
-    description: 'Search published JetWork global knowledge plus the active project knowledge. Project matches receive a small relevance boost.',
+    description: 'Search published JetWork global knowledge plus the active project knowledge for the most relevant evidence. Use for discovery/diagnosis, not for exhaustive listing. Project matches receive a small relevance boost.',
     strict: true,
     parameters: {
       type: 'object',
@@ -37,6 +38,23 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
         limit: nullableInteger(1, 12),
       },
       required: ['query', 'objectTypes', 'limit'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_knowledge_catalog',
+    description: 'Enumerate published knowledge objects by object type and/or name/canonical prefix. Use when the user asks to list, enumerate, count, or show all matching objects. Results are paginated; when an exhaustive list is requested, continue with nextCursor until it is null or the safe tool budget is exhausted.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        objectType: { type: ['string', 'null'], enum: [...objectTypes, null] },
+        prefix: nullableString(160),
+        cursor: nullableString(320),
+        limit: { type: 'integer', minimum: 1, maximum: 25 },
+      },
+      required: ['objectType', 'prefix', 'cursor', 'limit'],
       additionalProperties: false,
     },
   },
@@ -268,6 +286,65 @@ async function searchCatalog(
   }
 }
 
+async function listCatalog(
+  client: any,
+  workspaceId: string,
+  args: Record<string, unknown>,
+): Promise<AssistantToolExecution> {
+  const requestedObjectType = cleanString(args.objectType, 40)
+  const objectType = (objectTypes as readonly string[]).includes(requestedObjectType) ? requestedObjectType : null
+  const prefix = cleanString(args.prefix, 160) || null
+  const cursor = cleanString(args.cursor, 320) || null
+  const limit = clampLimit(args.limit, 25, 25)
+  const { data, error } = await client.rpc('list_knowledge_catalog_v2', {
+    p_workspace_id: workspaceId,
+    p_object_type: objectType,
+    p_prefix: prefix,
+    p_cursor: cursor,
+    p_limit: limit,
+  })
+  throwIfError(error)
+
+  const payload = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+  const rawItems = Array.isArray(payload.items) ? payload.items : []
+  const items = rawItems.map(item => {
+    const row = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+    return {
+      scope: row.scope === 'project' ? 'project' : 'global',
+      canonicalKey: cleanString(row.canonicalKey, 320),
+      objectType: cleanString(row.objectType, 40),
+      name: cleanString(row.name, 240),
+      title: truncateContent(row.title, 320),
+      summary: truncateContent(row.summary, 260),
+      sourceId: cleanString(row.sourceId, 80) || undefined,
+      sourceName: cleanString(row.sourceName, 240),
+    }
+  }).filter(item => item.canonicalKey)
+  const totalCount = Math.max(0, Number(payload.totalCount || 0))
+  const nextCursor = cleanString(payload.nextCursor, 320) || null
+  const sources = uniqueSources(items.map(item => ({
+    sourceId: item.sourceId,
+    sourceName: item.sourceName || 'Kurumsal bilgi kaynağı',
+    canonicalKey: item.canonicalKey,
+    objectType: item.objectType || undefined,
+    title: item.title || item.name || undefined,
+  })))
+
+  return {
+    output: untrustedToolOutput('list_knowledge_catalog', { items, totalCount, nextCursor }),
+    sources,
+    summary: {
+      resultCount: items.length,
+      totalCount,
+      nextCursor,
+      objectType,
+      prefix,
+      cursor,
+      enumeration: true,
+    },
+  }
+}
+
 async function getExactObject(
   client: any,
   workspaceId: string,
@@ -310,7 +387,7 @@ async function getRelatedObjects(
   args: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
   const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
-  const direction = ['outgoing', 'incoming', 'both'].includes(String(args.direction)) ? String(args.direction) : 'both'
+  const direction = ['outgoing','incoming','both'].includes(String(args.direction)) ? String(args.direction) : 'both'
   const limit = clampLimit(args.limit, 12, 20)
   const safeRelations = Array.isArray(args.relationTypes)
     ? args.relationTypes.map(type => cleanString(type, 40).toUpperCase()).filter(type => (relationTypes as readonly string[]).includes(type))
@@ -367,10 +444,11 @@ export async function executeAssistantTool(
     if (query.length < 2) throw new Error('Knowledge search query is too short.')
     return searchCatalog(client, workspaceId, query, args.objectTypes, clampLimit(args.limit, 6, 8))
   }
+  if (toolName === 'list_knowledge_catalog') return listCatalog(client, workspaceId, args)
   if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
-    return getExactObject(client, workspaceId, canonicalKey, ['class', 'method', 'function'], toolName)
+    return getExactObject(client, workspaceId, canonicalKey, ['class','method','function'], toolName)
   }
   if (toolName === 'get_message_detail') {
     const canonicalKey = normalizeCanonicalKey(args.messageCode, 'message')
@@ -380,12 +458,12 @@ export async function executeAssistantTool(
   if (toolName === 'search_document') {
     const query = cleanString(args.query, 300)
     if (query.length < 2) throw new Error('Document search query is too short.')
-    return searchCatalog(client, workspaceId, query, ['document', 'business_rule'], clampLimit(args.limit, 6, 10))
+    return searchCatalog(client, workspaceId, query, ['document','business_rule'], clampLimit(args.limit, 6, 10))
   }
   if (toolName === 'get_document_content') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
-    return getExactObject(client, workspaceId, canonicalKey, ['document', 'business_rule'], toolName)
+    return getExactObject(client, workspaceId, canonicalKey, ['document','business_rule'], toolName)
   }
   if (toolName === 'get_related_objects') return getRelatedObjects(client, workspaceId, args)
   throw new Error(`Unknown assistant tool: ${toolName}`)
