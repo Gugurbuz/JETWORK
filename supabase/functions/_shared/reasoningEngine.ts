@@ -38,6 +38,7 @@ export type {
 
 export type ReasoningExecutionMode = 'direct' | 'knowledge' | 'research' | 'artifact' | 'decision' | 'project'
 export type KnowledgeEnumerationTool = 'list_knowledge_catalog' | 'list_class_inventory'
+export type AssistantPromptProfile = 'base' | 'knowledge' | 'research' | 'document' | 'artifact'
 
 export interface KnowledgeEnumerationTarget {
   tool: KnowledgeEnumerationTool
@@ -54,6 +55,16 @@ export interface ConversationSemanticState {
   rejectedScopes?: string[]
   retainedContext: string[]
   openQuestions: string[]
+  /** Resolved, self-contained form of the user's current request. */
+  resolvedRequest?: string
+  /** Canonical or literal enterprise entities that the current turn refers to. */
+  activeEntities?: string[]
+  /** What kind of evidence the user is asking for (message text, ABAP source, rule, document, etc.). */
+  requestedEvidence?: string[]
+  /** Explicit decisions/answers supplied by the user and safe to carry forward as user facts. */
+  userDecisions?: string[]
+  /** Canonical knowledge objects proven by successful detail retrievals in earlier turns. */
+  verifiedFactRefs?: string[]
 }
 
 export interface ReasoningPlan extends LegacyReasoningPlan {
@@ -61,6 +72,7 @@ export interface ReasoningPlan extends LegacyReasoningPlan {
   conversationState?: ConversationSemanticState
   enumerationTarget?: KnowledgeEnumerationTarget
   orchestratorVersion?: string
+  promptProfile?: AssistantPromptProfile
 }
 
 export const SEMANTIC_PLAN_START = '[JETWORK_SEMANTIC_PLAN]'
@@ -85,6 +97,19 @@ const normalizeEnumerationTarget = (value: unknown): KnowledgeEnumerationTarget 
     ? null
     : String(raw.prefix || '').trim().slice(0, 160) || null
   return { tool, objectType, prefix }
+}
+
+const promptProfileForPlan = (
+  intent: ReasoningIntent,
+  executionMode: ReasoningExecutionMode | undefined,
+  knowledgeRequired: boolean,
+  webMode: WebMode,
+): AssistantPromptProfile => {
+  if (intent === 'document') return executionMode === 'artifact' ? 'artifact' : 'document'
+  if (executionMode === 'artifact') return 'artifact'
+  if (webMode !== 'none' || intent === 'research') return 'research'
+  if (knowledgeRequired || ['analysis','sap_diagnosis'].includes(intent)) return 'knowledge'
+  return 'base'
 }
 
 const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
@@ -119,8 +144,13 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
       : 'none',
     rejectedHypotheses: cleanStringArray(stateRaw.rejectedHypotheses, 6),
     rejectedScopes: cleanStringArray(stateRaw.rejectedScopes, 6),
-    retainedContext: cleanStringArray(stateRaw.retainedContext, 8),
-    openQuestions: cleanStringArray(stateRaw.openQuestions, 6),
+    retainedContext: cleanStringArray(stateRaw.retainedContext, 8, 700),
+    openQuestions: cleanStringArray(stateRaw.openQuestions, 6, 500),
+    resolvedRequest: String(stateRaw.resolvedRequest || '').trim().slice(0, 900) || undefined,
+    activeEntities: cleanStringArray(stateRaw.activeEntities, 10, 180),
+    requestedEvidence: cleanStringArray(stateRaw.requestedEvidence, 8, 120),
+    userDecisions: cleanStringArray(stateRaw.userDecisions, 10, 500),
+    verifiedFactRefs: cleanStringArray(stateRaw.verifiedFactRefs, 12, 320),
   } : undefined
   const steps = Array.isArray(raw.steps)
     ? raw.steps.map((step, index) => {
@@ -136,6 +166,10 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
         }
       }).slice(0, 8)
     : []
+  const profile = String(raw.promptProfile || '') as AssistantPromptProfile
+  const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
+    ? profile
+    : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode)
   return {
     intent: normalizedIntent,
     complexity,
@@ -150,6 +184,7 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
     conversationState,
     enumerationTarget: normalizeEnumerationTarget(raw.enumerationTarget),
     orchestratorVersion: String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80),
+    promptProfile,
   }
 }
 
