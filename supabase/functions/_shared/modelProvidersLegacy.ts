@@ -94,6 +94,34 @@ const compactNoToolSynthesisItems = (items: Array<Record<string, unknown>>) => i
   return []
 })
 
+const compactToolRecoveryItems = (items: Array<Record<string, unknown>>) => {
+  const callNames = new Map<string, string>()
+  const toolEvidence: string[] = []
+  for (const item of items) {
+    const type = String(item.type || '')
+    if (type === 'function_call') {
+      callNames.set(String(item.call_id || ''), String(item.name || 'knowledge_tool'))
+      continue
+    }
+    if (type !== 'function_call_output') continue
+    const callId = String(item.call_id || '')
+    const toolName = callNames.get(callId) || 'knowledge_tool'
+    const output = typeof item.output === 'string'
+      ? item.output
+      : JSON.stringify(item.output ?? '')
+    if (output.trim()) toolEvidence.push(`[${toolName}]\n${output.trim()}`)
+  }
+  const conversational = compactNoToolSynthesisItems(items)
+  if (!toolEvidence.length) return conversational
+  return [
+    ...conversational,
+    {
+      role: 'user',
+      content: `[JETWORK_TOOL_EVIDENCE]\n${toolEvidence.join('\n\n').slice(0, 40_000)}\n[END_JETWORK_TOOL_EVIDENCE]`,
+    },
+  ]
+}
+
 const TRIVIAL_CONVERSATION_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
   'Kullanıcının gündelik selamlaşma, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
@@ -319,16 +347,47 @@ export async function requestGeminiResponse(input: {
       functionCallingConfig: { mode: providerWebEnabled ? 'VALIDATED' : 'AUTO' },
     }
   }
-  const generated = await generateGeminiContentWithResilience({
-    ai,
-    model: executionModel,
-    contents: toGeminiContents(effectiveItems),
-    config,
-    allowSameProviderModelFallback: !trivialConversation,
-    finalSynthesis: !input.allowTools && !trivialConversation,
-    artifactSynthesis,
-    signal: input.signal,
-  })
+
+  let generated: { response: any; model: string }
+  try {
+    generated = await generateGeminiContentWithResilience({
+      ai,
+      model: executionModel,
+      contents: toGeminiContents(effectiveItems),
+      config,
+      allowSameProviderModelFallback: !trivialConversation,
+      finalSynthesis: !input.allowTools && !trivialConversation,
+      artifactSynthesis,
+      signal: input.signal,
+    })
+  } catch (error) {
+    if (!input.allowTools || trivialConversation || input.signal?.aborted || !isRetryableGeminiError(error)) throw error
+    console.warn('Gemini tool loop exhausted transient retries; forcing one bounded no-tool recovery synthesis', {
+      fromModel: executionModel,
+      toModel: DEFAULT_GEMINI_MODEL,
+      error: geminiErrorText(error).slice(0, 500),
+    })
+    const recoveryConfig: Record<string, unknown> = {
+      ...config,
+      systemInstruction: [
+        String(config.systemInstruction || ''),
+        '[JETWORK TOOL RECOVERY]',
+        'Araç çağrısı geçici sağlayıcı sorunu nedeniyle devam edemedi. Aşağıdaki JETWORK_TOOL_EVIDENCE bloklarını kanıt olarak kullan ve yeni araç çağrısı yapmadan dürüst nihai yanıtı üret. Kanıt yetersizse bunu açıkça belirt.',
+      ].filter(Boolean).join('\n\n'),
+    }
+    delete recoveryConfig.tools
+    delete recoveryConfig.toolConfig
+    const recoveryResponse = await generateGeminiAttempt({
+      ai,
+      model: DEFAULT_GEMINI_MODEL,
+      contents: toGeminiContents(compactToolRecoveryItems(input.items)),
+      config: recoveryConfig,
+      timeoutMs: GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS,
+      parentSignal: input.signal,
+    })
+    generated = { response: recoveryResponse, model: DEFAULT_GEMINI_MODEL }
+  }
+
   const response = generated.response
   const actualModel = generated.model
   const candidate = (response as any)?.candidates?.[0]
