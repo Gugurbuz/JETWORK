@@ -5,6 +5,7 @@ import {
   executeAssistantTool,
   type AssistantToolExecution,
 } from '../_shared/assistantTools.ts'
+import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import {
   cleanProviderItemsForOpenAi,
   DEFAULT_GEMINI_MODEL,
@@ -771,6 +772,62 @@ serve(async req => {
 
         for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
           const mustSynthesize = round === MAX_TOOL_ROUNDS
+          const deterministicEnumeration = buildDeterministicEnumerationFinalization(runItems, {
+            allowPartial: mustSynthesize || totalToolCalls >= MAX_TOOL_CALLS,
+          })
+          if (deterministicEnumeration) {
+            const deterministicText = deterministicEnumeration.text
+            usage = addUsage(usage, {
+              deterministic_enumeration_finalized: 1,
+              deterministic_enumeration_records: deterministicEnumeration.collectedCount,
+              deterministic_enumeration_complete: deterministicEnumeration.complete ? 1 : 0,
+            })
+            const stateItems = compactConversationState([
+              ...baseItems,
+              { role: 'assistant', content: deterministicText },
+            ])
+            const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
+              p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
+              p_expected_revision: conversationRevision, p_state_items: stateItems,
+              p_response_text: deterministicText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
+            })
+            if (completionError) throw completionError
+            turnCompleted = true
+            emitStatus('answering', deterministicEnumeration.complete
+              ? 'Liste sonuçları deterministik olarak tamamlandı'
+              : 'Kısmi liste sonuçları deterministik olarak hazırlandı')
+            await patchReasoningRun(adminClient, reasoningRunId, {
+              plan, verification: verification || {}, execution_trace: trace,
+              evidence_summary: {
+                requestedModel,
+                configuredModel,
+                responseModel,
+                provider: activeProvider,
+                evidenceItems: evidence.length,
+                sources: sources.length,
+                knowledgeSources: sources.filter(source => source.sourceType !== 'web').length,
+                webSources: sources.filter(source => source.sourceType === 'web').length,
+                deterministicEnumeration: {
+                  totalCount: deterministicEnumeration.totalCount,
+                  collectedCount: deterministicEnumeration.collectedCount,
+                  pageCount: deterministicEnumeration.pageCount,
+                  complete: deterministicEnumeration.complete,
+                  nextCursor: deterministicEnumeration.nextCursor,
+                },
+              },
+              knowledge_used: knowledgeUsed, web_used: webUsed, tool_call_count: totalToolCalls,
+              fallback_used: providerFallbackUsed || reasoningFallbackUsed, status: 'completed', completed_at: new Date().toISOString(),
+            })
+            sendEvent(controller, encoder, 'text_delta', { type: 'text_delta', delta: deterministicText })
+            sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
+            sendEvent(controller, encoder, 'completed', {
+              type: 'completed', conversationId: conversation.id, model: responseModel, provider: activeProvider,
+              fallbackUsed: providerFallbackUsed, usage, reasoningEngine: ENGINE_VERSION,
+              deterministicEnumeration: true,
+            })
+            controller.enqueue(encoder.encode('data: [DONE]\n\n')); controller.close(); return
+          }
+
           let roundText = ''
           const finalInstruction = mustSynthesize
             ? 'Araştırma bütçesi tamamlandı. Yeni araç çağrısı yapmadan mevcut kanıtlarla dürüst nihai yanıtı üret; kanıt eksikse bunu açıkça belirt.'
