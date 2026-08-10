@@ -4,6 +4,8 @@ const META_PATTERN = /<jetwork_meta>\s*([\s\S]*?)\s*<\/jetwork_meta>/i
 const DETERMINISTIC_ENUMERATION_PATTERN = /(?:eşleşen|toplam)\s+\*\*(\d+)\s+kayıt\*\*/i
 const INVENTORY_PATTERN = /(?:envanter|katalog)[^\n]*\*\*(\d+)\s+(?:sınıf adı|kayıt)\*\*/i
 const BULLET_NAME_PATTERN = /^-\s+\*\*([^*:\n]+)(?::\*\*)?/gm
+const ASSISTANT_MEMORY_START = '[JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE]'
+const ASSISTANT_MEMORY_END = '[END_JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE]'
 
 const parseMeta = (text: string): Record<string, unknown> | null => {
   const match = text.match(META_PATTERN)
@@ -18,65 +20,68 @@ const parseMeta = (text: string): Record<string, unknown> | null => {
   }
 }
 
+const wrapAssistantMemory = (text: string, maxLength: number) => cleanText([
+  ASSISTANT_MEMORY_START,
+  'Bu içerik yalnız konuşma sürekliliği içindir; kurumsal/teknik fact veya citation değildir.',
+  text,
+  ASSISTANT_MEMORY_END,
+].filter(Boolean).join('\n'), maxLength)
+
 const compactEnumerationMemory = (text: string, maxLength: number) => {
   const countMatch = text.match(DETERMINISTIC_ENUMERATION_PATTERN) || text.match(INVENTORY_PATTERN)
   if (!countMatch) return null
   const names = [...text.matchAll(BULLET_NAME_PATTERN)]
-    .map(match => cleanText(match[1], 120))
+    .map(match => cleanText(match[1], 100))
     .filter(Boolean)
   const uniqueNames = [...new Set(names)]
-  const sample = uniqueNames.length <= 8
+  const sample = uniqueNames.length <= 6
     ? uniqueNames
-    : [...uniqueNames.slice(0, 4), ...uniqueNames.slice(-3)]
+    : [...uniqueNames.slice(0, 3), ...uniqueNames.slice(-2)]
   const meta = parseMeta(text)
-  const actionSummary = cleanText(meta?.actionSummary, 360)
+  const actionSummary = cleanText(meta?.actionSummary, 240)
   const workSummary = Array.isArray(meta?.workSummary)
-    ? (meta!.workSummary as unknown[]).map(item => cleanText(item, 260)).filter(Boolean).slice(0, 2)
+    ? (meta!.workSummary as unknown[]).map(item => cleanText(item, 180)).filter(Boolean).slice(0, 2)
     : []
-  return cleanText([
-    '[JETWORK_COMPACT_MEMORY]',
+  return wrapAssistantMemory([
     `deterministic_enumeration_total=${Number(countMatch[1] || 0)}`,
     sample.length ? `sample_records=${sample.join(', ')}` : '',
     uniqueNames.length ? `observed_record_names=${uniqueNames.length}` : '',
     actionSummary ? `action=${actionSummary}` : '',
     workSummary.length ? `work=${workSummary.join(' | ')}` : '',
-    '[END_JETWORK_COMPACT_MEMORY]',
   ].filter(Boolean).join('\n'), maxLength)
 }
 
 export const compactAssistantConversationMemory = (
   value: unknown,
-  maxLength = 1_200,
+  maxLength = 800,
 ): string => {
   const text = String(value ?? '').trim()
   if (!text) return ''
-  if (text.length <= maxLength) return text
 
   const deterministic = compactEnumerationMemory(text, maxLength)
   if (deterministic) return deterministic
 
   const meta = parseMeta(text)
   if (meta) {
-    const actionSummary = cleanText(meta.actionSummary, 360)
+    const actionSummary = cleanText(meta.actionSummary, 240)
     const workSummary = Array.isArray(meta.workSummary)
-      ? (meta.workSummary as unknown[]).map(item => cleanText(item, 260)).filter(Boolean).slice(0, 3)
+      ? (meta.workSummary as unknown[]).map(item => cleanText(item, 180)).filter(Boolean).slice(0, 2)
       : []
     if (actionSummary || workSummary.length) {
-      return cleanText([
-        '[JETWORK_COMPACT_MEMORY]',
+      return wrapAssistantMemory([
         actionSummary ? `action=${actionSummary}` : '',
         workSummary.length ? `work=${workSummary.join(' | ')}` : '',
-        '[END_JETWORK_COMPACT_MEMORY]',
       ].filter(Boolean).join('\n'), maxLength)
     }
   }
 
-  return text.slice(0, maxLength)
+  const payloadBudget = Math.max(120, maxLength - ASSISTANT_MEMORY_START.length - ASSISTANT_MEMORY_END.length - 100)
+  return wrapAssistantMemory(text.slice(0, payloadBudget), maxLength)
 }
 
 export const compactSemanticContextMessage = (
   role: 'user' | 'assistant',
   content: unknown,
 ) => role === 'assistant'
-  ? compactAssistantConversationMemory(content, 1_200)
-  : cleanText(content, 2_500)
+  ? compactAssistantConversationMemory(content, 800)
+  : cleanText(content, 1_600)
