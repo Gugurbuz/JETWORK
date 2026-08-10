@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('Gemini answer provider resilience', () => {
-  it('fails over from Pro after one transient attempt instead of exhausting retries first', () => {
+  it('fails over from Pro quickly while giving document synthesis a bounded long attempt', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
       'utf8',
@@ -10,9 +10,44 @@ describe('Gemini answer provider resilience', () => {
 
     expect(source).toContain("export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'");
     expect(source).toContain('GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 10_000');
-    expect(source).toContain('GEMINI_FALLBACK_ATTEMPT_TIMEOUT_MS = 18_000');
-    expect(source).toContain('const maxAttempts = immediateFailoverCandidate ? 1');
+    expect(source).toContain('GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000');
+    expect(source).toContain('GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000');
+    expect(source).toContain('artifactSynthesis: boolean');
+    expect(source).toContain("input.instructions.includes('Intent: document')");
+    expect(source).toContain('immediateFailoverCandidate || input.artifactSynthesis ? 1');
+    expect(source).toContain('input.finalSynthesis || input.artifactSynthesis');
     expect(source).toContain('switching immediately to same-provider stable Flash fallback');
     expect(source).toContain('retrying once with bounded backoff');
+    expect(source).toContain('AbortError');
+    expect(source).toContain('signal has been aborted');
+    expect(source).toContain('if (input.signal?.aborted) throw error');
+    expect(source).toContain('finalSynthesis: !input.allowTools && !trivialConversation');
+  });
+
+  it('recovers a final answer from completed tool evidence after transient Gemini tool-loop failure', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
+      'utf8',
+    );
+
+    expect(source).toContain('compactToolRecoveryItems');
+    expect(source).toContain('[JETWORK_TOOL_EVIDENCE]');
+    expect(source).toContain('Gemini tool loop exhausted transient retries; forcing one bounded no-tool recovery synthesis');
+    expect(source).toContain('delete recoveryConfig.tools');
+    expect(source).toContain('delete recoveryConfig.toolConfig');
+    expect(source).toContain('timeoutMs: GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS');
+    expect(source).toContain('contents: toGeminiContents(compactToolRecoveryItems(input.items))');
+  });
+
+  it('removes prior tool-call protocol items when Gemini must produce a final no-tool answer', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
+      'utf8',
+    );
+
+    expect(source).toContain('compactNoToolSynthesisItems');
+    expect(source).toContain("type === 'function_call' || type === 'function_call_output'");
+    expect(source).toContain('input.allowTools');
+    expect(source).toContain(': compactNoToolSynthesisItems(input.items)');
   });
 });
