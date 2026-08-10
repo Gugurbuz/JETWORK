@@ -63,8 +63,8 @@ describe('Gemini Cost Guard v1', () => {
 
     const agentItems = compactGeminiAgentItems(items);
     const compactedOutputs = agentItems
-      .filter(item => item.type === 'function_call_output')
-      .map(item => String(item.output || ''));
+      .filter(item => 'type' in item && item.type === 'function_call_output')
+      .map(item => String('output' in item ? item.output || '' : ''));
     expect(compactedOutputs).toHaveLength(2);
     expect(Math.max(...compactedOutputs.map(value => value.length))).toBeLessThanOrEqual(4_500);
 
