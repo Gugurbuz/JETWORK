@@ -42,4 +42,18 @@ describe('ChatPanel simple BA start', () => {
     expect(html).toContain('Varsayımlarla devam et');
     expect(html).not.toContain('data-testid="question-option"');
   });
+
+  it('keeps the branded thinking indicator visible while reasoning is streaming', () => {
+    const html = renderPanel([{
+      id: 'm1',
+      role: 'model',
+      text: '',
+      isTyping: true,
+      thinkingText: '**Bağlam**\nBilgi bankası taranıyor.',
+      createdAt: 1,
+    }]);
+
+    expect(html).toContain('jetwork-thinking');
+    expect(html).toContain('Düşünüyor');
+  });
 });
