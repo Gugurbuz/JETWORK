@@ -55,15 +55,10 @@ export interface ConversationSemanticState {
   rejectedScopes?: string[]
   retainedContext: string[]
   openQuestions: string[]
-  /** Resolved, self-contained form of the user's current request. */
   resolvedRequest?: string
-  /** Canonical or literal enterprise entities that the current turn refers to. */
   activeEntities?: string[]
-  /** What kind of evidence the user is asking for (message text, ABAP source, rule, document, etc.). */
   requestedEvidence?: string[]
-  /** Explicit decisions/answers supplied by the user and safe to carry forward as user facts. */
   userDecisions?: string[]
-  /** Canonical knowledge objects proven by successful detail retrievals in earlier turns. */
   verifiedFactRefs?: string[]
 }
 
@@ -83,6 +78,18 @@ const cleanStringArray = (value: unknown, limit = 8, maxLength = 500): string[] 
   Array.isArray(value)
     ? value.map(item => String(item || '').trim().slice(0, maxLength)).filter(Boolean).slice(0, limit)
     : []
+)
+
+const normalizeKnownEntityAlias = (value: string) => {
+  const raw = String(value || '').trim()
+  const upper = raw.toLocaleUpperCase('tr-TR')
+  if (/^ZCRMCOST[- ]\d{2,4}$/.test(upper)) return upper.replace(/^ZCRMCOST[- ]/, 'ZCRM_COST-')
+  if (/^MESSAGE:ZCRMCOST-\d{2,4}$/i.test(raw)) return raw.toLocaleLowerCase('en-US').replace('message:zcrmcost-', 'message:zcrm_cost-')
+  return raw
+}
+
+const normalizeEntityArray = (value: unknown, limit = 10, maxLength = 320) => (
+  [...new Set(cleanStringArray(value, limit * 2, maxLength).map(normalizeKnownEntityAlias))].slice(0, limit)
 )
 
 const normalizeEnumerationTarget = (value: unknown): KnowledgeEnumerationTarget | undefined => {
@@ -147,10 +154,10 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
     retainedContext: cleanStringArray(stateRaw.retainedContext, 8, 700),
     openQuestions: cleanStringArray(stateRaw.openQuestions, 6, 500),
     resolvedRequest: String(stateRaw.resolvedRequest || '').trim().slice(0, 900) || undefined,
-    activeEntities: cleanStringArray(stateRaw.activeEntities, 10, 180),
+    activeEntities: normalizeEntityArray(stateRaw.activeEntities, 10, 180),
     requestedEvidence: cleanStringArray(stateRaw.requestedEvidence, 8, 120),
     userDecisions: cleanStringArray(stateRaw.userDecisions, 10, 500),
-    verifiedFactRefs: cleanStringArray(stateRaw.verifiedFactRefs, 12, 320),
+    verifiedFactRefs: normalizeEntityArray(stateRaw.verifiedFactRefs, 12, 320),
   } : undefined
   const steps = Array.isArray(raw.steps)
     ? raw.steps.map((step, index) => {
