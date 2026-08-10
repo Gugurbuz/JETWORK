@@ -1,6 +1,6 @@
 -- Keep the context-free trivial assistant fast path aligned with the runtime's
--- execution-model contract. The browser may request `auto`, but the gateway
--- claims trivial turns with the concrete low-latency execution model.
+-- execution-model contract. The browser may request `auto`; the database
+-- normalizes that sentinel to the same low-latency model used by the runtime.
 --
 -- Trivial turns deliberately reuse the active conversation regardless of its
 -- substantive model. A greeting must not archive/swap conversation state or
@@ -32,6 +32,10 @@ as $$
 declare
   v_owner_id uuid := auth.uid();
   v_prompt_id uuid;
+  v_execution_model text := case
+    when p_model = 'auto' then 'gemini-3.1-flash-lite'
+    else p_model
+  end;
   v_conversation public.assistant_conversations%rowtype;
   v_claim record;
 begin
@@ -52,9 +56,10 @@ begin
     raise exception using errcode = '42501', message = 'workspace_access_denied';
   end if;
 
-  -- p_model is an execution model, never the UI's `auto` sentinel. Keep this
-  -- allowlist synchronized with executionModelForTrivialFastPathModel().
+  -- Accept the UI's auto sentinel defensively, but persist/log only a concrete
+  -- execution model. Keep the concrete allowlist synchronized with the runtime.
   if p_model not in (
+    'auto',
     'gpt-5.6-sol',
     'gpt-5.6',
     'gemini-3-flash-preview',
@@ -119,7 +124,7 @@ begin
       p_workspace_id,
       v_owner_id,
       v_prompt_id,
-      p_model,
+      v_execution_model,
       'active'
     )
     on conflict do nothing
@@ -215,7 +220,11 @@ begin
         'label', 'Doğrudan kısa yanıt yolu',
         'at', now()
       )),
-      jsonb_build_object('fastPath', true, 'executionModel', p_model),
+      jsonb_build_object(
+        'fastPath', true,
+        'requestedModel', p_model,
+        'executionModel', v_execution_model
+      ),
       false,
       false,
       0,
