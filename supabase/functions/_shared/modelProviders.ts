@@ -24,6 +24,7 @@ import {
   toolBudgetForPlan,
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
+import { compactAssistantConversationMemory } from './conversationMemory.ts'
 
 export const DEFAULT_GEMINI_MODEL = LEGACY_DEFAULT_GEMINI_MODEL
 export const GEMINI_MODELS = new Set([
@@ -58,9 +59,25 @@ const sanitizeContent = (content: unknown): unknown => {
   })
 }
 
+const compactAssistantContent = (content: unknown): unknown => {
+  if (typeof content === 'string') return compactAssistantConversationMemory(content, 1_200)
+  if (!Array.isArray(content)) return content
+  const text = content.map(part => {
+    if (typeof part === 'string') return part
+    if (!part || typeof part !== 'object') return ''
+    return typeof (part as Record<string, unknown>).text === 'string'
+      ? String((part as Record<string, unknown>).text)
+      : ''
+  }).filter(Boolean).join('\n')
+  if (!text) return content
+  return compactAssistantConversationMemory(text, 1_200)
+}
+
 const sanitizeItems = (items: Array<Record<string, unknown>>) => items.map(item => {
   const clean = { ...item }
   if ('content' in clean) clean.content = sanitizeContent(clean.content)
+  const role = String(clean.role || '')
+  if (role === 'assistant' && 'content' in clean) clean.content = compactAssistantContent(clean.content)
   return clean
 })
 
@@ -76,6 +93,21 @@ const withEstimatedCost = (
   usage: usageWithGeminiEstimatedCost(String(response.model || ''), response.usage, markers),
 })
 
+const withRequestedModelObservability = (
+  response: NormalizedModelResponse,
+  requestedModel: string,
+): NormalizedModelResponse => {
+  const actualModel = String(response.model || '')
+  if (!actualModel || actualModel === requestedModel) return response
+  return {
+    ...response,
+    usage: mergeNumericUsage(response.usage, {
+      cost_guard_model_switch: 1,
+      cost_guard_provider_model_fallback: 1,
+    }),
+  }
+}
+
 const finalizeWithRequestedModel = async (input: {
   apiKey: string
   requestedModel: string
@@ -89,7 +121,7 @@ const finalizeWithRequestedModel = async (input: {
   priorUsage?: Record<string, number>
   forced?: boolean
 }): Promise<NormalizedModelResponse> => {
-  const finalResponse = withEstimatedCost(await legacyRequestGeminiResponse({
+  const finalResponse = withRequestedModelObservability(withEstimatedCost(await legacyRequestGeminiResponse({
     apiKey: input.apiKey,
     model: input.requestedModel,
     instructions: `${input.instructions}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan kanıta dayalı nihai kullanıcı yanıtını üret.`,
@@ -102,7 +134,7 @@ const finalizeWithRequestedModel = async (input: {
   }), {
     cost_guard_final_calls: 1,
     ...(input.forced ? { cost_guard_forced_synthesis: 1 } : {}),
-  })
+  }), input.requestedModel)
 
   return {
     ...finalResponse,
@@ -126,11 +158,11 @@ export async function requestGeminiResponse(input: {
   const sanitizedItems = sanitizeItems(input.items)
 
   if (!input.allowTools) {
-    return withEstimatedCost(await legacyRequestGeminiResponse({
+    return withRequestedModelObservability(withEstimatedCost(await legacyRequestGeminiResponse({
       ...input,
       model: requestedModel,
       items: sanitizedItems,
-    }), { cost_guard_final_calls: 1 })
+    }), { cost_guard_final_calls: 1 }), requestedModel)
   }
 
   const executedTools = executedToolCallCount(sanitizedItems)
