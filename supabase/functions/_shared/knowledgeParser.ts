@@ -1,4 +1,4 @@
-export const KNOWLEDGE_PARSER_VERSION = 'jetwork-kb-parser/1.0.0'
+export const KNOWLEDGE_PARSER_VERSION = 'jetwork-kb-parser/2.0.0'
 
 export type KnowledgeObjectType =
   | 'class'
@@ -9,6 +9,16 @@ export type KnowledgeObjectType =
   | 'document'
   | 'business_rule'
   | 'interface'
+  | 'system'
+  | 'component'
+  | 'service'
+  | 'api'
+  | 'database'
+  | 'queue'
+  | 'job'
+  | 'screen'
+  | 'decision'
+  | 'requirement'
   | 'unknown'
 
 export type KnowledgeRelationType =
@@ -20,7 +30,21 @@ export type KnowledgeRelationType =
   | 'EXTENDS'
   | 'IMPLEMENTS'
   | 'DOCUMENTS'
+  | 'DEPENDS_ON'
+  | 'CONNECTS_TO'
+  | 'EXPOSES'
+  | 'CONSUMES'
+  | 'PRODUCES'
+  | 'USES'
+  | 'OWNS'
+  | 'TRIGGERS'
   | 'RELATES_TO'
+
+export interface ParsedKnowledgeChunk {
+  content: string
+  embedding?: number[]
+  metadata?: Record<string, unknown>
+}
 
 export interface ParsedKnowledgeObject {
   canonicalKey: string
@@ -29,6 +53,7 @@ export interface ParsedKnowledgeObject {
   title: string
   summary?: string
   content: string
+  chunks?: ParsedKnowledgeChunk[]
   metadata?: Record<string, unknown>
 }
 
@@ -47,8 +72,13 @@ export interface ParsedKnowledgeSource {
     | 'class_inventory'
     | 'function_inventory'
     | 'dependency_map'
+    | 'architecture_document'
     | 'markdown_document'
     | 'text_document'
+    | 'csv_document'
+    | 'html_document'
+    | 'pdf_document'
+    | 'office_document'
   objects: ParsedKnowledgeObject[]
   relations: ParsedKnowledgeRelation[]
   warnings: string[]
@@ -64,8 +94,10 @@ const canonicalName = (value: string) => value
   .replace(/[`'"]/g, '')
   .toUpperCase()
 
+const canonicalIdentity = (value: string) => canonicalName(value).replace(/\s+/g, '-')
+
 const canonicalKey = (type: KnowledgeObjectType, name: string) =>
-  `${type}:${canonicalName(name)}`.toLocaleLowerCase('en-US')
+  `${type}:${canonicalIdentity(name)}`.toLocaleLowerCase('en-US')
 
 const methodKey = (className: string, methodName: string) =>
   `method:${canonicalName(className)}/${canonicalName(methodName)}`.toLocaleLowerCase('en-US')
@@ -78,12 +110,148 @@ const slug = (value: string) => value
   .toLocaleLowerCase('en-US')
   .slice(0, 180) || 'source'
 
+const compactWhitespace = (value: string) => value.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+
 const firstParagraph = (content: string, fallback: string) => {
   const paragraph = content
     .split(/\n\s*\n/)
     .map(part => part.replace(/^#{1,6}\s+.*$/gm, '').trim())
     .find(Boolean)
   return (paragraph || fallback).replace(/\s+/g, ' ').slice(0, 500)
+}
+
+const lineNumberAt = (source: string, index: number) => source.slice(0, Math.max(0, index)).split('\n').length
+
+interface DocumentSection {
+  id: string
+  title: string
+  headingPath: string[]
+  content: string
+  startLine: number
+}
+
+function splitDocumentSections(source: string, fallbackTitle: string): DocumentSection[] {
+  const headingPattern = /^(#{1,6})\s+(.+?)\s*#*\s*$/gm
+  const headings = [...source.matchAll(headingPattern)]
+  if (!headings.length) {
+    return [{
+      id: slug(fallbackTitle),
+      title: fallbackTitle,
+      headingPath: [fallbackTitle],
+      content: source,
+      startLine: 1,
+    }]
+  }
+
+  const sections: DocumentSection[] = []
+  const path: string[] = []
+  headings.forEach((heading, index) => {
+    const level = heading[1].length
+    const title = heading[2].trim()
+    path[level - 1] = title
+    path.length = level
+    const start = heading.index || 0
+    const end = headings[index + 1]?.index ?? source.length
+    const content = source.slice(start, end).trim()
+    if (!content) return
+    sections.push({
+      id: slug(path.join(' ')),
+      title,
+      headingPath: [...path],
+      content,
+      startLine: lineNumberAt(source, start),
+    })
+  })
+  return sections.length ? sections : [{
+    id: slug(fallbackTitle),
+    title: fallbackTitle,
+    headingPath: [fallbackTitle],
+    content: source,
+    startLine: 1,
+  }]
+}
+
+function splitLongSection(section: DocumentSection, maxLength = 1_800): ParsedKnowledgeChunk[] {
+  const clean = compactWhitespace(section.content)
+  if (clean.length <= maxLength) {
+    return [{
+      content: clean,
+      metadata: {
+        chunkKind: 'section',
+        sectionId: section.id,
+        sectionTitle: section.title,
+        headingPath: section.headingPath,
+        startLine: section.startLine,
+      },
+    }]
+  }
+
+  const paragraphs = clean.split(/\n\s*\n/).map(part => part.trim()).filter(Boolean)
+  const chunks: ParsedKnowledgeChunk[] = []
+  let buffer = ''
+  let partIndex = 0
+  const flush = () => {
+    const content = buffer.trim()
+    if (!content) return
+    chunks.push({
+      content,
+      metadata: {
+        chunkKind: 'section_part',
+        sectionId: section.id,
+        sectionTitle: section.title,
+        headingPath: section.headingPath,
+        startLine: section.startLine,
+        part: ++partIndex,
+      },
+    })
+    buffer = ''
+  }
+
+  for (const paragraph of paragraphs) {
+    if ((buffer + '\n\n' + paragraph).trim().length > maxLength && buffer) flush()
+    if (paragraph.length > maxLength) {
+      for (let offset = 0; offset < paragraph.length; offset += maxLength) {
+        const slice = paragraph.slice(offset, offset + maxLength).trim()
+        if (slice) {
+          chunks.push({
+            content: slice,
+            metadata: {
+              chunkKind: 'section_slice',
+              sectionId: section.id,
+              sectionTitle: section.title,
+              headingPath: section.headingPath,
+              startLine: section.startLine,
+              part: ++partIndex,
+            },
+          })
+        }
+      }
+      continue
+    }
+    buffer = [buffer, paragraph].filter(Boolean).join('\n\n')
+  }
+  flush()
+  return chunks
+}
+
+function semanticChunks(source: string, title: string): ParsedKnowledgeChunk[] {
+  return splitDocumentSections(source, title).flatMap(section => splitLongSection(section))
+}
+
+function objectWithChunks(object: ParsedKnowledgeObject): ParsedKnowledgeObject {
+  const chunks = object.chunks?.filter(chunk => chunk.content.trim())
+  if (chunks?.length) return { ...object, chunks }
+  return {
+    ...object,
+    chunks: [{
+      content: object.content,
+      metadata: {
+        chunkKind: 'object',
+        canonicalKey: object.canonicalKey,
+        title: object.title,
+      },
+    }],
+  }
 }
 
 function deduplicateObjects(objects: ParsedKnowledgeObject[]): ParsedKnowledgeObject[] {
@@ -473,14 +641,247 @@ function parseDependencyMap(source: string, fileName: string): ParsedKnowledgeSo
   }
 }
 
+const ARCHITECTURE_FILE_HINT = /(architecture|mimari|topoloji|topology|system|sistem|entegrasyon|integration|ak[iı]s|flow|service|servis)/i
+const ARCHITECTURE_CONTENT_HINT = /(mimari|architecture|topoloji|topology|servis|service|api|endpoint|database|veritaban[ıi]|queue|kuyruk|event|entegrasyon|integration|bile[şs]en|component|data flow|veri ak[ıi][şs][ıi])/i
+
+const ENTITY_STOP_WORDS = new Set([
+  'api','apis','db','database','veritabani','veritabanı','servis','service','services','sistem','system','component',
+  'components','module','modul','modül','ekran','page','job','queue','event','flow','akış','akis','source','target',
+  'kaynak','hedef','açıklama','aciklama','description','type','tip',
+])
+
+const normalizeEntityName = (value: string) => value
+  .replace(/^[`*_"\s-]+|[`*_"\s:.-]+$/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, 120)
+
+const looksLikeEntityName = (value: string) => {
+  const name = normalizeEntityName(value)
+  if (name.length < 3 || name.length > 120) return false
+  if (ENTITY_STOP_WORDS.has(name.toLocaleLowerCase('tr-TR'))) return false
+  if (/^\d+$/.test(name)) return false
+  return /[A-Za-zÇĞİÖŞÜçğıöşü0-9]/.test(name)
+}
+
+function inferArchitectureType(value: string, context = ''): KnowledgeObjectType {
+  const text = `${value} ${context}`.toLocaleLowerCase('tr-TR')
+  if (/\b(api|endpoint|rest|graphql|rpc|web servis|webservice|openapi)\b/u.test(text)) return 'api'
+  if (
+    /\b(database|db|postgres|supabase|veritaban[ıi]|schema|tablo|table)\b/u.test(text)
+    || /^[a-z][a-z0-9_]*_v\d+$/i.test(value.trim())
+  ) return 'database'
+  if (/\b(queue|topic|kafka|rabbit|pubsub|pub\/sub|event bus|kuyruk)\b/u.test(text)) return 'queue'
+  if (/\b(cron|job|worker|scheduler|batch|zamanlanm[ıi][şs])\b/u.test(text)) return 'job'
+  if (/\b(ui|screen|page|ekran|frontend|modal|form)\b/u.test(text)) return 'screen'
+  if (/\b(system|sistem|platform|uygulama|application)\b/u.test(text)) return 'system'
+  if (/\b(service|servis|function|edge function|microservice|runtime|gateway)\b/u.test(text)) return 'service'
+  return 'component'
+}
+
+function addArchitectureRelation(
+  relations: ParsedKnowledgeRelation[],
+  sourceType: KnowledgeObjectType,
+  sourceName: string,
+  relationType: KnowledgeRelationType,
+  targetType: KnowledgeObjectType,
+  targetName: string,
+  evidence: string,
+  metadata: Record<string, unknown> = {},
+) {
+  if (!looksLikeEntityName(sourceName) || !looksLikeEntityName(targetName)) return
+  relations.push({
+    sourceCanonicalKey: canonicalKey(sourceType, sourceName),
+    relationType,
+    targetCanonicalKey: canonicalKey(targetType, targetName),
+    evidence: compactWhitespace(evidence).slice(0, 1_000),
+    metadata: { inferredFrom: 'architecture_document', ...metadata },
+  })
+}
+
+function parseMarkdownTableRows(source: string): string[][][] {
+  const tables: string[][][] = []
+  const lines = source.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^\s*\|.+\|\s*$/.test(lines[index]) || !/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] || '')) continue
+    const rows: string[][] = []
+    while (index < lines.length && /^\s*\|.+\|\s*$/.test(lines[index])) {
+      rows.push(lines[index].replace(/^\s*\||\|\s*$/g, '').split('|').map(cell => cell.trim()))
+      index += 1
+    }
+    tables.push(rows)
+  }
+  return tables
+}
+
+function parseArchitectureDocument(source: string, fileName: string): ParsedKnowledgeSource {
+  const title = source.match(/^#\s+(.+)$/m)?.[1]?.trim() || fileName
+  const documentCanonical = canonicalKey('document', slug(fileName.replace(/\.[^.]+$/, '')))
+  const chunks = semanticChunks(source, title)
+  const objects: ParsedKnowledgeObject[] = [{
+    canonicalKey: documentCanonical,
+    objectType: 'document',
+    name: fileName,
+    title,
+    summary: firstParagraph(source, title),
+    content: source,
+    chunks,
+    metadata: {
+      format: /\.md$/i.test(fileName) ? 'markdown' : 'text',
+      documentProfile: 'architecture',
+      chunkCount: chunks.length,
+    },
+  }]
+  const relations: ParsedKnowledgeRelation[] = []
+  const seenEntities = new Set<string>()
+  const addEntity = (
+    name: string,
+    type: KnowledgeObjectType,
+    evidence: string,
+    metadata: Record<string, unknown> = {},
+  ) => {
+    const cleaned = normalizeEntityName(name)
+    if (!looksLikeEntityName(cleaned)) return
+    const key = canonicalKey(type, cleaned)
+    if (seenEntities.has(key)) return
+    seenEntities.add(key)
+    objects.push({
+      canonicalKey: key,
+      objectType: type,
+      name: cleaned,
+      title: cleaned,
+      summary: `${cleaned} mimari dokümandan tespit edilen ${type} nesnesi.`,
+      content: compactWhitespace([
+        `# ${cleaned}`,
+        '',
+        `Tür: ${type}`,
+        '',
+        '## Kanıt',
+        evidence,
+      ].join('\n')),
+      chunks: [{
+        content: compactWhitespace(evidence),
+        metadata: { chunkKind: 'architecture_entity_evidence', entityName: cleaned, entityType: type },
+      }],
+      metadata: { inferredFrom: 'architecture_document', ...metadata },
+    })
+    relations.push({
+      sourceCanonicalKey: documentCanonical,
+      relationType: 'DOCUMENTS',
+      targetCanonicalKey: key,
+      evidence: compactWhitespace(evidence).slice(0, 1_000),
+      metadata: { inferredFrom: 'architecture_document' },
+    })
+  }
+
+  const sections = splitDocumentSections(source, title)
+  for (const section of sections) {
+    const sectionContext = section.headingPath.join(' ')
+    const sectionType = inferArchitectureType(sectionContext)
+    for (const line of section.content.split('\n')) {
+      const cleanedLine = line.trim()
+      const bullet = cleanedLine.match(/^[-*]\s+(?:`([^`]+)`|\*\*([^*]+)\*\*|([^:：\-–—|]+))(?:\s*[:：\-–—]\s*(.+))?$/)
+      if (bullet) {
+        const name = normalizeEntityName(bullet[1] || bullet[2] || bullet[3] || '')
+        const detail = bullet[4] || sectionContext
+        addEntity(name, inferArchitectureType(name, `${sectionContext} ${detail}`) || sectionType, cleanedLine, {
+          sectionTitle: section.title,
+          headingPath: section.headingPath,
+          startLine: section.startLine,
+        })
+      }
+
+      for (const arrow of cleanedLine.matchAll(/([^→>\-|]{3,80})\s*(?:→|->|=>)\s*([^→>\-|]{3,80})/g)) {
+        const left = normalizeEntityName(arrow[1])
+        const right = normalizeEntityName(arrow[2])
+        const leftType = inferArchitectureType(left, sectionContext)
+        const rightType = inferArchitectureType(right, sectionContext)
+        addEntity(left, leftType, cleanedLine, { sectionTitle: section.title })
+        addEntity(right, rightType, cleanedLine, { sectionTitle: section.title })
+        addArchitectureRelation(relations, leftType, left, 'CONNECTS_TO', rightType, right, cleanedLine, {
+          sectionTitle: section.title,
+        })
+      }
+
+      for (const call of cleanedLine.matchAll(/(.{3,80}?)\s+(?:calls|çağırır|cagirir|kullanır|kullanir|uses|depends on|bağlıdır|baglidir)\s+(.{3,80})/gi)) {
+        const left = normalizeEntityName(call[1])
+        const right = normalizeEntityName(call[2])
+        const leftType = inferArchitectureType(left, sectionContext)
+        const rightType = inferArchitectureType(right, sectionContext)
+        addEntity(left, leftType, cleanedLine, { sectionTitle: section.title })
+        addEntity(right, rightType, cleanedLine, { sectionTitle: section.title })
+        addArchitectureRelation(relations, leftType, left, /depends on|bağlıdır|baglidir/i.test(call[0]) ? 'DEPENDS_ON' : 'USES', rightType, right, cleanedLine, {
+          sectionTitle: section.title,
+        })
+      }
+    }
+  }
+
+  for (const table of parseMarkdownTableRows(source)) {
+    const [header, separator, ...rows] = table
+    if (!header || !separator || !rows.length) continue
+    const normalizedHeader = header.map(cell => cell.toLocaleLowerCase('tr-TR'))
+    const sourceIndex = normalizedHeader.findIndex(cell => /^(source|from|kaynak|çağıran|cagiran)$/.test(cell))
+    const targetIndex = normalizedHeader.findIndex(cell => /^(target|to|hedef|çağrılan|cagrilan)$/.test(cell))
+    const relationIndex = normalizedHeader.findIndex(cell => /^(relation|ilişki|iliski|type|tip)$/.test(cell))
+    const nameIndex = normalizedHeader.findIndex(cell => /^(name|ad|adı|adi|component|bileşen|bilesen|service|servis)$/.test(cell))
+    const typeIndex = normalizedHeader.findIndex(cell => /^(object type|type|tip|tür|tur|kategori)$/.test(cell))
+    for (const row of rows) {
+      if (sourceIndex >= 0 && targetIndex >= 0) {
+        const left = normalizeEntityName(row[sourceIndex] || '')
+        const right = normalizeEntityName(row[targetIndex] || '')
+        const relationText = row[relationIndex] || ''
+        const leftType = inferArchitectureType(left)
+        const rightType = inferArchitectureType(right, relationText)
+        const evidence = row.join(' | ')
+        addEntity(left, leftType, evidence)
+        addEntity(right, rightType, evidence)
+        const relationType: KnowledgeRelationType = /call|çağ|cag/i.test(relationText)
+          ? 'CALLS'
+          : /depend|bağ|bag/i.test(relationText)
+            ? 'DEPENDS_ON'
+            : /read|oku/i.test(relationText)
+              ? 'READS'
+              : /write|yaz/i.test(relationText)
+                ? 'WRITES'
+                : 'CONNECTS_TO'
+        addArchitectureRelation(relations, leftType, left, relationType, rightType, right, evidence)
+      } else if (nameIndex >= 0) {
+        const name = normalizeEntityName(row[nameIndex] || '')
+        const explicitType = row[typeIndex] || ''
+        addEntity(name, inferArchitectureType(name, explicitType), row.join(' | '))
+      }
+    }
+  }
+
+  return {
+    documentType: 'architecture_document',
+    objects,
+    relations: deduplicateRelations(relations),
+    warnings: objects.length > 1 ? [] : ['Mimari doküman tespit edildi ancak ayrı mimari nesne çıkarılamadı.'],
+  }
+}
+
 function parseGenericDocument(
   source: string,
   fileName: string,
   isMarkdown: boolean,
 ): ParsedKnowledgeSource {
   const title = source.match(/^#\s+(.+)$/m)?.[1]?.trim() || fileName
+  const chunks = semanticChunks(source, title)
+  const extension = fileName.toLocaleLowerCase('en-US').split('.').pop() || ''
+  const documentType: ParsedKnowledgeSource['documentType'] =
+    extension === 'csv' || extension === 'tsv'
+      ? 'csv_document'
+      : extension === 'html' || extension === 'htm'
+        ? 'html_document'
+        : extension === 'pdf'
+          ? 'pdf_document'
+          : ['docx', 'pptx', 'xlsx'].includes(extension)
+            ? 'office_document'
+            : isMarkdown ? 'markdown_document' : 'text_document'
   return {
-    documentType: isMarkdown ? 'markdown_document' : 'text_document',
+    documentType,
     objects: [{
       canonicalKey: canonicalKey('document', slug(fileName.replace(/\.[^.]+$/, ''))),
       objectType: 'document',
@@ -488,7 +889,11 @@ function parseGenericDocument(
       title,
       summary: firstParagraph(source, title),
       content: source,
-      metadata: { format: isMarkdown ? 'markdown' : 'text' },
+      chunks,
+      metadata: {
+        format: isMarkdown ? 'markdown' : extension || 'text',
+        chunkCount: chunks.length,
+      },
     }],
     relations: [],
     warnings: [],
@@ -513,13 +918,17 @@ export function parseKnowledgeSource(
     parsed = parseClassInventory(source)
   } else if (/^#\s+CRM Function Module Bağımlılık Haritası/im.test(source)) {
     parsed = parseDependencyMap(source, fileName)
+  } else if (ARCHITECTURE_FILE_HINT.test(fileName) || ARCHITECTURE_CONTENT_HINT.test(source)) {
+    parsed = parseArchitectureDocument(source, fileName)
   } else {
     parsed = parseGenericDocument(source, fileName, /\.md$/i.test(fileName))
   }
 
   return {
     ...parsed,
-    objects: deduplicateObjects(parsed.objects),
+    objects: deduplicateObjects(parsed.objects)
+      .filter(object => object.name.trim() && object.content.trim())
+      .map(objectWithChunks),
     relations: deduplicateRelations(parsed.relations),
   }
 }

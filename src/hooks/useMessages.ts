@@ -235,10 +235,14 @@ export const useMessages = (channelRef: any) => {
             attachment,
             updateAttachmentStatus,
           );
+          const chunkDetail = result.chunkCount ? `, ${result.chunkCount} chunk` : '';
+          const embeddingDetail = result.embeddingStats
+            ? `, ${result.embeddingStats.embedded}/${result.embeddingStats.attempted} embedding`
+            : '';
           ingestionNotes.push(
             result.deduplicated
               ? `- ${attachment.name || 'Kaynak'}: Aynı içerik zaten kayıtlı; yeni kopya oluşturulmadı.`
-              : `- ${attachment.name || 'Kaynak'}: ${result.parsedObjects} nesne ve ${result.parsedRelations} ilişki taslak olarak işlendi.`,
+              : `- ${attachment.name || 'Kaynak'}: ${result.parsedObjects} nesne, ${result.parsedRelations} ilişki${chunkDetail}${embeddingDetail} taslak olarak işlendi.`,
           );
         } catch (error) {
           const detail = error instanceof Error ? error.message : 'Bilinmeyen yükleme hatası';

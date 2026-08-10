@@ -390,7 +390,7 @@ const detailToolForRecord = (record: Record<string, unknown>) => {
   if (type === 'message') return { toolName: 'get_message_detail', args: { messageCode: canonicalKey } }
   if (['class','method','function'].includes(type)) return { toolName: 'get_abap_source', args: { canonicalKey } }
   if (['document','business_rule'].includes(type)) return { toolName: 'get_document_content', args: { canonicalKey } }
-  return null
+  return { toolName: 'get_knowledge_object', args: { canonicalKey } }
 }
 
 const webSourceName = (url: string, title?: unknown) => {

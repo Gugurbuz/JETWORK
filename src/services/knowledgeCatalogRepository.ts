@@ -17,6 +17,14 @@ export interface KnowledgeIngestionResult {
   jobId: string;
   objects: number;
   relations: number;
+  chunkCount?: number;
+  extractionMethod?: string;
+  embeddingStats?: {
+    attempted: number;
+    embedded: number;
+    skipped: number;
+    maxChunks: number;
+  };
   parsedObjects: number;
   parsedRelations: number;
   deduplicated: boolean;
@@ -61,6 +69,42 @@ const sanitizeFileName = (fileName: string) => fileName
   .replace(/^-+|-+$/g, '')
   .slice(0, 180) || 'source.txt';
 
+const KNOWLEDGE_FILE_EXTENSIONS = /\.(txt|md|csv|tsv|html?|json|xml|svg|pdf|docx|pptx|xlsx)$/i;
+
+const KNOWLEDGE_MIME_TYPES = new Set([
+  '',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/tab-separated-values',
+  'text/html',
+  'application/json',
+  'application/xml',
+  'image/svg+xml',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+]);
+
+const inferKnowledgeMimeType = (file: File, fileName: string) => {
+  if (file.type && KNOWLEDGE_MIME_TYPES.has(file.type)) return file.type;
+  const lower = fileName.toLocaleLowerCase('en-US');
+  if (lower.endsWith('.md')) return 'text/markdown';
+  if (lower.endsWith('.csv')) return 'text/csv';
+  if (lower.endsWith('.tsv')) return 'text/tab-separated-values';
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
+  if (lower.endsWith('.json')) return 'application/json';
+  if (lower.endsWith('.xml')) return 'application/xml';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (lower.endsWith('.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  return 'text/plain';
+};
+
 const attachmentToFile = (attachment: MessageAttachment): File => {
   if (attachment.file) return attachment.file;
   if (!attachment.data) {
@@ -73,8 +117,8 @@ const attachmentToFile = (attachment: MessageAttachment): File => {
 };
 
 export const isKnowledgeFile = (attachment: Pick<MessageAttachment, 'name' | 'mimeType'>) =>
-  /\.(txt|md)$/i.test(attachment.name || '')
-  && ['text/plain', 'text/markdown', ''].includes(attachment.mimeType || '');
+  KNOWLEDGE_FILE_EXTENSIONS.test(attachment.name || '')
+  && (KNOWLEDGE_MIME_TYPES.has(attachment.mimeType || '') || attachment.mimeType === 'application/octet-stream');
 
 export async function resolveKnowledgeContext(workspaceId: string): Promise<KnowledgeContext> {
   const { data, error } = await supabase.rpc('resolve_knowledge_context', {
@@ -113,8 +157,8 @@ export async function ingestKnowledgeFile(
   scope: KnowledgeScope = 'global',
   onStatus?: (status: AttachmentIngestion) => void | Promise<void>,
 ): Promise<KnowledgeIngestionResult> {
-  if (!/\.(txt|md)$/i.test(file.name) || !['text/plain', 'text/markdown', ''].includes(file.type || '')) {
-    throw new Error('Bilgi bankasının ilk sürümü yalnızca TXT ve MD dosyalarını destekliyor.');
+  if (!KNOWLEDGE_FILE_EXTENSIONS.test(file.name)) {
+    throw new Error('Bilgi bankası TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyalarını destekliyor.');
   }
 
   const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -124,7 +168,7 @@ export async function ingestKnowledgeFile(
 
   const knowledgeSpaceId = await resolveKnowledgeSpace(workspaceId, scope);
   const fileName = sanitizeFileName(file.name);
-  const mimeType = fileName.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain';
+  const mimeType = inferKnowledgeMimeType(file, fileName);
   const storagePath = `${authData.user.id}/${knowledgeSpaceId}/${crypto.randomUUID()}/${fileName}`;
 
   await onStatus?.({ status: 'uploading' });
@@ -178,7 +222,7 @@ export async function ingestKnowledgeAttachment(
   onStatus?: (status: AttachmentIngestion) => void | Promise<void>,
 ): Promise<KnowledgeIngestionResult> {
   if (!isKnowledgeFile(attachment)) {
-    throw new Error('Bilgi bankasının ilk sürümü yalnızca TXT ve MD dosyalarını destekliyor.');
+    throw new Error('Bilgi bankası TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyalarını destekliyor.');
   }
   return ingestKnowledgeFile(workspaceId, attachmentToFile(attachment), 'global', onStatus);
 }

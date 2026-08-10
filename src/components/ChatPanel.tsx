@@ -223,10 +223,28 @@ const SLASH_COMMANDS = [
 
 const EMOJIS = ['👍', '👎', '🚀', '👀', '✅', '💡', '🎉', '❤️'];
 const MAX_CHAT_ATTACHMENTS = 3;
+const KNOWLEDGE_ATTACHMENT_EXTENSIONS = /\.(txt|md|csv|tsv|html?|json|xml|svg|pdf|docx|pptx|xlsx)$/i;
+const KNOWLEDGE_ATTACHMENT_MIME_TYPES = new Set([
+  '',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/tab-separated-values',
+  'text/html',
+  'application/json',
+  'application/xml',
+  'image/svg+xml',
+  'application/pdf',
+  'application/octet-stream',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+]);
 
 const supportsKnowledgeBank = (attachment: Pick<MessageAttachment, 'name' | 'mimeType'>) =>
-  /\.(txt|md)$/i.test(attachment.name || '')
-  && ['text/plain', 'text/markdown', ''].includes(attachment.mimeType || '');
+  KNOWLEDGE_ATTACHMENT_EXTENSIONS.test(attachment.name || '')
+  && KNOWLEDGE_ATTACHMENT_MIME_TYPES.has(attachment.mimeType || '');
 
 const defaultAttachmentPurpose = (): MessageAttachment['purpose'] => 'chat_only';
 
@@ -778,8 +796,8 @@ export function ChatPanel({
 
   const isSupportedFileType = (file: File) => {
     if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
-      return /\.(txt|md)$/i.test(file.name)
-        && ['text/plain', 'text/markdown', ''].includes(file.type || '');
+      return KNOWLEDGE_ATTACHMENT_EXTENSIONS.test(file.name)
+        && (KNOWLEDGE_ATTACHMENT_MIME_TYPES.has(file.type || '') || file.type.startsWith('image/'));
     }
     const supportedTypes = [
       'application/pdf', 
@@ -816,7 +834,7 @@ export function ChatPanel({
       if (!isSupportedFileType(file)) {
         alert(
           FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-            ? `Desteklenmeyen dosya türü: ${file.name}. İlk bilgi bankası sürümü TXT ve MD dosyalarını destekliyor.`
+            ? `Desteklenmeyen dosya türü: ${file.name}. TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyaları desteklenir.`
             : `Desteklenmeyen dosya türü: ${file.name}. Görsel, PDF, TXT, MD, CSV ve DOCX dosyaları desteklenmektedir.`,
         );
         continue;
@@ -1051,7 +1069,7 @@ export function ChatPanel({
       if (!isSupportedFileType(file)) {
         alert(
           FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-            ? `Desteklenmeyen dosya türü: ${file.name}. İlk bilgi bankası sürümü TXT ve MD dosyalarını destekliyor.`
+            ? `Desteklenmeyen dosya türü: ${file.name}. TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyaları desteklenir.`
             : `Desteklenmeyen dosya türü: ${file.name}. Görsel, PDF, TXT, MD, CSV ve DOCX dosyaları desteklenmektedir.`,
         );
         continue;
@@ -1130,7 +1148,7 @@ export function ChatPanel({
                 <h3 className="text-lg font-bold text-theme-text mb-1">Dosyaları Buraya Bırakın</h3>
                 <p className="text-sm text-theme-text-muted">
                   {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-                    ? 'Bilgi bankası için TXT veya MD dosyası ekleyebilirsiniz'
+                    ? 'Bilgi bankası için PDF, Office, TXT, MD, CSV ve HTML kaynakları ekleyebilirsiniz'
                     : 'Görsel, PDF, TXT, CSV ve DOCX belgeleri ekleyebilirsiniz'}
                 </p>
               </div>
@@ -1619,7 +1637,7 @@ export function ChatPanel({
                 <input 
                   type="file" 
                   accept={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-                    ? 'text/plain,text/markdown,.txt,.md'
+                    ? 'text/plain,text/markdown,text/csv,text/html,application/json,application/pdf,.txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.svg,.pdf,.docx,.pptx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                     : 'image/*,application/pdf,text/plain,text/markdown,.md,text/csv,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
                   multiple 
                   className="hidden" 

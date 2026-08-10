@@ -273,15 +273,26 @@ async function normalizeArtifactOnServer(input: {
 }
 
 async function readAttachmentText(attachment: MessageAttachment): Promise<string> {
+  const name = attachment.name || attachment.file?.name || 'Dosya';
+  const mimeType = attachment.mimeType || attachment.file?.type || '';
+  const textLike = mimeType.startsWith('text/')
+    || ['application/json', 'application/xml', 'image/svg+xml'].includes(mimeType)
+    || /\.(txt|md|csv|tsv|html?|json|xml|svg)$/i.test(name);
+  if (!textLike) {
+    throw new Error(`${name} sohbet eki metin olarak okunamıyor; bu dosyayı Bilgi bankası olarak işaretleyip işleyin.`);
+  }
+  if (attachment.data) {
+    const encoded = attachment.data.includes(',')
+      ? attachment.data.slice(attachment.data.indexOf(',') + 1)
+      : attachment.data;
+    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+    return new TextDecoder('utf-8').decode(bytes);
+  }
   if (attachment.file) return attachment.file.text();
   if (!attachment.data) {
-    throw new Error(`${attachment.name || 'Dosya'} içeriği artık mevcut değil; dosyayı yeniden ekleyin.`);
+    throw new Error(`${name} içeriği artık mevcut değil; dosyayı yeniden ekleyin.`);
   }
-  const encoded = attachment.data.includes(',')
-    ? attachment.data.slice(attachment.data.indexOf(',') + 1)
-    : attachment.data;
-  const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
-  return new TextDecoder('utf-8').decode(bytes);
+  return '';
 }
 
 export async function prepareAssistantChatAttachments(

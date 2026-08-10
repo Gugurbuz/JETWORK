@@ -15,11 +15,13 @@ export interface AssistantToolExecution {
 }
 
 const objectTypes = [
-  'class','method','function','message','table','document','business_rule','interface','unknown',
+  'class','method','function','message','table','document','business_rule','interface',
+  'system','component','service','api','database','queue','job','screen','decision','requirement','unknown',
 ] as const
 
 const relationTypes = [
-  'CONTAINS','CALLS','READS','WRITES','EMITS_MESSAGE','EXTENDS','IMPLEMENTS','DOCUMENTS','RELATES_TO',
+  'CONTAINS','CALLS','READS','WRITES','EMITS_MESSAGE','EXTENDS','IMPLEMENTS','DOCUMENTS',
+  'DEPENDS_ON','CONNECTS_TO','EXPOSES','CONSUMES','PRODUCES','USES','OWNS','TRIGGERS','RELATES_TO',
 ] as const
 
 const nullableArray = (items: Record<string, unknown>) => ({ type: ['array', 'null'], items })
@@ -104,6 +106,18 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
     type: 'function',
     name: 'get_document_content',
     description: 'Read the current published document or business rule, preferring the active project over global knowledge.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: { canonicalKey: { type: 'string', minLength: 3, maxLength: 320 } },
+      required: ['canonicalKey'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_knowledge_object',
+    description: 'Read the current published content for any catalog object type, including architecture services, APIs, databases, jobs, screens, and decisions.',
     strict: true,
     parameters: {
       type: 'object',
@@ -223,6 +237,34 @@ const untrustedToolOutput = (toolName: string, records: unknown) => JSON.stringi
 })
 const throwIfError = (error: unknown) => { if (error) throw error }
 
+const edgeEnv = (name: string) => {
+  try {
+    const deno = (globalThis as unknown as { Deno?: { env?: { get?: (key: string) => string | undefined } } }).Deno
+    return deno?.env?.get?.(name)
+  } catch {
+    return undefined
+  }
+}
+
+async function createQueryEmbedding(query: string): Promise<number[] | null> {
+  const apiKey = edgeEnv('GEMINI_API_KEY')
+  if (!apiKey) return null
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'models/gemini-embedding-001',
+      content: { parts: [{ text: query.slice(0, 24_000) }] },
+      taskType: 'RETRIEVAL_QUERY',
+      outputDimensionality: 768,
+    }),
+  })
+  if (!response.ok) return null
+  const payload = await response.json().catch(() => null)
+  const values = payload?.embedding?.values
+  return Array.isArray(values) && values.length === 768 ? values.map(Number) : null
+}
+
 async function searchCatalog(
   client: any,
   workspaceId: string,
@@ -235,10 +277,12 @@ async function searchCatalog(
     : null
   const searchQueries = expandKnowledgeSearchQueries(query)
   const effectiveLimit = Math.min(limit, 8)
+  const queryEmbedding = await createQueryEmbedding(query).catch(() => null)
   const searchResults = await Promise.all(searchQueries.map(searchQuery =>
-    client.rpc('search_knowledge_catalog_v2', {
+    client.rpc('hybrid_search_knowledge_catalog_v2', {
       p_workspace_id: workspaceId,
       p_query: searchQuery,
+      p_query_embedding: searchQuery === searchQueries[0] ? queryEmbedding : null,
       p_object_types: safeTypes?.length ? safeTypes : null,
       p_limit: effectiveLimit,
     })
@@ -252,7 +296,7 @@ async function searchCatalog(
     const matchedQuery = searchQueries[searchIndex]
     const queryBonus = searchIndex === 0 ? 0 : matchedQuery.includes('_') ? 0.18 : 0.08
     for (const row of result.data || []) {
-      const key = `${row.scope_type || 'global'}|${row.canonical_key || row.object_id || ''}`
+      const key = `${row.scope_type || 'global'}|${row.canonical_key || row.object_id || ''}|${row.chunk_id || ''}`
       if (!key) continue
       const score = Math.min(1, Number(row.score || 0) + queryBonus)
       const existing = ranked.get(key)
@@ -271,7 +315,11 @@ async function searchCatalog(
     title: row.title,
     summary: truncateContent(row.summary, 700),
     evidenceExcerpt: relevantExcerpt(row.content, searchQueries),
+    citation: row.citation || null,
+    chunkIndex: row.chunk_index ?? null,
     score: row.score,
+    lexicalScore: row.lexical_score,
+    vectorScore: row.vector_score,
     matchedQuery: row.matched_query,
     sourceName: row.source_name,
   }))
@@ -285,7 +333,13 @@ async function searchCatalog(
   return {
     output: untrustedToolOutput('search_knowledge_catalog', records),
     sources,
-    summary: { resultCount: records.length, query, expandedQueries: searchQueries, objectTypes: safeTypes },
+    summary: {
+      resultCount: records.length,
+      query,
+      expandedQueries: searchQueries,
+      objectTypes: safeTypes,
+      semanticVectorEnabled: !!queryEmbedding,
+    },
   }
 }
 
@@ -468,6 +522,11 @@ export async function executeAssistantTool(
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
     return getExactObject(client, workspaceId, canonicalKey, ['document','business_rule'], toolName)
+  }
+  if (toolName === 'get_knowledge_object') {
+    const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
+    if (!canonicalKey) throw new Error('canonicalKey is required.')
+    return getExactObject(client, workspaceId, canonicalKey, objectTypes, toolName)
   }
   if (toolName === 'get_related_objects') return getRelatedObjects(client, workspaceId, args)
   throw new Error(`Unknown assistant tool: ${toolName}`)

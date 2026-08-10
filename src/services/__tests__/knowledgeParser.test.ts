@@ -102,4 +102,44 @@ Kayıt benzersiz olmalıdır.
     expect(parseKnowledgeSource('notes.md', input))
       .toEqual(parseKnowledgeSource('notes.md', input));
   });
+
+  it('extracts architecture entities, relations and semantic chunks from a generic system document', () => {
+    const parsed = parseKnowledgeSource('jetwork-mimari.md', `
+# Jetwork Mimari
+
+## Akış
+Frontend UI -> Assistant Gateway
+Assistant Gateway -> openai-assistant-core-v2
+openai-assistant-core-v2 uses Supabase Postgres
+
+## Bileşenler
+- Assistant Gateway: Kullanıcı mesajını runtime'a taşır.
+- Supabase Postgres: Bilgi bankası ve konuşma kayıtlarını saklar.
+
+| Source | Relation | Target |
+|---|---|---|
+| openai-assistant-core-v2 | writes | knowledge_chunks_v2 |
+`);
+
+    expect(parsed.documentType).toBe('architecture_document');
+    expect(parsed.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ objectType: 'document', canonicalKey: 'document:jetwork-mimari' }),
+      expect.objectContaining({ objectType: 'service', name: 'Assistant Gateway' }),
+      expect.objectContaining({ objectType: 'database', name: 'Supabase Postgres' }),
+    ]));
+    expect(parsed.relations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        relationType: 'CONNECTS_TO',
+        sourceCanonicalKey: 'screen:frontend-ui',
+        targetCanonicalKey: 'service:assistant-gateway',
+      }),
+      expect.objectContaining({
+        relationType: 'WRITES',
+        targetCanonicalKey: 'database:knowledge_chunks_v2',
+      }),
+    ]));
+    const document = parsed.objects.find(object => object.canonicalKey === 'document:jetwork-mimari');
+    expect(document?.chunks?.length).toBeGreaterThan(1);
+    expect(document?.metadata?.chunkCount).toBe(document?.chunks?.length);
+  });
 });
