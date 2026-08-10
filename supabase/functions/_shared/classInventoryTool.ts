@@ -1,20 +1,29 @@
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 const canonicalClassKey = (name: string) => `class:${name.toLocaleLowerCase('en-US')}`
-const normalizeIdentifier = (value: unknown) => cleanString(value, 200)
-  .toLocaleLowerCase('en-US')
-  .replace(/[^a-z0-9]+/g, '')
+
+const asRuntimeError = (error: unknown) => {
+  if (error instanceof Error) return error
+  if (error && typeof error === 'object' && !Array.isArray(error)) {
+    const raw = error as Record<string, unknown>
+    const message = cleanString(raw.message, 1_000)
+    const code = cleanString(raw.code, 120)
+    const details = cleanString(raw.details, 1_000)
+    const hint = cleanString(raw.hint, 1_000)
+    const parts = [message, code ? `code=${code}` : '', details ? `details=${details}` : '', hint ? `hint=${hint}` : ''].filter(Boolean)
+    if (parts.length) return new Error(parts.join(' | '))
+  }
+  return new Error('Unexpected assistant runtime error.')
+}
 
 export const CLASS_INVENTORY_TOOL = {
   type: 'function',
   name: 'list_class_inventory',
-  description: 'Enumerate the published CRM class inventory as a structured source-of-truth view. Use for class inventory/list/count/completeness questions. It distinguishes fully documented class entries from additional classes referenced as parents, helpers, dependencies, or related classes in the inventory source.',
+  description: 'Enumerate the complete published CRM class inventory as a structured source-of-truth view. Use for broad class inventory/list/count/completeness questions. This capability is intentionally unfiltered so prior conversation scope cannot narrow the inventory; use list_knowledge_catalog for an explicitly filtered class-prefix request. It distinguishes fully documented class entries from additional classes referenced as parents, helpers, dependencies, or related classes in the inventory source.',
   strict: true,
   parameters: {
     type: 'object',
-    properties: {
-      prefix: { type: ['string', 'null'], maxLength: 160 },
-    },
-    required: ['prefix'],
+    properties: {},
+    required: [],
     additionalProperties: false,
   },
 } as const
@@ -109,19 +118,19 @@ const parseSource = (row: Record<string, unknown>): InventoryItem[] => {
 export async function executeClassInventoryTool(
   client: any,
   workspaceId: string,
-  rawArguments: unknown,
+  _rawArguments: unknown,
 ) {
-  const args = rawArguments && typeof rawArguments === 'object' ? rawArguments as Record<string, unknown> : {}
-  const prefix = cleanString(args.prefix, 160) || null
-  const normalizedPrefix = normalizeIdentifier(prefix)
+  // The dedicated class inventory capability is exhaustive by contract. Do not
+  // allow an agent/model to leak a prior conversation prefix (for example
+  // ZCRM_COST -> ZCRM) into this inventory request. Explicitly filtered class
+  // requests belong to list_knowledge_catalog instead.
   const { data, error } = await client.rpc('get_class_inventory_sources_v1', { p_workspace_id: workspaceId })
-  if (error) throw error
+  if (error) throw asRuntimeError(error)
 
   const selected = new Map<string, InventoryItem>()
   for (const rawRow of data || []) {
     const row = rawRow && typeof rawRow === 'object' ? rawRow as Record<string, unknown> : {}
     for (const item of parseSource(row)) {
-      if (normalizedPrefix && !normalizeIdentifier(item.name).startsWith(normalizedPrefix)) continue
       const existing = selected.get(item.canonicalKey)
       if (!existing) {
         selected.set(item.canonicalKey, item)
@@ -161,10 +170,12 @@ export async function executeClassInventoryTool(
       totalCount: items.length,
       documentedCount,
       referencedCount,
-      prefix,
+      prefix: null,
       nextCursor: null,
       enumeration: true,
       inventory: 'class',
+      exhaustive: true,
+      modelArgumentsIgnored: true,
     },
   }
 }
