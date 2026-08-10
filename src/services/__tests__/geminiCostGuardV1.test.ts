@@ -116,9 +116,9 @@ describe('Gemini Cost Guard v1', () => {
     expect(gatewaySource).toContain('? DEFAULT_GEMINI_RUNTIME_MODEL');
   });
 
-  it('moves semantic orchestration to stable Flash-Lite with minimal thinking and a small output budget', () => {
+  it('moves semantic orchestration to stable Flash-Lite with minimal thinking and a bounded structured output budget', () => {
     expect(semanticSource).toContain("GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost");
-    expect(semanticSource).toContain('maxOutputTokens: 1_200');
+    expect(semanticSource).toContain('maxOutputTokens: 1_400');
     expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'minimal' }");
     expect(semanticSource).toContain('SEMANTIC_RETRY_DELAYS_MS = [250]');
   });
