@@ -14,6 +14,7 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000');
     expect(source).toContain('artifactSynthesis: boolean');
     expect(source).toContain("input.instructions.includes('Intent: document')");
+    expect(source).toContain("input.instructions.includes('[JETWORK PROMPT PROFILE: artifact]')");
     expect(source).toContain('immediateFailoverCandidate || input.artifactSynthesis ? 1');
     expect(source).toContain('input.finalSynthesis || input.artifactSynthesis');
     expect(source).toContain('switching immediately to same-provider stable Flash fallback');
@@ -21,7 +22,9 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('AbortError');
     expect(source).toContain('signal has been aborted');
     expect(source).toContain('if (input.signal?.aborted) throw error');
-    expect(source).toContain('finalSynthesis: !input.allowTools && !trivialConversation');
+    expect(source).toContain('const finalSynthesis = !input.allowTools && !trivialConversation');
+    expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'minimal' }");
+    expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'low' }");
   });
 
   it('recovers a final answer from completed tool evidence after transient Gemini tool-loop failure', () => {
@@ -32,6 +35,7 @@ describe('Gemini answer provider resilience', () => {
 
     expect(source).toContain('compactToolRecoveryItems');
     expect(source).toContain('[JETWORK_TOOL_EVIDENCE]');
+    expect(source).toContain("slice(0, 14_000)");
     expect(source).toContain('Gemini tool loop exhausted transient retries; forcing one bounded no-tool recovery synthesis');
     expect(source).toContain('delete recoveryConfig.tools');
     expect(source).toContain('delete recoveryConfig.toolConfig');
