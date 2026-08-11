@@ -1,0 +1,88 @@
+e === 'message'
++      && activeOperation.prefix === MESSAGE_METHOD_PREFIX
++    return configureInventoryPlan({
++      plan,
++      currentMessage: input.currentMessage,
++      conversation: input.conversation,
++      objectType: activeObjectType,
++      tool: activeOperation.tool,
++      prefix: activeOperation.prefix,
++      cursor: activeOperation.nextCursor,
++      topic: relationMode ? 'hata mesajı ve metot envanteri' : undefined,
++    })
++  }
+@@
+       conversation: input.conversation,
+       objectType: 'message',
+       tool: 'list_knowledge_catalog',
+-      prefix: inventoryPrefix({ relationMode: true }),
++      prefix: inventoryPrefix(true),
+       topic: 'hata mesajı ve metot envanteri',
+@@
+   return configureInventoryPlan({
+     plan,
+     currentMessage: input.currentMessage,
+     conversation: input.conversation,
+     objectType: objectType!,
+     tool: objectType === 'class' ? 'list_class_inventory' : 'list_knowledge_catalog',
+   })
+ }
+*** End Patch
+
+*** Begin Patch
+*** Update File: supabase/functions/_shared/enumerationFastPath.ts
+@@
+       return {
+         tool,
+         objectType: target.objectType == null ? null : String(target.objectType || '').trim() || null,
+         prefix: target.prefix == null ? null : String(target.prefix || '').trim() || null,
++        cursor: target.cursor == null ? null : String(target.cursor || '').trim().slice(0, 320) || null,
+       }
+@@
+   if (!latest.hasMatchingCall) {
+     return {
+       toolName: 'list_knowledge_catalog',
+       arguments: {
+         objectType: target.objectType,
+         prefix: target.prefix,
+-        cursor: null,
++        cursor: target.cursor,
+         limit: 25,
+       },
+     }
+*** End Patch
+
+*** Begin Patch
+*** Update File: supabase/functions/_shared/authoritativeInventoryFastPath.ts
+@@
+     enumerationTarget: {
+       tool: 'list_class_inventory',
+       objectType: 'class',
+       prefix: null,
++      cursor: null,
+     },
+*** End Patch
+
+*** Begin Patch
+*** Update File: supabase/functions/openai-assistant-v2/index.ts
+@@
+ import { compactSemanticContextMessage } from '../_shared/conversationMemory.ts'
+ import { applyConversationScopeInventoryPolicy } from '../_shared/conversationScopePolicy.ts'
++import { normalizeAssistantActiveOperation } from '../_shared/operationState.ts'
+@@
+ const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected stream gateway error.'
+ const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
++const cleanStringArray = (value: unknown, limit: number, maxLength: number) => (
++  Array.isArray(value)
++    ? value.map(item => cleanString(item, maxLength)).filter(Boolean).slice(0, limit)
++    : []
++)
+@@
+-const currentRequestMessage = (messageId: string, candidate: unknown) => {
+-  const raw = String(candidate || '')
+-  return raw === messageId || raw.startsWith(`${messageId}:`)
+-}
+-
+ async function loadSemanticContext(input: {
+@@
+-  const [messagesResult, priorRu
