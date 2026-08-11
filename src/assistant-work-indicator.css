@@ -45,6 +45,21 @@
   62%, 100% { background-position: -55% 50%; }
 }
 
+@keyframes assistant-work-orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes assistant-work-orbit-dot {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg) translateY(-1.08rem);
+  }
+}
+
+@keyframes assistant-work-reduced-pulse {
+  0%, 100% { opacity: 0.62; }
+  50% { opacity: 1; }
+}
+
 @keyframes assistant-work-active-spin {
   to { transform: rotate(360deg); }
 }
@@ -78,7 +93,37 @@
   overflow: visible;
 }
 
+.assistant-work__logo-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0.25rem;
+  border: 1.5px solid color-mix(in srgb, var(--theme-primary) 18%, transparent);
+  border-top-color: #ff9800;
+  border-right-color: #ffc107;
+  border-radius: 999px;
+  opacity: 0.95;
+  pointer-events: none;
+  animation: assistant-work-orbit-spin 1.15s linear infinite;
+}
+
+.assistant-work__logo-stage::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: #fff3c4;
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.16), 0 0 12px rgba(255, 152, 0, 0.48);
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(0deg) translateY(-1.08rem);
+  animation: assistant-work-orbit-dot 1.15s linear infinite;
+}
+
 .assistant-work__logo-motion {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   width: 1.35rem;
   height: 1.35rem;
@@ -370,13 +415,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-work__logo-motion,
+  .assistant-work__logo-stage::before,
   .assistant-work__label,
   .assistant-work__activity--active .assistant-work__activity-icon {
+    animation: assistant-work-reduced-pulse 1.8s ease-in-out infinite;
+  }
+
+  .assistant-work__logo-stage::after {
     animation: none;
+    opacity: 0.58;
   }
 
   .assistant-work__logo-motion {
+    animation: assistant-work-reduced-pulse 1.8s ease-in-out infinite;
     transform: none;
   }
 

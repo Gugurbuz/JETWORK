@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const mainSource = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8');
 const workIndicatorSource = readFileSync(new URL('../../components/AssistantWorkIndicator.tsx', import.meta.url), 'utf8');
+const workIndicatorCss = readFileSync(new URL('../../assistant-work-indicator.css', import.meta.url), 'utf8');
 const repositorySource = readFileSync(new URL('../messageRepository.ts', import.meta.url), 'utf8');
 
 describe('assistant runtime presentation boundary', () => {
@@ -21,6 +22,17 @@ describe('assistant runtime presentation boundary', () => {
   it('loads the dedicated work-indicator animation globally', () => {
     expect(mainSource).toContain("import './assistant-work-indicator.css'");
     expect(mainSource).not.toContain("import './thinking-legacy.css'");
+  });
+
+  it('keeps the desktop work indicator visibly animated with reduced-motion fallback', () => {
+    expect(workIndicatorCss).toContain('@keyframes assistant-work-orbit-spin');
+    expect(workIndicatorCss).toContain('.assistant-work__logo-stage::before');
+    expect(workIndicatorCss).toContain('assistant-work-reduced-pulse');
+
+    const reducedMotionBlock = workIndicatorCss.slice(workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reducedMotionBlock).toContain('.assistant-work__logo-motion');
+    expect(reducedMotionBlock).not.toMatch(/\.assistant-work__logo-motion\s*\{[^}]*animation:\s*none/);
+    expect(reducedMotionBlock).not.toMatch(/\.assistant-work__label\s*\{[^}]*animation:\s*none/);
   });
 
   it('persists the safe work summary and total duration but keeps provider routing private', () => {
