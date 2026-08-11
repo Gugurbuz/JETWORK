@@ -258,6 +258,31 @@ describe('streamAssistantResponse', () => {
     });
   });
 
+  it('keeps presentation metadata out of the visible answer and builds source-based work details', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([
+      'event: text_delta\ndata: {"delta":"<jetwork_meta>{ \\"workSummary\\": [], \\"actionSummary\\": \\"\\" }</jetwork_meta>"}\n\n',
+      'event: text_delta\ndata: {"delta":"ZCL_ORDER_SAVE_QUOTATIONS->CHECK_ZTKS metodu iki hata mesajı üretir."}\n\n',
+      'event: sources\ndata: {"sources":[{"sourceName":"CRM Method Inventory","title":"CHECK_ZTKS","sourceType":"knowledge"}]}\n\n',
+      'event: completed\ndata: {"conversationId":"conversation-1","model":"gpt-5.6-sol"}\n\n',
+    ])));
+    const streamedText: string[] = [];
+
+    const result = await streamAssistantResponse({
+      workspaceId: 'workspace-1',
+      messageId: 'message-1',
+      message: 'CHECK_ZTKS hangi mesajları üretiyor?',
+      onText: text => streamedText.push(text),
+    });
+
+    expect(result.text).toBe('ZCL_ORDER_SAVE_QUOTATIONS->CHECK_ZTKS metodu iki hata mesajı üretir.');
+    expect(result.text).not.toContain('<jetwork_meta>');
+    expect(streamedText.at(-1)).toBe(result.text);
+    expect(result.workSummary).toContain('Kurumsal bilgi bankasında ilgili kaynaklar seçildi.');
+    expect(result.workSummary).toContain('1 kurumsal kaynak kullanıldı.');
+    expect(result.workSummary).toContain('Yanıt kaynaklarla eşleştirilerek hazırlandı.');
+    expect(result.actionSummary).toBeUndefined();
+  });
+
   it('rejects a truncated stream without a completed event', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sseResponse([
       'event: text_delta\ndata: {"delta":"Yarım"}\n\n',

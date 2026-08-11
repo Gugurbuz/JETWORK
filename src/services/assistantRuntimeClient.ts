@@ -157,6 +157,52 @@ function documentStageLabel(
   return fallback;
 }
 
+const LOW_VALUE_RUNTIME_LABEL = /^(?:asistana bağlanılıyor|çalışılıyor|yanıt hazırlanıyor)\.{0,3}$/iu;
+
+const normalizeRuntimeLabel = (value: string): string => value
+  .trim()
+  .replace(/^[•*\-–—]\s*/u, '')
+  .replace(/\s+/g, ' ');
+
+const appendRuntimeSummaryLine = (target: string[], value: string | undefined) => {
+  const normalized = normalizeRuntimeLabel(value || '');
+  if (!normalized || LOW_VALUE_RUNTIME_LABEL.test(normalized)) return;
+  const key = normalized.toLocaleLowerCase('tr-TR');
+  if (target.some(item => item.toLocaleLowerCase('tr-TR') === key)) return;
+  target.push(normalized);
+};
+
+function buildRuntimeWorkSummary(input: {
+  executionLabels: string[];
+  sources: AssistantKnowledgeSource[];
+}): string | undefined {
+  const labels: string[] = [];
+  input.executionLabels.forEach(label => appendRuntimeSummaryLine(labels, label));
+
+  const knowledgeSourceCount = input.sources.filter(source => source.sourceType !== 'web').length;
+  const webSourceCount = input.sources.filter(source => source.sourceType === 'web').length;
+
+  if (knowledgeSourceCount > 0 && !labels.some(label => /bilgi bankası|kurumsal kaynak|kurumsal bilgi/iu.test(label))) {
+    appendRuntimeSummaryLine(labels, 'Kurumsal bilgi bankasında ilgili kaynaklar seçildi.');
+  }
+  if (knowledgeSourceCount > 0 && !labels.some(label => /\d+\s+kurumsal kaynak|kurumsal kaynak kullanıldı/iu.test(label))) {
+    appendRuntimeSummaryLine(labels, `${knowledgeSourceCount} kurumsal kaynak kullanıldı.`);
+  }
+  if (webSourceCount > 0 && !labels.some(label => /web|internet/iu.test(label))) {
+    appendRuntimeSummaryLine(labels, 'Web kaynakları toplandı.');
+  }
+  if (webSourceCount > 0 && !labels.some(label => /\d+\s+(?:web|internet) kaynağı|(?:web|internet) kaynağı kullanıldı/iu.test(label))) {
+    appendRuntimeSummaryLine(labels, `${webSourceCount} web kaynağı kullanıldı.`);
+  }
+  if (labels.length > 0 && !labels.some(label => /yanıt .*hazır|hazırlandı/iu.test(label))) {
+    appendRuntimeSummaryLine(labels, knowledgeSourceCount > 0 || webSourceCount > 0
+      ? 'Yanıt kaynaklarla eşleştirilerek hazırlandı.'
+      : 'Yanıt hazırlandı.');
+  }
+
+  return labels.length ? labels.slice(0, 6).map(label => `• ${label}`).join('\n') : undefined;
+}
+
 /**
  * Repairs the common cover-table variation where the model replaces the literal
  * "Talep Adı" header with the actual request title. Kept as a local safety net;
@@ -573,6 +619,7 @@ export async function streamAssistantResponse(input: {
     const executionSummary = executionLabels.length
       ? executionLabels.map(label => `• ${label}`).join('\n')
       : undefined;
+    const runtimeWorkSummary = buildRuntimeWorkSummary({ executionLabels, sources });
     const autoCaptureDocument = documentRequestMode === 'none'
       && !useDocumentStore.getState().documentContent?.businessAnalysis?.content?.trim()
       && validateEnerjisaDocumentContract(persistablePresentation.visibleText).valid;
@@ -735,14 +782,14 @@ export async function streamAssistantResponse(input: {
     }
 
     return {
-      text: presentation.visibleText || fullText,
+      text: presentation.visibleText,
       sources,
       conversationId,
       model,
       provider,
       fallbackUsed,
       usage,
-      workSummary: executionSummary || presentation.workSummary,
+      workSummary: runtimeWorkSummary || presentation.workSummary,
       questions: presentation.questions,
       actionSummary: presentation.actionSummary,
     };

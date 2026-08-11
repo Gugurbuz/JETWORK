@@ -14,6 +14,7 @@ import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { KnowledgeBankModal } from './KnowledgeBankModal';
 import { JetWorkLogo } from './JetWorkLogo';
 import { AssistantWorkIndicator } from './AssistantWorkIndicator';
+import { splitAssistantSources } from '../services/assistantSources';
 
 const contextualQuestionOptions = (question: Question): string[] => {
   return (question.options || [])
@@ -233,6 +234,7 @@ const MessageItem = memo(({
     : null;
   const isStopped = msg.role === 'model'
     && /kullanıcı tarafından durduruldu/iu.test(msg.actionSummary || '');
+  const sourceView = splitAssistantSources(msg.knowledgeSources || [], msg.groundingUrls || []);
   const showsWorkIndicator = msg.role === 'model'
     && (Boolean(msg.isTyping) || Boolean(msg.thinkingText) || msg.thinkingTime !== undefined);
   const isWorkOnly = msg.role === 'model' && Boolean(msg.isTyping) && !msg.text;
@@ -333,8 +335,8 @@ const MessageItem = memo(({
                   completedSeconds={msg.thinkingTime}
                   activityText={msg.thinkingText}
                   phaseLabel={msg.phaseLabel}
-                  knowledgeSources={msg.knowledgeSources}
-                  groundingUrls={msg.groundingUrls}
+                  knowledgeSources={sourceView.knowledgeSources}
+                  groundingUrls={sourceView.groundingUrls}
                   isStopped={isStopped}
                   onStop={msg.isTyping && isLastMessage ? onStopGeneration : undefined}
                   onFollowUp={!msg.isTyping && isLastMessage ? onFollowUp : undefined}
@@ -452,13 +454,13 @@ const MessageItem = memo(({
             </div>
           )}
           
-          {msg.groundingUrls && msg.groundingUrls.length > 0 && (
+          {sourceView.groundingUrls.length > 0 && (
             <div className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50">
               <div className="text-[10px] font-bold uppercase tracking-widest text-theme-text-muted flex items-center gap-1.5">
                 <Globe size={10} /> Kaynaklar
               </div>
               <div className="flex flex-wrap gap-2">
-                {msg.groundingUrls.map((url, i) => (
+                {sourceView.groundingUrls.map((url, i) => (
                   <a 
                     key={i} 
                     href={url.uri} 
@@ -474,18 +476,18 @@ const MessageItem = memo(({
             </div>
           )}
 
-          {msg.knowledgeSources && msg.knowledgeSources.length > 0 && (
+          {sourceView.knowledgeSources.length > 0 && (
             <details className="group mt-4 border-t border-theme-border/50 pt-3">
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
                 <Database size={10} />
-                {Math.min(msg.knowledgeSources.length, 3)} kurumsal kaynak kullanıldı
+                {Math.min(sourceView.knowledgeSources.length, 3)} kurumsal kaynak kullanıldı
                 <ChevronDown
                   size={12}
                   className="ml-auto transition-transform group-open:rotate-180"
                 />
               </summary>
               <div className="mt-2 flex flex-col gap-1.5">
-                {msg.knowledgeSources.slice(0, 3).map((source, index) => (
+                {sourceView.knowledgeSources.slice(0, 3).map((source, index) => (
                   <div
                     key={`${source.sourceId || source.sourceName}-${source.canonicalKey || index}`}
                     className="flex items-start gap-2 rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs text-theme-text-muted"

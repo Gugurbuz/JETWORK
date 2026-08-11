@@ -8,7 +8,7 @@ export interface AssistantPresentationMetadata {
 }
 
 const META_OPEN = '<jetwork_meta>';
-const META_CLOSE = '</jetwork_meta>';
+const COMPLETE_META_BLOCK = /<jetwork_meta>\s*([\s\S]*?)\s*<\/jetwork_meta>/giu;
 
 const cleanText = (value: unknown, maxLength: number): string => (
   typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
@@ -87,47 +87,51 @@ const asQuestions = (value: unknown, plain = false): Question[] | undefined => {
 export function parseAssistantPresentationMetadata(
   rawText: string,
 ): AssistantPresentationMetadata {
-  const lower = rawText.toLocaleLowerCase('tr-TR');
-  const openIndex = lower.indexOf(META_OPEN);
-  if (openIndex < 0) {
-    return { visibleText: rawText.trim() };
-  }
+  const metadataBlocks: string[] = [];
+  let visibleText = rawText
+    .replace(COMPLETE_META_BLOCK, (_match, jsonText: string) => {
+      metadataBlocks.push(String(jsonText || '').trim());
+      return '\n';
+    });
 
-  const visibleText = rawText.slice(0, openIndex).trim();
-  const closeIndex = lower.indexOf(META_CLOSE, openIndex + META_OPEN.length);
-  if (closeIndex < 0) {
+  const incompleteOpenIndex = visibleText.toLocaleLowerCase('tr-TR').indexOf(META_OPEN);
+  if (incompleteOpenIndex >= 0) {
     // While the response is still streaming, hide an incomplete metadata block.
+    visibleText = visibleText.slice(0, incompleteOpenIndex);
+  }
+  visibleText = visibleText.trim();
+
+  if (metadataBlocks.length === 0) {
     return { visibleText };
   }
 
-  const jsonText = rawText
-    .slice(openIndex + META_OPEN.length, closeIndex)
-    .trim();
+  for (const jsonText of metadataBlocks) {
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!parsed || typeof parsed !== 'object') continue;
+      const metadata = parsed as Record<string, unknown>;
+      const workSummary = asWorkSummary(metadata.workSummary);
+      const actionSummary = cleanText(metadata.actionSummary, 1_000) || undefined;
+      const artifactCompleted = looksLikeCompletedEnerjisaArtifact(visibleText);
+      const artifactMaturation = isArtifactMaturationContext({ visibleText, actionSummary });
+      const exposeOperationalMetadata = artifactCompleted || artifactMaturation;
+      const questions = artifactCompleted
+        ? undefined
+        : asQuestions(metadata.questions, artifactMaturation);
 
-  try {
-    const parsed = JSON.parse(jsonText);
-    if (!parsed || typeof parsed !== 'object') return { visibleText };
-    const metadata = parsed as Record<string, unknown>;
-    const workSummary = asWorkSummary(metadata.workSummary);
-    const actionSummary = cleanText(metadata.actionSummary, 1_000) || undefined;
-    const artifactCompleted = looksLikeCompletedEnerjisaArtifact(visibleText);
-    const artifactMaturation = isArtifactMaturationContext({ visibleText, actionSummary });
-    const exposeOperationalMetadata = artifactCompleted || artifactMaturation;
-    const questions = artifactCompleted
-      ? undefined
-      : asQuestions(metadata.questions, artifactMaturation);
-
-    return {
-      visibleText,
-      // Work summaries and "Ne yaptım?" are operational metadata, not normal
-      // conversation content. Keep them available only while an explicit
-      // document/artifact workflow is being matured or completed.
-      workSummary: exposeOperationalMetadata ? workSummary : undefined,
-      questions,
-      actionSummary: exposeOperationalMetadata ? actionSummary : undefined,
-    };
-  } catch {
-    // Metadata must never break the user-facing answer.
-    return { visibleText };
+      return {
+        visibleText,
+        // Work summaries and "Ne yaptım?" are operational metadata, not normal
+        // conversation content. Keep them available only while an explicit
+        // document/artifact workflow is being matured or completed.
+        workSummary: exposeOperationalMetadata ? workSummary : undefined,
+        questions,
+        actionSummary: exposeOperationalMetadata ? actionSummary : undefined,
+      };
+    } catch {
+      // Metadata must never break the user-facing answer.
+    }
   }
+
+  return { visibleText };
 }

@@ -7,18 +7,21 @@ import {
   CircleStop,
   Clock3,
   Globe2,
+  Link2,
   LoaderCircle,
   Search,
 } from 'lucide-react';
 import type { AssistantKnowledgeSource } from '../types';
 import { cn } from '../lib/utils';
 import { JetWorkLogo } from './JetWorkLogo';
+import { splitAssistantSources } from '../services/assistantSources';
 
 const ACTIVITY_PREFIX = /^(?:[•*\-–—]|\d+[.)])\s*/u;
 const MARKDOWN_DECORATION = /[*#`_]/gu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
 const COMPLEX_ACTIVITY = /(?:bilgi bankası|kurumsal kaynak|kaynak|web|araştır|dosya|belge|doğrula|karşılaştır|araç|entegrasyon|artifact|doküman)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
+const LOW_VALUE_ACTIVITY = /^(?:asistana bağlanılıyor|çalışılıyor|yanıt hazırlanıyor)\.{0,3}$/iu;
 
 export interface AssistantWorkActivity {
   label: string;
@@ -61,17 +64,35 @@ export function buildAssistantWorkActivities(input: {
   webSourceCount?: number;
 }): AssistantWorkActivity[] {
   const labels: string[] = [];
+  const appendActivity = (value: string | undefined) => {
+    const normalized = normalizeActivity(value || '');
+    if (!normalized || LOW_VALUE_ACTIVITY.test(normalized)) return;
+    appendUnique(labels, normalized);
+  };
   for (const line of (input.activityText || '').split(/\r?\n/u)) {
-    appendUnique(labels, line);
+    appendActivity(line);
   }
-  appendUnique(labels, input.phaseLabel);
+  appendActivity(input.phaseLabel);
   const activeLabelKey = normalizeActivity(input.phaseLabel || labels.at(-1) || '').toLocaleLowerCase('tr-TR');
+  const knowledgeSourceCount = input.knowledgeSourceCount || 0;
+  const webSourceCount = input.webSourceCount || 0;
 
-  if ((input.knowledgeSourceCount || 0) > 0 && !labels.some(label => /\d+\s+kurumsal kaynak|kurumsal kaynak kullanıldı/iu.test(label))) {
-    appendUnique(labels, `${input.knowledgeSourceCount} kurumsal kaynak kullanıldı.`);
+  if (knowledgeSourceCount > 0 && !labels.some(label => /bilgi bankası|kurumsal kaynak|kurumsal bilgi/iu.test(label))) {
+    appendUnique(labels, 'Kurumsal bilgi bankasında ilgili kaynaklar seçildi.');
   }
-  if ((input.webSourceCount || 0) > 0 && !labels.some(label => /\d+\s+(?:web|internet) kaynağı|(?:web|internet) kaynağı kullanıldı/iu.test(label))) {
-    appendUnique(labels, `${input.webSourceCount} web kaynağı kullanıldı.`);
+  if (knowledgeSourceCount > 0 && !labels.some(label => /\d+\s+kurumsal kaynak|kurumsal kaynak kullanıldı/iu.test(label))) {
+    appendUnique(labels, `${knowledgeSourceCount} kurumsal kaynak kullanıldı.`);
+  }
+  if (webSourceCount > 0 && !labels.some(label => /web|internet/iu.test(label))) {
+    appendUnique(labels, 'Web kaynakları toplandı.');
+  }
+  if (webSourceCount > 0 && !labels.some(label => /\d+\s+(?:web|internet) kaynağı|(?:web|internet) kaynağı kullanıldı/iu.test(label))) {
+    appendUnique(labels, `${webSourceCount} web kaynağı kullanıldı.`);
+  }
+  if (!input.isActive && labels.length > 0 && !labels.some(label => /yanıt .*hazır|hazırlandı/iu.test(label))) {
+    appendUnique(labels, knowledgeSourceCount > 0 || webSourceCount > 0
+      ? 'Yanıt kaynaklarla eşleştirilerek hazırlandı.'
+      : 'Yanıt hazırlandı.');
   }
 
   return labels.map(label => ({
@@ -129,8 +150,9 @@ export function AssistantWorkIndicator({
   followUpDisabled = false,
 }: AssistantWorkIndicatorProps) {
   const elapsedSeconds = useElapsedSeconds(isActive, startedAt, completedSeconds);
-  const knowledgeSourceCount = knowledgeSources?.length || 0;
-  const webSourceCount = groundingUrls?.length || 0;
+  const sourceView = useMemo(() => splitAssistantSources(knowledgeSources || [], groundingUrls || []), [groundingUrls, knowledgeSources]);
+  const knowledgeSourceCount = sourceView.knowledgeSources.length;
+  const webSourceCount = sourceView.groundingUrls.length;
   const activities = useMemo(() => buildAssistantWorkActivities({
     isActive,
     activityText,
@@ -258,6 +280,29 @@ export function AssistantWorkIndicator({
               </li>
             ))}
           </ol>
+
+          {sourceView.groundingUrls.length > 0 ? (
+            <div className="assistant-work__sources" aria-label="Kullanılan web kaynakları">
+              <div className="assistant-work__sources-title">
+                <Globe2 aria-hidden="true" />
+                Web kaynakları
+              </div>
+              <div className="assistant-work__source-links">
+                {sourceView.groundingUrls.slice(0, 3).map((source, index) => (
+                  <a
+                    key={`${source.uri}-${index}`}
+                    href={source.uri}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="assistant-work__source-link"
+                  >
+                    <Link2 aria-hidden="true" />
+                    <span>{source.title}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {!isActive && onFollowUp ? (
             <div className="assistant-work__follow-ups">

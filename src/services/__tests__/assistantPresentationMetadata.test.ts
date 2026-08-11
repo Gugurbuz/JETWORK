@@ -118,6 +118,18 @@ ${JSON.stringify({
       .toBe('Yanıt tamamlandı.');
   });
 
+  it('strips metadata even when the model emits it before the answer', () => {
+    const parsed = parseAssistantPresentationMetadata(`
+<jetwork_meta>{ "workSummary": [], "actionSummary": "" }</jetwork_meta>
+ZCL_ORDER_SAVE_QUOTATIONS->CHECK_ZTKS metodu iki hata mesajı üretir.
+    `);
+
+    expect(parsed.visibleText).toBe('ZCL_ORDER_SAVE_QUOTATIONS->CHECK_ZTKS metodu iki hata mesajı üretir.');
+    expect(parsed.visibleText).not.toContain('<jetwork_meta>');
+    expect(parsed.workSummary).toBeUndefined();
+    expect(parsed.actionSummary).toBeUndefined();
+  });
+
   it('keeps legacy answers unchanged when metadata is absent', () => {
     expect(parseAssistantPresentationMetadata('Normal cevap').visibleText).toBe('Normal cevap');
   });

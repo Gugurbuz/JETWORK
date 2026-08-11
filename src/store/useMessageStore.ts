@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Message } from '../types';
 import { supabase } from '../supabase';
 import { rowsToCamel, rowToCamel } from '../lib/mapping';
+import { parseAssistantPresentationMetadata } from '../services/assistantPresentationMetadata';
 
 interface MessageStore {
   messagesByWorkspace: Record<string, Message[]>;
@@ -18,6 +19,18 @@ interface MessageStore {
   clearAll: () => void;
 }
 
+function sanitizeAssistantPresentation(message: Message): Message {
+  if (message.role !== 'model' || !/<jetwork_meta>/iu.test(message.text || '')) return message;
+  const presentation = parseAssistantPresentationMetadata(message.text);
+  return {
+    ...message,
+    text: presentation.visibleText,
+    thinkingText: message.thinkingText || presentation.workSummary,
+    questions: message.questions?.length ? message.questions : presentation.questions,
+    actionSummary: message.actionSummary || presentation.actionSummary,
+  };
+}
+
 async function loadMessages(workspaceId: string): Promise<Message[]> {
   const { data, error } = await supabase
     .from('messages')
@@ -28,7 +41,7 @@ async function loadMessages(workspaceId: string): Promise<Message[]> {
     console.error('Error fetching messages:', error);
     throw error;
   }
-  return rowsToCamel<Message>(data);
+  return rowsToCamel<Message>(data).map(sanitizeAssistantPresentation);
 }
 
 export const useMessageStore = create<MessageStore>((set, get) => ({
@@ -125,7 +138,8 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
               return prev.filter(m => m.id !== removedId);
             }
 
-            const incoming = rowToCamel<Message>(payload.new);
+            const incomingRow = rowToCamel<Message>(payload.new);
+            const incoming = incomingRow ? sanitizeAssistantPresentation(incomingRow) : incomingRow;
             if (!incoming) return prev;
 
             const idx = prev.findIndex(m => m.id === incoming.id);

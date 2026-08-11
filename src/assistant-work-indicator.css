@@ -98,13 +98,13 @@
 .assistant-work__label {
   background: linear-gradient(
     100deg,
-    var(--theme-text) 0%,
-    var(--theme-text) 34%,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 0%,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 34%,
     #ffc107 45%,
     #fff3c4 51%,
     #ff9800 57%,
-    var(--theme-text) 68%,
-    var(--theme-text) 100%
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 68%,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 100%
   );
   background-size: 240% 100%;
   background-clip: text;
@@ -174,6 +174,7 @@
 }
 
 .assistant-work__action:focus-visible,
+.assistant-work__source-link:focus-visible,
 .assistant-work__follow-ups button:focus-visible {
   border-radius: 0.25rem;
   outline: 2px solid color-mix(in srgb, var(--theme-primary) 65%, transparent);
@@ -260,6 +261,69 @@
 
 .assistant-work__activity--active .assistant-work__activity-icon {
   animation: assistant-work-active-spin 1s linear infinite;
+}
+
+.assistant-work__sources {
+  margin-top: 0.7rem;
+}
+
+.assistant-work__sources-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--theme-text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.assistant-work__sources-title svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.assistant-work__source-links {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.assistant-work__source-link {
+  display: inline-flex;
+  max-width: min(17rem, 100%);
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 0.45rem;
+  background: var(--theme-surface);
+  padding: 0.28rem 0.45rem;
+  color: var(--theme-text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.assistant-work__source-link:hover {
+  border-color: color-mix(in srgb, var(--theme-primary) 55%, var(--theme-border));
+  background: var(--theme-surface-hover);
+  color: var(--theme-text);
+}
+
+.assistant-work__source-link svg {
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 0.72rem;
+  color: var(--theme-primary);
+}
+
+.assistant-work__source-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assistant-work__follow-ups {

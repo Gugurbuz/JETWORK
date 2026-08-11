@@ -81,4 +81,24 @@ describe('ChatPanel simple BA start', () => {
     expect(html).not.toContain('Planlama:');
     expect(html).not.toContain('Yanıt üretimi:');
   });
+
+  it('shows web search sources even when runtime sends them as assistant sources', () => {
+    const html = renderPanel([{
+      id: 'm1',
+      role: 'model',
+      text: 'Web sonucu ile doğrulandı.',
+      createdAt: Date.now(),
+      knowledgeSources: [{
+        sourceName: 'OpenAI Docs',
+        title: 'Web search guide',
+        sourceType: 'web',
+        url: 'https://platform.openai.com/docs/guides/tools-web-search',
+      }],
+    }]);
+
+    expect(html).toContain('Kaynaklar');
+    expect(html).toContain('Web search guide');
+    expect(html).toContain('https://platform.openai.com/docs/guides/tools-web-search');
+    expect(html).not.toContain('kurumsal kaynak kullanıldı');
+  });
 });

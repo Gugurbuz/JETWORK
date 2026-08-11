@@ -41,6 +41,41 @@ describe('AssistantWorkIndicator', () => {
     expect(html).not.toContain('12 sn’de hazırlandı');
   });
 
+  it('derives a useful completed summary from sources and hides connection noise', () => {
+    const activities = buildAssistantWorkActivities({
+      isActive: false,
+      activityText: '• Asistana bağlanılıyor...',
+      knowledgeSourceCount: 1,
+      webSourceCount: 0,
+    });
+
+    expect(activities.map(activity => activity.label)).toEqual([
+      'Kurumsal bilgi bankasında ilgili kaynaklar seçildi.',
+      '1 kurumsal kaynak kullanıldı.',
+      'Yanıt kaynaklarla eşleştirilerek hazırlandı.',
+    ]);
+  });
+
+  it('renders web source links inside the work details when web search is used', () => {
+    const html = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive
+        startedAt={Date.now() - 18_000}
+        activityText="• Web’de güvenilir kaynaklar tarandı."
+        knowledgeSources={[{
+          sourceName: 'OpenAI Docs',
+          title: 'Web search guide',
+          sourceType: 'web',
+          url: 'https://platform.openai.com/docs/guides/tools-web-search',
+        }]}
+      />,
+    );
+
+    expect(html).toContain('Web kaynakları');
+    expect(html).toContain('Web search guide');
+    expect(html).toContain('https://platform.openai.com/docs/guides/tools-web-search');
+  });
+
   it('does not expose planner, tool, or final-model timing breakdowns', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator

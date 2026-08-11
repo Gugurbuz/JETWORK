@@ -30,6 +30,8 @@ import {
   streamAssistantResponse,
   type AssistantRuntimeStage,
 } from '../services/assistantRuntimeClient';
+import { splitAssistantSources } from '../services/assistantSources';
+import { createAssistantTextSmoother } from '../services/assistantTextSmoother';
 import { toast } from 'sonner';
 
 const messageForRealtime = (message: Message): Message => (
@@ -348,8 +350,33 @@ export const useMessages = (channelRef: any) => {
 
     if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
       let streamedText = '';
-      let streamedSources: Message['knowledgeSources'] = [];
+      let streamedKnowledgeSources: Message['knowledgeSources'] = [];
+      let streamedGroundingUrls: Message['groundingUrls'] = [];
       const stageNotes: string[] = [];
+      const patchStreamingText = (fullText: string) => {
+        streamedText = fullText;
+        const patch = {
+          text: fullText,
+          knowledgeSources: streamedKnowledgeSources,
+          groundingUrls: streamedGroundingUrls,
+          phase: 'ACT' as const,
+          phaseLabel: 'Yanıt hazırlanıyor...',
+          thinkingText: stageNotesAsSummary(stageNotes),
+        };
+        setMessages(previous => previous.map(message => (
+          message.id === aiMsgId ? { ...message, ...patch } : message
+        )));
+        broadcastMessage(channelRef, 'ai_stream_chunk', {
+          id: aiMsgId,
+          ...patch,
+          senderName: 'JetWork AI',
+          senderRole: 'Sistem Asistanı',
+        });
+      };
+      const textSmoother = createAssistantTextSmoother({
+        signal: generationController.signal,
+        onUpdate: patchStreamingText,
+      });
 
       try {
         const result = await streamAssistantResponse({
@@ -360,35 +387,26 @@ export const useMessages = (channelRef: any) => {
           chatAttachments: await prepareAssistantChatAttachments(preparedAttachments),
           signal: generationController.signal,
           onText: fullText => {
-            streamedText = fullText;
-            const patch = {
-              text: fullText,
-              knowledgeSources: streamedSources,
-              phase: 'ACT' as const,
-              phaseLabel: 'Yanıt hazırlanıyor...',
-              thinkingText: stageNotesAsSummary(stageNotes),
-            };
-            setMessages(previous => previous.map(message => (
-              message.id === aiMsgId ? { ...message, ...patch } : message
-            )));
-            broadcastMessage(channelRef, 'ai_stream_chunk', {
-              id: aiMsgId,
-              ...patch,
-              senderName: 'JetWork AI',
-              senderRole: 'Sistem Asistanı',
-            });
+            textSmoother.push(fullText);
           },
           onSources: sources => {
-            streamedSources = sources;
+            const sourceView = splitAssistantSources(sources);
+            streamedKnowledgeSources = sourceView.knowledgeSources;
+            streamedGroundingUrls = sourceView.groundingUrls;
             setMessages(previous => previous.map(message => (
               message.id === aiMsgId
-                ? { ...message, knowledgeSources: sources }
+                ? {
+                    ...message,
+                    knowledgeSources: streamedKnowledgeSources,
+                    groundingUrls: streamedGroundingUrls,
+                  }
                 : message
             )));
             broadcastMessage(channelRef, 'ai_stream_chunk', {
               id: aiMsgId,
               text: streamedText,
-              knowledgeSources: sources,
+              knowledgeSources: streamedKnowledgeSources,
+              groundingUrls: streamedGroundingUrls,
               senderName: 'JetWork AI',
               senderRole: 'Sistem Asistanı',
             });
@@ -412,13 +430,16 @@ export const useMessages = (channelRef: any) => {
             broadcastMessage(channelRef, 'ai_stream_chunk', {
               id: aiMsgId,
               text: streamedText,
-              knowledgeSources: streamedSources,
+              knowledgeSources: streamedKnowledgeSources,
+              groundingUrls: streamedGroundingUrls,
               ...patch,
               senderName: 'JetWork AI',
               senderRole: 'Sistem Asistanı',
             });
           },
         });
+        await textSmoother.finish(result.text);
+        const finalSourceView = splitAssistantSources(result.sources);
 
         const completedAiMessage: Message = {
           id: aiMsgId,
@@ -427,7 +448,8 @@ export const useMessages = (channelRef: any) => {
           thinkingText: result.workSummary || stageNotesAsSummary(stageNotes),
           questions: result.questions,
           actionSummary: result.actionSummary,
-          knowledgeSources: result.sources,
+          knowledgeSources: finalSourceView.knowledgeSources,
+          groundingUrls: finalSourceView.groundingUrls,
           tokenCount: result.usage?.total_tokens || result.usage?.totalTokens,
           thinkingTime: elapsedSecondsSince(aiCreatedAt),
           phase: null,
@@ -487,7 +509,8 @@ export const useMessages = (channelRef: any) => {
                 ? 'Yanıt kullanıcı tarafından durduruldu; üretilen bölüm korundu.'
                 : 'Yanıt kullanıcı tarafından durduruldu.')
             : undefined,
-          knowledgeSources: streamedSources,
+          knowledgeSources: streamedKnowledgeSources,
+          groundingUrls: streamedGroundingUrls,
           isTyping: false,
           isError: !wasAborted,
           retryPayload: wasAborted ? undefined : {
@@ -521,6 +544,7 @@ export const useMessages = (channelRef: any) => {
           }
         }
       } finally {
+        textSmoother.stop();
         if (generationAbortRef.current === generationController) {
           generationAbortRef.current = null;
           setIsGenerating(false);
