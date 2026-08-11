@@ -253,9 +253,11 @@ export interface TypingUser {
 
 export interface Workspace {
   id: string;
-  projectId: string;
+  projectId: string | null;
   issueKey: string;
   title: string;
+  titleSource?: 'pending' | 'auto' | 'user';
+  titleGeneratedAt?: string | null;
   type: WorkspaceType;
   status: WorkspaceStatus;
   messages: Message[];
@@ -268,6 +270,14 @@ export interface Workspace {
   ownerId: string;
   archivedAt?: string | null;
   deletedAt?: string | null;
+}
+
+export interface ProjectMember {
+  projectId: string;
+  userId: string;
+  role: string;
+  addedBy?: string | null;
+  createdAt: number;
 }
 
 export interface Project {

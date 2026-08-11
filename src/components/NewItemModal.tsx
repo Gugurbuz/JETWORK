@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Users, Briefcase, FileText, Search, Check, Folder } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Project } from '../types';
+import { STANDALONE_PROJECT_ID } from '../hooks/useProjects';
 
 interface NewItemModalProps {
   projects: Project[];
@@ -19,7 +20,11 @@ interface DbUser {
 }
 
 export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: NewItemModalProps) {
-  const [projectId, setProjectId] = useState(currentProjectId || (projects.length > 0 ? projects[0].id : ''));
+  const selectableProjects = projects.filter(project => project.id !== STANDALONE_PROJECT_ID);
+  const initialProjectId = currentProjectId && currentProjectId !== STANDALONE_PROJECT_ID
+    ? currentProjectId
+    : (selectableProjects.length > 0 ? selectableProjects[0].id : '');
+  const [projectId, setProjectId] = useState(initialProjectId);
   const [itemNumber, setItemNumber] = useState('');
   const [title, setTitle] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -158,7 +163,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
                   className="w-full pl-12 pr-4 py-3 bg-theme-bg border border-theme-border focus:outline-none focus:border-theme-primary focus:bg-theme-surface transition-colors text-sm rounded-md text-theme-text appearance-none"
                 >
                   <option value="" disabled>Proje Seçin</option>
-                  {projects.map(p => (
+                  {selectableProjects.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
