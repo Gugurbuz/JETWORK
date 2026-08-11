@@ -65,6 +65,10 @@ export interface ConversationSemanticState {
 }
 
 export interface ReasoningPlan extends LegacyReasoningPlan {
+  // knowledgeRequired is retained as the execution compatibility signal for
+  // JetWork corporate/project RAG. Public web evidence is represented only by
+  // webMode and must never flip this flag on.
+  enterpriseGroundingRequired?: boolean
   executionMode?: ReasoningExecutionMode
   conversationState?: ConversationSemanticState
   enumerationTarget?: KnowledgeEnumerationTarget
@@ -135,7 +139,13 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
   if (!['none','required','if_internal_insufficient'].includes(webMode)) return null
   const executionMode = String(raw.executionMode || '') as ReasoningExecutionMode
   const knowledgeRequired = raw.knowledgeRequired === true
-  const evidenceRequiredSimpleAnswer = knowledgeRequired && intent === 'simple_answer'
+  const enterpriseGroundingRequired = typeof raw.enterpriseGroundingRequired === 'boolean'
+    ? raw.enterpriseGroundingRequired
+    : knowledgeRequired
+  // A plan may never claim enterprise grounding without enabling the enterprise
+  // knowledge execution path. This keeps completion/guard invariants aligned.
+  const effectiveKnowledgeRequired = knowledgeRequired || enterpriseGroundingRequired
+  const evidenceRequiredSimpleAnswer = effectiveKnowledgeRequired && intent === 'simple_answer'
   const normalizedIntent: ReasoningIntent = evidenceRequiredSimpleAnswer ? 'analysis' : intent
   const normalizedExecutionMode: ReasoningExecutionMode | undefined = evidenceRequiredSimpleAnswer
     ? 'knowledge'
@@ -184,12 +194,13 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
   const profile = String(raw.promptProfile || '') as AssistantPromptProfile
   const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
     ? profile
-    : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode)
+    : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, effectiveKnowledgeRequired, webMode)
   return {
     intent: normalizedIntent,
     complexity,
     goal: String(raw.goal || '').trim().slice(0, 1_000) || 'Kullanıcı talebini bağlamı koruyarak doğru yanıtla.',
-    knowledgeRequired,
+    knowledgeRequired: effectiveKnowledgeRequired,
+    enterpriseGroundingRequired,
     webMode,
     verificationRequired: raw.verificationRequired === true,
     creativeMode: raw.creativeMode === true,
@@ -239,9 +250,16 @@ export async function buildReasoningPlan(input: {
 }): Promise<{ plan: ReasoningPlan; usage?: Record<string, number>; plannerFallback: boolean }> {
   const semanticPlan = semanticPlanFromMessage(input.message)
   if (semanticPlan) return { plan: semanticPlan, plannerFallback: false }
-  return buildLegacyReasoningPlan(input) as Promise<{
+  const legacy = await buildLegacyReasoningPlan(input) as {
     plan: ReasoningPlan
     usage?: Record<string, number>
     plannerFallback: boolean
-  }>
+  }
+  return {
+    ...legacy,
+    plan: {
+      ...legacy.plan,
+      enterpriseGroundingRequired: legacy.plan.knowledgeRequired === true,
+    },
+  }
 }
