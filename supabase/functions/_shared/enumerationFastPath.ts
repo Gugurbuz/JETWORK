@@ -55,6 +55,7 @@ const targetFromItems = (items: Array<Record<string, unknown>>) => {
         tool,
         objectType: target.objectType == null ? null : String(target.objectType || '').trim() || null,
         prefix: target.prefix == null ? null : String(target.prefix || '').trim() || null,
+        cursor: target.cursor == null ? null : String(target.cursor || '').trim().slice(0, 320) || null,
       }
     } catch {
       return null
@@ -125,7 +126,7 @@ export const buildEnumerationFastPathDispatch = (
       arguments: {
         objectType: target.objectType,
         prefix: target.prefix,
-        cursor: null,
+        cursor: target.cursor,
         limit: 25,
       },
     }

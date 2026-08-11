@@ -1,8 +1,8 @@
 import type { ReasoningPlan } from './reasoningEngine.ts'
-import type { SemanticContextMessage } from './semanticOrchestrator.ts'
+import type { PriorExecutionContext, SemanticContextMessage } from './semanticOrchestrator.ts'
+import { shouldResumeAssistantActiveOperation } from './operationState.ts'
 
 const MESSAGE_METHOD_PREFIX = '__jetwork_message_methods__'
-const RESUME_PREFIX = '__jetwork_resume__'
 
 const cleanText = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 const normalize = (value: string) => value
@@ -74,41 +74,8 @@ const latestAssistant = (conversation: SemanticContextMessage[]) => {
   return ''
 }
 
-const latestUser = (conversation: SemanticContextMessage[]) => {
-  for (let index = conversation.length - 1; index >= 0; index -= 1) {
-    if (conversation[index].role === 'user') return cleanText(conversation[index].content, 700)
-  }
-  return ''
-}
-
 const unique = (values: string[], limit = 6) => [...new Set(values.map(value => cleanText(value, 320)).filter(Boolean))].slice(-limit)
-
-const canonicalCursorFromSample = (sample: string, objectType: string) => {
-  const cleaned = cleanText(sample, 140).replace(/[`*]/g, '').trim().toLocaleLowerCase('en-US')
-  if (!cleaned || cleaned.length > 120) return null
-  if (cleaned.startsWith(`${objectType}:`)) return cleaned
-  if (!/^[a-z0-9_/-]+$/.test(cleaned)) return null
-  return `${objectType}:${cleaned}`
-}
-
-const priorEnumerationCursor = (conversation: SemanticContextMessage[], objectType: string) => {
-  for (let index = conversation.length - 1; index >= 0; index -= 1) {
-    const item = conversation[index]
-    if (item.role !== 'assistant') continue
-    const sampleMatch = item.content.match(/sample_records=([^\n\]]+)/i)
-    if (!sampleMatch?.[1]) continue
-    const sample = sampleMatch[1].split(',').map(value => value.trim()).filter(Boolean).at(-1)
-    if (!sample) continue
-    const cursor = canonicalCursorFromSample(sample, objectType)
-    if (cursor) return cursor
-  }
-  return null
-}
-
-const inventoryPrefix = (input: { relationMode: boolean; cursor?: string | null }) => {
-  const base = input.relationMode ? MESSAGE_METHOD_PREFIX : RESUME_PREFIX
-  return input.cursor ? `${base}|cursor=${input.cursor}` : (input.relationMode ? base : null)
-}
+const inventoryPrefix = (relationMode: boolean) => relationMode ? MESSAGE_METHOD_PREFIX : null
 
 const configureInventoryPlan = (input: {
   plan: ReasoningPlan
@@ -142,6 +109,7 @@ const configureInventoryPlan = (input: {
     tool: input.tool,
     objectType: input.objectType,
     prefix: input.prefix || null,
+    cursor: input.cursor || null,
   }
   plan.goal = [
     cleanText(input.currentMessage, 700),
@@ -172,6 +140,7 @@ const configureInventoryPlan = (input: {
     continuation: Boolean(input.cursor || plan.conversationState?.continuation || input.conversation.length),
     topic: inventoryTopic,
     userMove: input.cursor ? 'follow_up' : (scopeChallenge ? 'correction' : (previousTopic && normalize(previousTopic) !== normalize(inventoryTopic) ? 'topic_shift' : 'follow_up')),
+    operationMove: input.cursor ? 'continue' : (plan.conversationState?.operationMove || 'none'),
     priorIntent: plan.conversationState?.priorIntent || 'analysis',
     rejectedHypotheses: [...(plan.conversationState?.rejectedHypotheses || [])],
     rejectedScopes,
@@ -185,6 +154,7 @@ export const applyConversationScopeInventoryPolicy = (input: {
   plan: ReasoningPlan
   currentMessage: string
   conversation: SemanticContextMessage[]
+  priorExecution?: PriorExecutionContext
 }): ReasoningPlan => {
   const plan: ReasoningPlan = {
     ...input.plan,
@@ -248,24 +218,31 @@ export const applyConversationScopeInventoryPolicy = (input: {
     return plan
   }
 
-  const priorUserRequest = latestUser(input.conversation)
-  const priorRelationMode = asksForMessageMethodInventory(priorUserRequest)
-  const priorObjectType = priorRelationMode ? 'message' : objectTypeFromMessage(priorUserRequest)
-  if (priorObjectType && isEnumerationContinuation(input.currentMessage)) {
-    const cursor = priorEnumerationCursor(input.conversation, priorObjectType)
-    if (cursor) {
-      const relationMode = priorObjectType === 'message' && priorRelationMode
-      return configureInventoryPlan({
-        plan,
-        currentMessage: input.currentMessage,
-        conversation: input.conversation,
-        objectType: priorObjectType,
-        tool: priorObjectType === 'class' ? 'list_class_inventory' : 'list_knowledge_catalog',
-        prefix: priorObjectType === 'class' ? null : inventoryPrefix({ relationMode, cursor }),
-        cursor,
-        topic: relationMode ? 'hata mesajı ve metot envanteri' : undefined,
-      })
-    }
+  const activeOperation = input.priorExecution?.activeOperation
+  const semanticFallbackUsed = String(plan.orchestratorVersion || '').includes('safe-fallback')
+  const resumeActiveOperation = shouldResumeAssistantActiveOperation({
+    activeOperation,
+    operationMove: plan.conversationState?.operationMove,
+    semanticFallbackUsed,
+    // Lexical continuation is intentionally fallback-only. Normal operation is
+    // semantic/state-driven and does not depend on maintaining a phrase dictionary.
+    fallbackContinuationHint: semanticFallbackUsed && isEnumerationContinuation(input.currentMessage),
+  })
+  const activeObjectType = activeOperation?.objectType || (activeOperation?.tool === 'list_class_inventory' ? 'class' : null)
+  if (resumeActiveOperation && activeOperation?.nextCursor && activeObjectType) {
+    const relationMode = activeOperation.tool === 'list_knowledge_catalog'
+      && activeOperation.objectType === 'message'
+      && activeOperation.prefix === MESSAGE_METHOD_PREFIX
+    return configureInventoryPlan({
+      plan,
+      currentMessage: input.currentMessage,
+      conversation: input.conversation,
+      objectType: activeObjectType,
+      tool: activeOperation.tool,
+      prefix: activeOperation.prefix,
+      cursor: activeOperation.nextCursor,
+      topic: relationMode ? 'hata mesajı ve metot envanteri' : undefined,
+    })
   }
 
   if (asksForMessageMethodInventory(input.currentMessage)) {
@@ -275,7 +252,7 @@ export const applyConversationScopeInventoryPolicy = (input: {
       conversation: input.conversation,
       objectType: 'message',
       tool: 'list_knowledge_catalog',
-      prefix: inventoryPrefix({ relationMode: true }),
+      prefix: inventoryPrefix(true),
       topic: 'hata mesajı ve metot envanteri',
     })
   }

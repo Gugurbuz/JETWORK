@@ -78,7 +78,7 @@ describe('provider, evidence and semantic intent integrity', () => {
   it('makes semantic orchestration the primary substantive decision layer', () => {
     expect(gatewaySource).toContain('buildSemanticExecutionPlan');
     expect(gatewaySource).toContain('loadSemanticContext');
-    expect(gatewaySource).toContain('get_reasoning_debug_runs');
+    expect(gatewaySource).toContain('get_prior_assistant_execution_context');
     expect(gatewaySource).toContain('ASSISTANT_SEMANTIC_ORCHESTRATION');
     expect(gatewaySource).not.toContain('AMBIGUOUS_FOLLOW_UP_PATTERN');
     expect(gatewaySource).not.toContain('previousSubstantiveUserMessage');

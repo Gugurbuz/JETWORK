@@ -55,7 +55,7 @@ describe('Inventory Runtime Hardening', () => {
         { role: 'assistant', content: '62 kayıt listelendi' },
       ],
     });
-    expect(result.enumerationTarget).toEqual({ tool: 'list_class_inventory', objectType: 'class', prefix: null });
+    expect(result.enumerationTarget).toEqual({ tool: 'list_class_inventory', objectType: 'class', prefix: null, cursor: null });
     expect(result.goal).toContain('prefix=null');
   });
 

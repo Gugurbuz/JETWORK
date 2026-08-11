@@ -7,6 +7,12 @@ import {
 } from '../_shared/assistantTools.ts'
 import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import {
+  evaluateGroundedTechnicalClaims,
+  groundingFailureText,
+  resultHasVerifiedKnowledgeEvidence,
+  shouldFailClosedGroundedAnswer,
+} from '../_shared/groundingGuard.ts'
+import {
   cleanProviderItemsForOpenAi,
   DEFAULT_GEMINI_MODEL,
   GEMINI_MODELS,
@@ -575,9 +581,13 @@ serve(async req => {
         const startedAt = performance.now()
         try {
           const result = await withTimeout(executeAssistantTool(client, workspaceId, toolName, args), TOOL_TIMEOUT_MS, toolName)
-          toolResultCache.set(cacheKey, result); knowledgeUsed = true
-          sources = uniqueSources([...sources, ...result.sources.map(source => ({ ...source, sourceType: 'knowledge' as const }))])
-          evidence.push(evidenceExcerpt(toolName, result))
+          toolResultCache.set(cacheKey, result)
+          const verifiedKnowledgeEvidence = resultHasVerifiedKnowledgeEvidence(result)
+          if (verifiedKnowledgeEvidence) {
+            knowledgeUsed = true
+            sources = uniqueSources([...sources, ...result.sources.map(source => ({ ...source, sourceType: 'knowledge' as const }))])
+            evidence.push(evidenceExcerpt(toolName, result))
+          }
           await logToolRun(adminClient, {
             conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
             promptVersionId: prompt.id, toolName, callId: `${callPrefix}:${crypto.randomUUID()}`,
@@ -883,6 +893,29 @@ serve(async req => {
           const functionCalls = output.filter((item: Record<string, unknown>) => item.type === 'function_call')
           if (!functionCalls.length) {
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
+            const groundingCoverage = evaluateGroundedTechnicalClaims({
+              text: roundText,
+              plan,
+              sources,
+              toolResults: [...toolResultCache.values()],
+            })
+            if (shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })) {
+              console.warn('ASSISTANT_GROUNDING_COVERAGE_BLOCKED', JSON.stringify({
+                messageId,
+                unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
+                messageTextMismatchCount: groundingCoverage.messageTextMismatches.length,
+                verifiedKnowledgeEvidence: groundingCoverage.verifiedKnowledgeEvidence,
+              }))
+              roundText = groundingFailureText()
+              usage = addUsage(usage, {
+                grounding_fail_closed: 1,
+                grounding_claim_coverage_blocked: 1,
+                grounding_unsupported_identifiers: groundingCoverage.unsupportedIdentifiers.length,
+                grounding_message_text_mismatches: groundingCoverage.messageTextMismatches.length,
+                grounding_unverified_provider_text_discarded: 1,
+              })
+              emitStatus('verifying', 'Kanıt kapsamı dışında kalan teknik iddialar engellendi')
+            }
             const stateItems = compactConversationState([
               ...baseItems,
               { role: 'assistant', content: roundText },
@@ -906,6 +939,11 @@ serve(async req => {
                 sources: sources.length,
                 knowledgeSources: sources.filter(source => source.sourceType !== 'web').length,
                 webSources: sources.filter(source => source.sourceType === 'web').length,
+                groundingCoverage: {
+                  blocked: !groundingCoverage.ok,
+                  unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
+                  messageTextMismatchCount: groundingCoverage.messageTextMismatches.length,
+                },
               },
               knowledge_used: knowledgeUsed, web_used: webUsed, tool_call_count: totalToolCalls,
               fallback_used: providerFallbackUsed || reasoningFallbackUsed, status: 'completed', completed_at: new Date().toISOString(),

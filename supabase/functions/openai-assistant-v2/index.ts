@@ -18,6 +18,7 @@ import {
 } from '../_shared/semanticOrchestrator.ts'
 import { compactSemanticContextMessage } from '../_shared/conversationMemory.ts'
 import { applyConversationScopeInventoryPolicy } from '../_shared/conversationScopePolicy.ts'
+import { normalizeAssistantActiveOperation } from '../_shared/operationState.ts'
 import {
   AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION,
   buildAuthoritativeInventoryFastPlan,
@@ -42,6 +43,11 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.strin
 })
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected stream gateway error.'
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
+const cleanStringArray = (value: unknown, limit: number, maxLength: number) => (
+  Array.isArray(value)
+    ? value.map(item => cleanString(item, maxLength)).filter(Boolean).slice(0, limit)
+    : []
+)
 const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maximum: number) => {
   const parsed = Number(Deno.env.get(name))
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(Math.trunc(parsed), maximum)) : fallback
@@ -225,11 +231,6 @@ async function tryTrivialFastPath(input: {
   return fastPathStreamResponse({ text: result.text, conversationId, model: result.model, provider: result.provider, usage: result.usage })
 }
 
-const currentRequestMessage = (messageId: string, candidate: unknown) => {
-  const raw = String(candidate || '')
-  return raw === messageId || raw.startsWith(`${messageId}:`)
-}
-
 async function loadSemanticContext(input: {
   authorization: string
   supabaseUrl: string
@@ -251,7 +252,7 @@ async function loadSemanticContext(input: {
     throw workspaceResult.error || new Error('Workspace access denied for semantic context.')
   }
   const currentCreatedAt = String(currentResult.data.created_at)
-  const [messagesResult, priorRunsResult] = await Promise.all([
+  const [messagesResult, priorContextResult] = await Promise.all([
     client.from('messages')
       .select('id,role,text,created_at')
       .eq('workspace_id', input.workspaceId)
@@ -259,15 +260,15 @@ async function loadSemanticContext(input: {
       .lt('created_at', currentCreatedAt)
       .order('created_at', { ascending: false })
       .limit(12),
-    client.rpc('get_reasoning_debug_runs', {
+    client.rpc('get_prior_assistant_execution_context', {
       p_workspace_id: input.workspaceId,
-      p_limit: 8,
-      p_offset: 0,
+      p_before: currentCreatedAt,
+      p_exclude_message_id: input.messageId,
     }),
   ])
   if (messagesResult.error) throw messagesResult.error
-  if (priorRunsResult.error) {
-    console.warn('Prior reasoning metadata could not be loaded for semantic context:', priorRunsResult.error.message)
+  if (priorContextResult.error) {
+    console.warn('Prior execution context could not be loaded for semantic context:', priorContextResult.error.message)
   }
   const conversation: SemanticContextMessage[] = [...(messagesResult.data || [])]
     .reverse()
@@ -277,29 +278,30 @@ async function loadSemanticContext(input: {
     })
     .filter(item => item.content)
 
-  const previousRun = (priorRunsResult.data || []).find((row: any) => {
-    const startedAt = String(row.started_at || '')
-    return row.status === 'completed'
-      && startedAt
-      && startedAt < currentCreatedAt
-      && !currentRequestMessage(input.messageId, row.message_id)
-  })
+  const previousRun = priorContextResult.data && typeof priorContextResult.data === 'object' && !Array.isArray(priorContextResult.data)
+    ? priorContextResult.data as Record<string, unknown>
+    : undefined
   const priorExecution: PriorExecutionContext | undefined = previousRun ? {
-    messageId: cleanString(previousRun.message_id, 240),
+    messageId: cleanString(previousRun.messageId, 240),
     intent: cleanString(previousRun.intent, 80),
     complexity: cleanString(previousRun.complexity, 40),
-    knowledgeUsed: previousRun.knowledge_used === true,
-    webUsed: previousRun.web_used === true,
-    toolCallCount: Number(previousRun.tool_call_count || 0),
-    responseModel: cleanString(previousRun.response_model, 120),
+    knowledgeUsed: previousRun.knowledgeUsed === true,
+    webUsed: previousRun.webUsed === true,
+    toolCallCount: Number(previousRun.toolCallCount || 0),
+    responseModel: cleanString(previousRun.responseModel, 120),
     provider: cleanString(previousRun.provider, 40),
-    artifactStatus: cleanString(previousRun.artifact_status, 80),
-    artifactOperation: cleanString(previousRun.artifact_operation, 80),
+    artifactStatus: cleanString(previousRun.artifactStatus, 80),
+    artifactOperation: cleanString(previousRun.artifactOperation, 80),
+    resolvedRequest: cleanString(previousRun.resolvedRequest, 900) || undefined,
+    activeEntities: cleanStringArray(previousRun.activeEntities, 10, 180),
+    requestedEvidence: cleanStringArray(previousRun.requestedEvidence, 8, 120),
+    verifiedFactRefs: cleanStringArray(previousRun.verifiedFactRefs, 12, 320),
+    activeOperation: normalizeAssistantActiveOperation(previousRun.activeOperation),
   } : undefined
   const currentCreatedAtMs = Date.parse(currentCreatedAt)
-  const previousStartedAtMs = Date.parse(String(previousRun?.started_at || ''))
+  const previousStartedAtMs = Date.parse(String(previousRun?.startedAt || ''))
   const preferGeminiAuto = Boolean(
-    previousRun?.fallback_used === true
+    previousRun?.fallbackUsed === true
     && cleanString(previousRun?.provider, 40) === 'gemini'
     && Number.isFinite(currentCreatedAtMs)
     && Number.isFinite(previousStartedAtMs)
@@ -483,7 +485,7 @@ serve(async req => {
     ? parsedBody.chatAttachments.map((item: any) => cleanString(item?.name, 240)).filter(Boolean)
     : []
   const semanticRequestHash = await sha256Text(JSON.stringify({
-    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
+    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-active-operation-v1`,
     requestedModel,
     autoProviderPreference: requestedModel === 'auto' && context.preferGeminiAuto ? 'gemini' : 'default',
     currentMessage,
@@ -531,7 +533,12 @@ serve(async req => {
     semanticProvider = semanticClaim?.provider === 'gemini' ? 'gemini' : 'openai'
     semanticModel = cleanString(semanticClaim?.model, 120) || semanticModel
     semantic = {
-      plan: applyConversationScopeInventoryPolicy({ plan: cachedPlan, currentMessage, conversation: context.conversation }),
+      plan: applyConversationScopeInventoryPolicy({
+        plan: cachedPlan,
+        currentMessage,
+        conversation: context.conversation,
+        priorExecution: context.priorExecution,
+      }),
       usage: semanticClaim?.usage && typeof semanticClaim.usage === 'object'
         ? semanticClaim.usage as Record<string, number>
         : undefined,
@@ -581,6 +588,7 @@ serve(async req => {
       plan: semantic.plan,
       currentMessage,
       conversation: context.conversation,
+      priorExecution: context.priorExecution,
     })
 
     if (semantic.fallbackUsed) {
@@ -641,7 +649,7 @@ serve(async req => {
     autoCircuitBreakerActive: requestedModel === 'auto' && context.preferGeminiAuto,
     orchestrationProvider: semantic.provider,
     orchestrationModel: semantic.model,
-    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
+    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-active-operation-v1`,
     semanticSource,
     intent: semantic.plan.intent,
     executionMode: semantic.plan.executionMode,
@@ -652,6 +660,10 @@ serve(async req => {
     rejectedScopes: semantic.plan.conversationState?.rejectedScopes?.length || 0,
     enumerationTool: semantic.plan.enumerationTarget?.tool,
     enumerationObjectType: semantic.plan.enumerationTarget?.objectType,
+    enumerationCursor: semantic.plan.enumerationTarget?.cursor,
+    activeOperationKind: context.priorExecution?.activeOperation?.kind,
+    activeOperationCursor: context.priorExecution?.activeOperation?.nextCursor,
+    operationMove: semantic.plan.conversationState?.operationMove,
     knowledgeRequired: semantic.plan.knowledgeRequired,
     webMode: semantic.plan.webMode,
     fallbackUsed: semantic.fallbackUsed,

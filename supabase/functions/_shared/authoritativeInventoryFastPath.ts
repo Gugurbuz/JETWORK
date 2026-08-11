@@ -75,6 +75,7 @@ export const buildAuthoritativeInventoryFastPlan = (message: string): ReasoningP
       tool: 'list_class_inventory',
       objectType: 'class',
       prefix: null,
+      cursor: null,
     },
     orchestratorVersion: AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION,
   }

@@ -56,7 +56,7 @@ describe('Conversation Scope & Inventory Intelligence v1', () => {
         { role: 'assistant', content: '62 kayıt listelendi' },
       ],
     });
-    expect(plan.enumerationTarget).toEqual({ tool: 'list_class_inventory', objectType: 'class', prefix: null });
+    expect(plan.enumerationTarget).toEqual({ tool: 'list_class_inventory', objectType: 'class', prefix: null, cursor: null });
     expect(plan.conversationState?.topic).toBe('class envanteri');
     expect(plan.conversationState?.userMove).toBe('topic_shift');
     expect(plan.goal).toContain('semantic search yerine hedef listeleme capabilitysini kullan');
