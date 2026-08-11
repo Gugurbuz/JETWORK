@@ -1,0 +1,63 @@
+activeOperation),
+   } : undefined
+   const currentCreatedAtMs = Date.parse(currentCreatedAt)
+-  const previousStartedAtMs = Date.parse(String(previousRun?.started_at || ''))
++  const previousStartedAtMs = Date.parse(String(previousRun?.startedAt || ''))
+   const preferGeminiAuto = Boolean(
+-    previousRun?.fallback_used === true
++    previousRun?.fallbackUsed === true
+     && cleanString(previousRun?.provider, 40) === 'gemini'
+@@
+-    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
++    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-active-operation-v1`,
+@@
+-      plan: applyConversationScopeInventoryPolicy({ plan: cachedPlan, currentMessage, conversation: context.conversation }),
++      plan: applyConversationScopeInventoryPolicy({
++        plan: cachedPlan,
++        currentMessage,
++        conversation: context.conversation,
++        priorExecution: context.priorExecution,
++      }),
+@@
+     semantic.plan = applyConversationScopeInventoryPolicy({
+       plan: semantic.plan,
+       currentMessage,
+       conversation: context.conversation,
++      priorExecution: context.priorExecution,
+     })
+@@
+-    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-scope-inventory-v1`,
++    orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-active-operation-v1`,
+@@
+     enumerationTool: semantic.plan.enumerationTarget?.tool,
+     enumerationObjectType: semantic.plan.enumerationTarget?.objectType,
++    enumerationCursor: semantic.plan.enumerationTarget?.cursor,
++    activeOperationKind: context.priorExecution?.activeOperation?.kind,
++    activeOperationCursor: context.priorExecution?.activeOperation?.nextCursor,
++    operationMove: semantic.plan.conversationState?.operationMove,
+*** End Patch
+
+*** Begin Patch
+*** Update File: supabase/functions/openai-assistant-core-v2/implementation.ts
+@@
+ import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
++import {
++  evaluateGroundedTechnicalClaims,
++  groundingFailureText,
++  resultHasVerifiedKnowledgeEvidence,
++  shouldFailClosedGroundedAnswer,
++} from '../_shared/groundingGuard.ts'
+@@
+         try {
+           const result = await withTimeout(executeAssistantTool(client, workspaceId, toolName, args), TOOL_TIMEOUT_MS, toolName)
+-          toolResultCache.set(cacheKey, result); knowledgeUsed = true
+-          sources = uniqueSources([...sources, ...result.sources.map(source => ({ ...source, sourceType: 'knowledge' as const }))])
+-          evidence.push(evidenceExcerpt(toolName, result))
++          toolResultCache.set(cacheKey, result)
++          const verifiedKnowledgeEvidence = resultHasVerifiedKnowledgeEvidence(result)
++          if (verifiedKnowledgeEvidence) {
++            knowledgeUsed = true
++            sources = uniqueSources([...sources, ...result.sources.map(source => ({ ...source, sourceType: 'knowledge' as const }))])
++            evidence.push(evidenceExcerpt(toolName, result))
++          }
+           await logToolRun(a
