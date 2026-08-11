@@ -24,6 +24,8 @@ export function mergeAiChunk(previous: Message[], data: any): Message[] {
     groundingUrls: data.groundingUrls,
     knowledgeSources: data.knowledgeSources,
     tokenCount: data.tokenCount,
+    thinkingTime: data.thinkingTime,
+    actionSummary: data.actionSummary,
     phase: data.phase,
     phaseLabel: data.phaseLabel,
     isError: data.isError,
@@ -42,7 +44,8 @@ export function mergeAiChunk(previous: Message[], data: any): Message[] {
 }
 
 export function mergeAiEnd(previous: Message[], data: any): Message[] {
-  const existing = previous.some(message => message.id === data.id);
+  const existingMessage = previous.find(message => message.id === data.id);
+  const existing = Boolean(existingMessage);
   const patch = {
     text: data.text,
     thinkingText: data.thinkingText,
@@ -52,11 +55,13 @@ export function mergeAiEnd(previous: Message[], data: any): Message[] {
     groundingUrls: data.groundingUrls,
     knowledgeSources: data.knowledgeSources,
     tokenCount: data.tokenCount,
+    thinkingTime: data.thinkingTime,
+    actionSummary: data.actionSummary,
     phase: null,
     phaseLabel: undefined,
     isError: data.isError,
     isTyping: false,
-    createdAt: Date.now(),
+    createdAt: data.createdAt || existingMessage?.createdAt || Date.now(),
   };
   if (existing) {
     return previous.map(message => message.id === data.id ? { ...message, ...patch } : message);

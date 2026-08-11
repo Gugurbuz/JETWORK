@@ -26,6 +26,7 @@ interface WorkspaceViewProps {
     attachments?: MessageAttachment[],
     options?: MessageSendOptions,
   ) => Promise<void>;
+  onStopGeneration: () => void;
   onToggleReaction: (messageId: string, emoji: string) => Promise<void>;
   onToggleAiActive: () => void;
   onToggleZeroTouchMode: () => void;
@@ -73,6 +74,7 @@ export function WorkspaceView({
   channelRef,
   sessionId,
   onSendMessage,
+  onStopGeneration,
   onToggleReaction,
   onToggleAiActive,
   onToggleZeroTouchMode,
@@ -378,6 +380,7 @@ export function WorkspaceView({
         <ChatPanel
           messages={messages}
           onSendMessage={onSendMessage}
+          onStopGeneration={onStopGeneration}
           isGenerating={isGenerating || isDiscussing}
           issueKey={currentWorkspace?.issueKey}
           status={currentWorkspace?.status}

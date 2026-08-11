@@ -58,6 +58,25 @@ const stageNotesAsSummary = (notes: string[]): string | undefined => (
   notes.length ? notes.map(note => `• ${note}`).join('\n') : undefined
 );
 
+const USER_STOP_ABORT_MESSAGE = 'Generation stopped by the user.';
+
+const elapsedSecondsSince = (startedAt: number): number => (
+  Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+);
+
+const isAbortFailure = (error: unknown, controller: AbortController): boolean => (
+  controller.signal.aborted
+  || (error instanceof DOMException && error.name === 'AbortError')
+  || (error instanceof Error && error.name === 'AbortError')
+);
+
+const wasStoppedByUser = (controller: AbortController): boolean => {
+  const reason = controller.signal.reason;
+  return reason instanceof Error
+    ? reason.message === USER_STOP_ABORT_MESSAGE
+    : String(reason || '') === USER_STOP_ABORT_MESSAGE;
+};
+
 export const useMessages = (channelRef: any) => {
   const generationAbortRef = useRef<AbortController | null>(null);
   const user = useDataStore(state => state.user);
@@ -79,6 +98,12 @@ export const useMessages = (channelRef: any) => {
     const id = currentWorkspaceId;
     if (!id) return [];
     return useMessageStore.getState().messagesByWorkspace[id] || [];
+  };
+
+  const handleStopGeneration = () => {
+    const activeController = generationAbortRef.current;
+    if (!activeController || activeController.signal.aborted) return;
+    activeController.abort(new DOMException(USER_STOP_ABORT_MESSAGE, 'AbortError'));
   };
 
   const handleSendMessage = async (
@@ -404,6 +429,7 @@ export const useMessages = (channelRef: any) => {
           actionSummary: result.actionSummary,
           knowledgeSources: result.sources,
           tokenCount: result.usage?.total_tokens || result.usage?.totalTokens,
+          thinkingTime: elapsedSecondsSince(aiCreatedAt),
           phase: null,
           phaseLabel: undefined,
           isTyping: false,
@@ -433,14 +459,17 @@ export const useMessages = (channelRef: any) => {
         }
       } catch (error) {
         console.error('Single assistant runtime error:', error);
-        const wasAborted = error instanceof DOMException && error.name === 'AbortError';
+        const wasAborted = isAbortFailure(error, generationController);
+        const stoppedByUser = wasStoppedByUser(generationController);
         const failureDetail = error instanceof Error
           ? error.message
           : 'Yeni asistan yanıtı oluşturulamadı.';
         const failedMessage: Message = {
           id: aiMsgId,
           role: 'model',
-          text: streamedText
+          text: stoppedByUser
+            ? streamedText
+            : streamedText
             ? `${streamedText}\n\n> Yanıt tamamlanmadan bağlantı kesildi. Aşağıdaki tekrar deneme seçeneğini kullanabilirsin.`
             : (
               wasAborted
@@ -452,6 +481,12 @@ export const useMessages = (channelRef: any) => {
                 )
             ),
           thinkingText: stageNotesAsSummary(stageNotes),
+          thinkingTime: elapsedSecondsSince(aiCreatedAt),
+          actionSummary: stoppedByUser
+            ? (streamedText
+                ? 'Yanıt kullanıcı tarafından durduruldu; üretilen bölüm korundu.'
+                : 'Yanıt kullanıcı tarafından durduruldu.')
+            : undefined,
           knowledgeSources: streamedSources,
           isTyping: false,
           isError: !wasAborted,
@@ -472,7 +507,7 @@ export const useMessages = (channelRef: any) => {
           message.id === aiMsgId ? failedMessage : message
         )));
         broadcastMessage(channelRef, 'ai_stream_end', messageForRealtime(failedMessage));
-        if (!wasAborted) {
+        if (!wasAborted || stoppedByUser) {
           try {
             await saveAiMessage(currentWorkspaceId, user.uid, failedMessage);
             setMessages(previous => previous.map(message => (
@@ -613,6 +648,7 @@ export const useMessages = (channelRef: any) => {
         actionSummary: finalActionSummary,
         groundingUrls: loopOutput.groundingUrls,
         tokenCount: loopOutput.tokenCount,
+        thinkingTime: elapsedSecondsSince(aiCreatedAt),
         phase: null,
         phaseLabel: undefined,
         isTyping: false,
@@ -633,13 +669,42 @@ export const useMessages = (channelRef: any) => {
 
     } catch (error) {
       console.error('AI Error:', error);
-      const wasAborted = error instanceof DOMException && error.name === 'AbortError';
-      setMessages(prev => prev.map(m => m.id === aiMsgId ? { 
-        ...m, 
-        text: wasAborted ? 'Önceki üretim yeni talep nedeniyle iptal edildi.' : 'Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.',
+      const wasAborted = isAbortFailure(error, generationController);
+      const stoppedByUser = wasStoppedByUser(generationController);
+      const currentAiMessage = getCurrentMessages().find(message => message.id === aiMsgId);
+      const failedMessage: Message = {
+        ...(currentAiMessage || pendingAiMessage),
+        text: stoppedByUser
+          ? (currentAiMessage?.text || '')
+          : wasAborted
+            ? 'Önceki üretim yeni talep nedeniyle iptal edildi.'
+            : 'Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.',
+        thinkingTime: elapsedSecondsSince(aiCreatedAt),
+        actionSummary: stoppedByUser
+          ? (currentAiMessage?.text
+              ? 'Yanıt kullanıcı tarafından durduruldu; üretilen bölüm korundu.'
+              : 'Yanıt kullanıcı tarafından durduruldu.')
+          : currentAiMessage?.actionSummary,
+        phase: null,
+        phaseLabel: stoppedByUser ? 'Durduruldu' : undefined,
         isTyping: false,
         isError: !wasAborted,
-      } : m));
+      };
+      setMessages(prev => prev.map(message => message.id === aiMsgId ? failedMessage : message));
+      broadcastMessage(channelRef, 'ai_stream_end', messageForRealtime(failedMessage));
+      if (stoppedByUser) {
+        try {
+          await saveAiMessage(currentWorkspaceId, user.uid, failedMessage);
+          setMessages(previous => previous.map(message => (
+            message.id === failedMessage.id ? { ...message, persistenceStatus: 'saved' } : message
+          )));
+        } catch (persistError) {
+          console.error('Stopped assistant response could not be persisted:', persistError);
+          setMessages(previous => previous.map(message => (
+            message.id === failedMessage.id ? { ...message, persistenceStatus: 'failed' } : message
+          )));
+        }
+      }
     } finally {
       if (memoryEnabled) {
         extractKnowledgeItems(currentWorkspaceId, messageText).then(items => {
@@ -701,5 +766,11 @@ export const useMessages = (channelRef: any) => {
     await handleSendMessage('Bu konusmaya gore kapsamli kavramsal tasarim dokumani olustur. Kaynakta belirlenen surecleri, is gereklerini, KPI olcumlerini, ekran/toast/validasyon davranislarini, dokuman yonetimini, entegrasyonlari, test/UAT senaryolarini ve akis detaylarini BA Analiz icinde detaylandir; kaynakta olmayan degerleri uydurma ve Review bolumunde risk, varsayim, acik konu ve kalite bulgularini ayir.');
   };
 
-  return { handleSendMessage, handleToggleReaction, handleAcceptAiHandRaise, handleGenerateDocument };
+  return {
+    handleSendMessage,
+    handleStopGeneration,
+    handleToggleReaction,
+    handleAcceptAiHandRaise,
+    handleGenerateDocument,
+  };
 };

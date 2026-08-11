@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const mainSource = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8');
-const runtimeCss = readFileSync(new URL('../../assistant-runtime-ui.css', import.meta.url), 'utf8');
+const workIndicatorSource = readFileSync(new URL('../../components/AssistantWorkIndicator.tsx', import.meta.url), 'utf8');
 const repositorySource = readFileSync(new URL('../messageRepository.ts', import.meta.url), 'utf8');
 
 describe('assistant runtime presentation boundary', () => {
@@ -10,21 +10,22 @@ describe('assistant runtime presentation boundary', () => {
     expect(mainSource).toContain("import './assistant-runtime-ui.css'");
   });
 
-  it('shows only the branded live thinking indicator and hides raw reasoning bodies', () => {
-    expect(runtimeCss).toContain("details[class~='group/reasoning']:has(.jetwork-thinking)");
-    expect(runtimeCss).toContain("details[class~='group/reasoning']:has(.jetwork-thinking) > div");
-    expect(runtimeCss).toContain("details[class~='group/reasoning']:not(:has(.jetwork-thinking))");
-    expect(runtimeCss).toContain('display: none');
+  it('shows bounded operational activities without stage-level timing telemetry', () => {
+    expect(workIndicatorSource).toContain('buildAssistantWorkActivities');
+    expect(workIndicatorSource).toContain('Nasıl hazırlandı?');
+    expect(workIndicatorSource).not.toContain('plannerDuration');
+    expect(workIndicatorSource).not.toContain('toolDuration');
+    expect(workIndicatorSource).not.toContain('finalModelDuration');
   });
 
-  it('hides elapsed runtime telemetry from assistant message headers', () => {
-    expect(runtimeCss).toContain(".group:has([data-message-role='model'])");
-    expect(runtimeCss).toContain('span.text-xs.text-theme-text-muted.ml-2');
+  it('loads the dedicated work-indicator animation globally', () => {
+    expect(mainSource).toContain("import './assistant-work-indicator.css'");
+    expect(mainSource).not.toContain("import './thinking-legacy.css'");
   });
 
-  it('never persists single-runtime thinking progress into chat message rows', () => {
-    expect(repositorySource).toContain("hidesPrivateRuntimeTelemetry = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && message.role === 'model'");
-    expect(repositorySource).toContain('thinking_text: hidesPrivateRuntimeTelemetry ? null : message.thinkingText');
-    expect(repositorySource).toContain('thinking_time: hidesPrivateRuntimeTelemetry ? null : message.thinkingTime');
+  it('persists the safe work summary and total duration but keeps provider routing private', () => {
+    expect(repositorySource).toContain('thinking_text: message.thinkingText');
+    expect(repositorySource).toContain('thinking_time: message.thinkingTime');
+    expect(repositorySource).toContain('provider: hidesPrivateRuntimeTelemetry ? null : message.provider');
   });
 });
