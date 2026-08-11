@@ -7,6 +7,25 @@ const BULLET_NAME_PATTERN = /^-\s+\*\*([^*:\n]+)(?::\*\*)?/gm
 const ASSISTANT_MEMORY_START = '[JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE]'
 const ASSISTANT_MEMORY_END = '[END_JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE]'
 
+// Runtime/display failures are not conversational facts and must never become
+// topic memory. Keeping them in semantic context caused a failed Galatasaray
+// turn to make a later "Nasıl gidiyor" look like a continuation of that topic.
+const OPERATIONAL_ERROR_PATTERNS = [
+  /^load failed(?:\s|$)/iu,
+  /^bu çalışma alanında başka bir yanıt hâlâ hazırlanıyor/iu,
+  /^bu teknik yanıtı güvenli biçimde tamamlayamadım:/iu,
+  /^asistan yanıtı tamamlanamadı/iu,
+  /^asistan isteği başlatılamadı/iu,
+  /^önceki yanıt yeni talep nedeniyle iptal edildi/iu,
+  /^yanıt tamamlanmadan bağlantı kesildi/iu,
+  /lütfen tekrar deneyin\.?$/iu,
+]
+
+export const isAssistantOperationalErrorText = (value: unknown): boolean => {
+  const text = String(value ?? '').trim()
+  return Boolean(text && OPERATIONAL_ERROR_PATTERNS.some(pattern => pattern.test(text)))
+}
+
 const parseMeta = (text: string): Record<string, unknown> | null => {
   const match = text.match(META_PATTERN)
   if (!match?.[1]) return null
@@ -56,7 +75,7 @@ export const compactAssistantConversationMemory = (
   maxLength = 800,
 ): string => {
   const text = String(value ?? '').trim()
-  if (!text) return ''
+  if (!text || isAssistantOperationalErrorText(text)) return ''
 
   const deterministic = compactEnumerationMemory(text, maxLength)
   if (deterministic) return deterministic

@@ -65,6 +65,10 @@ export interface ConversationSemanticState {
 }
 
 export interface ReasoningPlan extends LegacyReasoningPlan {
+  // Corporate/project facts and public internet facts are different trust
+  // domains. knowledgeRequired is the enterprise execution compatibility flag;
+  // public web evidence lives only in webMode.
+  enterpriseGroundingRequired?: boolean
   executionMode?: ReasoningExecutionMode
   conversationState?: ConversationSemanticState
   enumerationTarget?: KnowledgeEnumerationTarget
@@ -75,12 +79,35 @@ export interface ReasoningPlan extends LegacyReasoningPlan {
 export const SEMANTIC_PLAN_START = '[JETWORK_SEMANTIC_PLAN]'
 export const SEMANTIC_PLAN_END = '[END_JETWORK_SEMANTIC_PLAN]'
 const SEMANTIC_PLAN_PATTERN = /\[JETWORK_SEMANTIC_PLAN\]\s*([\s\S]*?)\s*\[END_JETWORK_SEMANTIC_PLAN\]/i
+const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const ENTERPRISE_SURFACE_PATTERN = /(?:\bSAP\b|\bCRM\b|\bC4C\b|\bIS[- ]?U\b|\bFICA\b|\bABAP\b|\bJIRA\b|\bENERJISA\b|\bZ[A-Z0-9_]{2,}\b|\bCHECK_[A-Z0-9_]+\b|\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b)/i
+const BARE_TOPIC_QUESTION_PATTERN = /\b(?:ne|nedir|kim|nerede|ne zaman|nasil|neden|niye|hangi|hakkinda|anlat|acikla|bilgi|guncel|son durum|durum|performans|haber|kac|mi|mı|mu|mü|what|who|where|when|how|why|latest|current|news)\b/i
 
 const cleanStringArray = (value: unknown, limit = 8, maxLength = 500): string[] => (
   Array.isArray(value)
     ? value.map(item => String(item || '').trim().slice(0, maxLength)).filter(Boolean).slice(0, limit)
     : []
 )
+
+const normalizeForIntent = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[!?.,;:]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const currentMessageWithoutPlan = (message: string) => message.replace(SEMANTIC_PLAN_PATTERN, '').trim()
+
+const isBareTopicSurface = (message: string): boolean => {
+  const current = message.trim()
+  if (!current || current.length > 100 || /[?\n]/.test(current) || ENTERPRISE_SURFACE_PATTERN.test(current)) return false
+  const normalized = normalizeForIntent(current)
+  if (!normalized || BARE_TOPIC_QUESTION_PATTERN.test(normalized)) return false
+  const words = normalized.split(/\s+/).filter(Boolean)
+  return words.length >= 1 && words.length <= 4 && /^[\p{L}\p{M}\d.'’&+\- ]+$/u.test(current)
+}
 
 const normalizeKnownEntityAlias = (value: string) => {
   const raw = String(value || '').trim()
@@ -124,17 +151,82 @@ const promptProfileForPlan = (
   return 'base'
 }
 
-const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
+const bareTopicPlan = (message: string, orchestratorVersion: string): ReasoningPlan => ({
+  intent: 'simple_answer',
+  complexity: 'low',
+  goal: `Kullanıcı yalnızca "${message.slice(0, 100)}" konusunu yazdı. Neyi merak ettiğini tek kısa soruyla netleştir. Bilgi vermeye başlama; güncel durum, tarihçe, Enerjisa ilişkisi veya başka bir bağlam uydurma.`,
+  knowledgeRequired: false,
+  enterpriseGroundingRequired: false,
+  webMode: 'none',
+  verificationRequired: false,
+  creativeMode: false,
+  evidenceQueries: [],
+  steps: [{
+    id: 'clarify-bare-topic',
+    label: 'Kullanıcının bu konu hakkında ne öğrenmek istediğini netleştir',
+    toolHint: 'synthesis',
+    successCriteria: 'Yanıt yalnız kısa bir netleştirme sorusudur ve yeni fact üretmez.',
+  }],
+  executionMode: 'direct',
+  conversationState: {
+    continuation: false,
+    topic: message.slice(0, 500),
+    userMove: 'new_request',
+    operationMove: 'none',
+    priorIntent: 'none',
+    rejectedHypotheses: [],
+    rejectedScopes: [],
+    retainedContext: [],
+    openQuestions: [],
+    resolvedRequest: message.slice(0, 900),
+    activeEntities: [],
+    requestedEvidence: [],
+    userDecisions: [],
+    verifiedFactRefs: [],
+  },
+  orchestratorVersion: `${orchestratorVersion}-bare-topic-safety`,
+  promptProfile: 'base',
+})
+
+const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPlan | null => {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
   const intent = String(raw.intent || '') as ReasoningIntent
   const complexity = String(raw.complexity || '') as ReasoningComplexity
-  const webMode = String(raw.webMode || '') as WebMode
+  const rawWebMode = String(raw.webMode || '') as WebMode
   if (!['simple_answer','sap_diagnosis','research','analysis','document','decision','project'].includes(intent)) return null
   if (!['low','medium','high'].includes(complexity)) return null
-  if (!['none','required','if_internal_insufficient'].includes(webMode)) return null
+  if (!['none','required','if_internal_insufficient'].includes(rawWebMode)) return null
+
+  const rawGoal = String(raw.goal || '').trim().slice(0, 1_000)
+  const orchestratorVersion = String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80)
+  if (currentMessage && isBareTopicSurface(currentMessage)) {
+    return bareTopicPlan(currentMessage, orchestratorVersion)
+  }
+
+  const currentRoute = routeLegacyReasoningRequest(currentMessage || rawGoal)
+  const providerWebMarker = rawGoal.includes(PROVIDER_WEB_CAPABILITY_MARKER)
   const executionMode = String(raw.executionMode || '') as ReasoningExecutionMode
-  const knowledgeRequired = raw.knowledgeRequired === true
+  const rawKnowledgeRequired = raw.knowledgeRequired === true
+  const explicitEnterpriseFlag = typeof raw.enterpriseGroundingRequired === 'boolean'
+    ? raw.enterpriseGroundingRequired
+    : undefined
+
+  // Semantic orchestration previously encoded Gemini web capability by mutating
+  // knowledgeRequired=true and webMode=none. Repair that legacy encoding at the
+  // runtime trust boundary. Public web stays public; enterprise+web remains a
+  // hybrid plan and never loses enterprise grounding.
+  const routeSaysEnterprise = currentRoute.knowledgeRequired === true || ENTERPRISE_SURFACE_PATTERN.test(currentMessage)
+  const enterpriseGroundingRequired = explicitEnterpriseFlag ?? (
+    providerWebMarker ? (rawKnowledgeRequired && routeSaysEnterprise) : rawKnowledgeRequired
+  )
+  const knowledgeRequired = enterpriseGroundingRequired
+  const webMode: WebMode = providerWebMarker
+    ? (routeSaysEnterprise
+      ? (currentRoute.webMode !== 'none' ? currentRoute.webMode : 'if_internal_insufficient')
+      : (currentRoute.webMode !== 'none' ? currentRoute.webMode : 'required'))
+    : rawWebMode
+
   const evidenceRequiredSimpleAnswer = knowledgeRequired && intent === 'simple_answer'
   const normalizedIntent: ReasoningIntent = evidenceRequiredSimpleAnswer ? 'analysis' : intent
   const normalizedExecutionMode: ReasoningExecutionMode | undefined = evidenceRequiredSimpleAnswer
@@ -183,22 +275,24 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
     : []
   const profile = String(raw.promptProfile || '') as AssistantPromptProfile
   const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
-    ? profile
+    ? (webMode !== 'none' && profile === 'knowledge' && !knowledgeRequired ? 'research' : profile)
     : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode)
+  const cleanGoal = rawGoal.replace(PROVIDER_WEB_CAPABILITY_MARKER, '').trim()
   return {
     intent: normalizedIntent,
     complexity,
-    goal: String(raw.goal || '').trim().slice(0, 1_000) || 'Kullanıcı talebini bağlamı koruyarak doğru yanıtla.',
+    goal: cleanGoal || currentMessage || 'Kullanıcı talebini bağlamı koruyarak doğru yanıtla.',
     knowledgeRequired,
+    enterpriseGroundingRequired,
     webMode,
     verificationRequired: raw.verificationRequired === true,
     creativeMode: raw.creativeMode === true,
-    evidenceQueries: cleanStringArray(raw.evidenceQueries, 5, 400),
+    evidenceQueries: knowledgeRequired ? cleanStringArray(raw.evidenceQueries, 5, 400) : [],
     steps,
     executionMode: normalizedExecutionMode,
     conversationState,
     enumerationTarget: normalizeEnumerationTarget(raw.enumerationTarget),
-    orchestratorVersion: String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80),
+    orchestratorVersion,
     promptProfile,
   }
 }
@@ -206,11 +300,12 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
 export const semanticPlanFromMessage = (message: string): ReasoningPlan | null => {
   const match = message.match(SEMANTIC_PLAN_PATTERN)
   if (!match?.[1]) return null
-  try { return normalizeSemanticPlan(JSON.parse(match[1])) } catch { return null }
+  const currentMessage = currentMessageWithoutPlan(message)
+  try { return normalizeSemanticPlan(JSON.parse(match[1]), currentMessage) } catch { return null }
 }
 
 export const routingSurfaceFromMessage = (message: string) => (
-  legacyRoutingSurfaceFromMessage(message.replace(SEMANTIC_PLAN_PATTERN, '').trim())
+  legacyRoutingSurfaceFromMessage(currentMessageWithoutPlan(message))
 )
 
 export function routeReasoningRequest(message: string, attachmentCount = 0): ReasoningRoute {
@@ -239,9 +334,16 @@ export async function buildReasoningPlan(input: {
 }): Promise<{ plan: ReasoningPlan; usage?: Record<string, number>; plannerFallback: boolean }> {
   const semanticPlan = semanticPlanFromMessage(input.message)
   if (semanticPlan) return { plan: semanticPlan, plannerFallback: false }
-  return buildLegacyReasoningPlan(input) as Promise<{
+  const legacy = await buildLegacyReasoningPlan(input) as {
     plan: ReasoningPlan
     usage?: Record<string, number>
     plannerFallback: boolean
-  }>
+  }
+  return {
+    ...legacy,
+    plan: {
+      ...legacy.plan,
+      enterpriseGroundingRequired: legacy.plan.knowledgeRequired === true,
+    },
+  }
 }

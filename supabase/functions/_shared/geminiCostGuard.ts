@@ -1,7 +1,7 @@
 import type { ReasoningPlan } from './reasoningEngine.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
 
-export const GEMINI_COST_GUARD_VERSION = 'gemini-cost-guard-v1.2-token-budget'
+export const GEMINI_COST_GUARD_VERSION = 'gemini-cost-guard-v1.3-trust-domain-budget'
 export const GEMINI_AGENT_MODEL = 'gemini-3.5-flash-lite'
 export const GEMINI_SEMANTIC_MODEL = 'gemini-3.1-flash-lite'
 export const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
@@ -235,7 +235,10 @@ export const isBoundedKnowledgePlan = (plan: ReasoningPlan | null): boolean => B
 export const toolBudgetForPlan = (plan: ReasoningPlan | null): number => {
   if (!plan) return 4
   if (plan.enumerationTarget?.tool === 'list_class_inventory') return 1
-  if (!plan.knowledgeRequired && plan.webMode === 'none') return 0
+  // Public web research is executed by the provider-neutral preflight. Gemini's
+  // function declarations are enterprise/project tools only, so a non-enterprise
+  // plan gets zero function-call budget even when webMode is required.
+  if (!plan.knowledgeRequired) return 0
   if (isBoundedKnowledgePlan(plan)) return 1
   const high = plan.complexity === 'high'
   switch (plan.intent) {
@@ -245,7 +248,7 @@ export const toolBudgetForPlan = (plan: ReasoningPlan | null): number => {
     case 'decision': return high ? 4 : 3
     case 'project': return high ? 4 : 3
     case 'document': return plan.knowledgeRequired ? 2 : 0
-    case 'simple_answer': return plan.knowledgeRequired || plan.webMode !== 'none' ? 2 : 0
+    case 'simple_answer': return plan.knowledgeRequired ? 2 : 0
     default: return high ? 5 : 3
   }
 }
