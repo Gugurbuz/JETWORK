@@ -69,6 +69,12 @@ def apply_update(path: Path, lines: list[str]):
     hunks = split_hunks(lines)
     if not hunks:
         raise RuntimeError(f'No hunks for update target: {path}')
+
+    # Hunk line numbers are intentionally omitted by the custom patch format.
+    # Preserve standard-patch semantics by matching hunks monotonically in file
+    # order. This safely disambiguates repeated short contexts such as version
+    # markers without guessing across earlier sections of the file.
+    search_from = 0
     for index, hunk in enumerate(hunks, start=1):
         old_parts = []
         new_parts = []
@@ -90,10 +96,28 @@ def apply_update(path: Path, lines: list[str]):
         new = ''.join(new_parts)
         if not old:
             raise RuntimeError(f'Empty match pattern for {path} hunk {index}')
-        count = text.count(old)
-        if count != 1:
-            raise RuntimeError(f'Expected exactly one match for {path} hunk {index}, found {count}')
-        text = text.replace(old, new, 1)
+
+        position = text.find(old, search_from)
+        if position < 0:
+            # Some earlier replacement may alter text length but not ordering;
+            # retry globally only when the remaining candidate is unique.
+            candidates = []
+            cursor = 0
+            while True:
+                candidate = text.find(old, cursor)
+                if candidate < 0:
+                    break
+                candidates.append(candidate)
+                cursor = candidate + 1
+            if len(candidates) != 1:
+                raise RuntimeError(
+                    f'Could not uniquely place {path} hunk {index}; '
+                    f'{len(candidates)} global candidates remain after ordered search'
+                )
+            position = candidates[0]
+
+        text = text[:position] + new + text[position + len(old):]
+        search_from = position + len(new)
     path.write_text(text, encoding='utf-8')
 
 
