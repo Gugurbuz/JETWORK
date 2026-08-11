@@ -4,11 +4,14 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WorkspaceRouteBridge } from './components/WorkspaceRouteBridge';
+import { installAssistantTransportRecovery } from './services/assistantTransportRecovery';
 import './index.css';
 import './ai-native.css';
 import './mobile-workspace-nav.css';
 import './assistant-runtime-ui.css';
 import './assistant-work-indicator.css';
+
+installAssistantTransportRecovery();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
