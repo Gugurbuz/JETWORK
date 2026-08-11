@@ -15,6 +15,7 @@ export interface GroundingToolResultLike {
 
 export interface GroundingPlanLike {
   knowledgeRequired?: boolean
+  enterpriseGroundingRequired?: boolean
 }
 
 export interface GroundingCoverageResult {
@@ -54,6 +55,12 @@ const TECHNICAL_IDENTIFIER_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
 
+export const enterpriseGroundingRequiredForPlan = (plan: GroundingPlanLike): boolean => (
+  typeof plan.enterpriseGroundingRequired === 'boolean'
+    ? plan.enterpriseGroundingRequired
+    : plan.knowledgeRequired === true
+)
+
 export const extractTechnicalIdentifiers = (text: string): string[] => {
   const values = new Set<string>()
   const add = (value: string) => {
@@ -67,7 +74,10 @@ export const extractTechnicalIdentifiers = (text: string): string[] => {
 
 export const resultHasVerifiedKnowledgeEvidence = (result: GroundingToolResultLike) => (
   result.summary?.citationReady === true
-  && result.sources.some(source => Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120)))
+  && result.sources.some(source => (
+    source.sourceType !== 'web'
+    && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
+  ))
 )
 
 const parsedVerifiedRecords = (result: GroundingToolResultLike): Array<Record<string, unknown>> => {
@@ -100,9 +110,10 @@ const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: Grou
   }
   for (const result of toolResults) {
     if (!resultHasVerifiedKnowledgeEvidence(result)) continue
-    for (const source of result.sources) addText(source.canonicalKey)
-    // Technical identifiers inside citation-ready exact/detail/list records are
-    // themselves authoritative evidence. Candidate search output never enters here.
+    for (const source of result.sources) {
+      if (source.sourceType === 'web') continue
+      addText(source.canonicalKey)
+    }
     for (const record of parsedVerifiedRecords(result)) {
       addText(record.canonicalKey)
       addText(record.name)
@@ -133,7 +144,10 @@ const messageTitleMap = (sources: GroundingSourceLike[], toolResults: GroundingT
     if (!key || !safeTitle) return
     if (type === 'message' || /^[A-Z][A-Z0-9_]{2,}-\d{2,4}$/.test(key)) titles.set(key, safeTitle)
   }
-  for (const source of sources) put(source.canonicalKey, source.objectType, source.title)
+  for (const source of sources) {
+    if (source.sourceType === 'web') continue
+    put(source.canonicalKey, source.objectType, source.title)
+  }
   for (const result of toolResults) {
     for (const record of parsedVerifiedRecords(result)) put(record.canonicalKey, record.objectType, record.title)
   }
@@ -172,15 +186,13 @@ export const evaluateGroundedTechnicalClaims = (input: {
   sources: GroundingSourceLike[]
   toolResults: GroundingToolResultLike[]
 }): GroundingCoverageResult => {
-  if (!input.plan.knowledgeRequired) {
+  if (!enterpriseGroundingRequiredForPlan(input.plan)) {
     return { ok: true, verifiedKnowledgeEvidence: false, unsupportedIdentifiers: [], messageTextMismatches: [] }
   }
+
   const verifiedResults = input.toolResults.filter(resultHasVerifiedKnowledgeEvidence)
   const verifiedKnowledgeEvidence = verifiedResults.length > 0 || input.sources.some(source => (
     source.sourceType !== 'web' && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
-  ))
-  const verifiedWebEvidence = input.sources.some(source => (
-    source.sourceType === 'web' && /^https?:\/\//i.test(clean(source.url, 2_000))
   ))
   const supported = verifiedIdentifierSet(input.sources, verifiedResults)
   const responseIdentifiers = extractTechnicalIdentifiers(input.text)
@@ -193,9 +205,10 @@ export const evaluateGroundedTechnicalClaims = (input: {
     return [{ identifier: claim.identifier, claimed: claim.claimed, expected }]
   })
 
-  const requiresKnowledgeIdentifierCoverage = responseIdentifiers.length > 0 || messageTextMismatches.length > 0
   return {
-    ok: (requiresKnowledgeIdentifierCoverage ? verifiedKnowledgeEvidence : (verifiedKnowledgeEvidence || verifiedWebEvidence))
+    // Enterprise facts are only satisfied by verified enterprise/project sources.
+    // A public URL can never satisfy the corporate grounding contract.
+    ok: verifiedKnowledgeEvidence
       && unsupportedIdentifiers.length === 0
       && messageTextMismatches.length === 0,
     verifiedKnowledgeEvidence,
@@ -207,7 +220,7 @@ export const evaluateGroundedTechnicalClaims = (input: {
 export const shouldFailClosedGroundedAnswer = (input: {
   plan: GroundingPlanLike
   coverage: GroundingCoverageResult
-}) => Boolean(input.plan.knowledgeRequired && !input.coverage.ok)
+}) => Boolean(enterpriseGroundingRequiredForPlan(input.plan) && !input.coverage.ok)
 
 export const groundingFailureText = () => (
   'Bu teknik yanıtı güvenli biçimde tamamlayamadım: üretilen taslakta doğrulanmış kurumsal kanıtın kapsamadığı teknik ayrıntılar vardı. Yanlış mesaj, metot, sınıf veya kod uydurmamak için bu ayrıntıları göstermiyorum.'
