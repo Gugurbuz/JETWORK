@@ -1,7 +1,7 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v4-deterministic-greetings'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v5-social-intent'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -19,8 +19,9 @@ export type TrivialFastPathProvider = 'openai' | 'gemini'
 
 const TRIVIAL_FAST_PATH_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
-  'Kullanıcının gündelik teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
+  'Kullanıcının gündelik selamlaşma, hal-hatır, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
   'Selamlaşma ifadesini başka bir selamlaşma biçimine dönüştürme; örneğin "selam" ifadesine "aleykümselam" deme.',
+  'Kullanıcı istemedikçe önceki teknik/kurumsal konuyu bu mesaja taşıma; gündelik hal-hatır sorusunu önceki konunun devamı sayma.',
   'Kullanıcı istemedikçe Enerjisa, SAP, süreç, teknik talep, yetenek listesi veya soru menüsü ekleme.',
   'Yanıtı en fazla iki kısa cümle tut.',
 ].join('\n')
@@ -34,7 +35,7 @@ const normalizeConversationText = (value: string) => value
   .replace(/\s+/g, ' ')
   .trim()
 
-const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|naber|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
+const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going|thanks|thank you|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
 
 const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
@@ -49,8 +50,15 @@ const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['gunaydin', 'Günaydın! Nasıl yardımcı olabilirim?'],
   ['iyi aksamlar', 'İyi akşamlar! Nasıl yardımcı olabilirim?'],
   ['iyi geceler', 'İyi geceler! Nasıl yardımcı olabilirim?'],
-  ['nasilsin', 'İyiyim, teşekkürler. Sana nasıl yardımcı olabilirim?'],
-  ['naber', 'İyiyim, teşekkürler. Sana nasıl yardımcı olabilirim?'],
+  ['nasilsin', 'İyiyim, teşekkürler. Sen nasılsın?'],
+  ['nasil gidiyor', 'İyi gidiyor, teşekkürler. Sende nasıl gidiyor?'],
+  ['ne haber', 'İyiyim, teşekkürler. Senden ne haber?'],
+  ['naber', 'İyiyim, teşekkürler. Senden ne haber?'],
+  ['iyi misin', 'İyiyim, teşekkürler. Sen nasılsın?'],
+  ['how are you', 'I’m doing well, thanks. How are you?'],
+  ['how s it going', 'It’s going well, thanks. How’s it going for you?'],
+  ['thanks', 'You’re welcome!'],
+  ['thank you', 'You’re welcome!'],
   ['tesekkur', 'Rica ederim!'],
   ['tesekkurler', 'Rica ederim!'],
   ['tesekkur ederim', 'Rica ederim!'],
@@ -93,8 +101,8 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
   const model = cleanString(input.model, 80)
   if (!model) return false
   if (model !== 'auto' && !GEMINI_FAST_PATH_MODELS.has(model) && !OPENAI_FAST_PATH_MODELS.has(model)) return false
-  // An exact greeting/thanks is context-free by definition. Stale attachment state
-  // must not force it through semantic orchestration; context-sensitive acknowledgements
+  // Exact social turns are context-free by definition. Stale attachment state
+  // must not force them through semantic orchestration; context-sensitive acknowledgements
   // such as "tamam" remain blocked by the gateway before this helper is called.
   return TRIVIAL_CONVERSATION_PATTERN.test(normalizeConversationText(input.message))
 }
@@ -185,9 +193,6 @@ async function requestGeminiTrivialResponse(input: {
   model: string
   message: string
 }): Promise<TrivialAssistantFastPathResult> {
-  // Exact trivial turns are latency-sensitive and do not need the shared
-  // reasoning/document provider stack. Use the REST API directly so the Edge
-  // isolate does not need to resolve and initialize the Google SDK first.
   const thinkingLevel = input.model === TRIVIAL_GEMINI_LATENCY_MODEL || input.model === 'gemini-3.5-flash-lite'
     ? 'minimal'
     : 'low'
