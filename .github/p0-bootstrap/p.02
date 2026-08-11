@@ -1,0 +1,70 @@
+ecord<string, unknown>>)
++      return values
++    }
++    return []
++  } catch {
++    return []
++  }
++}
++
++const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: GroundingToolResultLike[]) => {
++  const supported = new Set<string>()
++  const addText = (value: unknown) => {
++    for (const identifier of extractTechnicalIdentifiers(clean(value))) supported.add(identifier)
++  }
++  for (const source of sources) {
++    if (source.sourceType === 'web') continue
++    addText(source.canonicalKey)
++  }
++  for (const result of toolResults) {
++    if (!resultHasVerifiedKnowledgeEvidence(result)) continue
++    for (const source of result.sources) addText(source.canonicalKey)
++    // Technical identifiers inside citation-ready exact/detail/list records are
++    // themselves authoritative evidence. Candidate search output never enters here.
++    for (const record of parsedVerifiedRecords(result)) {
++      addText(record.canonicalKey)
++      addText(record.name)
++      addText(record.title)
++      addText(record.summary)
++      addText(record.content)
++    }
++    try {
++      const parsed = JSON.parse(result.output)
++      if (parsed?.records?.relations && Array.isArray(parsed.records.relations)) {
++        for (const relation of parsed.records.relations) {
++          if (!relation || typeof relation !== 'object') continue
++          addText((relation as Record<string, unknown>).sourceCanonicalKey)
++          addText((relation as Record<string, unknown>).targetCanonicalKey)
++        }
++      }
++    } catch { /* ignore malformed output */ }
++  }
++  return supported
++}
++
++const messageTitleMap = (sources: GroundingSourceLike[], toolResults: GroundingToolResultLike[]) => {
++  const titles = new Map<string, string>()
++  const put = (canonicalKey: unknown, objectType: unknown, title: unknown) => {
++    const type = clean(objectType, 40).toLocaleLowerCase('en-US')
++    const key = canonicalIdentifier(clean(canonicalKey, 320))
++    const safeTitle = stripMessageDecorators(clean(title, 2_000))
++    if (!key || !safeTitle) return
++    if (type === 'message' || /^[A-Z][A-Z0-9_]{2,}-\d{2,4}$/.test(key)) titles.set(key, safeTitle)
++  }
++  for (const source of sources) put(source.canonicalKey, source.objectType, source.title)
++  for (const result of toolResults) {
++    for (const record of parsedVerifiedRecords(result)) put(record.canonicalKey, record.objectType, record.title)
++  }
++  return titles
++}
++
++const exactMessageClaims = (text: string): Array<{ identifier: string; claimed: string }> => {
++  const lines = clean(text).split(/\r?\n/)
++  const claims: Array<{ identifier: string; claimed: string }> = []
++  let activeMessage = ''
++  for (const line of lines) {
++    const code = line.toLocaleUpperCase('en-US').match(MESSAGE_CODE_PATTERN)?.[0]
++    if (code) activeMessage = canonicalIdentifier(code)
++    const labeled = line.match(/(?:Mesaj\s*Metni|Message\s*Text)\s*:\s*(.+)$/iu)
++    if (labeled?.[1] && activeMessage) {
++      claims.push({ identifi
