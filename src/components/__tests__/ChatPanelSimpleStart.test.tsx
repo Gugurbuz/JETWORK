@@ -44,14 +44,14 @@ describe('ChatPanel simple BA start', () => {
     expect(html).not.toContain('data-testid="question-option"');
   });
 
-  it('keeps the branded thinking indicator visible while reasoning is streaming', () => {
+  it('keeps the branded thinking indicator and a real current activity while reasoning is streaming', () => {
     const html = renderPanel([{
       id: 'm1',
       role: 'model',
       text: '',
       isTyping: true,
-      thinkingText: '**Bağlam**\nBilgi bankası taranıyor.',
-      phaseLabel: 'Bilgi bankasında ilgili kayıtlar seçiliyor.',
+      thinkingText: '• Talep bağlamı inceleniyor\n• Bilgi bankası taranıyor',
+      phaseLabel: 'Bilgi bankasında ilgili kayıtlar seçiliyor',
       createdAt: Date.now(),
     }]);
 
@@ -59,13 +59,14 @@ describe('ChatPanel simple BA start', () => {
     expect(html).toContain('assistant-work__logo-motion');
     expect(html).toContain('Düşünüyor');
     expect(html).toContain(' sn');
-    expect(html).toContain('Ayrıntıları gizle');
-    expect(html).toContain('Bilgi bankasında ilgili kayıtlar seçiliyor.');
-    expect(html).toContain('Durdur');
+    expect(html).toContain('Çalışma ayrıntıları');
+    expect(html).toContain('Bilgi bankasında ilgili kayıtlar seçiliyor');
+    expect(html).not.toContain('>Durdur<');
+    expect(html).not.toContain('Arka planda çalışsın');
     expect(html).not.toContain('jetwork-thinking-dots');
   });
 
-  it('collapses completed work to a total duration and a how-it-was-made action', () => {
+  it('collapses completed work to a compact worked-duration line', () => {
     const html = renderPanel([{
       id: 'm1',
       role: 'model',
@@ -76,8 +77,9 @@ describe('ChatPanel simple BA start', () => {
       createdAt: Date.now() - 18_000,
     }]);
 
-    expect(html).toContain('18 sn’de hazırlandı');
-    expect(html).toContain('Nasıl hazırlandı?');
+    expect(html).toContain('18 sn çalıştı');
+    expect(html).not.toContain('18 sn’de hazırlandı');
+    expect(html).not.toContain('Nasıl hazırlandı?');
     expect(html).not.toContain('Planlama:');
     expect(html).not.toContain('Yanıt üretimi:');
   });
