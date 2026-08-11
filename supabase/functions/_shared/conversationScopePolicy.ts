@@ -262,7 +262,7 @@ export const applyConversationScopeInventoryPolicy = (input: {
         objectType: priorObjectType,
         tool: priorObjectType === 'class' ? 'list_class_inventory' : 'list_knowledge_catalog',
         prefix: priorObjectType === 'class' ? null : inventoryPrefix({ relationMode, cursor }),
-        cursor:
+        cursor,
         topic: relationMode ? 'hata mesajı ve metot envanteri' : undefined,
       })
     }
