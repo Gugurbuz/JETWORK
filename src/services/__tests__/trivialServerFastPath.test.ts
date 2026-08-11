@@ -21,6 +21,10 @@ const conflictHotfixMigration = readFileSync(
   new URL('../../../supabase/migrations/20260809102000_trivial_fast_path_turn_id_conflict_hotfix.sql', import.meta.url),
   'utf8',
 );
+const completionModelAllowlistMigration = readFileSync(
+  new URL('../../../supabase/migrations/20260812002000_allow_trivial_fast_path_latency_models.sql', import.meta.url),
+  'utf8',
+);
 
 describe('trivial assistant server fast path', () => {
   it('keeps exact conversational turns eligible for auto routing even when stale attachment state exists', () => {
@@ -119,5 +123,13 @@ describe('trivial assistant server fast path', () => {
       'on conflict on constraint assistant_reasoning_runs_turn_id_key do update',
     );
     expect(conflictHotfixMigration).not.toContain('on conflict (turn_id) do update');
+  });
+
+  it('allows every runtime trivial fast-path response model at DB completion', () => {
+    expect(completionModelAllowlistMigration).toContain("'gemini-3.1-flash-lite'");
+    expect(completionModelAllowlistMigration).toContain("'gemini-3.5-flash'");
+    expect(completionModelAllowlistMigration).toContain("'gemini-3.5-flash-lite'");
+    expect(completionModelAllowlistMigration).toContain("invalid_fast_path_completion");
+    expect(completionModelAllowlistMigration).not.toContain("'auto'");
   });
 });
