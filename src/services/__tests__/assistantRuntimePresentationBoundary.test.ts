@@ -24,15 +24,18 @@ describe('assistant runtime presentation boundary', () => {
     expect(mainSource).not.toContain("import './thinking-legacy.css'");
   });
 
-  it('keeps the desktop work indicator visibly animated with reduced-motion fallback', () => {
-    expect(workIndicatorCss).toContain('@keyframes assistant-work-orbit-spin');
-    expect(workIndicatorCss).toContain('.assistant-work__logo-stage::before');
-    expect(workIndicatorCss).toContain('assistant-work-reduced-pulse');
+  it('keeps desktop and mobile on the same work indicator animation', () => {
+    expect(workIndicatorCss).toContain('@keyframes assistant-work-logo-story');
+    expect(workIndicatorCss).toContain('animation: assistant-work-logo-story 4.4s cubic-bezier(0.45, 0, 0.2, 1) infinite;');
+    expect(workIndicatorCss).not.toContain('assistant-work-orbit-spin');
+    expect(workIndicatorCss).not.toContain('.assistant-work__logo-stage::before');
+    expect(workIndicatorCss).not.toContain('.assistant-work__logo-stage::after');
 
-    const reducedMotionBlock = workIndicatorCss.slice(workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'));
-    expect(reducedMotionBlock).toContain('.assistant-work__logo-motion');
-    expect(reducedMotionBlock).not.toMatch(/\.assistant-work__logo-motion\s*\{[^}]*animation:\s*none/);
-    expect(reducedMotionBlock).not.toMatch(/\.assistant-work__label\s*\{[^}]*animation:\s*none/);
+    const mobileBlock = workIndicatorCss.slice(
+      workIndicatorCss.indexOf('@media (max-width: 640px)'),
+      workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'),
+    );
+    expect(mobileBlock).not.toContain('assistant-work__logo-motion');
   });
 
   it('persists the safe work summary and total duration but keeps provider routing private', () => {
