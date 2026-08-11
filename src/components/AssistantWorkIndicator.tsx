@@ -120,7 +120,7 @@ const mergeObservedActivities = (
   previous: AssistantWorkActivity[],
   incoming: AssistantWorkActivity[],
 ): AssistantWorkActivity[] => {
-  const next = previous.map(activity => ({
+  const next: AssistantWorkActivity[] = previous.map(activity => ({
     ...activity,
     state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
   }));
@@ -289,6 +289,7 @@ export function AssistantWorkIndicator({
                 className="assistant-work__action"
                 onClick={() => setIsExpanded(previous => !previous)}
                 aria-expanded={isExpanded}
+                aria-label="Nasıl hazırlandı?"
               >
                 {isExpanded ? 'Ayrıntıları gizle' : 'Çalışma ayrıntıları'}
                 <ChevronDown className={cn('assistant-work__chevron', isExpanded && 'assistant-work__chevron--open')} aria-hidden="true" />

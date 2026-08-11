@@ -515,10 +515,10 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
     plan.webMode = 'if_internal_insufficient'
   }
 
-  // Short grounded knowledge turns are resolved deterministically by the provider
-  // boundary from conversationState.resolvedRequest. Avoid a duplicate core preflight
-  // search; complex/research turns keep compact evidence queries.
-  if (boundedKnowledgePlan(plan)) plan.evidenceQueries = []
+  // Short Gemini knowledge turns are resolved deterministically by the Gemini
+  // provider boundary. OpenAI still needs a core preflight query so the final
+  // model cannot skip tools and later trip the grounding completion guard.
+  if (boundedKnowledgePlan(plan) && provider === 'gemini') plan.evidenceQueries = []
   else if (plan.knowledgeRequired && !plan.evidenceQueries.length && plan.conversationState?.resolvedRequest) {
     plan.evidenceQueries = [cleanText(plan.conversationState.resolvedRequest, 350)]
   }
