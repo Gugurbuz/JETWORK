@@ -45,6 +45,19 @@ jobs:
       - name: Apply P0 source patch
         run: python .github/p0-bootstrap/apply_custom_patch.py /tmp/jetwork-p0.patch
 
+      - name: Update prior-execution contract assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/services/__tests__/providerEvidenceIntentIntegrity.test.ts')
+          text = path.read_text(encoding='utf-8')
+          old = "expect(gatewaySource).toContain('get_reasoning_debug_runs');"
+          new = "expect(gatewaySource).toContain('get_prior_assistant_execution_context');"
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one legacy prior-execution assertion, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -59,6 +72,7 @@ jobs:
           src/services/__tests__/conversationScopeInventoryV1.test.ts
           src/services/__tests__/inventoryRuntimeHardening.test.ts
           src/services/__tests__/edgeLatencyHardening.test.ts
+          src/services/__tests__/providerEvidenceIntentIntegrity.test.ts
 
       - name: Run full unit suite
         run: pnpm test
@@ -97,7 +111,8 @@ jobs:
             src/services/__tests__/conversationScopeInventoryV1.test.ts \
             src/services/__tests__/reasoningEnumerationTarget.test.ts \
             src/services/__tests__/p0HallucinationGroundingRegression.test.ts \
-            src/services/__tests__/enumerationFastPath.test.ts
+            src/services/__tests__/enumerationFastPath.test.ts \
+            src/services/__tests__/providerEvidenceIntentIntegrity.test.ts
           git add -u -- .github/p0-bootstrap .github/workflows/p0-active-operation-bootstrap.yml
           git diff --cached --check
           git status --short
