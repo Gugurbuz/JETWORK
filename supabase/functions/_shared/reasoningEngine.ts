@@ -44,12 +44,14 @@ export interface KnowledgeEnumerationTarget {
   tool: KnowledgeEnumerationTool
   objectType: string | null
   prefix: string | null
+  cursor: string | null
 }
 
 export interface ConversationSemanticState {
   continuation: boolean
   topic: string
   userMove: 'new_request' | 'follow_up' | 'correction' | 'rejection' | 'confirmation' | 'clarification' | 'topic_shift'
+  operationMove?: 'none' | 'continue' | 'refine' | 'abandon'
   priorIntent: ReasoningIntent | 'none'
   rejectedHypotheses: string[]
   rejectedScopes?: string[]
@@ -103,7 +105,10 @@ const normalizeEnumerationTarget = (value: unknown): KnowledgeEnumerationTarget 
   const prefix = raw.prefix === null || raw.prefix === undefined
     ? null
     : String(raw.prefix || '').trim().slice(0, 160) || null
-  return { tool, objectType, prefix }
+  const cursor = raw.cursor === null || raw.cursor === undefined
+    ? null
+    : String(raw.cursor || '').trim().slice(0, 320) || null
+  return { tool, objectType, prefix, cursor }
 }
 
 const promptProfileForPlan = (
@@ -146,6 +151,9 @@ const normalizeSemanticPlan = (value: unknown): ReasoningPlan | null => {
     userMove: ['new_request','follow_up','correction','rejection','confirmation','clarification','topic_shift'].includes(userMove)
       ? userMove
       : 'follow_up',
+    operationMove: ['none','continue','refine','abandon'].includes(String(stateRaw.operationMove || ''))
+      ? String(stateRaw.operationMove) as ConversationSemanticState['operationMove']
+      : 'none',
     priorIntent: ['none','simple_answer','sap_diagnosis','research','analysis','document','decision','project'].includes(priorIntent)
       ? priorIntent
       : 'none',

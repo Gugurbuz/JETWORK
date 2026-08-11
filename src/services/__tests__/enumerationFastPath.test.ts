@@ -33,13 +33,14 @@ describe('deterministic enumeration dispatch fast path', () => {
       tool: 'list_class_inventory',
       objectType: 'class',
       prefix: null,
+      cursor: null,
     }));
     expect(dispatch).toEqual({ toolName: 'list_class_inventory', arguments: {} });
   });
 
   it('follows list_knowledge_catalog pagination without asking a model to choose the next tool call', () => {
     const items: Array<Record<string, unknown>> = [
-      ...semanticItems({ tool: 'list_knowledge_catalog', objectType: 'message', prefix: 'ZCRMCOST' }),
+      ...semanticItems({ tool: 'list_knowledge_catalog', objectType: 'message', prefix: 'ZCRMCOST', cursor: null }),
       {
         type: 'function_call',
         name: 'list_knowledge_catalog',
@@ -69,7 +70,7 @@ describe('deterministic enumeration dispatch fast path', () => {
 
   it('stops dispatching after pagination is complete', () => {
     const items: Array<Record<string, unknown>> = [
-      ...semanticItems({ tool: 'list_knowledge_catalog', objectType: 'message', prefix: 'ZCRMCOST' }),
+      ...semanticItems({ tool: 'list_knowledge_catalog', objectType: 'message', prefix: 'ZCRMCOST', cursor: null }),
       {
         type: 'function_call',
         name: 'list_knowledge_catalog',
@@ -86,6 +87,24 @@ describe('deterministic enumeration dispatch fast path', () => {
       },
     ];
     expect(buildEnumerationFastPathDispatch(items)).toBeNull();
+  });
+
+  it('starts a resumed turn from the structured enumeration cursor', () => {
+    const dispatch = buildEnumerationFastPathDispatch(semanticItems({
+      tool: 'list_knowledge_catalog',
+      objectType: 'message',
+      prefix: null,
+      cursor: 'message:zcrm_price_key-045',
+    }));
+    expect(dispatch).toEqual({
+      toolName: 'list_knowledge_catalog',
+      arguments: {
+        objectType: 'message',
+        prefix: null,
+        cursor: 'message:zcrm_price_key-045',
+        limit: 25,
+      },
+    });
   });
 
   it('wires the Gemini fast path before the real provider call', () => {

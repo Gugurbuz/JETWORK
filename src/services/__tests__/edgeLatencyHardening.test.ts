@@ -21,6 +21,7 @@ describe('edge latency hardening', () => {
       tool: 'list_class_inventory',
       objectType: 'class',
       prefix: null,
+      cursor: null,
     });
     expect(plan?.orchestratorVersion).toBe(AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION);
   });

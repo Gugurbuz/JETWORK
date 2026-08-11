@@ -1,0 +1,63 @@
+export type AssistantActiveOperationKind = 'knowledge_inventory'
+export type AssistantActiveOperationTool = 'list_knowledge_catalog' | 'list_class_inventory'
+
+export interface AssistantActiveOperation {
+  kind: AssistantActiveOperationKind
+  tool: AssistantActiveOperationTool
+  objectType: string | null
+  prefix: string | null
+  nextCursor: string | null
+  complete: boolean
+  totalCount?: number
+  collectedCount?: number
+  pageCount?: number
+  sourceTurnId?: string
+  sourceMessageId?: string
+}
+
+const cleanText = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
+const optionalCount = (value: unknown) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : undefined
+}
+
+export const normalizeAssistantActiveOperation = (value: unknown): AssistantActiveOperation | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Record<string, unknown>
+  if (raw.kind !== 'knowledge_inventory') return undefined
+  const tool = cleanText(raw.tool, 80) as AssistantActiveOperationTool
+  if (!['list_knowledge_catalog', 'list_class_inventory'].includes(tool)) return undefined
+  const nextCursor = cleanText(raw.nextCursor, 320) || null
+  const complete = raw.complete === true
+  if (!complete && !nextCursor) return undefined
+  return {
+    kind: 'knowledge_inventory',
+    tool,
+    objectType: raw.objectType == null ? null : cleanText(raw.objectType, 40) || null,
+    prefix: raw.prefix == null ? null : cleanText(raw.prefix, 160) || null,
+    nextCursor,
+    complete,
+    totalCount: optionalCount(raw.totalCount),
+    collectedCount: optionalCount(raw.collectedCount),
+    pageCount: optionalCount(raw.pageCount),
+    sourceTurnId: cleanText(raw.sourceTurnId, 200) || undefined,
+    sourceMessageId: cleanText(raw.sourceMessageId, 240) || undefined,
+  }
+}
+
+export type AssistantOperationMove = 'none' | 'continue' | 'refine' | 'abandon'
+
+export const shouldResumeAssistantActiveOperation = (input: {
+  activeOperation?: AssistantActiveOperation
+  operationMove?: AssistantOperationMove | string
+  semanticFallbackUsed?: boolean
+  fallbackContinuationHint?: boolean
+}) => Boolean(
+  input.activeOperation
+  && input.activeOperation.complete === false
+  && input.activeOperation.nextCursor
+  && (
+    input.operationMove === 'continue'
+    || (input.semanticFallbackUsed === true && input.fallbackContinuationHint === true)
+  )
+)

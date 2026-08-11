@@ -7,7 +7,7 @@ describe('reasoning enumeration target', () => {
       intent: 'analysis', complexity: 'low', goal: 'class envanteri', knowledgeRequired: true,
       webMode: 'none', verificationRequired: false, creativeMode: false, evidenceQueries: [], steps: [],
       executionMode: 'knowledge',
-      enumerationTarget: { tool: 'list_class_inventory', objectType: 'class', prefix: null },
+      enumerationTarget: { tool: 'list_class_inventory', objectType: 'class', prefix: null, cursor: null },
       conversationState: {
         continuation: true, topic: 'class envanteri', userMove: 'correction', priorIntent: 'analysis',
         rejectedHypotheses: [], rejectedScopes: ['zcrmcost'], retainedContext: [], openQuestions: [],

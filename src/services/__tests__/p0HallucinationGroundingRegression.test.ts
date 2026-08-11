@@ -42,34 +42,38 @@ describe('P0 hallucination grounding and inventory continuation', () => {
       tool: 'list_knowledge_catalog',
       objectType: 'message',
       prefix: '__jetwork_message_methods__',
+      cursor: null,
     })
     expect(result.evidenceQueries).toEqual([])
     expect(result.goal).toContain('exhaustive inventory')
   })
 
-  it('continues the reproduced second-75 request from the last verified message instead of semantic search', () => {
+  it('continues the reproduced second-75 request from structured prior execution state instead of assistant prose', () => {
     const result = applyConversationScopeInventoryPolicy({
-      plan: basePlan(),
+      plan: {
+        ...basePlan(),
+        orchestratorVersion: 'semantic-orchestrator-v3.4-active-operation',
+        conversationState: { ...basePlan().conversationState!, operationMove: 'continue' },
+      },
       currentMessage: '2. 75lik kısmı ver',
-      conversation: [
-        { role: 'user', content: 'Sistemdeki hata mesajlatı ve geçtikleri metotlatı listele' },
-        {
-          role: 'assistant',
-          content: [
-            '[JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE]',
-            'deterministic_enumeration_total=227',
-            'sample_records=ZB2B_CIKTI-000, ZB2B_CIKTI-001, ZCRM_PRICE_KEY-042, ZCRM_PRICE_KEY-045',
-            'observed_record_names=75',
-            '[END_JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE]',
-          ].join('\n'),
+      conversation: [],
+      priorExecution: {
+        activeOperation: {
+          kind: 'knowledge_inventory',
+          tool: 'list_knowledge_catalog',
+          objectType: 'message',
+          prefix: '__jetwork_message_methods__',
+          nextCursor: 'message:zcrm_price_key-045',
+          complete: false,
         },
-      ],
+      },
     })
 
     expect(result.enumerationTarget).toEqual({
       tool: 'list_knowledge_catalog',
       objectType: 'message',
-      prefix: '__jetwork_message_methods__|cursor=message:zcrm_price_key-045',
+      prefix: '__jetwork_message_methods__',
+      cursor: 'message:zcrm_price_key-045',
     })
     expect(result.evidenceQueries).toEqual([])
     expect(result.goal).toContain('message:zcrm_price_key-045')

@@ -11,11 +11,12 @@ import {
 } from './reasoningEngine.ts'
 import type { AssistantProvider } from './modelProviders.ts'
 import { GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost } from './geminiCostGuard.ts'
+import type { AssistantActiveOperation } from './operationState.ts'
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const SEMANTIC_RETRY_DELAYS_MS = [250] as const
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.3-resolved-context'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.4-active-operation'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 
 export interface SemanticContextMessage {
@@ -38,6 +39,7 @@ export interface PriorExecutionContext {
   activeEntities?: string[]
   requestedEvidence?: string[]
   verifiedFactRefs?: string[]
+  activeOperation?: AssistantActiveOperation
 }
 
 export interface SemanticOrchestrationResult {
@@ -93,6 +95,7 @@ const planSchema = {
         continuation: { type: 'boolean' },
         topic: { type: 'string' },
         userMove: { type: 'string', enum: ['new_request','follow_up','correction','rejection','confirmation','clarification','topic_shift'] },
+        operationMove: { type: 'string', enum: ['none','continue','refine','abandon'] },
         priorIntent: { type: 'string', enum: ['none','simple_answer','sap_diagnosis','research','analysis','document','decision','project'] },
         rejectedHypotheses: { type: 'array', items: { type: 'string' }, maxItems: 6 },
         retainedContext: { type: 'array', items: { type: 'string' }, maxItems: 6 },
@@ -104,7 +107,7 @@ const planSchema = {
         verifiedFactRefs: { type: 'array', items: { type: 'string' }, maxItems: 12 },
       },
       required: [
-        'continuation','topic','userMove','priorIntent','rejectedHypotheses','retainedContext','openQuestions',
+        'continuation','topic','userMove','operationMove','priorIntent','rejectedHypotheses','retainedContext','openQuestions',
         'resolvedRequest','activeEntities','requestedEvidence','userDecisions','verifiedFactRefs',
       ],
       additionalProperties: false,
@@ -121,6 +124,10 @@ const planSchema = {
 const instructions = [
   'You are the JetWork Semantic Orchestrator. You do not answer the user; you resolve the task and choose capabilities.',
   'Resolve the CURRENT USER MESSAGE using RECENT CONVERSATION and PRIOR EXECUTION metadata.',
+  'PRIOR EXECUTION may contain activeOperation. This is authoritative runtime state from a previously started operation, not assistant prose.',
+  'Classify conversationState.operationMove by meaning, never by a keyword list: continue = user wants the remaining/next/more results of the same incomplete operation without changing its scope; refine = user keeps the operation but changes its filter/projection; abandon = user moves to a different task or drills into a separate item; none = there is no applicable active operation.',
+  'Elliptical natural follow-ups asking for the rest, more, what else exists, or equivalent wording in any language should be operationMove=continue when activeOperation is incomplete. Do not require literal continuation words.',
+  'Never invent or rewrite activeOperation tool/filter/cursor values. The runtime, not the model, owns those execution arguments.',
   'For follow-ups such as "tam kod ver", "hata mesajı nedir", "onu göster", corrections and pronouns, produce a self-contained conversationState.resolvedRequest that explicitly carries the active topic/entity from prior USER messages or verifiedFactRefs.',
   'Never promote previous assistant prose into a verified fact. Previous assistant text may indicate conversational topic only; it is not evidence and must not invent activeEntities.',
   'activeEntities must contain literal/canonical enterprise identifiers that are explicit in user messages, verifiedFactRefs, or authoritative prior execution metadata. Never invent acronym expansions.',
@@ -361,6 +368,7 @@ const fallbackPlan = (
     continuation,
     topic,
     userMove,
+    operationMove: 'none',
     priorIntent: activePriorIntent,
     rejectedHypotheses,
     retainedContext: [
@@ -427,6 +435,9 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
     ...proposedState,
     continuation,
     topic: cleanText(proposedState.topic || fallbackState?.topic, 500),
+    operationMove: ['none','continue','refine','abandon'].includes(String(proposedState.operationMove || ''))
+      ? proposedState.operationMove
+      : (fallbackState?.operationMove || 'none'),
     rejectedHypotheses: unique([...(fallbackState?.rejectedHypotheses || []), ...(proposedState.rejectedHypotheses || [])]).slice(-6),
     rejectedScopes: unique([...(fallbackState?.rejectedScopes || []), ...(proposedState.rejectedScopes || [])]).slice(-6),
     retainedContext: cleanArray(proposedState.retainedContext?.length ? proposedState.retainedContext : fallbackState?.retainedContext, 6, 500),
