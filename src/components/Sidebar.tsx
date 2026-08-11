@@ -20,11 +20,14 @@ import {
   User,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import { Project, Workspace } from '../types';
 import { cn } from '../lib/utils';
 import { useDataStore } from '../store/useDataStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { STANDALONE_PROJECT_ID } from '../hooks/useProjects';
+import { moveWorkspaceToProject } from '../services/workspaceScopeRepository';
 import { JetWorkLogo } from './JetWorkLogo';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
@@ -102,17 +105,29 @@ export function Sidebar(props: SidebarProps) {
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [showUserMenu, setShowUserMenu] = React.useState(false);
+  const [movingChatId, setMovingChatId] = React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  const standaloneGroup = React.useMemo(
+    () => projects.find(project => project.id === STANDALONE_PROJECT_ID),
+    [projects],
+  );
+  const standaloneWorkspaces = standaloneGroup?.workspaces || [];
+  const actualProjects = React.useMemo(
+    () => projects.filter(project => project.id !== STANDALONE_PROJECT_ID),
+    [projects],
+  );
 
   // A mobile drawer is always expanded even if the desktop rail is collapsed.
   const compact = collapsed && !mobileOpen;
   const activeProject = React.useMemo(
-    () => projects.find(project => project.workspaces.some(workspace => workspace.id === currentWorkspaceId)),
-    [currentWorkspaceId, projects],
+    () => actualProjects.find(project => project.workspaces.some(workspace => workspace.id === currentWorkspaceId)),
+    [actualProjects, currentWorkspaceId],
   );
   const activeWorkspace = React.useMemo(
-    () => activeProject?.workspaces.find(workspace => workspace.id === currentWorkspaceId),
-    [activeProject, currentWorkspaceId],
+    () => standaloneWorkspaces.find(workspace => workspace.id === currentWorkspaceId)
+      || activeProject?.workspaces.find(workspace => workspace.id === currentWorkspaceId),
+    [activeProject, currentWorkspaceId, standaloneWorkspaces],
   );
 
   React.useEffect(() => setVisibleCount(PAGE_SIZE), [scope, lifecycle, query]);
@@ -143,7 +158,7 @@ export function Sidebar(props: SidebarProps) {
 
   const filtered = React.useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('tr-TR');
-    return projects.filter(project => {
+    return actualProjects.filter(project => {
       if (!projectMatchesScopeAndLifecycle(project)) return false;
       if (!normalized) return true;
       return [project.name, project.description, ...project.workspaces.map(workspace => workspace.title)]
@@ -152,11 +167,19 @@ export function Sidebar(props: SidebarProps) {
         .toLocaleLowerCase('tr-TR')
         .includes(normalized);
     });
-  }, [projectMatchesScopeAndLifecycle, projects, query]);
+  }, [actualProjects, projectMatchesScopeAndLifecycle, query]);
+
+  const visibleStandalone = React.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('tr-TR');
+    return standaloneWorkspaces
+      .filter(workspace => !workspace.deletedAt && !workspace.archivedAt)
+      .filter(workspace => !normalized || workspace.title.toLocaleLowerCase('tr-TR').includes(normalized))
+      .sort((a, b) => Number(b.lastUpdated || 0) - Number(a.lastUpdated || 0));
+  }, [query, standaloneWorkspaces]);
 
   const recentWorkspaces = React.useMemo(() => {
     const rows: Array<{ workspace: Workspace; project: Project }> = [];
-    projects.forEach(project => {
+    actualProjects.forEach(project => {
       const owned = project.ownerId === user?.uid;
       if ((scope === 'owned') !== owned || project.deletedAt || project.archivedAt) return;
       project.workspaces.forEach(workspace => {
@@ -166,7 +189,7 @@ export function Sidebar(props: SidebarProps) {
     return rows
       .sort((a, b) => Number(b.workspace.lastUpdated || 0) - Number(a.workspace.lastUpdated || 0))
       .slice(0, RECENT_CHAT_LIMIT);
-  }, [projects, scope, user?.uid]);
+  }, [actualProjects, scope, user?.uid]);
 
   const runMobileAction = React.useCallback((action: () => void) => {
     if (mobileOpen) setMobileOpen(false);
@@ -178,6 +201,17 @@ export function Sidebar(props: SidebarProps) {
   const startNewChat = () => runMobileAction(() => onQuickStart?.());
   const openNewProject = () => runMobileAction(() => setShowNewProjectModal(true));
   const canManage = (project: Project) => project.ownerId === user?.uid;
+
+  const moveStandaloneChat = async (workspaceId: string, projectId: string) => {
+    try {
+      await moveWorkspaceToProject(workspaceId, projectId);
+      setMovingChatId(null);
+      toast.success('Sohbet projeye taşındı.');
+    } catch (error) {
+      console.error('Failed to move standalone chat to project:', error);
+      toast.error('Sohbet projeye taşınamadı.');
+    }
+  };
 
   const openSettings = () => {
     runMobileAction(() => {
@@ -289,9 +323,71 @@ export function Sidebar(props: SidebarProps) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3 scrollbar-hide">
+            {lifecycle === 'active' && (
+              <section className="mb-5">
+                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Sohbetler</div>
+                <div className="space-y-0.5">
+                  {visibleStandalone.map(workspace => (
+                    <div key={workspace.id} className="group/chat relative flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => selectWorkspace(workspace.id)}
+                        title={workspace.title}
+                        className={cn(
+                          'flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 py-2 pr-8 text-left text-sm transition-colors',
+                          currentWorkspaceId === workspace.id
+                            ? 'bg-theme-surface-hover text-theme-text'
+                            : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
+                        )}
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-45" />
+                        <span className="truncate">{workspace.title}</span>
+                      </button>
+
+                      {workspace.ownerId === user?.uid && actualProjects.some(project => !project.deletedAt && !project.archivedAt) && (
+                        <button
+                          type="button"
+                          onClick={() => setMovingChatId(current => current === workspace.id ? null : workspace.id)}
+                          className="absolute right-1 flex h-7 w-7 items-center justify-center rounded-lg text-theme-text-muted opacity-0 transition-opacity hover:bg-theme-bg hover:text-theme-text group-hover/chat:opacity-100 focus:opacity-100"
+                          title="Sohbet seçenekleri"
+                          aria-label={`${workspace.title} seçenekleri`}
+                        >
+                          <MoreHorizontal size={13} />
+                        </button>
+                      )}
+
+                      {movingChatId === workspace.id && (
+                        <div className="absolute right-0 top-9 z-40 w-52 rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-xl">
+                          <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-theme-text-muted">Projeye taşı</div>
+                          {actualProjects
+                            .filter(project => !project.deletedAt && !project.archivedAt)
+                            .map(project => (
+                              <button
+                                type="button"
+                                key={project.id}
+                                onClick={() => void moveStandaloneChat(workspace.id, project.id)}
+                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text"
+                              >
+                                <Folder size={12} className="shrink-0" />
+                                <span className="truncate">{project.name}</span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {visibleStandalone.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-theme-text-muted">
+                      {query ? 'Aramana uygun bağımsız sohbet yok.' : 'Henüz bağımsız sohbet yok.'}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             {recentWorkspaces.length > 0 && lifecycle === 'active' && !query && (
               <section className="mb-5">
-                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Son sohbetler</div>
+                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Son proje sohbetleri</div>
                 <div className="space-y-0.5">
                   {recentWorkspaces.map(({ workspace, project }) => (
                     <button

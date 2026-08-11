@@ -88,6 +88,7 @@ export function useWorkspaceHandlers(
         project_id: data.projectId,
         issue_key: data.itemNumber,
         title: data.title,
+        title_source: 'user',
         type: 'Development',
         status: 'Draft',
         owner_id: user.uid,
@@ -152,7 +153,12 @@ export function useWorkspaceHandlers(
     try {
       const { error } = await supabase
         .from('workspaces')
-        .update({ title, last_updated: nowIso() })
+        .update({
+          title,
+          title_source: 'user',
+          title_generated_at: null,
+          last_updated: nowIso(),
+        })
         .eq('id', id)
         .select('id')
         .single();
@@ -221,25 +227,15 @@ export function useWorkspaceHandlers(
 
   const handleQuickStart = async () => {
     if (!user) return;
-    const projectId = crypto.randomUUID();
     const workspaceId = crypto.randomUUID();
     const timestamp = nowIso();
     try {
-      const { error: projectError } = await supabase.from('projects').insert({
-        id: projectId,
-        name: 'Yeni Sohbet',
-        description: 'Hızlı başlangıç sohbeti',
-        owner_id: user.uid,
-        created_at: timestamp,
-        last_updated: timestamp,
-      });
-      if (projectError) throw projectError;
-
       const { error: workspaceError } = await supabase.from('workspaces').insert({
         id: workspaceId,
-        project_id: projectId,
+        project_id: null,
         issue_key: `JET-${workspaceId.slice(0, 4).toUpperCase()}`,
-        title: 'Yeni Sohbet',
+        title: 'Yeni sohbet',
+        title_source: 'pending',
         type: 'Development',
         status: 'Draft',
         owner_id: user.uid,
@@ -253,10 +249,7 @@ export function useWorkspaceHandlers(
         created_at: timestamp,
         last_updated: timestamp,
       });
-      if (workspaceError) {
-        await supabase.from('projects').delete().eq('id', projectId);
-        throw workspaceError;
-      }
+      if (workspaceError) throw workspaceError;
       setCurrentProjectId(null);
       setCurrentWorkspaceId(workspaceId);
       useUIStore.getState().setMobileSidebarOpen(false);
@@ -275,10 +268,12 @@ export function useWorkspaceHandlers(
   };
 
   const handleAddParticipant = async (name: string, email: string) => {
-    if (!currentWorkspaceId || !currentWorkspace) return;
+    if (!currentWorkspaceId || !currentWorkspace || !user) return;
 
     if (currentWorkspace.collaborators.some(c => c.email === email)) {
-      alert('Bu kullanıcı zaten çalışma alanında.');
+      alert(currentWorkspace.projectId
+        ? 'Bu kullanıcı zaten bu çalışma alanında/projede kayıtlı.'
+        : 'Bu kullanıcı zaten çalışma alanında.');
       return;
     }
 
@@ -307,6 +302,18 @@ export function useWorkspaceHandlers(
     };
 
     try {
+      if (currentWorkspace.projectId) {
+        const { error: memberError } = await supabase
+          .from('project_members')
+          .upsert({
+            project_id: currentWorkspace.projectId,
+            user_id: newId,
+            role: 'member',
+            added_by: user.uid,
+          }, { onConflict: 'project_id,user_id' });
+        if (memberError) throw memberError;
+      }
+
       const nextCollaborators = [...(currentWorkspace.collaborators || []), newCollaborator];
       await updateCollaborators(currentWorkspaceId, nextCollaborators);
 
@@ -316,17 +323,23 @@ export function useWorkspaceHandlers(
         workspace_id: currentWorkspaceId,
         sender_name: 'Sistem',
         sender_role: 'System',
-        text: `**${name}** çalışma alanına eklendi.`,
+        text: currentWorkspace.projectId
+          ? `**${name}** projeye eklendi ve proje çalışma alanlarına erişim kazandı.`
+          : `**${name}** çalışma alanına eklendi.`,
         role: 'system',
         owner_id: user.uid,
         created_at: nowIso(),
       });
       if (msgErr) throw msgErr;
 
-      toast.success(`${name} başarıyla eklendi.`);
+      toast.success(currentWorkspace.projectId
+        ? `${name} projeye eklendi.`
+        : `${name} başarıyla eklendi.`);
     } catch (err) {
       console.error('Failed to add participant in database:', err);
-      toast.error('Katılımcı eklenirken bir hata oluştu.');
+      toast.error(currentWorkspace.projectId
+        ? 'Proje üyesi eklenirken bir hata oluştu.'
+        : 'Katılımcı eklenirken bir hata oluştu.');
     }
   };
 
@@ -336,9 +349,20 @@ export function useWorkspaceHandlers(
     const nextCollaborators = (currentWorkspace.collaborators || []).filter(c => c.id !== participantId);
 
     try {
+      if (currentWorkspace.projectId) {
+        const { error: memberError } = await supabase
+          .from('project_members')
+          .delete()
+          .eq('project_id', currentWorkspace.projectId)
+          .eq('user_id', participantId);
+        if (memberError) throw memberError;
+      }
       await updateCollaborators(currentWorkspaceId, nextCollaborators);
     } catch (err) {
       console.error('Failed to remove participant in database:', err);
+      toast.error(currentWorkspace.projectId
+        ? 'Proje üyesi çıkarılamadı.'
+        : 'Katılımcı çıkarılamadı.');
     }
   };
 
@@ -350,11 +374,24 @@ export function useWorkspaceHandlers(
     );
 
     try {
+      // Remove the legacy workspace collaborator marker while access is still
+      // available, then drop project membership for project-scoped workspaces.
       await updateCollaborators(currentWorkspaceId, nextCollaborators);
+      if (currentWorkspace.projectId) {
+        const { error: memberError } = await supabase
+          .from('project_members')
+          .delete()
+          .eq('project_id', currentWorkspace.projectId)
+          .eq('user_id', user.uid);
+        if (memberError) throw memberError;
+      }
       setCurrentWorkspaceId(null);
       setShowManageParticipantsModal(false);
     } catch (err) {
-      console.error('Failed to leave workspace in database:', err);
+      console.error('Failed to leave workspace/project in database:', err);
+      toast.error(currentWorkspace.projectId
+        ? 'Projeden ayrılamadınız.'
+        : 'Çalışma alanından ayrılamadınız.');
     }
   };
 
