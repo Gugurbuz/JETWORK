@@ -1,0 +1,69 @@
+ive-operation continuation', () => {
++  it.each([
++    'Diğerleri?',
++    'Peki geri kalanını göreyim.',
++    'What else is in that same list?',
++    '続きを見せて',
++  ])('resumes from the same authoritative cursor independent of wording: %s', currentMessage => {
++    const result = applyConversationScopeInventoryPolicy({
++      plan: plan('continue'), currentMessage, conversation: [], priorExecution,
++    })
++    expect(result.enumerationTarget).toEqual({
++      tool: 'list_knowledge_catalog', objectType: 'message', prefix: null,
++      cursor: 'message:zcrm_price_key-045',
++    })
++    expect(result.evidenceQueries).toEqual([])
++    expect(result.goal).toContain('message:zcrm_price_key-045')
++  })
++
++  it('does not reuse the stale cursor after a semantic topic shift', () => {
++    const result = applyConversationScopeInventoryPolicy({
++      plan: plan('abandon'), currentMessage: 'KTS ne demek?', conversation: [], priorExecution,
++    })
++    expect(result.enumerationTarget).toBeUndefined()
++  })
++
++  it('does not blindly reuse the old cursor when the user refines the operation', () => {
++    const result = applyConversationScopeInventoryPolicy({
++      plan: plan('refine'), currentMessage: 'Sadece ZCRM_COST olanları göster', conversation: [], priorExecution,
++    })
++    expect(result.enumerationTarget?.cursor).not.toBe('message:zcrm_price_key-045')
++  })
++
++  it('allows the old phrase matcher only when semantic orchestration is in safe fallback', () => {
++    const noFallback = applyConversationScopeInventoryPolicy({
++      plan: plan('none'), currentMessage: 'devam', conversation: [], priorExecution,
++    })
++    expect(noFallback.enumerationTarget).toBeUndefined()
++
++    const fallback = applyConversationScopeInventoryPolicy({
++      plan: plan('none', 'semantic-orchestrator-v3.4-active-operation-safe-fallback-provider-error'),
++      currentMessage: 'devam', conversation: [], priorExecution,
++    })
++    expect(fallback.enumerationTarget?.cursor).toBe('message:zcrm_price_key-045')
++  })
++})
+*** End Patch
+
+*** Begin Patch
+*** Add File: src/services/__tests__/groundingCoverageRegression.test.ts
++import { describe, expect, it } from 'vitest'
++import {
++  evaluateGroundedTechnicalClaims,
++  resultHasVerifiedKnowledgeEvidence,
++  shouldFailClosedGroundedAnswer,
++} from '../../../supabase/functions/_shared/groundingGuard'
++
++const verifiedMessage = (code: string, title: string) => ({
++  output: JSON.stringify({
++    securityNotice: 'UNTRUSTED_KNOWLEDGE_DATA',
++    tool: 'get_message_detail',
++    records: [{ canonicalKey: `message:${code.toLowerCase()}`, objectType: 'message', title }],
++  }),
++  sources: [{ canonicalKey: `message:${code.toLowerCase()}`, objectType: 'message', title, sourceId: 's1' }],
++  summary: { citationReady: true, resultCount: 1 },
++})
++
++describe('grounding claim coverage P0', () => {
++  it('does not count candidate-only semantic search as verified evidence', () => {
++    expect(resultHasVerifiedKnowledgeEvid
