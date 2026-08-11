@@ -8,6 +8,7 @@ const renderPanel = (messages: Message[] = []): string => renderToStaticMarkup(
   <ChatPanel
     messages={messages}
     onSendMessage={() => {}}
+    onStopGeneration={() => {}}
     isGenerating={false}
     isLoadingWorkspace={false}
     currentUser={{ name: 'Test', role: 'Analist' }}
@@ -50,12 +51,34 @@ describe('ChatPanel simple BA start', () => {
       text: '',
       isTyping: true,
       thinkingText: '**Bağlam**\nBilgi bankası taranıyor.',
-      createdAt: 1,
+      phaseLabel: 'Bilgi bankasında ilgili kayıtlar seçiliyor.',
+      createdAt: Date.now(),
     }]);
 
-    expect(html).toContain('jetwork-thinking');
-    expect(html).toContain('jetwork-thinking-orb');
-    expect(html).toContain('jetwork-thinking-dots');
+    expect(html).toContain('assistant-work');
+    expect(html).toContain('assistant-work__logo-motion');
     expect(html).toContain('Düşünüyor');
+    expect(html).toContain(' sn');
+    expect(html).toContain('Ayrıntıları gizle');
+    expect(html).toContain('Bilgi bankasında ilgili kayıtlar seçiliyor.');
+    expect(html).toContain('Durdur');
+    expect(html).not.toContain('jetwork-thinking-dots');
+  });
+
+  it('collapses completed work to a total duration and a how-it-was-made action', () => {
+    const html = renderPanel([{
+      id: 'm1',
+      role: 'model',
+      text: 'Hazır yanıt.',
+      isTyping: false,
+      thinkingText: '• Talep ve konuşma bağlamı incelendi.\n• Yanıt doğrulandı.',
+      thinkingTime: 18,
+      createdAt: Date.now() - 18_000,
+    }]);
+
+    expect(html).toContain('18 sn’de hazırlandı');
+    expect(html).toContain('Nasıl hazırlandı?');
+    expect(html).not.toContain('Planlama:');
+    expect(html).not.toContain('Yanıt üretimi:');
   });
 });

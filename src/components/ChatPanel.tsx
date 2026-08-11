@@ -13,6 +13,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { KnowledgeBankModal } from './KnowledgeBankModal';
 import { JetWorkLogo } from './JetWorkLogo';
+import { AssistantWorkIndicator } from './AssistantWorkIndicator';
 
 const contextualQuestionOptions = (question: Question): string[] => {
   return (question.options || [])
@@ -98,97 +99,6 @@ const InteractiveQuestions = ({ questions, onSubmit }: { questions: Question[], 
   );
 };
 
-const ThinkingIndicator = ({ label = 'Düşünüyor' }: { label?: string }) => (
-  <div
-    data-testid="thinking-indicator"
-    className="jetwork-thinking inline-flex w-fit items-center gap-2.5 rounded-full border border-[#FFC107]/30 bg-[#FFC107]/10 px-2.5 py-1.5 pr-4 text-theme-text shadow-[0_10px_28px_rgba(255,152,0,0.14)] backdrop-blur"
-    aria-live="polite"
-  >
-    <span className="jetwork-thinking-orb" aria-hidden="true">
-      <span className="jetwork-thinking-ring" />
-      <span className="jetwork-thinking-core">
-        <JetWorkLogo className="h-4 w-4" />
-      </span>
-      <span className="jetwork-thinking-spark jetwork-thinking-spark-one" />
-      <span className="jetwork-thinking-spark jetwork-thinking-spark-two" />
-    </span>
-    <span className="inline-flex items-center gap-1.5">
-      <span className="jetwork-thinking-text text-xs font-semibold tracking-tight">
-        {label}
-      </span>
-      <span className="jetwork-thinking-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
-    </span>
-  </div>
-);
-
-const MessageTimer = ({ isTyping }: { isTyping: boolean }) => {
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    if (isTyping) {
-      const timer = setInterval(() => setSeconds(s => s + 1), 1000);
-      return () => clearInterval(timer);
-    }
-  }, [isTyping]);
-  
-  if (isTyping) {
-    return <span>Running for {seconds}s</span>;
-  }
-  return <span>Took {seconds}s</span>;
-};
-
-const ReasoningProcess = ({ thinkingText, isTyping, groundingUrls }: { thinkingText: string, isTyping: boolean, groundingUrls?: { uri: string; title: string }[] }) => {
-  const getThinkingTitle = () => {
-    if (!thinkingText) return "Düşünce Süreci";
-    const matches = [...thinkingText.matchAll(/\*\*([^*]+)\*\*/g)];
-    if (matches.length > 0) {
-      return matches[matches.length - 1][1].trim();
-    }
-    return "Düşünce Süreci";
-  };
-
-  return (
-    <details className="group/reasoning mb-3 border border-theme-border/50 rounded-lg overflow-hidden bg-theme-surface/50">
-      <summary className="flex items-center gap-2 cursor-pointer list-none select-none p-3 bg-theme-surface hover:bg-theme-bg transition-colors [&::-webkit-details-marker]:hidden">
-        {isTyping ? (
-          <div className="min-w-0 flex-1">
-            <ThinkingIndicator />
-          </div>
-        ) : (
-          <span className="font-medium text-sm text-theme-text">
-            {getThinkingTitle()}
-          </span>
-        )}
-        <ChevronDown className="w-4 h-4 ml-auto text-theme-text-muted transition-transform group-open/reasoning:rotate-180" />
-      </summary>
-      
-      <div className="p-4 border-t border-theme-border/50 text-xs text-theme-text-muted font-mono whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-        {thinkingText}
-        
-        {/* Grounding URLs (Tools) */}
-        {groundingUrls && groundingUrls.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-theme-border/30">
-            <div className="flex items-center gap-2 font-medium text-sm text-theme-text-muted mb-2">
-              <Globe className="w-3.5 h-3.5" />
-              Web'de Araştırıldı
-            </div>
-            <div className="flex flex-col gap-1">
-              {groundingUrls.map((url, idx) => (
-                <a key={idx} href={url.uri} target="_blank" rel="noopener noreferrer" className="text-xs text-theme-primary hover:underline truncate max-w-full block">
-                  {url.title || url.uri}
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </details>
-  );
-};
-
 interface ChatPanelProps {
   messages: Message[];
   onSendMessage: (
@@ -196,6 +106,7 @@ interface ChatPanelProps {
     attachments?: MessageAttachment[],
     options?: MessageSendOptions,
   ) => void;
+  onStopGeneration?: () => void;
   isGenerating?: boolean;
   issueKey?: string;
   status?: string;
@@ -274,18 +185,6 @@ const ingestionLabel = (attachment: MessageAttachment): string | null => {
   return 'Taslak hazır';
 };
 
-const getLatestThought = (text: string) => {
-  if (!text) return "Düşünüyor...";
-  const lines = text.split('\n').filter(line => line.trim().length > 0);
-  if (lines.length === 0) return "Düşünüyor...";
-  let lastLine = lines[lines.length - 1].trim();
-  lastLine = lastLine.replace(/[*#`]/g, '');
-  if (lastLine.length > 60) {
-    return lastLine.substring(0, 60) + "...";
-  }
-  return lastLine;
-};
-
 const MessageItem = memo(({ 
   msg, 
   idx, 
@@ -294,6 +193,8 @@ const MessageItem = memo(({
   setDiffModalData, 
   onToggleReaction,
   onRetryMessage,
+  onStopGeneration,
+  onFollowUp,
   retryDisabled,
   isLastMessage
 }: { 
@@ -304,6 +205,8 @@ const MessageItem = memo(({
   setDiffModalData: (data: any) => void, 
   onToggleReaction?: (id: string, emoji: string) => void,
   onRetryMessage?: (payload: NonNullable<Message['retryPayload']>) => void,
+  onStopGeneration?: () => void,
+  onFollowUp?: (prompt: string) => void,
   retryDisabled?: boolean,
   isLastMessage?: boolean
 }) => {
@@ -328,6 +231,11 @@ const MessageItem = memo(({
   const userColor = msg.role === 'user' 
     ? (msg.senderColor || (msg.senderName === storeUser?.name && storeUser?.color ? storeUser.color : (msg.senderName ? stringToColor(msg.senderName) : null)))
     : null;
+  const isStopped = msg.role === 'model'
+    && /kullanıcı tarafından durduruldu/iu.test(msg.actionSummary || '');
+  const showsWorkIndicator = msg.role === 'model'
+    && (Boolean(msg.isTyping) || Boolean(msg.thinkingText) || msg.thinkingTime !== undefined);
+  const isWorkOnly = msg.role === 'model' && Boolean(msg.isTyping) && !msg.text;
 
   return (
     <motion.div 
@@ -377,11 +285,6 @@ const MessageItem = memo(({
               Puan: {msg.score}
             </span>
           )}
-          {msg.role === 'model' && (
-            <span className="text-xs text-theme-text-muted ml-2">
-              • <MessageTimer isTyping={!!msg.isTyping} />
-            </span>
-          )}
           {msg.isError && (
             <span className="ml-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
               Yanıt tamamlanamadı
@@ -409,7 +312,9 @@ const MessageItem = memo(({
           data-message-role={msg.role}
           className={cn(
             "text-sm text-theme-text leading-relaxed p-3 rounded-2xl shadow-sm border",
-            msg.isError
+            isWorkOnly
+              ? "border-transparent bg-transparent p-0 shadow-none rounded-none"
+              : msg.isError
               ? "bg-red-500/5 border-red-500/30 rounded-tr-sm"
               : msg.role === 'user'
                 ? "bg-theme-surface rounded-tl-sm"
@@ -420,41 +325,22 @@ const MessageItem = memo(({
             backgroundColor: `${userColor}08`
           } : undefined}
         >
-          {msg.isTyping && !msg.text && !msg.thinkingText ? (
-            <div className="flex flex-col gap-2">
-              <ThinkingIndicator />
-              {msg.phase && (
-                <div className="flex items-center gap-1.5 mt-1 w-full max-w-[220px]">
-                  {(['PLAN', 'RESEARCH', 'REFLECT', 'ACT'] as const).map((p) => {
-                    const order: Record<string, number> = { PLAN: 0, RESEARCH: 1, REFLECT: 2, ACT: 3 };
-                    const currentIdx = order[msg.phase as string] ?? -1;
-                    const thisIdx = order[p];
-                    const isActive = thisIdx === currentIdx;
-                    const isDone = thisIdx < currentIdx;
-                    return (
-                      <div
-                        key={p}
-                        className={cn(
-                          "h-1 flex-1 rounded-full transition-all duration-300",
-                          isDone && "bg-theme-primary",
-                          isActive && "bg-theme-primary/60 animate-pulse",
-                          !isDone && !isActive && "bg-theme-border"
-                        )}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3 mt-1">
-              {msg.thinkingText && (
-                <ReasoningProcess 
-                  thinkingText={msg.thinkingText} 
-                  isTyping={!!msg.isTyping} 
-                  groundingUrls={msg.groundingUrls} 
+          <div className="flex flex-col gap-3 mt-1">
+              {showsWorkIndicator ? (
+                <AssistantWorkIndicator
+                  isActive={Boolean(msg.isTyping)}
+                  startedAt={msg.createdAt}
+                  completedSeconds={msg.thinkingTime}
+                  activityText={msg.thinkingText}
+                  phaseLabel={msg.phaseLabel}
+                  knowledgeSources={msg.knowledgeSources}
+                  groundingUrls={msg.groundingUrls}
+                  isStopped={isStopped}
+                  onStop={msg.isTyping && isLastMessage ? onStopGeneration : undefined}
+                  onFollowUp={!msg.isTyping && isLastMessage ? onFollowUp : undefined}
+                  followUpDisabled={retryDisabled}
                 />
-              )}
+              ) : null}
               
               {msg.attachments && msg.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -529,18 +415,7 @@ const MessageItem = memo(({
                   }} 
                 />
               )}
-            </div>
-          )}
-          
-          {msg.role === 'model' && msg.isTyping && msg.text && (
-            <div className="mt-4 rounded-xl border border-dashed border-theme-border bg-theme-surface p-4 shadow-sm">
-              <ThinkingIndicator
-                label={FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-                  ? 'Yanıt hazırlanıyor'
-                  : 'Dokümanlar versiyonlanıyor'}
-              />
-            </div>
-          )}
+          </div>
 
           {msg.documentActions && msg.documentActions.length > 0 && (
             <div className="mt-4 p-4 bg-theme-surface border border-theme-border rounded-xl shadow-sm">
@@ -672,7 +547,7 @@ const MessageItem = memo(({
 });
 
 export function ChatPanel({ 
-  messages, onSendMessage, isGenerating, issueKey, status, title, projectName, 
+  messages, onSendMessage, onStopGeneration, isGenerating, issueKey, status, title, projectName,
   activeUsers, collaborators, typingUsers, 
   onTypingStart, onTypingEnd, onToggleReaction, currentUser,
   isAiActive, onToggleAiActive, aiHandRaised, onAcceptAiHandRaise, onDismissAiHandRaise,
@@ -1337,17 +1212,19 @@ export function ChatPanel({
                     idx={idx} 
                     currentUser={currentUser} 
                     onRestoreDocument={onRestoreDocument} 
-                     setDiffModalData={setDiffModalData}
-                     onToggleReaction={onToggleReaction}
-                     onRetryMessage={payload => {
+                    setDiffModalData={setDiffModalData}
+                    onToggleReaction={onToggleReaction}
+                    onRetryMessage={payload => {
                        void onSendMessage(payload.text, payload.attachments, {
                          replyToId: payload.replyToId,
                          retryMessageId: payload.messageId,
                          retryAiMessageId: payload.assistantMessageId,
                        });
-                     }}
-                     retryDisabled={isGenerating}
-                     isLastMessage={idx === messages.length - 1}
+                    }}
+                    onStopGeneration={onStopGeneration}
+                    onFollowUp={prompt => void onSendMessage(prompt, [])}
+                    retryDisabled={isGenerating}
+                    isLastMessage={idx === messages.length - 1}
                   />
                 ))
               )}

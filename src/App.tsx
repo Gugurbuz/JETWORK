@@ -160,6 +160,7 @@ export default function App() {
 
   const {
     handleSendMessage,
+    handleStopGeneration,
     handleAcceptAiHandRaise,
     handleGenerateDocument
   } = useMessages(channelRef);
@@ -301,6 +302,7 @@ export default function App() {
           channelRef={channelRef}
           sessionId={sessionId}
           onSendMessage={handleSendMessage}
+          onStopGeneration={handleStopGeneration}
           onToggleReaction={handleToggleReaction}
           onToggleAiActive={() => {
             const newValue = !isAiActive;

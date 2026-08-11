@@ -33,8 +33,10 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
 
   // Keep this list aligned with public.messages. UI-only fields must never reach PostgREST:
   // an unknown column makes the complete message write fail with HTTP 400.
-  // Runtime progress/reasoning/provider labels are transient observability metadata in the
-  // single assistant runtime and must never become durable user-visible conversation content.
+  // The single runtime exposes only bounded operational activity labels in thinkingText;
+  // private chain-of-thought is never placed there. Persist that safe summary and the total
+  // elapsed time so "Nasıl hazırlandı?" remains available after a reload. Provider routing
+  // metadata stays private.
   const candidates: Record<string, unknown> = {
     id: message.id,
     workspace_id: workspaceId,
@@ -51,7 +53,7 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
       ? new Date(Number(message.createdAt)).toISOString()
       : nowIso(),
     role: message.role,
-    thinking_text: hidesPrivateRuntimeTelemetry ? null : message.thinkingText,
+    thinking_text: message.thinkingText,
     agent_role: message.agentRole,
     action_summary: message.actionSummary,
     document_snapshot: message.documentSnapshot,
@@ -60,7 +62,7 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     score: message.score,
     score_explanation: message.scoreExplanation,
     token_count: message.tokenCount,
-    thinking_time: hidesPrivateRuntimeTelemetry ? null : message.thinkingTime,
+    thinking_time: message.thinkingTime,
     owner_id: ownerId ?? message.ownerId,
     raw_response: message.rawResponse,
     reply_to_id: message.replyToId,

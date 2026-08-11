@@ -1,46 +1,8 @@
 /*
  * Single Assistant Runtime presentation boundary.
  *
- * Backend status labels remain available to runtime observability, but the chat
- * surface exposes only the branded progress indicator while a response is live.
- * Completed messages never show internal routing/planning labels or elapsed
- * runtime telemetry.
+ * The chat surface renders only bounded operational activity labels emitted by
+ * the runtime. Private reasoning, provider-stage telemetry, and planner/tool/
+ * final-model timing breakdowns are intentionally absent from the component.
+ * Total user-visible elapsed time is styled by assistant-work-indicator.css.
  */
-
-.chat-scroll-container
-  .group:has([data-message-role='model'])
-  > .flex-1
-  > .flex.items-baseline
-  > span.text-xs.text-theme-text-muted.ml-2 {
-  display: none;
-}
-
-/* When the legacy reasoning container is carrying a live JetWork indicator,
- * reduce it to the indicator only. Never expose the accumulated status body. */
-details[class~='group/reasoning']:has(.jetwork-thinking) {
-  margin: 0;
-  border: 0;
-  background: transparent;
-  overflow: visible;
-}
-
-details[class~='group/reasoning']:has(.jetwork-thinking) > summary {
-  padding: 0;
-  background: transparent;
-  cursor: default;
-}
-
-details[class~='group/reasoning']:has(.jetwork-thinking) > summary:hover {
-  background: transparent;
-}
-
-details[class~='group/reasoning']:has(.jetwork-thinking) > summary > svg,
-details[class~='group/reasoning']:has(.jetwork-thinking) > div {
-  display: none;
-}
-
-/* Completed single-runtime reasoning/progress summaries are operational
- * metadata, not user content. Knowledge/web sources have their own cards. */
-details[class~='group/reasoning']:not(:has(.jetwork-thinking)) {
-  display: none;
-}
