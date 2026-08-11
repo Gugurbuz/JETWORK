@@ -30,10 +30,8 @@ jobs:
         with:
           node-version: '22.13.0'
 
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.9.0 --activate
+      - name: Install pnpm
+        run: npm install --global pnpm@11.9.0
 
       - name: Reassemble and verify P0 patch
         run: |
