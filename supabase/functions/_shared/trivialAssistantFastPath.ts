@@ -38,8 +38,8 @@ const normalizeConversationText = (value: string) => value
   .trim()
 
 const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going|thanks|thank you|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
-const ENTERPRISE_OR_TECHNICAL_SHORT_PATTERN = /(?:\bSAP\b|\bCRM\b|\bC4C\b|\bIS[- ]?U\b|\bFICA\b|\bABAP\b|\bJIRA\b|\bENERJISA\b|\bCHECK_[A-Z0-9_]+\b|\bZ[A-Z0-9_]{2,}\b|\b[A-Z][A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]{1,})+\b)/i
-const EXPLICIT_INFORMATION_OR_ARTIFACT_PATTERN = /(?:\?|\b(?:nedir|kimdir|kim|nerede|ne zaman|nasil|neden|niye|hangi|hakkinda|anlat|acikla|bilgi|guncel|son durum|durum|performans|haber|fiyat|hava|kac|what|who|where|when|how|why|latest|current|news|ara|arastir|bul|listele|analiz et|hazirla|olustur|yaz|kod|rapor|sunum|dokuman|excel|ppt|pdf)\b)/i
+const ENTERPRISE_OR_TECHNICAL_SHORT_PATTERN = /(?:\bSAP\b|\bCRM\b|\bC4C\b|\bIS[- ]?U\b|\bFICA\b|\bABAP\b|\bJIRA\b|\bENERJISA\b|\bCHECK_[A-Z0-9_]+\b|\bZ[A-Z0-9_]{2,}\b|\b[A-ZÇĞİÖŞÜ]{2,8}\b|\b[A-Z][A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]{1,})+\b)/
+const EXPLICIT_INFORMATION_OR_ARTIFACT_PATTERN = /(?:\?|\b(?:ne demek|nedir|kimdir|kim|nerede|ne zaman|nasil|neden|niye|hangi|hakkinda|anlat|acikla|anlami|bilgi|guncel|son durum|durum|performans|haber|fiyat|hava|kac|what|who|where|when|how|why|latest|current|news|ara|arastir|bul|listele|analiz et|hazirla|olustur|yaz|kod|rapor|sunum|dokuman|excel|ppt|pdf)\b)/i
 
 const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
@@ -109,7 +109,8 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
   const normalized = normalizeConversationText(input.message)
   if (!normalized) return false
 
-  // Canonical social turns remain deterministic and context-free.
+  // Exact trivial turns are latency-sensitive and context-free by definition.
+  // Stale attachment state must not force an exact greeting through semantic orchestration.
   if (TRIVIAL_CONVERSATION_PATTERN.test(normalized)) return true
 
   // A bounded universal short-turn lane handles typos, abbreviations, reactions
