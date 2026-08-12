@@ -38,8 +38,6 @@ const normalizeConversationText = (value: string) => value
   .trim()
 
 const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going|thanks|thank you|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
-const ENTERPRISE_OR_TECHNICAL_SHORT_PATTERN = /(?:\bSAP\b|\bCRM\b|\bC4C\b|\bIS[- ]?U\b|\bFICA\b|\bABAP\b|\bJIRA\b|\bENERJISA\b|\bCHECK_[A-Z0-9_]+\b|\bZ[A-Z0-9_]{2,}\b|\b[A-ZÇĞİÖŞÜ]{2,8}\b|\b[A-Z][A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]{1,})+\b)/
-const EXPLICIT_INFORMATION_OR_ARTIFACT_PATTERN = /(?:\?|\b(?:ne demek|nedir|kimdir|kim|nerede|ne zaman|nasil|neden|niye|hangi|hakkinda|anlat|acikla|anlami|bilgi|guncel|son durum|durum|performans|haber|fiyat|hava|kac|what|who|where|when|how|why|latest|current|news|ara|arastir|bul|listele|analiz et|hazirla|olustur|yaz|kod|rapor|sunum|dokuman|excel|ppt|pdf)\b)/i
 
 const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
@@ -111,19 +109,9 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
 
   // Exact trivial turns are latency-sensitive and context-free by definition.
   // Stale attachment state must not force an exact greeting through semantic orchestration.
-  if (TRIVIAL_CONVERSATION_PATTERN.test(normalized)) return true
-
-  // A bounded universal short-turn lane handles typos, abbreviations, reactions
-  // and low-risk daily language without forcing every possible phrase into a regex.
-  // Attachments and anything that looks technical, informational or artifact-producing
-  // stay on semantic orchestration.
-  if (input.attachmentCount > 0) return false
-  if (input.message.length > 96) return false
-  if (ENTERPRISE_OR_TECHNICAL_SHORT_PATTERN.test(input.message)) return false
-  if (EXPLICIT_INFORMATION_OR_ARTIFACT_PATTERN.test(normalized)) return false
-
-  const words = normalized.split(/\s+/).filter(Boolean)
-  return words.length >= 1 && words.length <= 7
+  // Ambiguous short text, typos and possible user tasks deliberately stay out of
+  // this lane so the semantic orchestrator can understand intent before answering.
+  return TRIVIAL_CONVERSATION_PATTERN.test(normalized)
 }
 
 const extractOpenAiText = (payload: Record<string, unknown>): string => {
