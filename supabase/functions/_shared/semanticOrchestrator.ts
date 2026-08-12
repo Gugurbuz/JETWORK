@@ -16,7 +16,7 @@ import type { AssistantActiveOperation } from './operationState.ts'
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 const SEMANTIC_RETRY_DELAYS_MS = [250] as const
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.4-active-operation'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'semantic-orchestrator-v3.5-evidence-policy'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 
 export interface SemanticContextMessage {
@@ -70,6 +70,7 @@ const planSchema = {
     executionMode: { type: 'string', enum: ['direct','knowledge','research','artifact','decision','project'] },
     goal: { type: 'string' },
     knowledgeRequired: { type: 'boolean' },
+    enterpriseGroundingRequired: { type: 'boolean' },
     webMode: { type: 'string', enum: ['none','required','if_internal_insufficient'] },
     verificationRequired: { type: 'boolean' },
     creativeMode: { type: 'boolean' },
@@ -115,7 +116,7 @@ const planSchema = {
     orchestratorVersion: { type: 'string' },
   },
   required: [
-    'intent','complexity','executionMode','goal','knowledgeRequired','webMode','verificationRequired',
+    'intent','complexity','executionMode','goal','knowledgeRequired','enterpriseGroundingRequired','webMode','verificationRequired',
     'creativeMode','evidenceQueries','promptProfile','steps','conversationState','orchestratorVersion',
   ],
   additionalProperties: false,
@@ -133,9 +134,14 @@ const instructions = [
   'activeEntities must contain literal/canonical enterprise identifiers that are explicit in user messages, verifiedFactRefs, or authoritative prior execution metadata. Never invent acronym expansions.',
   'requestedEvidence describes what proof is requested, for example message_text, trigger_rule, abap_source, document_content, definition, process_rule, comparison or decision.',
   'userDecisions contains only explicit user answers/decisions that may safely carry into an artifact or later turn. Do not put model assumptions there.',
-  'Corporate technical facts require JetWork knowledge evidence. Set knowledgeRequired=true for internal SAP/CRM/C4C/IS-U/FICA/Billing/Jira/product/process facts, exact technical identifiers and continuations of those tasks.',
+  'knowledgeRequired means JetWork should retrieve enterprise/project knowledge because it materially helps answer this turn. It is a capability decision, not a fail-closed policy.',
+  'enterpriseGroundingRequired means the final answer would assert authoritative organization-specific facts that must be verified before stating them. Use it for exact SAP/CRM/C4C/IS-U/FICA/Billing/Jira facts, exact identifiers/messages/methods/classes/code, internal business rules, and continuations that depend on those facts.',
+  'enterpriseGroundingRequired=true always implies knowledgeRequired=true. The reverse is not required: knowledge may be useful while strict grounding remains false.',
+  'General analysis, design thinking, evaluation, brainstorming, generic process analysis and ordinary advice do not require enterprise knowledge merely because intent=analysis. They may run direct when self-contained.',
+  'A correction, rejection or phrase like "hayır öyle değil" does not by itself require knowledge. Preserve strict grounding only when it continues an enterprise fact task that already requires it.',
+  'If knowledgeRequired=true but enterpriseGroundingRequired=false and no useful source is found, the assistant may continue with general reasoning while avoiding unverified organization-specific claims.',
   'Evidence queries must search the resolved request/entity, not the raw elliptical message. Keep them compact.',
-  'Set simple_answer/direct only for genuinely self-contained non-enterprise turns.',
+  'Any intent, including analysis, may use executionMode=direct when no knowledge, web, artifact or project capability is actually needed.',
   'Set webMode=required for explicitly live/current public verification; if_internal_insufficient only when external verification may be needed after internal evidence.',
   'Set document/artifact only when the user is creating/revising an artifact. Incidental words like analyze or create inside a technical statement are not artifact commands.',
   'Keep goal concise. Never append agent-loop policy, tool instructions or hidden chain-of-thought to goal.',
@@ -286,7 +292,7 @@ const executionModeForIntent = (
   if (intent === 'decision') return 'decision'
   if (intent === 'project') return 'project'
   if (intent === 'research' || webMode !== 'none') return 'research'
-  if (knowledgeRequired || intent === 'sap_diagnosis' || intent === 'analysis') return 'knowledge'
+  if (knowledgeRequired || intent === 'sap_diagnosis') return 'knowledge'
   return 'direct'
 }
 
@@ -299,7 +305,7 @@ const promptProfileFor = (
   if (executionMode === 'artifact') return 'artifact'
   if (intent === 'document') return 'document'
   if (webMode !== 'none' || intent === 'research') return 'research'
-  if (knowledgeRequired || ['analysis','sap_diagnosis'].includes(intent)) return 'knowledge'
+  if (knowledgeRequired || intent === 'sap_diagnosis') return 'knowledge'
   return 'base'
 }
 
@@ -334,21 +340,31 @@ const fallbackPlan = (
   const activePriorIntent: ReasoningIntent | 'none' = validPriorIntent === 'simple_answer' ? 'none' : validPriorIntent
   const continuation = Boolean(previousUser && activePriorIntent !== 'none')
   const userMove = fallbackUserMove(currentMessage, continuation)
-  const preserveKnowledgeTask = continuation && (
-    activePriorIntent === 'sap_diagnosis'
-    || activePriorIntent === 'analysis'
-    || priorExecution?.knowledgeUsed === true
-  )
-  const intent: ReasoningIntent = preserveKnowledgeTask && activePriorIntent !== 'none' ? activePriorIntent : currentRoute.intent
-  const knowledgeRequired = preserveKnowledgeTask || currentRoute.knowledgeRequired || userMove === 'rejection' || userMove === 'correction'
-  const webMode = currentRoute.webMode
-  const topic = fallbackTopic(conversation, currentMessage)
   const currentEntities = extractTechnicalEntities(currentMessage)
-  const activeEntities = unique([
-    ...currentEntities,
+  const priorEnterpriseEntities = unique([
     ...(priorExecution?.activeEntities || []),
     ...(priorExecution?.verifiedFactRefs || []),
     ...priorUserEntities(conversation),
+  ])
+  const preserveKnowledgeTask = continuation && (
+    activePriorIntent === 'sap_diagnosis'
+    || priorExecution?.knowledgeUsed === true
+  )
+  const intent: ReasoningIntent = preserveKnowledgeTask && activePriorIntent !== 'none' ? activePriorIntent : currentRoute.intent
+  const fallbackStrictEnterprise = Boolean(
+    intent === 'sap_diagnosis'
+    || currentEntities.length
+    || (continuation && activePriorIntent === 'sap_diagnosis')
+    || (currentRoute.knowledgeRequired && currentRoute.verificationRequired)
+    || (preserveKnowledgeTask && priorEnterpriseEntities.length)
+  )
+  const knowledgeRequired = fallbackStrictEnterprise || preserveKnowledgeTask || currentRoute.knowledgeRequired
+  const enterpriseGroundingRequired = fallbackStrictEnterprise
+  const webMode = currentRoute.webMode
+  const topic = fallbackTopic(conversation, currentMessage)
+  const activeEntities = unique([
+    ...currentEntities,
+    ...priorEnterpriseEntities,
   ]).slice(0, 10)
   const requestedEvidence = requestedEvidenceFor(currentMessage)
   const resolvedRequest = resolveRequest({
@@ -394,13 +410,14 @@ const fallbackPlan = (
     executionMode,
     goal: resolvedRequest || cleanText(currentMessage, 800),
     knowledgeRequired,
+    enterpriseGroundingRequired,
     webMode,
-    verificationRequired: currentRoute.verificationRequired || intent === 'sap_diagnosis',
+    verificationRequired: enterpriseGroundingRequired || currentRoute.verificationRequired || intent === 'sap_diagnosis',
     creativeMode: currentRoute.creativeMode,
     evidenceQueries,
     steps: [
-      ...(knowledgeRequired ? [{ id: 'evidence-internal', label: 'Çözümlenmiş talep için kurumsal kanıtı getir', toolHint: 'knowledge' as const, successCriteria: 'Aktif entity/talebi destekleyen doğrulanmış kanıt bulunur veya eksik olduğu belirlenir.' }] : []),
-      { id: 'synthesize', label: 'Kanıt ve konuşma bağlamıyla yanıtı üret', toolHint: 'synthesis', successCriteria: 'Yanıt resolvedRequest ile uyumludur ve kanıtsız teknik gerçek üretmez.' },
+      ...(knowledgeRequired ? [{ id: 'evidence-internal', label: 'Çözümlenmiş talep için kurumsal kanıtı getir', toolHint: 'knowledge' as const, successCriteria: 'Aktif entity/talebi destekleyen doğrulanmış kanıt bulunur veya kaynak olmadığı belirlenir.' }] : []),
+      { id: 'synthesize', label: 'Kanıt ve konuşma bağlamıyla yanıtı üret', toolHint: 'synthesis', successCriteria: enterpriseGroundingRequired ? 'Yanıt yalnız doğrulanmış kurumsal fact sınırları içinde kalır.' : 'Kurumsal kanıt yoksa doğrulanmamış kurum özeli uydurmadan genel çerçevede yanıtlanır.' },
     ],
     conversationState: state,
     orchestratorVersion: `${SEMANTIC_ORCHESTRATOR_VERSION}-safe-fallback`,
@@ -412,7 +429,6 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
   const intents: ReasoningIntent[] = ['simple_answer','sap_diagnosis','research','analysis','document','decision','project']
   const modes: ReasoningExecutionMode[] = ['direct','knowledge','research','artifact','decision','project']
   const intent = intents.includes(value.intent) ? value.intent : fallback.intent
-  const executionMode = value.executionMode && modes.includes(value.executionMode) ? value.executionMode : fallback.executionMode
   const proposedState = value.conversationState && typeof value.conversationState === 'object' ? value.conversationState : fallback.conversationState
   const fallbackState = fallback.conversationState
   const continuation = proposedState?.continuation === true || fallbackState?.continuation === true
@@ -448,38 +464,60 @@ const normalizePlan = (value: ReasoningPlan, fallback: ReasoningPlan): Reasoning
     userDecisions: unique([...(fallbackState?.userDecisions || []), ...cleanArray(proposedState.userDecisions, 10, 500)]).slice(-10),
     verifiedFactRefs: unique([...(fallbackState?.verifiedFactRefs || []), ...cleanArray(proposedState.verifiedFactRefs, 12, 320)]).slice(0, 12),
   } : fallbackState
-  const normalizedExecutionMode = executionMode || executionModeForIntent(intent, Boolean(value.knowledgeRequired), value.webMode)
-  const profile = String(value.promptProfile || '') as AssistantPromptProfile
-  const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
-    ? profile
-    : promptProfileFor(intent, normalizedExecutionMode, Boolean(value.knowledgeRequired), value.webMode)
-  const evidenceQueries = unique([
-    ...cleanArray(value.evidenceQueries, 5, 400),
-    ...(state?.resolvedRequest ? [state.resolvedRequest] : []),
-  ]).slice(0, 5)
+
+  const modelEnterpriseGrounding = value.enterpriseGroundingRequired === true
+  const fallbackEnterpriseGrounding = fallback.enterpriseGroundingRequired === true
+  const enterpriseGroundingRequired = Boolean(
+    intent === 'sap_diagnosis'
+    || modelEnterpriseGrounding
+    || fallbackEnterpriseGrounding
+    || (state?.continuation && state.priorIntent === 'sap_diagnosis')
+  )
+  const knowledgeRequired = Boolean(value.knowledgeRequired === true || enterpriseGroundingRequired)
+  const webMode = value.webMode || fallback.webMode
+  const requestedExecutionMode = value.executionMode && modes.includes(value.executionMode) ? value.executionMode : undefined
+  const derivedExecutionMode = executionModeForIntent(intent, knowledgeRequired, webMode)
+  const normalizedExecutionMode = requestedExecutionMode === 'knowledge' && !knowledgeRequired && intent !== 'sap_diagnosis'
+    ? derivedExecutionMode
+    : (knowledgeRequired && requestedExecutionMode === 'direct' ? derivedExecutionMode : (requestedExecutionMode || derivedExecutionMode))
+  const normalizedPromptProfile = promptProfileFor(intent, normalizedExecutionMode, knowledgeRequired, webMode)
+  const evidenceQueries = (knowledgeRequired || webMode !== 'none')
+    ? unique([
+        ...cleanArray(value.evidenceQueries, 5, 400),
+        ...(state?.resolvedRequest ? [state.resolvedRequest] : []),
+      ]).slice(0, 5)
+    : []
   const plan: ReasoningPlan = {
     ...fallback,
     ...value,
     intent,
+    knowledgeRequired,
+    enterpriseGroundingRequired,
     executionMode: normalizedExecutionMode,
     goal: cleanText(state?.resolvedRequest || value.goal || fallback.goal, 1_000),
     evidenceQueries,
     steps: Array.isArray(value.steps) ? value.steps.slice(0, 8) : fallback.steps,
     conversationState: state,
     orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
-    promptProfile,
+    promptProfile: normalizedPromptProfile,
+    verificationRequired: Boolean(value.verificationRequired === true || enterpriseGroundingRequired),
   }
   if (plan.knowledgeRequired && !plan.evidenceQueries.length && state?.resolvedRequest) plan.evidenceQueries = [state.resolvedRequest]
-  if (plan.intent === 'sap_diagnosis' || state?.userMove === 'rejection' || state?.userMove === 'correction') {
+  if (plan.intent === 'sap_diagnosis') {
+    plan.executionMode = 'knowledge'
     plan.knowledgeRequired = true
+    plan.enterpriseGroundingRequired = true
     plan.verificationRequired = true
+    plan.promptProfile = 'knowledge'
     if (plan.complexity === 'low') plan.complexity = 'medium'
   }
   if (state?.continuation && state.priorIntent === 'sap_diagnosis') {
     plan.intent = 'sap_diagnosis'
     plan.executionMode = 'knowledge'
     plan.knowledgeRequired = true
+    plan.enterpriseGroundingRequired = true
     plan.verificationRequired = true
+    plan.promptProfile = 'knowledge'
     if (plan.complexity === 'low') plan.complexity = 'medium'
   }
   return plan
@@ -532,9 +570,11 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
     },
     {
       id: 'synthesize',
-      label: 'Doğrulanmış kanıtlarla yanıtı sentezle',
+      label: plan.enterpriseGroundingRequired ? 'Doğrulanmış kanıtlarla yanıtı sentezle' : 'Kanıt varsa kullanarak yanıtı sentezle',
       toolHint: 'synthesis',
-      successCriteria: 'Yanıt resolvedRequest ile tutarlı ve kanıt sınırları açık olacak şekilde üretilir.',
+      successCriteria: plan.enterpriseGroundingRequired
+        ? 'Yanıt resolvedRequest ile tutarlı ve yalnız doğrulanmış enterprise fact sınırları içinde üretilir.'
+        : 'Kaynak yoksa doğrulanmamış kurum özeli uydurmadan genel reasoning ile yanıtlanır.',
     },
   ]
   return plan
