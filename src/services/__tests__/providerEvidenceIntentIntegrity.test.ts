@@ -27,7 +27,7 @@ const semanticFollowUp = (current: string) => {
   const plan = {
     intent: 'sap_diagnosis', complexity: 'medium', executionMode: 'knowledge',
     goal: 'Cost ekleme sırasında alınan uyumsuzluk hatasının vade dışındaki adaylarını doğrula.',
-    knowledgeRequired: true, webMode: 'none', verificationRequired: true, creativeMode: false,
+    knowledgeRequired: true, enterpriseGroundingRequired: true, webMode: 'none', verificationRequired: true, creativeMode: false,
     evidenceQueries: ['cost uyumsuz hata', 'ZCRM_COST uyumsuz'],
     steps: [
       { id: 'knowledge', label: 'Kurumsal hata kayıtlarını ara', toolHint: 'knowledge', successCriteria: 'Alternatif exact mesaj kayıtları bulunur.' },
@@ -52,7 +52,7 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(routeReasoningRequest('Teklif kaydederken uyumsuz hatası alıyorum')).toMatchObject({ intent: 'sap_diagnosis', knowledgeRequired: true, verificationRequired: true, webMode: 'none' });
   });
 
-  it('uses the AI semantic plan for natural follow-ups that repeat no technical keywords', async () => {
+  it('keeps explicit embedded technical continuation metadata compatible with the core', async () => {
     const message = semanticFollowUp('Hayır vade yazmadığına eminim başka bir şey yazıyordu');
     const route = routeReasoningRequest(message);
     expect(route).toMatchObject({ intent: 'sap_diagnosis', complexity: 'medium', knowledgeRequired: true, verificationRequired: true, webMode: 'none' });
@@ -63,7 +63,7 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(planned.plan.evidenceQueries).toContain('cost uyumsuz hata');
   });
 
-  it('prioritizes the newest conversation turns when semantic context is bounded', () => {
+  it('prioritizes the newest conversation turns when context is bounded', () => {
     const messages = Array.from({ length: 10 }, (_, index) => ({ role: index % 2 === 0 ? 'user' as const : 'assistant' as const, content: `${index}:${'x'.repeat(2_400)}` }));
     const compact = compactSemanticConversation(messages);
     expect(compact.at(-1)?.content.startsWith('9:')).toBe(true);
@@ -75,32 +75,26 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(routingSurfaceFromMessage(expandedMessage).current).toBe('Kurumsal yapıda kavramsal tasarım dokümanı hazırla.');
   });
 
-  it('makes semantic orchestration the primary substantive decision layer', () => {
+  it('makes the primary LLM the substantive execution decision layer', () => {
     expect(gatewaySource).toContain('buildSemanticExecutionPlan');
     expect(gatewaySource).toContain('loadSemanticContext');
     expect(gatewaySource).toContain('get_prior_assistant_execution_context');
-    expect(gatewaySource).toContain('ASSISTANT_SEMANTIC_ORCHESTRATION');
-    expect(gatewaySource).not.toContain('AMBIGUOUS_FOLLOW_UP_PATTERN');
-    expect(gatewaySource).not.toContain('previousSubstantiveUserMessage');
-    expect(orchestratorSource).toContain('currentUserMessage');
-    expect(orchestratorSource).toContain('recentConversation');
-    expect(orchestratorSource).toContain('priorExecution');
-    expect(orchestratorSource).toContain('resolvedRequest');
-    expect(orchestratorSource).toContain('activeEntities');
-    expect(orchestratorSource).toContain('Previous assistant text may indicate conversational topic only; it is not evidence');
+    expect(orchestratorSource).toContain("SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'");
+    expect(orchestratorSource).toContain('semantic_planner_provider_calls_avoided');
+    expect(orchestratorSource).toContain('evidenceQueries: []');
+    expect(orchestratorSource).not.toContain('requestGeminiPlan');
+    expect(orchestratorSource).not.toContain('requestOpenAiPlan');
+    expect(providerSource).toContain('Bu turnün karar verici modeli sensin');
+    expect(providerSource).toContain('model: requestedModel');
     expect(reasoningSource).toContain('semanticPlanFromMessage');
-    expect(reasoningSource).toContain('if (semanticPlan) return { plan: semanticPlan, plannerFallback: false }');
   });
 
-  it('rate-limits and caches semantic planning before the provider call', () => {
+  it('keeps the existing semantic cache as a cheap capability-envelope cache', () => {
     expect(gatewaySource).toContain("client.rpc('claim_assistant_semantic_plan'");
     expect(gatewaySource).toContain("client.rpc('complete_assistant_semantic_plan'");
-    expect(gatewaySource).toContain("client.rpc('fail_assistant_semantic_plan'");
     expect(gatewaySource).toContain('semanticRequestHash');
-    expect(gatewaySource).toContain("semanticSource: 'cache' | 'provider' | 'fallback'");
     expect(semanticCacheMigration).toContain('create table if not exists public.assistant_semantic_plans');
     expect(semanticCacheMigration).toContain('public.is_workspace_member(p_workspace_id)');
-    expect(semanticCacheMigration).toContain("'in_progress'::text");
     expect(semanticCacheMigration).toContain('unique (workspace_id, owner_id, message_id, request_hash)');
     expect(semanticCacheMigration).toContain('to authenticated;');
   });
@@ -117,31 +111,27 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(gatewaySource).toContain('CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS.has(normalizeShortText(message))');
   });
 
-  it('enforces provider isolation after semantic web intent instead of keyword routing', () => {
-    expect(gatewaySource).toContain("semantic.plan.webMode === 'required'");
-    expect(gatewaySource).toContain('GEMINI_PROVIDER_LOCK_WEB_UNAVAILABLE');
-    expect(gatewaySource).not.toContain('EXPLICIT_WEB_PATTERN');
-  });
-
-  it('allows cross-provider semantic fallback only in Auto mode', () => {
-    expect(gatewaySource).toContain("requestedModel === 'auto'");
-    expect(gatewaySource).toContain("semanticProvider === 'openai'");
-    expect(gatewaySource).toContain('geminiApiKey');
-  });
-
-  it('does not expose the internal semantic plan to the final answer model', () => {
+  it('does not expose the internal semantic envelope to the final answer model', () => {
     expect(providerSource).toContain('stripInternalSemanticPlan');
     expect(providerSource).toContain('INTERNAL_SEMANTIC_PLAN_PATTERN');
     expect(providerSource).toContain("if ('content' in clean) clean.content = sanitizeContent(clean.content)");
   });
 
-  it('keeps Flash-Lite as a real low-cost option and separates cheap agent decisions from final synthesis', () => {
+  it('keeps Flash-Lite selectable while removing the hidden cheap-agent-to-final-model split', () => {
     expect(providerSource).toContain('GEMINI_AGENT_MODEL');
-    expect(providerSource).toContain('buildGeminiFinalSynthesisItems');
-    expect(providerSource).toContain('cost_guard_agent_calls');
+    expect(providerSource).toContain('const requestedModel = normalizeGeminiRequestedModel(input.model)');
+    expect(providerSource).toContain('primary_llm_agent_calls');
+    expect(providerSource).not.toContain('buildGeminiFinalSynthesisItems');
+    expect(providerSource).not.toContain('model: GEMINI_AGENT_MODEL');
     expect(settingsSource).toContain('normalizeSelectableModel');
     expect(settingsSource).toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'");
     expect(settingsSource).not.toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
+  });
+
+  it('gives OpenAI the same primary-agent policy at developer precedence', () => {
+    expect(providerSource).toContain("role: 'developer'");
+    expect(providerSource).toContain('openAiPrimaryAgentDeveloperItem');
+    expect(providerSource).toContain('withPrimaryAgentPolicy');
   });
 
   it('requires exact evidence for exact Gemini SAP/CRM identifiers', () => {
