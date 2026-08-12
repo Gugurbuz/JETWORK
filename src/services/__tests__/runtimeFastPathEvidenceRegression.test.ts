@@ -4,7 +4,7 @@ import {
   SEMANTIC_PLAN_START,
   semanticPlanFromMessage,
 } from '../../../supabase/functions/_shared/reasoningEngine';
-import { applyAgentLoopPolicy } from '../../../supabase/functions/_shared/semanticOrchestrator';
+import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/semanticOrchestrator';
 import { toolBudgetForPlan } from '../../../supabase/functions/_shared/geminiCostGuard';
 import {
   executionModelForTrivialFastPathModel,
@@ -33,8 +33,8 @@ const embeddedPlan = (plan: Record<string, unknown>) => [
   SEMANTIC_PLAN_END,
 ].join('\n');
 
-describe('production regression: trivial latency and evidence-required short answers', () => {
-  it('normalizes evidence-required simple answers into bounded knowledge analysis before Cost Guard budgeting', () => {
+describe('production regression: trivial latency and primary-agent evidence boundaries', () => {
+  it('keeps legacy evidence-required simple plans compatible with old stored turns', () => {
     const plan = semanticPlanFromMessage(embeddedPlan({}));
     expect(plan).not.toBeNull();
     expect(plan).toMatchObject({
@@ -46,32 +46,24 @@ describe('production regression: trivial latency and evidence-required short ans
     expect(toolBudgetForPlan(plan)).toBe(1);
   });
 
-  it('keeps OpenAI bounded knowledge turns on deterministic core preflight evidence', () => {
-    const plan = semanticPlanFromMessage(embeddedPlan({
-      goal: 'ZCRM2-545 hangi koşulda alınır?',
-      evidenceQueries: ['ZCRM2-545 hangi koşulda alınır?'],
-      conversationState: {
-        continuation: false,
-        topic: 'ZCRM2-545',
-        userMove: 'new_request',
-        priorIntent: 'none',
-        rejectedHypotheses: [],
-        retainedContext: [],
-        openQuestions: [],
-        resolvedRequest: 'ZCRM2-545 hangi koşulda alınır?',
-        activeEntities: ['ZCRM2-545'],
-        requestedEvidence: ['trigger_rule'],
-      },
-    }));
+  it('does not preflight enterprise evidence for a new exact technical turn on either provider', async () => {
+    const openAi = await buildSemanticExecutionPlan({
+      provider: 'openai', model: 'gpt-5.6-sol', message: 'ZCRM2-545 hangi koşulda alınır?', conversation: [],
+    });
+    const gemini = await buildSemanticExecutionPlan({
+      provider: 'gemini', model: 'gemini-3.1-pro-preview', message: 'ZCRM2-545 hangi koşulda alınır?', conversation: [],
+    });
 
-    const openAiPlan = applyAgentLoopPolicy(plan!, 'openai');
-    const geminiPlan = applyAgentLoopPolicy(plan!, 'gemini');
-
-    expect(openAiPlan.evidenceQueries).toEqual(['ZCRM2-545 hangi koşulda alınır?']);
-    expect(geminiPlan.evidenceQueries).toEqual([]);
+    for (const result of [openAi, gemini]) {
+      expect(result.plan.knowledgeRequired).toBe(true);
+      expect(result.plan.enterpriseGroundingRequired).toBe(false);
+      expect(result.plan.verificationRequired).toBe(false);
+      expect(result.plan.evidenceQueries).toEqual([]);
+      expect(result.usage?.semantic_planner_provider_calls_avoided).toBe(1);
+    }
   });
 
-  it('keeps ordinary no-evidence simple answers direct and zero-tool', () => {
+  it('keeps ordinary no-evidence legacy simple answers direct and zero-tool', () => {
     const plan = semanticPlanFromMessage(embeddedPlan({
       goal: 'Merhaba de',
       knowledgeRequired: false,

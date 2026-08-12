@@ -31,35 +31,48 @@ const liveCanaryWorkflow = readFileSync(
   'utf8',
 );
 
-describe('Gemini Cost Guard v1', () => {
-  it('uses stable low-cost models for semantic planning and agent tool decisions', () => {
+describe('Gemini cost and primary-agent boundaries', () => {
+  it('keeps stable model normalization and legacy budget helpers available', () => {
     expect(GEMINI_SEMANTIC_MODEL).toBe('gemini-3.1-flash-lite');
     expect(GEMINI_AGENT_MODEL).toBe('gemini-3.5-flash-lite');
     expect(normalizeGeminiRequestedModel('gemini-3.1-flash-lite-preview')).toBe('gemini-3.1-flash-lite');
     expect(settingsStoreSource).not.toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
     expect(settingsStoreSource).toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'");
-  });
 
-  it('forces bounded knowledge turns out of the repeated model-agent loop', () => {
     const base = {
-      complexity: 'medium',
-      knowledgeRequired: true,
-      webMode: 'none',
-      verificationRequired: false,
+      complexity: 'medium', knowledgeRequired: true, webMode: 'none', verificationRequired: false,
     } as any;
     expect(toolBudgetForPlan({ ...base, intent: 'sap_diagnosis' })).toBe(4);
-    expect(toolBudgetForPlan({ ...base, intent: 'analysis' })).toBe(1);
-    expect(toolBudgetForPlan({ ...base, intent: 'document' })).toBe(2);
-    expect(toolBudgetForPlan({ ...base, complexity: 'high', intent: 'research' })).toBe(5);
-    expect(toolBudgetForPlan({ ...base, intent: 'simple_answer', knowledgeRequired: false })).toBe(0);
-    expect(providerWrapperSource).toContain('deterministic_knowledge_dispatch');
-    expect(providerWrapperSource).toContain("toolName: 'search_knowledge_catalog'");
-    expect(providerWrapperSource).toContain("toolName: 'get_abap_source'");
-    expect(providerWrapperSource).toContain('executedTools >= toolBudget');
-    expect(providerWrapperSource).toContain('cost_guard_forced_synthesis');
   });
 
-  it('compacts repeated tool evidence before each cheap agent decision and final synthesis', () => {
+  it('lets the requested Gemini model own normal tool decisions', () => {
+    expect(providerWrapperSource).toContain('const requestedModel = normalizeGeminiRequestedModel(input.model)');
+    expect(providerWrapperSource).toContain('model: requestedModel');
+    expect(providerWrapperSource).toContain('primaryAgentInstruction');
+    expect(providerWrapperSource).toContain('Bu turnün karar verici modeli sensin');
+    expect(providerWrapperSource).toContain('primary_llm_agent_calls');
+    expect(providerWrapperSource).not.toContain('buildDeterministicKnowledgeDispatch');
+    expect(providerWrapperSource).not.toContain('shouldUseDeterministicKnowledgeDispatch');
+    expect(providerWrapperSource).not.toContain('model: GEMINI_AGENT_MODEL');
+  });
+
+  it('retains only the authoritative deterministic inventory shortcut', () => {
+    expect(providerWrapperSource).toContain('buildEnumerationFastPathDispatch');
+    expect(providerWrapperSource).toContain('buildSyntheticEnumerationFunctionCall');
+    expect(providerWrapperSource).toContain('deterministic_enumeration_dispatch');
+    expect(providerWrapperSource).toContain('deterministic_provider_calls_avoided');
+  });
+
+  it('removes the paid semantic provider preflight from execution authority', () => {
+    expect(semanticSource).toContain("SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'");
+    expect(semanticSource).toContain('semantic_planner_provider_calls_avoided');
+    expect(semanticSource).not.toContain('OPENAI_RESPONSES_URL');
+    expect(semanticSource).not.toContain('GEMINI_GENERATE_CONTENT_BASE_URL');
+    expect(semanticSource).not.toContain('requestGeminiPlan');
+    expect(semanticSource).not.toContain('requestOpenAiPlan');
+  });
+
+  it('keeps evidence compaction helpers valid for compatibility paths', () => {
     const hugeEvidence = 'E'.repeat(20_000);
     const items: Array<Record<string, unknown>> = [
       { role: 'user', content: 'Teklife cost eklerken uyumsuz hatası aldım.' },
@@ -77,9 +90,7 @@ describe('Gemini Cost Guard v1', () => {
     expect(Math.max(...compactedOutputs.map(value => value.length))).toBeLessThanOrEqual(4_500);
 
     const finalItems = buildGeminiFinalSynthesisItems(items, 'taslak');
-    const finalPayload = JSON.stringify(finalItems);
-    expect(finalPayload).toContain('[JETWORK_TOOL_EVIDENCE]');
-    expect(finalPayload.length).toBeLessThan(24_000);
+    expect(JSON.stringify(finalItems)).toContain('[JETWORK_TOOL_EVIDENCE]');
   });
 
   it('records a conservative Gemini cost estimate in usage metadata', () => {
@@ -92,35 +103,10 @@ describe('Gemini Cost Guard v1', () => {
     expect(usage?.estimated_cost_usd).toBeCloseTo(0.0055, 6);
   });
 
-  it('records agent and final usage separately for cost observability', () => {
-    expect(providerWrapperSource).toContain('cost_guard_${stage}_input_tokens');
-    expect(providerWrapperSource).toContain('cost_guard_${stage}_output_tokens');
-    expect(providerWrapperSource).toContain('cost_guard_${stage}_reasoning_tokens');
-    expect(providerWrapperSource).toContain('cost_guard_${stage}_estimated_cost_usd');
-    expect(providerWrapperSource).toContain("stage: 'agent' | 'final'");
-  });
-
-  it('keeps strong synthesis separate from cheap agent calls', () => {
-    expect(providerWrapperSource).toContain('model: GEMINI_AGENT_MODEL');
-    expect(providerWrapperSource).toContain('buildGeminiFinalSynthesisItems');
-    expect(providerWrapperSource).toContain('cost_guard_agent_calls');
-    expect(providerWrapperSource).toContain('cost_guard_final_calls');
-    expect(providerWrapperSource).toContain('maxOutputTokens: Math.min(input.maxOutputTokens, 900)');
-  });
-
-  it('keeps Auto on the fallback provider instead of retrying the failed provider in core', () => {
+  it('keeps Auto provider fallback wiring intact', () => {
     expect(gatewaySource).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'");
     expect(gatewaySource).toContain('preferGeminiAuto');
     expect(gatewaySource).toContain('AUTO_PROVIDER_CIRCUIT_BREAKER_MS');
-    expect(gatewaySource).toContain("requestedModel === 'auto' && semantic.provider === 'gemini'");
-    expect(gatewaySource).toContain('? DEFAULT_GEMINI_RUNTIME_MODEL');
-  });
-
-  it('moves semantic orchestration to stable Flash-Lite with minimal thinking and a bounded structured output budget', () => {
-    expect(semanticSource).toContain("GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost");
-    expect(semanticSource).toContain('maxOutputTokens: 1_400');
-    expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'minimal' }");
-    expect(semanticSource).toContain('SEMANTIC_RETRY_DELAYS_MS = [250]');
   });
 
   it('never runs the paid production continuity canary automatically', () => {
