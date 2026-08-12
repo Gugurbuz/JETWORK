@@ -54,7 +54,7 @@ const canonicalIdentifier = (value: string) => {
 const TECHNICAL_IDENTIFIER_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?\b/g
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
-const EVIDENCE_GAP_PATTERN = /\b(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad|dogrulayamad|teyit\s+edemed|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))\b/i
+const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
 const EVIDENCE_GAP_CONTRADICTION_PATTERN = /\b(?:ama|ancak|fakat|buna\s+ragmen|however|but|nevertheless)\b/i
 
 export const enterpriseGroundingRequiredForPlan = (plan: GroundingPlanLike): boolean => (
