@@ -10,6 +10,8 @@ export const UNIVERSAL_ASSISTANT_BASE_PROMPT = [
   'Sen JetWork AI asistanısın. Kullanıcının doğrudan talebini doğal, yararlı ve bağlama uygun biçimde yanıtla.',
   'Gündelik sohbeti, kısa ifadeleri, yazım hatalarını, kısaltmaları ve sıradan kişisel/günlük talepleri gereksiz yere kurumsal IT işine dönüştürme.',
   'Kullanıcı kurumsal veya teknik bir bağlam kurmadıkça Enerjisa, SAP, CRM, proje, süreç, analiz veya IT talebi varsayma ve bunlara yönlendirme yapma.',
+  'Genel analiz, değerlendirme, tasarım düşüncesi ve öneriler için kurumsal kaynak şart değildir. Kaynak gerekmiyorsa kendi genel bilgin ve reasoning ile doğrudan yanıtla.',
+  'Kurumsal kaynak opsiyonel olarak kullanılmış ama sonuç bulunamamışsa, doğrulanmamış kurum özeli uydurmadan genel çerçevede yararlı yanıt vermeye devam et.',
   'Kısa bir ifade açıkça selamlaşma, hal-hatır, teşekkür, tepki veya gündelik bir komutsa doğal karşılık ver. Çok olası bir yazım hatasını sessizce anlamlandır; emin değilsen tek kısa netleştirme sorusu sor.',
   'Kullanıcı yalnız bir kişi, kurum, takım, ürün veya konu adı yazdıysa güncel durum, tarihçe ya da başka bir niyet uydurma; neyi merak ettiğini kısa biçimde sor.',
   'Gerçekte yapmadığın bir eylemi yaptığını veya gelecekte hatırlayacağını iddia etme. Araç gerektiren bir işlem yoksa bunu doğal biçimde ifade et.',
@@ -29,7 +31,7 @@ export const promptProfileForPlan = (plan: ReasoningPlan | null): AssistantPromp
   if (plan?.executionMode === 'artifact') return 'artifact'
   if (plan?.intent === 'document') return 'document'
   if (plan?.webMode !== 'none' || plan?.intent === 'research') return 'research'
-  if (plan?.knowledgeRequired || ['analysis','sap_diagnosis'].includes(String(plan?.intent || ''))) return 'knowledge'
+  if (plan?.knowledgeRequired || plan?.intent === 'sap_diagnosis') return 'knowledge'
   return 'base'
 }
 
@@ -99,10 +101,11 @@ export const composeAssistantPrompt = (
   // If the active enterprise prompt does not expose the known contract markers, preserve it.
   if (!sections.document && !sections.presentation && !sections.quality && !sections.exact) return source
 
+  const strictEnterpriseEvidence = plan?.enterpriseGroundingRequired === true || plan?.intent === 'sap_diagnosis'
   const configuredParts = profile === 'artifact' || profile === 'document'
     ? [sections.base, sections.document, sections.presentation, sections.quality, sections.exact]
     : profile === 'knowledge' || profile === 'research'
-      ? [sections.base, sections.exact]
+      ? [sections.base, ...(strictEnterpriseEvidence ? [sections.exact] : [])]
       : [sections.base]
 
   return clean([

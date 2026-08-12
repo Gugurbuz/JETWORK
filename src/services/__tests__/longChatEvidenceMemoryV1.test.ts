@@ -26,6 +26,7 @@ const knowledgePlan: ReasoningPlan = {
   promptProfile: 'knowledge',
   goal: 'ZCRM_COST-123 exact message text',
   knowledgeRequired: true,
+  enterpriseGroundingRequired: true,
   webMode: 'none',
   verificationRequired: false,
   creativeMode: false,
@@ -63,7 +64,7 @@ describe('long-chat context/evidence memory v1', () => {
     expect(variants).not.toContain('entegrasyonu');
   });
 
-  it('keeps normal knowledge prompts free of document/presentation/artifact contracts', () => {
+  it('keeps strict knowledge prompts free of document/presentation/artifact contracts', () => {
     const prompt = composeAssistantPrompt(activePromptFixture, knowledgePlan);
     expect(prompt).toContain('BASE CHAT CONTRACT');
     expect(prompt).toContain('EXACT EVIDENCE CONTRACT');

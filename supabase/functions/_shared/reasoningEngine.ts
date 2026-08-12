@@ -65,9 +65,9 @@ export interface ConversationSemanticState {
 }
 
 export interface ReasoningPlan extends LegacyReasoningPlan {
-  // Corporate/project facts and public internet facts are different trust
-  // domains. knowledgeRequired is the enterprise execution compatibility flag;
-  // public web evidence lives only in webMode.
+  // knowledgeRequired decides whether enterprise/project retrieval should run.
+  // enterpriseGroundingRequired is narrower: when true, authoritative enterprise
+  // facts must be supported before they can appear in the final answer.
   enterpriseGroundingRequired?: boolean
   executionMode?: ReasoningExecutionMode
   conversationState?: ConversationSemanticState
@@ -177,7 +177,7 @@ const promptProfileForPlan = (
   if (intent === 'document') return executionMode === 'artifact' ? 'artifact' : 'document'
   if (executionMode === 'artifact') return 'artifact'
   if (webMode !== 'none' || intent === 'research') return 'research'
-  if (knowledgeRequired || ['analysis','sap_diagnosis'].includes(intent)) return 'knowledge'
+  if (knowledgeRequired || intent === 'sap_diagnosis') return 'knowledge'
   return 'base'
 }
 
@@ -236,21 +236,24 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
 
   const currentRoute = routeLegacyReasoningRequest(currentMessage || rawGoal)
   const providerWebMarker = rawGoal.includes(PROVIDER_WEB_CAPABILITY_MARKER)
-  const executionMode = String(raw.executionMode || '') as ReasoningExecutionMode
+  const requestedExecutionMode = String(raw.executionMode || '') as ReasoningExecutionMode
   const rawKnowledgeRequired = raw.knowledgeRequired === true
   const explicitEnterpriseFlag = typeof raw.enterpriseGroundingRequired === 'boolean'
     ? raw.enterpriseGroundingRequired
     : undefined
 
-  // Semantic orchestration previously encoded Gemini web capability by mutating
-  // knowledgeRequired=true and webMode=none. Repair that legacy encoding at the
-  // runtime trust boundary. Public web stays public; enterprise+web remains a
-  // hybrid plan and never loses enterprise grounding.
+  // Public web evidence and enterprise evidence are separate trust domains.
+  // Provider-native Gemini web is encoded with a compatibility marker; repair
+  // that encoding without turning public web into enterprise RAG.
   const routeSaysEnterprise = currentRoute.knowledgeRequired === true || ENTERPRISE_SURFACE_PATTERN.test(currentMessage)
-  const enterpriseGroundingRequired = explicitEnterpriseFlag ?? (
-    providerWebMarker ? (rawKnowledgeRequired && routeSaysEnterprise) : rawKnowledgeRequired
+  const enterpriseGroundingRequired = Boolean(
+    intent === 'sap_diagnosis'
+    || explicitEnterpriseFlag === true
+    || (explicitEnterpriseFlag === undefined && rawKnowledgeRequired && routeSaysEnterprise)
   )
-  const knowledgeRequired = enterpriseGroundingRequired
+  const knowledgeRequired = providerWebMarker && !routeSaysEnterprise
+    ? false
+    : Boolean(rawKnowledgeRequired || enterpriseGroundingRequired)
   const webMode: WebMode = providerWebMarker
     ? (routeSaysEnterprise
       ? (currentRoute.webMode !== 'none' ? currentRoute.webMode : 'if_internal_insufficient')
@@ -259,9 +262,19 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
 
   const evidenceRequiredSimpleAnswer = knowledgeRequired && intent === 'simple_answer'
   const normalizedIntent: ReasoningIntent = evidenceRequiredSimpleAnswer ? 'analysis' : intent
-  const normalizedExecutionMode: ReasoningExecutionMode | undefined = evidenceRequiredSimpleAnswer
-    ? 'knowledge'
-    : (['direct','knowledge','research','artifact','decision','project'].includes(executionMode) ? executionMode : undefined)
+  const derivedExecutionMode: ReasoningExecutionMode = (() => {
+    if (normalizedIntent === 'document') return 'artifact'
+    if (normalizedIntent === 'decision') return 'decision'
+    if (normalizedIntent === 'project') return 'project'
+    if (normalizedIntent === 'research' || webMode !== 'none') return 'research'
+    if (knowledgeRequired || normalizedIntent === 'sap_diagnosis') return 'knowledge'
+    return 'direct'
+  })()
+  const normalizedExecutionMode: ReasoningExecutionMode = requestedExecutionMode === 'knowledge' && !knowledgeRequired && normalizedIntent !== 'sap_diagnosis'
+    ? derivedExecutionMode
+    : (knowledgeRequired && requestedExecutionMode === 'direct'
+      ? derivedExecutionMode
+      : (['direct','knowledge','research','artifact','decision','project'].includes(requestedExecutionMode) ? requestedExecutionMode : derivedExecutionMode))
   const stateRaw = raw.conversationState && typeof raw.conversationState === 'object'
     ? raw.conversationState as Record<string, unknown>
     : undefined
@@ -305,7 +318,7 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
     : []
   const profile = String(raw.promptProfile || '') as AssistantPromptProfile
   const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
-    ? (webMode !== 'none' && profile === 'knowledge' && !knowledgeRequired ? 'research' : profile)
+    ? (profile === 'knowledge' && !knowledgeRequired ? promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode) : profile)
     : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode)
   const cleanGoal = rawGoal.replace(PROVIDER_WEB_CAPABILITY_MARKER, '').trim()
   return {
@@ -315,7 +328,7 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
     knowledgeRequired,
     enterpriseGroundingRequired,
     webMode,
-    verificationRequired: raw.verificationRequired === true,
+    verificationRequired: raw.verificationRequired === true || enterpriseGroundingRequired,
     creativeMode: raw.creativeMode === true,
     evidenceQueries: knowledgeRequired ? cleanStringArray(raw.evidenceQueries, 5, 400) : [],
     steps,
