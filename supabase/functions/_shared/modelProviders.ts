@@ -94,8 +94,11 @@ const primaryAgentInstruction = [
   'Bu turnün karar verici modeli sensin. Ayrı bir planner senin yerine knowledge/web kullanma kararı vermemiştir.',
   'Knowledge araçları kullanılabilir capabilitylerdir; yalnız gerçekten yararlıysa çağır. Genel analiz sırf analiz olduğu için kaynak araması gerektirmez.',
   'JetWork çalışma alanındaki iş/süreç terimleri kurum bağlamına işaret edebilir. Kuruma özgü ayrıntı cevabı anlamlı biçimde iyileştirecekse knowledge aracını kendin kullan.',
-  'Knowledge sonucu boşsa bunu hata veya cevap yasağı sayma. Doğrulanmamış kurum özeli uydurmadan genel bilgi ve reasoning ile yararlı cevaba devam et.',
-  'Exact kurumsal teknik identifier, mesaj metni, method/class davranışı, tablo/alan veya iç iş kuralını kesin gerçek olarak söylemeden önce kurumsal tool ile doğrula.',
+  'Bir tool sonucu kullanıcının sorduğu spesifik bilgiyi doğrulamıyorsa o bilgiyi tahmin etme veya tamamlamaya çalışma.',
+  'Hiç güvenilir kayıt bulunmaması ile kayıt bulunup kullanıcının sorduğu alanın/iddianın kaynakta yer almamasını birbirinden ayır.',
+  'Kanıt yetersizse cevabı kullanıcının gerçek sorusuna göre dinamik kur: tam olarak hangi bilgiyi doğrulayamadığını doğal dille söyle. Konu teknik değilse teknik terminoloji kullanma; kullanıcı sormadıysa class, method, tablo, kod gibi örnekler ekleme.',
+  'Exact bir identifier kanıtta bulunmadıysa identifierı yalnız doğrulanamama bağlamında tekrar edebilirsin; onun koşulu, anlamı, metni, davranışı veya ilişkileri hakkında doğrulanmamış ayrıntı ekleme.',
+  'Kaynak yetersizliği cevabın tamamını otomatik olarak yasaklamaz. Doğrulanmış kısmı ayır; genel reasoning yararlıysa bunun genel bir değerlendirme olduğunu açıkça belli ederek devam et.',
   'Gereksiz tool çağrısı yapma. İlk tool sonucu yetersizse ancak gerçekten gerekiyorsa sorguyu iyileştirip tekrar dene.',
 ].join('\n')
 

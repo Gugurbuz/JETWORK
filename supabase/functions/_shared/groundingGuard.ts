@@ -54,6 +54,8 @@ const canonicalIdentifier = (value: string) => {
 const TECHNICAL_IDENTIFIER_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?\b/g
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
+const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
+const EVIDENCE_GAP_CONTRADICTION_PATTERN = /\b(?:ama|ancak|fakat|buna\s+ragmen|however|but|nevertheless)\b/i
 
 export const enterpriseGroundingRequiredForPlan = (plan: GroundingPlanLike): boolean => (
   typeof plan.enterpriseGroundingRequired === 'boolean'
@@ -70,6 +72,22 @@ export const extractTechnicalIdentifiers = (text: string): string[] => {
   for (const match of clean(text).matchAll(TECHNICAL_IDENTIFIER_PATTERN)) add(match[0])
   for (const match of clean(text).matchAll(CANONICAL_KEY_PATTERN)) add(match[0])
   return [...values]
+}
+
+const evidenceGapIdentifiers = (text: string) => {
+  const identifiers = new Set<string>()
+  const segments = clean(text).split(/(?:\r?\n)+|(?<=[.!?])\s+/)
+  for (const segment of segments) {
+    const normalized = normalizeText(segment)
+    if (!normalized || !EVIDENCE_GAP_PATTERN.test(normalized) || EVIDENCE_GAP_CONTRADICTION_PATTERN.test(normalized)) continue
+    for (const identifier of extractTechnicalIdentifiers(segment)) identifiers.add(identifier)
+  }
+  return identifiers
+}
+
+const isEvidenceGapResponse = (text: string) => {
+  const normalized = normalizeText(text)
+  return Boolean(normalized && EVIDENCE_GAP_PATTERN.test(normalized) && !EVIDENCE_GAP_CONTRADICTION_PATTERN.test(normalized))
 }
 
 export const resultHasVerifiedKnowledgeEvidence = (result: GroundingToolResultLike) => (
@@ -197,21 +215,32 @@ export const evaluateGroundedTechnicalClaims = (input: {
     source.sourceType !== 'web' && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
   ))
   const supported = verifiedIdentifierSet(input.sources, verifiedResults)
-  const unsupportedIdentifiers = responseIdentifiers.filter(identifier => !supported.has(identifier))
+  const safeGapIdentifiers = evidenceGapIdentifiers(input.text)
+  const unsupportedIdentifiers = responseIdentifiers.filter(identifier => (
+    !supported.has(identifier) && !safeGapIdentifiers.has(identifier)
+  ))
 
   const titles = messageTitleMap(input.sources, verifiedResults)
-  const messageTextMismatches = exactMessageClaims(input.text).flatMap(claim => {
+  const messageClaims = exactMessageClaims(input.text)
+  const messageTextMismatches = messageClaims.flatMap(claim => {
     const expected = titles.get(claim.identifier)
     if (!expected || sameExactMessage(claim.claimed, expected)) return []
     return [{ identifier: claim.identifier, claimed: claim.claimed, expected }]
   })
+  const evidenceGapOnlyResponse = !verifiedKnowledgeEvidence
+    && messageClaims.length === 0
+    && unsupportedIdentifiers.length === 0
+    && isEvidenceGapResponse(input.text)
 
   return {
-    // Exact enterprise claims are grounded at the response boundary, regardless
-    // of whether a planner predicted that grounding would be required.
-    ok: verifiedKnowledgeEvidence
-      && unsupportedIdentifiers.length === 0
-      && messageTextMismatches.length === 0,
+    // Exact enterprise claims remain evidence-bound. A response that only says
+    // the requested fact could not be verified is not itself an enterprise fact
+    // claim and is therefore safe to return without fabricating an answer.
+    ok: (
+      verifiedKnowledgeEvidence
+        && unsupportedIdentifiers.length === 0
+        && messageTextMismatches.length === 0
+    ) || evidenceGapOnlyResponse,
     verifiedKnowledgeEvidence,
     unsupportedIdentifiers,
     messageTextMismatches,
@@ -224,5 +253,5 @@ export const shouldFailClosedGroundedAnswer = (input: {
 }) => Boolean(!input.coverage.ok)
 
 export const groundingFailureText = () => (
-  'Bu teknik yanıtı güvenli biçimde tamamlayamadım: üretilen taslakta doğrulanmış kurumsal kanıtın kapsamadığı teknik ayrıntılar vardı. Yanlış mesaj, metot, sınıf veya kod uydurmamak için bu ayrıntıları göstermiyorum.'
+  'Bu yanıtta doğrulanması gereken bir ayrıntı için yeterli güvenilir kanıt bulamadım. Doğrulanamayan kısmı kesin bilgi olarak vermiyorum.'
 )
