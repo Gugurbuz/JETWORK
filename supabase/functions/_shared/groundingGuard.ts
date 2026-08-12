@@ -186,7 +186,9 @@ export const evaluateGroundedTechnicalClaims = (input: {
   sources: GroundingSourceLike[]
   toolResults: GroundingToolResultLike[]
 }): GroundingCoverageResult => {
-  if (!enterpriseGroundingRequiredForPlan(input.plan)) {
+  const responseIdentifiers = extractTechnicalIdentifiers(input.text)
+  const strictEnterpriseClaim = enterpriseGroundingRequiredForPlan(input.plan) || responseIdentifiers.length > 0
+  if (!strictEnterpriseClaim) {
     return { ok: true, verifiedKnowledgeEvidence: false, unsupportedIdentifiers: [], messageTextMismatches: [] }
   }
 
@@ -195,7 +197,6 @@ export const evaluateGroundedTechnicalClaims = (input: {
     source.sourceType !== 'web' && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
   ))
   const supported = verifiedIdentifierSet(input.sources, verifiedResults)
-  const responseIdentifiers = extractTechnicalIdentifiers(input.text)
   const unsupportedIdentifiers = responseIdentifiers.filter(identifier => !supported.has(identifier))
 
   const titles = messageTitleMap(input.sources, verifiedResults)
@@ -206,8 +207,8 @@ export const evaluateGroundedTechnicalClaims = (input: {
   })
 
   return {
-    // Enterprise facts are only satisfied by verified enterprise/project sources.
-    // A public URL can never satisfy the corporate grounding contract.
+    // Exact enterprise claims are grounded at the response boundary, regardless
+    // of whether a planner predicted that grounding would be required.
     ok: verifiedKnowledgeEvidence
       && unsupportedIdentifiers.length === 0
       && messageTextMismatches.length === 0,
@@ -220,7 +221,7 @@ export const evaluateGroundedTechnicalClaims = (input: {
 export const shouldFailClosedGroundedAnswer = (input: {
   plan: GroundingPlanLike
   coverage: GroundingCoverageResult
-}) => Boolean(enterpriseGroundingRequiredForPlan(input.plan) && !input.coverage.ok)
+}) => Boolean(!input.coverage.ok)
 
 export const groundingFailureText = () => (
   'Bu teknik yanıtı güvenli biçimde tamamlayamadım: üretilen taslakta doğrulanmış kurumsal kanıtın kapsamadığı teknik ayrıntılar vardı. Yanlış mesaj, metot, sınıf veya kod uydurmamak için bu ayrıntıları göstermiyorum.'
