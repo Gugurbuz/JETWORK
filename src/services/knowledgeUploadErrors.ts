@@ -18,7 +18,7 @@ export const toKnowledgeOperationError = (
   const message = errorMessage(error).trim();
   if (isKnowledgeTransportError(error)) {
     return new Error(
-      `${operation} sırasında Supabase bağlantısı kurulamadı. İnternet bağlantısını kontrol edip tekrar deneyin.`,
+      `${operation} Supabase bağlantısı kurulamadı. İnternet bağlantısını kontrol edip tekrar deneyin.`,
     );
   }
   if (error instanceof Error) return error;
