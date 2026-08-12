@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  semanticPlanFromMessage,
-  type ReasoningPlan,
-} from '../../../supabase/functions/_shared/reasoningEngine'
-import {
-  normalizeCachedSemanticPlan,
-} from '../../../supabase/functions/_shared/semanticOrchestrator'
+import type { ReasoningPlan } from '../../../supabase/functions/_shared/reasoningEngine'
+import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/semanticOrchestrator'
 import {
   evaluateGroundedTechnicalClaims,
   shouldFailClosedGroundedAnswer,
@@ -23,78 +18,17 @@ import {
   requiresEnterpriseAssistantPersona,
 } from '../../../supabase/functions/_shared/assistantPromptProfiles'
 
-const semanticMessage = (message: string, plan: Record<string, unknown>) => [
-  message,
-  '[JETWORK_SEMANTIC_PLAN]',
-  JSON.stringify(plan),
-  '[END_JETWORK_SEMANTIC_PLAN]',
-].join('\n')
+const primaryPlan = async (message: string) => (
+  await buildSemanticExecutionPlan({
+    provider: 'gemini',
+    model: 'gemini-3.1-pro-preview',
+    message,
+    conversation: [],
+  })
+)
 
-const legacyProviderWebPlan = (resolvedRequest: string, activeEntities: string[] = []) => ({
-  intent: 'simple_answer',
-  complexity: 'medium',
-  executionMode: 'knowledge',
-  goal: `${resolvedRequest}\n[JETWORK_CAPABILITY:provider_web]`,
-  knowledgeRequired: true,
-  webMode: 'none',
-  verificationRequired: false,
-  creativeMode: false,
-  evidenceQueries: [],
-  promptProfile: 'research',
-  steps: [{ id: 'adaptive-evidence-loop', label: 'evidence', toolHint: 'knowledge', successCriteria: 'evidence' }],
-  conversationState: {
-    continuation: false,
-    topic: resolvedRequest,
-    userMove: 'new_request',
-    operationMove: 'none',
-    priorIntent: 'none',
-    rejectedHypotheses: [],
-    rejectedScopes: [],
-    retainedContext: [],
-    openQuestions: [],
-    resolvedRequest,
-    activeEntities,
-    requestedEvidence: ['current_status'],
-    userDecisions: [],
-    verifiedFactRefs: [],
-  },
-  orchestratorVersion: 'semantic-orchestrator-v3.4-active-operation',
-})
-
-const directPlan = (resolvedRequest: string) => ({
-  intent: 'simple_answer',
-  complexity: 'medium',
-  executionMode: 'direct',
-  goal: resolvedRequest,
-  knowledgeRequired: false,
-  enterpriseGroundingRequired: false,
-  webMode: 'none',
-  verificationRequired: false,
-  creativeMode: false,
-  evidenceQueries: [resolvedRequest],
-  promptProfile: 'base',
-  steps: [{ id: 'synthesize', label: 'answer', toolHint: 'synthesis', successCriteria: 'answer' }],
-  conversationState: {
-    continuation: false,
-    topic: resolvedRequest,
-    userMove: 'new_request',
-    operationMove: 'none',
-    priorIntent: 'none',
-    rejectedHypotheses: [],
-    rejectedScopes: [],
-    retainedContext: [],
-    openQuestions: [],
-    resolvedRequest,
-    activeEntities: [],
-    requestedEvidence: ['user_intent'],
-    userDecisions: [],
-    verifiedFactRefs: [],
-  },
-  orchestratorVersion: 'semantic-orchestrator-v3.5-evidence-policy',
-})
-
-const enterprisePlan = (): ReasoningPlan => ({
-  intent: 'analysis',
+const strictPlan = (): ReasoningPlan => ({
+  intent: 'sap_diagnosis',
   complexity: 'medium',
   goal: 'CHECK_ZTKS mesajlarını doğrula',
   knowledgeRequired: true,
@@ -102,32 +36,30 @@ const enterprisePlan = (): ReasoningPlan => ({
   webMode: 'none',
   verificationRequired: true,
   creativeMode: false,
-  evidenceQueries: ['CHECK_ZTKS'],
+  evidenceQueries: [],
   steps: [],
   executionMode: 'knowledge',
 })
 
-describe('P0 assistant routing, grounding and recovery boundaries', () => {
-  it('keeps canonical social language on the deterministic fast path', () => {
+describe('P0 primary LLM agent boundaries', () => {
+  it('keeps Selam and canonical social language on the deterministic fast path', () => {
     expect(shouldUseTrivialAssistantFastPath({
-      message: 'Nasıl gidiyor',
+      message: 'Selam',
       model: 'gemini-3.5-flash',
       attachmentCount: 0,
     })).toBe(true)
-    expect(deterministicTrivialResponseForMessage('Nasıl gidiyor')).toContain('İyi gidiyor')
+    expect(deterministicTrivialResponseForMessage('Selam')).toContain('Nasıl yardımcı olabilirim')
   })
 
-  it('keeps ambiguous short text and real tasks out of the context-free fast path', () => {
+  it('keeps real tasks and ambiguous short text out of the context-free fast path', () => {
     for (const message of [
       'Mrb',
       'Nabet',
-      'Bok',
-      'Çöpleri atmayı unutma',
       'Galatasaray',
       'Uçak reservasyon sürecini analzi ey',
+      'Su abonelik sürecini analiz et',
+      'Satış sürecini analiz et',
       'CHECK_ZTKS',
-      'Galatasaray nasıl gidiyor?',
-      'Rapor hazırla',
     ]) {
       expect(shouldUseTrivialAssistantFastPath({
         message,
@@ -137,7 +69,97 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     }
   })
 
-  it('never carries runtime failures into semantic memory', () => {
+  it('does not preflight RAG, web verification or strict grounding for water-subscription analysis', async () => {
+    const result = await primaryPlan('Su abonelik sürecini analiz et')
+    const plan = result.plan
+
+    expect(plan.intent).toBe('analysis')
+    expect(plan.executionMode).toBe('direct')
+    expect(plan.enterpriseGroundingRequired).toBe(false)
+    expect(plan.verificationRequired).toBe(false)
+    expect(plan.evidenceQueries).toEqual([])
+    expect(plan.orchestratorVersion).toBe('primary-llm-agent-v1')
+    // Transitional compatibility flag: knowledge capability is exposed to the
+    // primary model, but empty evidenceQueries means no mandatory preflight RAG.
+    expect(plan.knowledgeRequired).toBe(true)
+    expect(result.usage?.semantic_planner_provider_calls_avoided).toBe(1)
+  })
+
+  it('makes workspace knowledge available for sales analysis without making missing sources fatal', async () => {
+    const result = await primaryPlan('Satış sürecini analiz et')
+    const plan = result.plan
+
+    expect(plan.intent).toBe('analysis')
+    expect(plan.executionMode).toBe('direct')
+    expect(plan.knowledgeRequired).toBe(true)
+    expect(plan.enterpriseGroundingRequired).toBe(false)
+    expect(plan.verificationRequired).toBe(false)
+    expect(plan.evidenceQueries).toEqual([])
+
+    const coverage = evaluateGroundedTechnicalClaims({
+      text: 'Satış sürecini müşteri ihtiyacının alınması, teklif, müzakere ve kapanış gibi aşamalar üzerinden değerlendirebiliriz.',
+      plan,
+      sources: [],
+      toolResults: [],
+    })
+    expect(coverage.ok).toBe(true)
+    expect(shouldFailClosedGroundedAnswer({ plan, coverage })).toBe(false)
+  })
+
+  it('grounds CHECK_ZTKS at the response boundary even when the planner did not pre-mark the turn strict', async () => {
+    const result = await primaryPlan('CHECK_ZTKS hangi mesajları üretiyor?')
+    expect(result.plan.enterpriseGroundingRequired).toBe(false)
+    expect(result.plan.evidenceQueries).toEqual([])
+
+    const unverified = evaluateGroundedTechnicalClaims({
+      text: 'CHECK_ZTKS bu kontrolü yapar.',
+      plan: result.plan,
+      sources: [],
+      toolResults: [],
+    })
+    expect(unverified.ok).toBe(false)
+    expect(shouldFailClosedGroundedAnswer({ plan: result.plan, coverage: unverified })).toBe(true)
+
+    const verified = evaluateGroundedTechnicalClaims({
+      text: 'CHECK_ZTKS bu kontrolü yapar.',
+      plan: result.plan,
+      sources: [{ sourceType: 'knowledge', canonicalKey: 'method:CHECK_ZTKS', sourceId: 'kb-1' }],
+      toolResults: [],
+    })
+    expect(verified.ok).toBe(true)
+  })
+
+  it('never accepts a public web URL as enterprise grounding evidence', () => {
+    const plan = strictPlan()
+    const webOnly = evaluateGroundedTechnicalClaims({
+      text: 'CHECK_ZTKS bu kontrolü yapar.',
+      plan,
+      sources: [{ sourceType: 'web', url: 'https://example.com', sourceId: 'web-1' }],
+      toolResults: [],
+    })
+    expect(webOnly.ok).toBe(false)
+    expect(shouldFailClosedGroundedAnswer({ plan, coverage: webOnly })).toBe(true)
+  })
+
+  it('does not let optional knowledge capability activate the Enerjisa persona or exact contract', async () => {
+    const configured = [
+      "Sen Enerjisa IT'de çalışan kıdemli bir İş Analistisin.",
+      'Her yeni talebi içeride Proje veya Support olarak değerlendir.',
+      '[JETWORK EXACT TECHNICAL EVIDENCE CONTRACT v1]',
+      'Teknik identifierları kaynaktan doğrula.',
+    ].join('\n')
+    const plan = (await primaryPlan('Satış sürecini analiz et')).plan
+    const prompt = composeAssistantPrompt(configured, plan)
+
+    expect(requiresEnterpriseAssistantPersona(plan)).toBe(false)
+    expect(prompt).toContain('Sen JetWork AI asistanısın')
+    expect(prompt).toContain('Bu turnün ana karar vericisi sensin')
+    expect(prompt).not.toContain('Enerjisa IT')
+    expect(prompt).not.toContain('Proje veya Support')
+    expect(prompt).not.toContain('EXACT TECHNICAL EVIDENCE')
+  })
+
+  it('never carries runtime failures into durable conversational memory', () => {
     const failures = [
       'Load failed Lütfen tekrar deneyin.',
       'Bu çalışma alanında başka bir yanıt hâlâ hazırlanıyor. Lütfen tekrar deneyin.',
@@ -148,244 +170,5 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
       expect(isAssistantOperationalErrorText(failure)).toBe(true)
       expect(compactAssistantConversationMemory(failure)).toBe('')
     }
-  })
-
-  it('does not let the semantic planner expand a bare public topic into a current-status request', () => {
-    const plan = semanticPlanFromMessage(semanticMessage(
-      'Galatasaray',
-      legacyProviderWebPlan('Galatasaray Spor Kulübü hakkında genel bilgi ve güncel durum'),
-    ))
-
-    expect(plan).not.toBeNull()
-    expect(plan?.intent).toBe('simple_answer')
-    expect(plan?.complexity).toBe('low')
-    expect(plan?.executionMode).toBe('direct')
-    expect(plan?.knowledgeRequired).toBe(false)
-    expect(plan?.enterpriseGroundingRequired).toBe(false)
-    expect(plan?.webMode).toBe('none')
-    expect(plan?.evidenceQueries).toEqual([])
-    expect(plan?.goal).toContain('Neyi merak ettiğini')
-    expect(plan?.goal).not.toContain('güncel durum')
-  })
-
-  it('does not overwrite a correct direct semantic interpretation merely because the message is short', () => {
-    const plan = semanticPlanFromMessage(semanticMessage(
-      'Çöpleri atmayı unutma',
-      directPlan('Çöpleri atmayı unutma'),
-    ))
-
-    expect(plan).not.toBeNull()
-    expect(plan?.executionMode).toBe('direct')
-    expect(plan?.knowledgeRequired).toBe(false)
-    expect(plan?.enterpriseGroundingRequired).toBe(false)
-    expect(plan?.webMode).toBe('none')
-    expect(plan?.goal).toBe('Çöpleri atmayı unutma')
-    expect(plan?.conversationState?.resolvedRequest).toBe('Çöpleri atmayı unutma')
-    expect(plan?.orchestratorVersion).not.toContain('bare-topic-safety')
-  })
-
-  it('allows general analysis and corrections to stay direct without enterprise evidence', () => {
-    const plan = normalizeCachedSemanticPlan({
-      currentMessage: 'Bi sorun yaşamıyorum böyle bir süreci analiz et',
-      conversation: [
-        { role: 'user', content: 'Uçak reservasyon sürecini analzi ey' },
-        { role: 'assistant', content: 'Uçak rezervasyonunda tam olarak neyi öğrenmek istiyorsun?' },
-      ],
-      value: {
-        intent: 'analysis',
-        complexity: 'medium',
-        executionMode: 'direct',
-        goal: 'Uçak rezervasyon sürecini analiz et',
-        knowledgeRequired: false,
-        enterpriseGroundingRequired: false,
-        webMode: 'none',
-        verificationRequired: false,
-        creativeMode: false,
-        evidenceQueries: [],
-        promptProfile: 'base',
-        steps: [{ id: 'synthesize', label: 'answer', toolHint: 'synthesis', successCriteria: 'answer' }],
-        conversationState: {
-          continuation: false,
-          topic: 'Uçak rezervasyon süreci',
-          userMove: 'correction',
-          operationMove: 'none',
-          priorIntent: 'none',
-          rejectedHypotheses: [],
-          rejectedScopes: [],
-          retainedContext: [],
-          openQuestions: [],
-          resolvedRequest: 'Uçak rezervasyon sürecini analiz et',
-          activeEntities: [],
-          requestedEvidence: [],
-          userDecisions: [],
-          verifiedFactRefs: [],
-        },
-        orchestratorVersion: 'semantic-orchestrator-v3.5-evidence-policy',
-      },
-    })
-
-    expect(plan).not.toBeNull()
-    expect(plan?.intent).toBe('analysis')
-    expect(plan?.executionMode).toBe('direct')
-    expect(plan?.knowledgeRequired).toBe(false)
-    expect(plan?.enterpriseGroundingRequired).toBe(false)
-    expect(plan?.verificationRequired).toBe(false)
-    expect(plan?.evidenceQueries).toEqual([])
-  })
-
-  it('preserves optional enterprise retrieval without making missing sources fail-closed', () => {
-    const optionalPlan = semanticPlanFromMessage(semanticMessage('Satış sürecimizi genel olarak değerlendir', {
-      intent: 'analysis',
-      complexity: 'medium',
-      executionMode: 'knowledge',
-      goal: 'Satış sürecimizi genel olarak değerlendir',
-      knowledgeRequired: true,
-      enterpriseGroundingRequired: false,
-      webMode: 'none',
-      verificationRequired: false,
-      creativeMode: false,
-      evidenceQueries: ['satış süreci'],
-      promptProfile: 'knowledge',
-      steps: [{ id: 'evidence', label: 'evidence', toolHint: 'knowledge', successCriteria: 'optional' }],
-      conversationState: {
-        continuation: false,
-        topic: 'Satış süreci',
-        userMove: 'new_request',
-        operationMove: 'none',
-        priorIntent: 'none',
-        rejectedHypotheses: [],
-        rejectedScopes: [],
-        retainedContext: [],
-        openQuestions: [],
-        resolvedRequest: 'Satış sürecimizi genel olarak değerlendir',
-        activeEntities: [],
-        requestedEvidence: ['process_rule'],
-        userDecisions: [],
-        verifiedFactRefs: [],
-      },
-      orchestratorVersion: 'semantic-orchestrator-v3.5-evidence-policy',
-    }))
-
-    expect(optionalPlan).not.toBeNull()
-    expect(optionalPlan?.knowledgeRequired).toBe(true)
-    expect(optionalPlan?.enterpriseGroundingRequired).toBe(false)
-    expect(optionalPlan?.executionMode).toBe('knowledge')
-
-    const coverage = evaluateGroundedTechnicalClaims({
-      text: 'Genel süreç değerlendirmesi',
-      plan: optionalPlan!,
-      sources: [],
-      toolResults: [],
-    })
-    expect(coverage.ok).toBe(true)
-    expect(shouldFailClosedGroundedAnswer({ plan: optionalPlan!, coverage })).toBe(false)
-  })
-
-  it('repairs legacy Gemini provider-web encoding into public web without enterprise RAG', () => {
-    const plan = semanticPlanFromMessage(semanticMessage(
-      'Galatasaray nasıl gidiyor?',
-      legacyProviderWebPlan("Galatasaray Spor Kulübü'nün güncel durumu ve performansı hakkında bilgi."),
-    ))
-
-    expect(plan).not.toBeNull()
-    expect(plan?.knowledgeRequired).toBe(false)
-    expect(plan?.enterpriseGroundingRequired).toBe(false)
-    expect(plan?.webMode).toBe('required')
-    expect(plan?.evidenceQueries).toEqual([])
-    expect(plan?.goal).not.toContain('JETWORK_CAPABILITY')
-  })
-
-  it('uses a universal persona for public/direct turns and preserves strict enterprise contracts only when strict grounding is required', () => {
-    const configured = [
-      "Sen Enerjisa IT'de çalışan kıdemli bir İş Analistisin.",
-      'Her yeni talebi içeride Proje veya Support olarak değerlendir.',
-      '[JETWORK EXACT TECHNICAL EVIDENCE CONTRACT v1]',
-      'Teknik identifierları kaynaktan doğrula.',
-    ].join('\n')
-
-    const publicPlan: ReasoningPlan = {
-      intent: 'analysis', complexity: 'low', goal: 'uçak rezervasyon sürecini analiz et',
-      knowledgeRequired: false, enterpriseGroundingRequired: false, webMode: 'none',
-      verificationRequired: false, creativeMode: false, evidenceQueries: [], steps: [], executionMode: 'direct',
-    }
-    const publicPrompt = composeAssistantPrompt(configured, publicPlan)
-    expect(requiresEnterpriseAssistantPersona(publicPlan)).toBe(false)
-    expect(publicPrompt).toContain('Sen JetWork AI asistanısın')
-    expect(publicPrompt).toContain('Genel analiz')
-    expect(publicPrompt).not.toContain('Enerjisa IT')
-    expect(publicPrompt).not.toContain('Proje veya Support')
-
-    const optionalPlan: ReasoningPlan = {
-      intent: 'analysis', complexity: 'medium', goal: 'satış sürecini değerlendir',
-      knowledgeRequired: true, enterpriseGroundingRequired: false, webMode: 'none',
-      verificationRequired: false, creativeMode: false, evidenceQueries: ['satış süreci'], steps: [], executionMode: 'knowledge',
-    }
-    const optionalPrompt = composeAssistantPrompt(configured, optionalPlan)
-    expect(requiresEnterpriseAssistantPersona(optionalPlan)).toBe(true)
-    expect(optionalPrompt).toContain('Enerjisa IT')
-    expect(optionalPrompt).not.toContain('EXACT TECHNICAL EVIDENCE')
-
-    const technicalPlan = enterprisePlan()
-    const enterprisePrompt = composeAssistantPrompt(configured, technicalPlan)
-    expect(requiresEnterpriseAssistantPersona(technicalPlan)).toBe(true)
-    expect(enterprisePrompt).toContain('Enerjisa IT')
-    expect(enterprisePrompt).toContain('EXACT TECHNICAL EVIDENCE')
-  })
-
-  it('keeps technical enterprise plans fail-closed even when a provider-web marker exists', () => {
-    const plan = semanticPlanFromMessage(semanticMessage('CHECK_ZTKS hangi mesajları üretiyor?', {
-      ...legacyProviderWebPlan('CHECK_ZTKS hata mesajlarını kurumsal kaynaktan doğrula', ['CHECK_ZTKS']),
-      intent: 'sap_diagnosis',
-      enterpriseGroundingRequired: true,
-      verificationRequired: true,
-    }))
-
-    expect(plan).not.toBeNull()
-    expect(plan?.knowledgeRequired).toBe(true)
-    expect(plan?.enterpriseGroundingRequired).toBe(true)
-    expect(plan?.webMode).toBe('if_internal_insufficient')
-  })
-
-  it('never accepts a public web URL as enterprise grounding evidence', () => {
-    const webOnly = evaluateGroundedTechnicalClaims({
-      text: 'CHECK_ZTKS bu kontrolü yapar.',
-      plan: enterprisePlan(),
-      sources: [{ sourceType: 'web', url: 'https://example.com', sourceId: 'web-1' }],
-      toolResults: [],
-    })
-    expect(webOnly.ok).toBe(false)
-    expect(shouldFailClosedGroundedAnswer({ plan: enterprisePlan(), coverage: webOnly })).toBe(true)
-
-    const internal = evaluateGroundedTechnicalClaims({
-      text: 'CHECK_ZTKS bu kontrolü yapar.',
-      plan: enterprisePlan(),
-      sources: [{ sourceType: 'knowledge', canonicalKey: 'method:CHECK_ZTKS', sourceId: 'kb-1' }],
-      toolResults: [],
-    })
-    expect(internal.ok).toBe(true)
-  })
-
-  it('does not fail-close a public answer merely because there is no enterprise evidence', () => {
-    const publicPlan: ReasoningPlan = {
-      intent: 'research',
-      complexity: 'medium',
-      goal: 'Galatasaray güncel durum',
-      knowledgeRequired: false,
-      enterpriseGroundingRequired: false,
-      webMode: 'required',
-      verificationRequired: false,
-      creativeMode: false,
-      evidenceQueries: [],
-      steps: [],
-      executionMode: 'research',
-    }
-    const coverage = evaluateGroundedTechnicalClaims({
-      text: 'Public answer',
-      plan: publicPlan,
-      sources: [],
-      toolResults: [],
-    })
-    expect(coverage.ok).toBe(true)
-    expect(shouldFailClosedGroundedAnswer({ plan: publicPlan, coverage })).toBe(false)
   })
 })
