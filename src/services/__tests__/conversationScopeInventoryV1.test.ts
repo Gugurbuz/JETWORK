@@ -133,11 +133,13 @@ describe('Conversation Scope & Inventory Intelligence v1', () => {
     expect(sql).toContain('to authenticated');
   });
 
-  it('removes the legacy Flash-Lite to Pro promotion and records model-switch markers', () => {
+  it('keeps the selected Gemini model instead of hidden Flash-Lite to Pro promotion', () => {
     const gateway = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url), 'utf8');
     const providers = readFileSync(new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url), 'utf8');
     expect(gateway).toContain("requestedModel === LEGACY_GEMINI_FLASH_LITE_MODEL ? GEMINI_FLASH_LITE_MODEL : requestedModel");
     expect(gateway).not.toContain('requestedModel === GEMINI_FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
-    expect(providers).toContain('cost_guard_provider_model_fallback: 1');
+    expect(providers).toContain('model: requestedModel');
+    expect(providers).toContain('primary_llm_agent_calls');
+    expect(providers).not.toContain('cost_guard_provider_model_fallback: 1');
   });
 });
