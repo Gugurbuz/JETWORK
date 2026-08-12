@@ -98,6 +98,16 @@ const primaryAgentInstruction = [
   'Gereksiz tool çağrısı yapma. İlk tool sonucu yetersizse ancak gerçekten gerekiyorsa sorguyu iyileştirip tekrar dene.',
 ].join('\n')
 
+const openAiPrimaryAgentDeveloperItem = {
+  type: 'message',
+  role: 'developer',
+  content: [
+    primaryAgentInstruction,
+    'Bu primary-agent policy, daha önceki promptta analysis/proje/support sınıflandırmasını otomatik RAG veya kurumsal kaynak zorunluluğuna bağlayan talimatların yerine geçer.',
+    'Knowledge capabilitysinin mevcut olması onu kullanmak zorunda olduğun anlamına gelmez.',
+  ].join('\n'),
+}
+
 export async function requestGeminiResponse(input: {
   apiKey: string
   model: string
@@ -150,7 +160,8 @@ export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>
     return clean
   })
   const enumerationDispatch = buildEnumerationFastPathDispatch(items)
+  const withPrimaryAgentPolicy = [openAiPrimaryAgentDeveloperItem, ...cleaned]
   return enumerationDispatch
-    ? [...cleaned, buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)]
-    : cleaned
+    ? [...withPrimaryAgentPolicy, buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)]
+    : withPrimaryAgentPolicy
 }
