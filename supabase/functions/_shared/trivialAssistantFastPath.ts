@@ -1,7 +1,7 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v5-social-intent'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v6-universal-short-turn'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -19,10 +19,12 @@ export type TrivialFastPathProvider = 'openai' | 'gemini'
 
 const TRIVIAL_FAST_PATH_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
-  'Kullanıcının gündelik selamlaşma, hal-hatır, teşekkür veya kısa nezaket mesajına aynı dilde doğal ve çok kısa yanıt ver.',
+  'Bu yol kısa, gündelik ve düşük riskli kullanıcı mesajları içindir. Aynı dilde doğal ve kısa yanıt ver.',
+  'Çok olası yazım hatası veya kısaltmayı sessizce anlamlandır. Örneğin gündelik bir selamlaşmanın hatalı yazımını teknik terim veya araştırma konusu gibi yorumlama.',
+  'Kullanıcı yalnız bir kişi, takım, kurum, ürün veya konu adı yazdıysa niyet uydurma; tek kısa soruyla neyi merak ettiğini sor.',
+  'Kısa bir gündelik emir veya hatırlatma cümlesine doğal karşılık ver; gerçekte planlamadığın, kaydetmediğin veya gelecekte yapamayacağın bir işlemi yaptığını iddia etme.',
+  'Kullanıcı istemedikçe önceki teknik/kurumsal konuyu taşıma ve Enerjisa, SAP, CRM, süreç, proje, analiz veya IT talebine yönlendirme yapma.',
   'Selamlaşma ifadesini başka bir selamlaşma biçimine dönüştürme; örneğin "selam" ifadesine "aleykümselam" deme.',
-  'Kullanıcı istemedikçe önceki teknik/kurumsal konuyu bu mesaja taşıma; gündelik hal-hatır sorusunu önceki konunun devamı sayma.',
-  'Kullanıcı istemedikçe Enerjisa, SAP, süreç, teknik talep, yetenek listesi veya soru menüsü ekleme.',
   'Yanıtı en fazla iki kısa cümle tut.',
 ].join('\n')
 
@@ -36,6 +38,8 @@ const normalizeConversationText = (value: string) => value
   .trim()
 
 const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going|thanks|thank you|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
+const ENTERPRISE_OR_TECHNICAL_SHORT_PATTERN = /(?:\bSAP\b|\bCRM\b|\bC4C\b|\bIS[- ]?U\b|\bFICA\b|\bABAP\b|\bJIRA\b|\bENERJISA\b|\bCHECK_[A-Z0-9_]+\b|\bZ[A-Z0-9_]{2,}\b|\b[A-Z][A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]{1,})+\b)/i
+const EXPLICIT_INFORMATION_OR_ARTIFACT_PATTERN = /(?:\?|\b(?:nedir|kimdir|kim|nerede|ne zaman|nasil|neden|niye|hangi|hakkinda|anlat|acikla|bilgi|guncel|son durum|durum|performans|haber|fiyat|hava|kac|what|who|where|when|how|why|latest|current|news|ara|arastir|bul|listele|analiz et|hazirla|olustur|yaz|kod|rapor|sunum|dokuman|excel|ppt|pdf)\b)/i
 
 const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
@@ -101,10 +105,24 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
   const model = cleanString(input.model, 80)
   if (!model) return false
   if (model !== 'auto' && !GEMINI_FAST_PATH_MODELS.has(model) && !OPENAI_FAST_PATH_MODELS.has(model)) return false
-  // Exact social turns are context-free by definition. Stale attachment state
-  // must not force them through semantic orchestration; context-sensitive acknowledgements
-  // such as "tamam" remain blocked by the gateway before this helper is called.
-  return TRIVIAL_CONVERSATION_PATTERN.test(normalizeConversationText(input.message))
+
+  const normalized = normalizeConversationText(input.message)
+  if (!normalized) return false
+
+  // Canonical social turns remain deterministic and context-free.
+  if (TRIVIAL_CONVERSATION_PATTERN.test(normalized)) return true
+
+  // A bounded universal short-turn lane handles typos, abbreviations, reactions
+  // and low-risk daily language without forcing every possible phrase into a regex.
+  // Attachments and anything that looks technical, informational or artifact-producing
+  // stay on semantic orchestration.
+  if (input.attachmentCount > 0) return false
+  if (input.message.length > 96) return false
+  if (ENTERPRISE_OR_TECHNICAL_SHORT_PATTERN.test(input.message)) return false
+  if (EXPLICIT_INFORMATION_OR_ARTIFACT_PATTERN.test(normalized)) return false
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  return words.length >= 1 && words.length <= 7
 }
 
 const extractOpenAiText = (payload: Record<string, unknown>): string => {
