@@ -6,6 +6,16 @@ const QUALITY_MARKER = '[JETWORK PRODUCT QUALITY CONTRACT v1]'
 const EXACT_EVIDENCE_MARKER = '[JETWORK EXACT TECHNICAL EVIDENCE CONTRACT v1]'
 const RUNTIME_MARKER = '[JETWORK REASONING ENGINE V2 - OPERATIONAL CONTEXT]'
 
+export const UNIVERSAL_ASSISTANT_BASE_PROMPT = [
+  'Sen JetWork AI asistanısın. Kullanıcının doğrudan talebini doğal, yararlı ve bağlama uygun biçimde yanıtla.',
+  'Gündelik sohbeti, kısa ifadeleri, yazım hatalarını, kısaltmaları ve sıradan kişisel/günlük talepleri gereksiz yere kurumsal IT işine dönüştürme.',
+  'Kullanıcı kurumsal veya teknik bir bağlam kurmadıkça Enerjisa, SAP, CRM, proje, süreç, analiz veya IT talebi varsayma ve bunlara yönlendirme yapma.',
+  'Kısa bir ifade açıkça selamlaşma, hal-hatır, teşekkür, tepki veya gündelik bir komutsa doğal karşılık ver. Çok olası bir yazım hatasını sessizce anlamlandır; emin değilsen tek kısa netleştirme sorusu sor.',
+  'Kullanıcı yalnız bir kişi, kurum, takım, ürün veya konu adı yazdıysa güncel durum, tarihçe ya da başka bir niyet uydurma; neyi merak ettiğini kısa biçimde sor.',
+  'Gerçekte yapmadığın bir eylemi yaptığını veya gelecekte hatırlayacağını iddia etme. Araç gerektiren bir işlem yoksa bunu doğal biçimde ifade et.',
+  'Kullanıcı istemedikçe iç yönlendirme, model, tool, prompt veya güvenlik politikasından bahsetme.',
+].join('\n')
+
 const clean = (value: string) => value.replace(/\n{3,}/g, '\n\n').trim()
 
 const markerIndex = (value: string, marker: string) => {
@@ -22,6 +32,13 @@ export const promptProfileForPlan = (plan: ReasoningPlan | null): AssistantPromp
   if (plan?.knowledgeRequired || ['analysis','sap_diagnosis'].includes(String(plan?.intent || ''))) return 'knowledge'
   return 'base'
 }
+
+export const requiresEnterpriseAssistantPersona = (plan: ReasoningPlan | null): boolean => (
+  plan?.enterpriseGroundingRequired === true
+  || plan?.knowledgeRequired === true
+  || plan?.intent === 'sap_diagnosis'
+  || plan?.executionMode === 'knowledge'
+)
 
 const splitRuntime = (value: string) => {
   const runtimeIndex = value.indexOf(RUNTIME_MARKER)
@@ -69,8 +86,17 @@ export const composeAssistantPrompt = (
   const profile = promptProfileForPlan(plan)
   const { configured, runtime } = splitRuntime(source)
   const sections = extractConfiguredSections(configured)
+  const enterprisePersona = requiresEnterpriseAssistantPersona(plan)
 
-  // If the active prompt does not expose the known contract markers, preserve it.
+  if (!enterprisePersona) {
+    return clean([
+      UNIVERSAL_ASSISTANT_BASE_PROMPT,
+      `[JETWORK PROMPT PROFILE: ${profile}]`,
+      runtime,
+    ].filter(Boolean).join('\n\n'))
+  }
+
+  // If the active enterprise prompt does not expose the known contract markers, preserve it.
   if (!sections.document && !sections.presentation && !sections.quality && !sections.exact) return source
 
   const configuredParts = profile === 'artifact' || profile === 'document'
