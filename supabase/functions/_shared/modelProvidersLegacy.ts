@@ -10,7 +10,6 @@ export const GEMINI_MODELS = new Set([
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
-const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const GEMINI_RETRY_DELAYS_MS = [350] as const
 const GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 10_000
@@ -332,7 +331,7 @@ export async function requestGeminiResponse(input: {
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
   const trivialConversation = !input.allowTools && isTrivialConversationalTurn(input.items)
   const effectiveItems = trivialConversation ? compactConversationalItems(input.items) : input.allowTools ? input.items : compactNoToolSynthesisItems(input.items)
-  const executionModel = !trivialConversation && input.model === GEMINI_FLASH_LITE_MODEL ? GEMINI_SUBSTANTIVE_MODEL : input.model
+  const executionModel = input.model
   const providerWebEnabled = !trivialConversation && input.allowTools && input.instructions.includes(PROVIDER_WEB_CAPABILITY_MARKER)
   const artifactSynthesis = !trivialConversation && (input.instructions.includes('Intent: document') || input.instructions.includes('[JETWORK PROMPT PROFILE: artifact]'))
   const finalSynthesis = !input.allowTools && !trivialConversation

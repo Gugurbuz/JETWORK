@@ -40,6 +40,7 @@ export const providerForModel = (model: string): AssistantProvider => {
 
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[END_JETWORK_SEMANTIC_PLAN\]\s*/gi
 const INTERNAL_EVIDENCE_PATTERN = /\n?\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]\s*/gi
+const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 
 export const stripInternalSemanticPlan = (value: string) => value
   .replace(INTERNAL_SEMANTIC_PLAN_PATTERN, '\n')
@@ -139,10 +140,15 @@ export async function requestGeminiResponse(input: {
   }
 
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
+  const geminiInstructions = [
+    providerInstructions,
+    primaryAgentInstruction,
+    input.allowTools ? PROVIDER_WEB_CAPABILITY_MARKER : '',
+  ].filter(Boolean).join('\n\n')
   const response = await legacyRequestGeminiResponse({
     ...input,
     model: requestedModel,
-    instructions: [providerInstructions, primaryAgentInstruction].filter(Boolean).join('\n\n'),
+    instructions: geminiInstructions,
     items: sanitizeItems(input.items),
   })
   return {
