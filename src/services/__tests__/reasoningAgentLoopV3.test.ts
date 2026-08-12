@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReasoningPlan } from '../../../supabase/functions/_shared/reasoningEngine';
-import { GEMINI_SEMANTIC_MODEL } from '../../../supabase/functions/_shared/geminiCostGuard';
 import {
   applyAgentLoopPolicy,
   buildSemanticExecutionPlan,
@@ -15,6 +14,7 @@ const plan = (overrides: Partial<ReasoningPlan> = {}): ReasoningPlan => ({
   executionMode: 'knowledge',
   goal: 'Cost ekleme hatasını kanıta dayalı biçimde teşhis et.',
   knowledgeRequired: true,
+  enterpriseGroundingRequired: true,
   webMode: 'none',
   verificationRequired: true,
   creativeMode: false,
@@ -38,29 +38,29 @@ const plan = (overrides: Partial<ReasoningPlan> = {}): ReasoningPlan => ({
     userDecisions: [],
     verifiedFactRefs: [],
   },
-  orchestratorVersion: 'test',
+  orchestratorVersion: 'legacy-test',
   ...overrides,
 });
 
-describe('Reasoning Engine v3 resolved-context capability policy', () => {
-  it('keeps the user goal compact instead of injecting agent-loop policy into it', () => {
+describe('Reasoning primary-agent and legacy capability compatibility', () => {
+  it('keeps legacy explicit plans compact instead of injecting policy into the goal', () => {
     const result = applyAgentLoopPolicy(plan(), 'openai');
 
     expect(result.knowledgeRequired).toBe(true);
     expect(result.goal).toBe('Cost ekleme hatasını kanıta dayalı biçimde teşhis et.');
     expect(result.goal).not.toContain('[JETWORK_AGENT_LOOP]');
     expect(result.steps.map(step => step.id)).toEqual(['adaptive-evidence-loop', 'synthesize']);
-    expect(result.steps[0]?.successCriteria).toContain('zayıf adaylar citation sayılmaz');
     expect(result.orchestratorVersion).toBe(SEMANTIC_ORCHESTRATOR_VERSION);
   });
 
-  it('keeps optional OpenAI web capability available without mixing policy into the goal', () => {
+  it('keeps legacy optional OpenAI web capability available without mixing policy into the goal', () => {
     const result = applyAgentLoopPolicy(plan({
       intent: 'research',
       executionMode: 'research',
       knowledgeRequired: false,
+      enterpriseGroundingRequired: false,
       webMode: 'if_internal_insufficient',
-      verificationRequired: true,
+      verificationRequired: false,
       promptProfile: 'research',
     }), 'openai');
 
@@ -70,36 +70,23 @@ describe('Reasoning Engine v3 resolved-context capability policy', () => {
     expect(result.goal).not.toContain('JETWORK_AGENT_LOOP');
   });
 
-  it('maps required OpenAI web research to the conditional native capability contract', () => {
+  it('keeps legacy provider-native Gemini web mapping available for explicit old plans', () => {
     const result = applyAgentLoopPolicy(plan({
       intent: 'research',
       executionMode: 'research',
       knowledgeRequired: false,
+      enterpriseGroundingRequired: false,
       webMode: 'required',
-      promptProfile: 'research',
-    }), 'openai');
-
-    expect(result.webMode).toBe('if_internal_insufficient');
-    expect(result.steps[0]?.toolHint).toBe('web');
-    expect(result.goal).not.toContain('izin verilen web aracını kullan');
-  });
-
-  it('maps Gemini web intent to provider-native Google Search marker only', () => {
-    const result = applyAgentLoopPolicy(plan({
-      intent: 'research',
-      executionMode: 'research',
-      knowledgeRequired: false,
-      webMode: 'required',
+      verificationRequired: false,
       promptProfile: 'research',
     }), 'gemini');
 
     expect(result.webMode).toBe('none');
     expect(result.knowledgeRequired).toBe(true);
     expect(result.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER);
-    expect(result.goal).not.toContain('Araştırma sırasını önceden sabitleme');
   });
 
-  it('resolves an elliptical technical follow-up into the prior user entity when the semantic provider is unavailable', async () => {
+  it('resolves an elliptical technical follow-up without a semantic provider call', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.1-pro-preview',
@@ -115,16 +102,18 @@ describe('Reasoning Engine v3 resolved-context capability policy', () => {
       },
     });
 
-    expect(result.fallbackUsed).toBe(true);
-    expect(result.fallbackReason).toBe('missing-api-key');
-    expect(result.model).toBe(GEMINI_SEMANTIC_MODEL);
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.fallbackReason).toBeUndefined();
+    expect(result.model).toBe('gemini-3.1-pro-preview');
+    expect(result.usage?.semantic_planner_provider_calls_avoided).toBe(1);
     expect(result.plan.knowledgeRequired).toBe(true);
+    expect(result.plan.enterpriseGroundingRequired).toBe(false);
+    expect(result.plan.evidenceQueries).toEqual([]);
     expect(result.plan.conversationState?.continuation).toBe(true);
     expect(result.plan.conversationState?.activeEntities).toContain('ZCRM2-545');
     expect(result.plan.conversationState?.requestedEvidence).toContain('abap_source');
     expect(result.plan.conversationState?.resolvedRequest).toContain('ZCRM2-545');
     expect(result.plan.goal).toContain('ZCRM2-545');
-    expect(result.plan.goal).not.toContain('[JETWORK_AGENT_LOOP]');
   });
 
   it('remembers rejected assistant hypotheses only as rejected conversational context, never verified facts', async () => {
@@ -149,10 +138,10 @@ describe('Reasoning Engine v3 resolved-context capability policy', () => {
     expect(rejected).toContain('Vade uyumsuzluğu');
     expect(rejected).toContain('paçal offer id');
     expect(result.plan.conversationState?.verifiedFactRefs).toEqual([]);
-    expect(result.plan.goal).not.toContain('Vade uyumsuzluğu');
+    expect(result.plan.enterpriseGroundingRequired).toBe(false);
   });
 
-  it('does not let a previous trivial greeting downgrade a new technical diagnosis during fallback', async () => {
+  it('does not let a previous trivial greeting downgrade a new technical diagnosis', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.1-pro-preview',
@@ -168,41 +157,28 @@ describe('Reasoning Engine v3 resolved-context capability policy', () => {
       },
     });
 
-    expect(result.fallbackUsed).toBe(true);
+    expect(result.fallbackUsed).toBe(false);
     expect(result.plan.intent).toBe('sap_diagnosis');
     expect(result.plan.conversationState?.continuation).toBe(false);
     expect(result.plan.conversationState?.priorIntent).toBe('none');
     expect(result.plan.knowledgeRequired).toBe(true);
+    expect(result.plan.evidenceQueries).toEqual([]);
   });
 
-  it('uses a stable Gemini semantic model and recovers schema-contract HTTP 400s with JSON compatibility mode', () => {
+  it('removes the semantic provider request stack and records avoided planner calls', () => {
     const semanticSource = readFileSync(
       new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
       'utf8',
     );
-    const providerSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
-      'utf8',
-    );
-
-    expect(GEMINI_SEMANTIC_MODEL).toBe('gemini-3.1-flash-lite');
-    expect(semanticSource).toContain("GEMINI_SEMANTIC_MODEL, usageWithGeminiEstimatedCost");
-    expect(semanticSource).toContain("thinkingConfig: { thinkingLevel: 'minimal' }");
-    expect(semanticSource).toContain('collectFallbackRejectedHypotheses');
-    expect(semanticSource).toContain('resolvedRequest');
-    expect(semanticSource).toContain('activeEntities');
-    expect(semanticSource).toContain('responseFormat: {');
-    expect(semanticSource).toContain("responseMimeType: 'application/json'");
-    expect(semanticSource).toContain('compatibilityMode');
-    expect(semanticSource).toContain('requestGeminiPlanOnce');
-    expect(semanticSource).toContain('error.status !== 400');
-    expect(semanticSource).toContain('withSemanticRetry');
-    expect(providerSource).toContain('GEMINI_RETRY_DELAYS_MS');
-    expect(providerSource).toContain('isRetryableGeminiError');
-    expect(providerSource).toContain('generateGeminiContentWithResilience');
+    expect(SEMANTIC_ORCHESTRATOR_VERSION).toBe('primary-llm-agent-v1');
+    expect(semanticSource).toContain('semantic_planner_provider_calls_avoided');
+    expect(semanticSource).not.toContain('requestGeminiPlanOnce');
+    expect(semanticSource).not.toContain('requestOpenAiPlan');
+    expect(semanticSource).not.toContain('withSemanticRetry');
+    expect(semanticSource).not.toContain('responseMimeType');
   });
 
-  it('configures Gemini 3 for native Google Search plus custom function calling in the same adaptive loop', () => {
+  it('keeps Gemini native Google Search plus custom function calling available to the primary model', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
       'utf8',
