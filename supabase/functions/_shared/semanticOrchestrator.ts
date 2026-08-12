@@ -95,7 +95,7 @@ const priorUserEntities = (conversation: SemanticContextMessage[]) => {
 const requestedEvidenceFor = (message: string) => {
   const text = normalize(message)
   const requested: string[] = []
-  if (/\b(?:mesaj|message|hata metni|message text)\b/.test(text)) requested.push('message_text')
+  if (text.includes('mesaj') || /\b(?:message|hata metni|message text)\b/.test(text)) requested.push('message_text')
   if (/\b(?:kod|code|source|kaynak kod|abap)\b/.test(text)) requested.push('abap_source')
   if (/\b(?:ne demek|nedir|anlami|acilimi|what is|meaning)\b/.test(text)) requested.push('definition')
   if (/\b(?:kural|rule|kosul|condition|tetik|trigger)\b/.test(text)) requested.push('trigger_rule')
