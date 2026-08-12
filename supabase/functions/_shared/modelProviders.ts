@@ -12,17 +12,8 @@ import {
 import {
   GEMINI_AGENT_MODEL,
   GEMINI_SEMANTIC_MODEL,
-  buildGeminiFinalSynthesisItems,
-  compactGeminiAgentItems,
-  costGuardAgentInstruction,
-  executedToolCallCount,
   extractSemanticPlanFromItems,
-  isBoundedKnowledgePlan,
-  mergeNumericUsage,
   normalizeGeminiRequestedModel,
-  responseHasFunctionCall,
-  responseVisibleText,
-  toolBudgetForPlan,
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
@@ -32,7 +23,6 @@ import {
   buildOpenAiEnumerationFastPathMarkerItem,
   buildSyntheticEnumerationFunctionCall,
 } from './enumerationFastPath.ts'
-import type { ReasoningPlan } from './reasoningEngine.ts'
 
 export const DEFAULT_GEMINI_MODEL = LEGACY_DEFAULT_GEMINI_MODEL
 export const GEMINI_MODELS = new Set([
@@ -62,20 +52,8 @@ export const stripDuplicatedInlineEvidence = (value: string) => value
   .trim()
 
 const sanitizeProviderInstructions = (value: string) => stripDuplicatedInlineEvidence(stripInternalSemanticPlan(value))
-
-const textFromContent = (content: unknown): string => {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content.map(part => {
-    if (typeof part === 'string') return part
-    if (!part || typeof part !== 'object') return ''
-    return typeof (part as Record<string, unknown>).text === 'string'
-      ? String((part as Record<string, unknown>).text)
-      : ''
-  }).filter(Boolean).join('\n')
-}
-
 const sanitizeTextContent = (value: string) => stripDuplicatedInlineEvidence(stripInternalSemanticPlan(value))
+
 const sanitizeContent = (content: unknown): unknown => {
   if (typeof content === 'string') return sanitizeTextContent(content)
   if (!Array.isArray(content)) return content
@@ -98,273 +76,27 @@ const compactAssistantContent = (content: unknown): unknown => {
       ? String((part as Record<string, unknown>).text)
       : ''
   }).filter(Boolean).join('\n')
-  if (!text) return content
-  return compactAssistantConversationMemory(text, 800)
+  return text ? compactAssistantConversationMemory(text, 800) : content
 }
 
 const sanitizeItems = (items: Array<Record<string, unknown>>) => items.map(item => {
   const clean = { ...item }
   if ('content' in clean) clean.content = sanitizeContent(clean.content)
-  const role = String(clean.role || '')
-  if (role === 'assistant' && 'content' in clean) clean.content = compactAssistantContent(clean.content)
+  if (String(clean.role || '') === 'assistant' && 'content' in clean) clean.content = compactAssistantContent(clean.content)
   return clean
 })
 
 export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => legacyIsTrivialConversationalTurn(sanitizeItems(items))
 
-const withEstimatedCost = (
-  response: NormalizedModelResponse,
-  markers: Record<string, number> = {},
-): NormalizedModelResponse => ({
-  ...response,
-  usage: usageWithGeminiEstimatedCost(String(response.model || ''), response.usage, markers),
-})
-
-const withStageUsage = (
-  response: NormalizedModelResponse,
-  stage: 'agent' | 'final',
-  markers: Record<string, number> = {},
-): NormalizedModelResponse => {
-  const enriched = withEstimatedCost(response, markers)
-  const usage = enriched.usage || {}
-  const stageUsage: Record<string, number> = {}
-  const inputTokens = Number(usage.input_tokens || 0)
-  const outputTokens = Number(usage.output_tokens || 0)
-  const reasoningTokens = Number(usage.reasoning_tokens || 0)
-  const estimatedCost = Number(usage.estimated_cost_usd || 0)
-  if (inputTokens) stageUsage[`cost_guard_${stage}_input_tokens`] = inputTokens
-  if (outputTokens) stageUsage[`cost_guard_${stage}_output_tokens`] = outputTokens
-  if (reasoningTokens) stageUsage[`cost_guard_${stage}_reasoning_tokens`] = reasoningTokens
-  if (estimatedCost) stageUsage[`cost_guard_${stage}_estimated_cost_usd`] = estimatedCost
-  return { ...enriched, usage: mergeNumericUsage(enriched.usage, stageUsage) }
-}
-
-const withRequestedModelObservability = (
-  response: NormalizedModelResponse,
-  requestedModel: string,
-): NormalizedModelResponse => {
-  const actualModel = String(response.model || '')
-  if (!actualModel || actualModel === requestedModel) return response
-  return {
-    ...response,
-    usage: mergeNumericUsage(response.usage, {
-      cost_guard_model_switch: 1,
-      cost_guard_provider_model_fallback: 1,
-    }),
-  }
-}
-
-type BoundedKnowledgeDispatch = {
-  toolName: string
-  args: Record<string, unknown>
-  stage: 'search' | 'detail'
-}
-
-const parseJsonObject = (value: unknown): Record<string, unknown> | null => {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-  if (typeof value !== 'string') return null
-  try {
-    const parsed = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
-  } catch {
-    return null
-  }
-}
-
-const latestUserText = (items: Array<Record<string, unknown>>) => {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (String(items[index].role || '') !== 'user') continue
-    return stripInternalSemanticPlan(textFromContent(items[index].content)).trim()
-  }
-  return ''
-}
-
-const resolvedKnowledgeQuery = (items: Array<Record<string, unknown>>, plan: ReasoningPlan | null) => {
-  const resolved = String(plan?.conversationState?.resolvedRequest || '').trim()
-  if (resolved) return resolved.slice(0, 300)
-  const evidenceQuery = String(plan?.evidenceQueries?.[0] || '').trim()
-  if (evidenceQuery) return evidenceQuery.slice(0, 300)
-  return latestUserText(items).slice(0, 300)
-}
-
-const normalizeEvidenceText = (value: unknown) => String(value || '')
-  .toLocaleLowerCase('tr-TR')
-  .replace(/ı/g, 'i')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-z0-9_/-]+/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim()
-
-const normalizeEntity = (value: unknown) => normalizeEvidenceText(value).replace(/^message\s+/, '')
-const activeEntityAnchors = (plan: ReasoningPlan | null) => (
-  (plan?.conversationState?.activeEntities || [])
-    .map(normalizeEntity)
-    .filter(Boolean)
-    .slice(0, 10)
-)
-
-const recordEvidenceSurface = (record: Record<string, unknown>) => normalizeEvidenceText([
-  record.canonicalKey,
-  record.objectName,
-  record.title,
-  record.summary,
-  record.evidenceExcerpt,
-  record.sourceName,
-].filter(Boolean).join(' '))
-
-const recordSupportsPlan = (record: Record<string, unknown>, plan: ReasoningPlan | null) => {
-  const anchors = activeEntityAnchors(plan)
-  const surface = recordEvidenceSurface(record)
-  if (anchors.length) {
-    return anchors.some(anchor => surface.includes(anchor) || surface.includes(anchor.replace(/-/g, ' ')))
-  }
-  const lexical = Number(record.lexicalScore || 0)
-  const vector = Number(record.vectorScore || 0)
-  const score = Number(record.score || 0)
-  return lexical >= 0.38 || vector >= 0.72 || score >= 0.68
-}
-
-const toolNamesByCallId = (items: Array<Record<string, unknown>>) => {
-  const names = new Map<string, string>()
-  for (const item of items) {
-    if (String(item.type || '') !== 'function_call') continue
-    names.set(String(item.call_id || ''), String(item.name || ''))
-  }
-  return names
-}
-
-const detailDispatchForRecord = (record: Record<string, unknown>): BoundedKnowledgeDispatch | null => {
-  const objectType = String(record.objectType || '').toLocaleLowerCase('en-US')
-  const canonicalKey = String(record.canonicalKey || '').trim()
-  if (!canonicalKey) return null
-  if (objectType === 'message') return { toolName: 'get_message_detail', args: { messageCode: canonicalKey }, stage: 'detail' }
-  if (['class', 'method', 'function'].includes(objectType)) return { toolName: 'get_abap_source', args: { canonicalKey }, stage: 'detail' }
-  if (['document', 'business_rule'].includes(objectType)) return { toolName: 'get_document_content', args: { canonicalKey }, stage: 'detail' }
-  return { toolName: 'get_knowledge_object', args: { canonicalKey }, stage: 'detail' }
-}
-
-const directDetailFromPlan = (plan: ReasoningPlan | null): BoundedKnowledgeDispatch | null => {
-  if (!plan?.conversationState) return null
-  const evidence = new Set(plan.conversationState.requestedEvidence || [])
-  const entities = plan.conversationState.activeEntities || []
-  for (const rawEntity of entities) {
-    const entity = String(rawEntity || '').trim()
-    if (!entity) continue
-    if (entity.toLocaleLowerCase('en-US').startsWith('message:')) {
-      return { toolName: 'get_message_detail', args: { messageCode: entity }, stage: 'detail' }
-    }
-    if (evidence.has('message_text') && /^[A-Z][A-Z0-9_]+-\d{2,4}$/i.test(entity)) {
-      return { toolName: 'get_message_detail', args: { messageCode: entity }, stage: 'detail' }
-    }
-    if (/^(?:method|class|function):/i.test(entity) && evidence.has('abap_source')) {
-      return { toolName: 'get_abap_source', args: { canonicalKey: entity }, stage: 'detail' }
-    }
-  }
-  return null
-}
-
-const filteredSearchOutput = (value: unknown, plan: ReasoningPlan | null): string => {
-  const parsed = parseJsonObject(value)
-  if (!parsed || String(parsed.tool || '') !== 'search_knowledge_catalog') return String(value || '')
-  const records = Array.isArray(parsed.records)
-    ? parsed.records.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
-    : []
-  const relevant = records.filter(record => recordSupportsPlan(record, plan))
-  return JSON.stringify({
-    ...parsed,
-    records: relevant,
-    relevanceFiltered: relevant.length !== records.length,
-    candidateCount: records.length,
-    verifiedCandidateCount: relevant.length,
-  })
-}
-
-const sanitizeBoundedKnowledgeEvidence = (
-  items: Array<Record<string, unknown>>,
-  plan: ReasoningPlan | null,
-) => {
-  if (!isBoundedKnowledgePlan(plan)) return items
-  const names = toolNamesByCallId(items)
-  return items.map(item => {
-    if (String(item.type || '') !== 'function_call_output') return item
-    const callName = names.get(String(item.call_id || '')) || ''
-    if (callName !== 'search_knowledge_catalog') return item
-    return { ...item, output: filteredSearchOutput(item.output, plan) }
-  })
-}
-
-const buildBoundedKnowledgeDispatch = (
-  items: Array<Record<string, unknown>>,
-  plan: ReasoningPlan | null,
-): BoundedKnowledgeDispatch | null => {
-  if (!isBoundedKnowledgePlan(plan)) return null
-  const userText = resolvedKnowledgeQuery(items, plan)
-  if (!userText || userText.length > 320 || /\[UNTRUSTED_CHAT_ATTACHMENT_/i.test(userText)) return null
-
-  const outputs = items.filter(item => String(item.type || '') === 'function_call_output')
-  if (outputs.length === 0) {
-    const direct = directDetailFromPlan(plan)
-    if (direct) return direct
-    return {
-      toolName: 'search_knowledge_catalog',
-      args: { query: userText, objectTypes: null, limit: 6 },
-      stage: 'search',
-    }
-  }
-
-  if (outputs.length !== 1) return null
-  const names = toolNamesByCallId(items)
-  const output = outputs[0]
-  const callName = names.get(String(output.call_id || '')) || ''
-  if (callName !== 'search_knowledge_catalog') return null
-  const parsed = parseJsonObject(filteredSearchOutput(output.output, plan))
-  const records = Array.isArray(parsed?.records)
-    ? parsed.records.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>
-    : []
-  if (!records.length) return null
-  return detailDispatchForRecord(records[0])
-}
-
-const buildSyntheticKnowledgeFunctionCall = (dispatch: BoundedKnowledgeDispatch) => ({
-  type: 'function_call',
-  call_id: `jetwork-knowledge-fast:${crypto.randomUUID()}`,
-  name: dispatch.toolName,
-  arguments: JSON.stringify(dispatch.args),
-})
-
-const finalizeWithRequestedModel = async (input: {
-  apiKey: string
-  requestedModel: string
-  instructions: string
-  items: Array<Record<string, unknown>>
-  tools: ReadonlyArray<Record<string, unknown>>
-  maxOutputTokens: number
-  onText: (text: string) => void
-  signal?: AbortSignal
-  agentDraft?: string
-  priorUsage?: Record<string, number>
-  forced?: boolean
-  plan?: ReasoningPlan | null
-}): Promise<NormalizedModelResponse> => {
-  const finalItems = sanitizeBoundedKnowledgeEvidence(input.items, input.plan || null)
-  const finalResponse = withRequestedModelObservability(withStageUsage(await legacyRequestGeminiResponse({
-    apiKey: input.apiKey,
-    model: input.requestedModel,
-    instructions: `${composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), input.plan || null)}\n\n[JETWORK_COST_GUARD] Araştırma tamamlandı. Yeni araç çağrısı yapmadan yalnız doğrulanmış kanıta dayalı nihai kullanıcı yanıtını üret. Search candidate kayıtları tek başına doğrulanmış fact/citation değildir.`,
-    items: buildGeminiFinalSynthesisItems(finalItems, input.agentDraft || ''),
-    tools: input.tools,
-    allowTools: false,
-    maxOutputTokens: input.maxOutputTokens,
-    onText: input.onText,
-    signal: input.signal,
-  }), 'final', {
-    cost_guard_final_calls: 1,
-    ...(input.forced ? { cost_guard_forced_synthesis: 1 } : {}),
-  }), input.requestedModel)
-
-  return { ...finalResponse, usage: mergeNumericUsage(input.priorUsage, finalResponse.usage) }
-}
+const primaryAgentInstruction = [
+  '[JETWORK PRIMARY LLM AGENT MODE]',
+  'Bu turnün karar verici modeli sensin. Ayrı bir planner senin yerine knowledge/web kullanma kararı vermemiştir.',
+  'Knowledge araçları kullanılabilir capabilitylerdir; yalnız gerçekten yararlıysa çağır. Genel analiz sırf analiz olduğu için kaynak araması gerektirmez.',
+  'JetWork çalışma alanındaki iş/süreç terimleri kurum bağlamına işaret edebilir. Kuruma özgü ayrıntı cevabı anlamlı biçimde iyileştirecekse knowledge aracını kendin kullan.',
+  'Knowledge sonucu boşsa bunu hata veya cevap yasağı sayma. Doğrulanmamış kurum özeli uydurmadan genel bilgi ve reasoning ile yararlı cevaba devam et.',
+  'Exact kurumsal teknik identifier, mesaj metni, method/class davranışı, tablo/alan veya iç iş kuralını kesin gerçek olarak söylemeden önce kurumsal tool ile doğrula.',
+  'Gereksiz tool çağrısı yapma. İlk tool sonucu yetersizse ancak gerçekten gerekiyorsa sorguyu iyileştirip tekrar dene.',
+].join('\n')
 
 export async function requestGeminiResponse(input: {
   apiKey: string
@@ -379,102 +111,41 @@ export async function requestGeminiResponse(input: {
 }): Promise<NormalizedModelResponse> {
   const requestedModel = normalizeGeminiRequestedModel(input.model)
   const plan = extractSemanticPlanFromItems(input.items)
+
+  // Keep only the authoritative deterministic inventory shortcut. All ordinary
+  // knowledge decisions are made by the requested primary model itself.
   const enumerationDispatch = input.allowTools ? buildEnumerationFastPathDispatch(input.items) : null
   if (enumerationDispatch) {
     return {
       id: `jetwork-enum-fast:${crypto.randomUUID()}`,
       status: 'completed',
-      model: GEMINI_AGENT_MODEL,
+      model: requestedModel,
       output: [buildSyntheticEnumerationFunctionCall(enumerationDispatch)],
       usage: {
         deterministic_enumeration_dispatch: 1,
         deterministic_provider_calls_avoided: 1,
-        cost_guard_agent_calls_avoided: 1,
       },
     }
   }
 
-  const boundedKnowledgeDispatch = input.allowTools ? buildBoundedKnowledgeDispatch(input.items, plan) : null
-  if (boundedKnowledgeDispatch) {
-    return {
-      id: `jetwork-knowledge-fast:${crypto.randomUUID()}`,
-      status: 'completed',
-      model: GEMINI_AGENT_MODEL,
-      output: [buildSyntheticKnowledgeFunctionCall(boundedKnowledgeDispatch)],
-      usage: {
-        deterministic_knowledge_dispatch: 1,
-        deterministic_provider_calls_avoided: 1,
-        cost_guard_agent_calls_avoided: 1,
-        [`deterministic_knowledge_${boundedKnowledgeDispatch.stage}_dispatch`]: 1,
-      },
-    }
-  }
-
-  const sanitizedItems = sanitizeBoundedKnowledgeEvidence(sanitizeItems(input.items), plan)
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
-
-  if (!input.allowTools) {
-    return withRequestedModelObservability(withStageUsage(await legacyRequestGeminiResponse({
-      ...input,
-      instructions: providerInstructions,
-      model: requestedModel,
-      items: sanitizedItems,
-    }), 'final', { cost_guard_final_calls: 1 }), requestedModel)
-  }
-
-  const executedTools = executedToolCallCount(sanitizedItems)
-  const toolBudget = toolBudgetForPlan(plan)
-  if (executedTools >= toolBudget) {
-    return finalizeWithRequestedModel({
-      apiKey: input.apiKey,
-      requestedModel,
-      instructions: providerInstructions,
-      items: sanitizedItems,
-      tools: input.tools,
-      maxOutputTokens: input.maxOutputTokens,
-      onText: input.onText,
-      signal: input.signal,
-      forced: true,
-      plan,
-    })
-  }
-
-  const agentResponse = withStageUsage(await legacyRequestGeminiResponse({
+  const response = await legacyRequestGeminiResponse({
     ...input,
-    model: GEMINI_AGENT_MODEL,
-    instructions: `${providerInstructions}\n\n${costGuardAgentInstruction({ budget: toolBudget, executed: executedTools, plan })}`,
-    items: compactGeminiAgentItems(sanitizedItems),
-    allowTools: true,
-    maxOutputTokens: Math.min(input.maxOutputTokens, 900),
-    onText: () => {},
-  }), 'agent', { cost_guard_agent_calls: 1 })
-
-  if (responseHasFunctionCall(agentResponse)) return agentResponse
-
-  const draft = responseVisibleText(agentResponse)
-  if (String(agentResponse.model || '') !== GEMINI_AGENT_MODEL || requestedModel === GEMINI_AGENT_MODEL) {
-    if (draft) input.onText(draft)
-    return agentResponse
-  }
-
-  return finalizeWithRequestedModel({
-    apiKey: input.apiKey,
-    requestedModel,
-    instructions: providerInstructions,
-    items: sanitizedItems,
-    tools: input.tools,
-    maxOutputTokens: input.maxOutputTokens,
-    onText: input.onText,
-    signal: input.signal,
-    agentDraft: draft,
-    priorUsage: agentResponse.usage,
-    plan,
+    model: requestedModel,
+    instructions: [providerInstructions, primaryAgentInstruction].filter(Boolean).join('\n\n'),
+    items: sanitizeItems(input.items),
   })
+  return {
+    ...response,
+    usage: usageWithGeminiEstimatedCost(String(response.model || requestedModel), response.usage, {
+      primary_llm_agent_calls: input.allowTools ? 1 : 0,
+      primary_llm_final_calls: input.allowTools ? 0 : 1,
+    }),
+  }
 }
 
 export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>>) => {
-  const plan = extractSemanticPlanFromItems(items)
-  const cleaned = sanitizeBoundedKnowledgeEvidence(sanitizeItems(items), plan).map(item => {
+  const cleaned = sanitizeItems(items).map(item => {
     const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
     return clean
   })
