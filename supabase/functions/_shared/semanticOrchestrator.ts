@@ -355,10 +355,10 @@ const fallbackPlan = (
     intent === 'sap_diagnosis'
     || currentEntities.length
     || (continuation && activePriorIntent === 'sap_diagnosis')
-    || (currentRoute.knowledgeRequired && currentRoute.verificationRequired)
     || (preserveKnowledgeTask && priorEnterpriseEntities.length)
   )
-  const knowledgeRequired = fallbackStrictEnterprise || preserveKnowledgeTask || currentRoute.knowledgeRequired
+  const routeKnowledgeRequired = currentRoute.knowledgeRequired && currentRoute.intent !== 'analysis'
+  const knowledgeRequired = fallbackStrictEnterprise || preserveKnowledgeTask || routeKnowledgeRequired
   const enterpriseGroundingRequired = fallbackStrictEnterprise
   const webMode = currentRoute.webMode
   const topic = fallbackTopic(conversation, currentMessage)
@@ -412,7 +412,7 @@ const fallbackPlan = (
     knowledgeRequired,
     enterpriseGroundingRequired,
     webMode,
-    verificationRequired: enterpriseGroundingRequired || currentRoute.verificationRequired || intent === 'sap_diagnosis',
+    verificationRequired: enterpriseGroundingRequired || intent === 'sap_diagnosis' || (webMode !== 'none' && currentRoute.verificationRequired),
     creativeMode: currentRoute.creativeMode,
     evidenceQueries,
     steps: [
@@ -636,10 +636,10 @@ const semanticFailureCode = (error: unknown) => {
   return 'provider-error'
 }
 
-const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
-  if (milliseconds <= 0) return
-  if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
-  await new Promise<void>((resolve, reject) => {
+const delayWithAbort = (milliseconds: number, signal?: AbortSignal) => {
+  if (milliseconds <= 0) return Promise.resolve()
+  if (signal?.aborted) return Promise.reject(signal.reason || new DOMException('Aborted', 'AbortError'))
+  return new Promise<void>((resolve, reject) => {
     let settled = false
     const finish = (error?: unknown) => {
       if (settled) return
