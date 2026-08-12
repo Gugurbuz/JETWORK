@@ -4,6 +4,9 @@ import {
   type ReasoningPlan,
 } from '../../../supabase/functions/_shared/reasoningEngine'
 import {
+  normalizeCachedSemanticPlan,
+} from '../../../supabase/functions/_shared/semanticOrchestrator'
+import {
   evaluateGroundedTechnicalClaims,
   shouldFailClosedGroundedAnswer,
 } from '../../../supabase/functions/_shared/groundingGuard'
@@ -64,6 +67,7 @@ const directPlan = (resolvedRequest: string) => ({
   executionMode: 'direct',
   goal: resolvedRequest,
   knowledgeRequired: false,
+  enterpriseGroundingRequired: false,
   webMode: 'none',
   verificationRequired: false,
   creativeMode: false,
@@ -86,7 +90,7 @@ const directPlan = (resolvedRequest: string) => ({
     userDecisions: [],
     verifiedFactRefs: [],
   },
-  orchestratorVersion: 'semantic-orchestrator-v3.4-active-operation',
+  orchestratorVersion: 'semantic-orchestrator-v3.5-evidence-policy',
 })
 
 const enterprisePlan = (): ReasoningPlan => ({
@@ -113,16 +117,18 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     expect(deterministicTrivialResponseForMessage('Nasıl gidiyor')).toContain('İyi gidiyor')
   })
 
-  it('uses the universal short-turn lane for typos, abbreviations and daily language without enumerating every phrase', () => {
-    for (const message of ['Mrb', 'Nabet', 'Bok', 'Çöpleri atmayı unutma', 'Galatasaray']) {
-      expect(shouldUseTrivialAssistantFastPath({
-        message,
-        model: 'gemini-3.1-pro-preview',
-        attachmentCount: 0,
-      })).toBe(true)
-    }
-
-    for (const message of ['CHECK_ZTKS', 'Galatasaray nasıl gidiyor?', 'Rapor hazırla']) {
+  it('keeps ambiguous short text and real tasks out of the context-free fast path', () => {
+    for (const message of [
+      'Mrb',
+      'Nabet',
+      'Bok',
+      'Çöpleri atmayı unutma',
+      'Galatasaray',
+      'Uçak reservasyon sürecini analzi ey',
+      'CHECK_ZTKS',
+      'Galatasaray nasıl gidiyor?',
+      'Rapor hazırla',
+    ]) {
       expect(shouldUseTrivialAssistantFastPath({
         message,
         model: 'gemini-3.1-pro-preview',
@@ -171,10 +177,108 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     expect(plan).not.toBeNull()
     expect(plan?.executionMode).toBe('direct')
     expect(plan?.knowledgeRequired).toBe(false)
+    expect(plan?.enterpriseGroundingRequired).toBe(false)
     expect(plan?.webMode).toBe('none')
     expect(plan?.goal).toBe('Çöpleri atmayı unutma')
     expect(plan?.conversationState?.resolvedRequest).toBe('Çöpleri atmayı unutma')
     expect(plan?.orchestratorVersion).not.toContain('bare-topic-safety')
+  })
+
+  it('allows general analysis and corrections to stay direct without enterprise evidence', () => {
+    const plan = normalizeCachedSemanticPlan({
+      currentMessage: 'Bi sorun yaşamıyorum böyle bir süreci analiz et',
+      conversation: [
+        { role: 'user', content: 'Uçak reservasyon sürecini analzi ey' },
+        { role: 'assistant', content: 'Uçak rezervasyonunda tam olarak neyi öğrenmek istiyorsun?' },
+      ],
+      value: {
+        intent: 'analysis',
+        complexity: 'medium',
+        executionMode: 'direct',
+        goal: 'Uçak rezervasyon sürecini analiz et',
+        knowledgeRequired: false,
+        enterpriseGroundingRequired: false,
+        webMode: 'none',
+        verificationRequired: false,
+        creativeMode: false,
+        evidenceQueries: [],
+        promptProfile: 'base',
+        steps: [{ id: 'synthesize', label: 'answer', toolHint: 'synthesis', successCriteria: 'answer' }],
+        conversationState: {
+          continuation: false,
+          topic: 'Uçak rezervasyon süreci',
+          userMove: 'correction',
+          operationMove: 'none',
+          priorIntent: 'none',
+          rejectedHypotheses: [],
+          rejectedScopes: [],
+          retainedContext: [],
+          openQuestions: [],
+          resolvedRequest: 'Uçak rezervasyon sürecini analiz et',
+          activeEntities: [],
+          requestedEvidence: [],
+          userDecisions: [],
+          verifiedFactRefs: [],
+        },
+        orchestratorVersion: 'semantic-orchestrator-v3.5-evidence-policy',
+      },
+    })
+
+    expect(plan).not.toBeNull()
+    expect(plan?.intent).toBe('analysis')
+    expect(plan?.executionMode).toBe('direct')
+    expect(plan?.knowledgeRequired).toBe(false)
+    expect(plan?.enterpriseGroundingRequired).toBe(false)
+    expect(plan?.verificationRequired).toBe(false)
+    expect(plan?.evidenceQueries).toEqual([])
+  })
+
+  it('preserves optional enterprise retrieval without making missing sources fail-closed', () => {
+    const optionalPlan = semanticPlanFromMessage(semanticMessage('Satış sürecimizi genel olarak değerlendir', {
+      intent: 'analysis',
+      complexity: 'medium',
+      executionMode: 'knowledge',
+      goal: 'Satış sürecimizi genel olarak değerlendir',
+      knowledgeRequired: true,
+      enterpriseGroundingRequired: false,
+      webMode: 'none',
+      verificationRequired: false,
+      creativeMode: false,
+      evidenceQueries: ['satış süreci'],
+      promptProfile: 'knowledge',
+      steps: [{ id: 'evidence', label: 'evidence', toolHint: 'knowledge', successCriteria: 'optional' }],
+      conversationState: {
+        continuation: false,
+        topic: 'Satış süreci',
+        userMove: 'new_request',
+        operationMove: 'none',
+        priorIntent: 'none',
+        rejectedHypotheses: [],
+        rejectedScopes: [],
+        retainedContext: [],
+        openQuestions: [],
+        resolvedRequest: 'Satış sürecimizi genel olarak değerlendir',
+        activeEntities: [],
+        requestedEvidence: ['process_rule'],
+        userDecisions: [],
+        verifiedFactRefs: [],
+      },
+      orchestratorVersion: 'semantic-orchestrator-v3.5-evidence-policy',
+    }))
+
+    expect(optionalPlan).not.toBeNull()
+    expect(optionalPlan?.knowledgeRequired).toBe(true)
+    expect(optionalPlan?.enterpriseGroundingRequired).toBe(false)
+    expect(optionalPlan?.executionMode).toBe('knowledge')
+
+    const coverage = evaluateGroundedTechnicalClaims({
+      text: 'Genel süreç değerlendirmesi',
+      plan: optionalPlan!,
+      sources: [],
+      toolResults: [],
+    })
+    expect(coverage.ok).toBe(true)
+    expect(shouldFailClosedGroundedAnswer({ plan: optionalPlan!, coverage })).toBe(false)
   })
 
   it('repairs legacy Gemini provider-web encoding into public web without enterprise RAG', () => {
@@ -191,7 +295,7 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     expect(plan?.goal).not.toContain('JETWORK_CAPABILITY')
   })
 
-  it('uses a universal persona for public/direct turns and preserves the enterprise persona only for grounded enterprise work', () => {
+  it('uses a universal persona for public/direct turns and preserves strict enterprise contracts only when strict grounding is required', () => {
     const configured = [
       "Sen Enerjisa IT'de çalışan kıdemli bir İş Analistisin.",
       'Her yeni talebi içeride Proje veya Support olarak değerlendir.',
@@ -200,15 +304,26 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     ].join('\n')
 
     const publicPlan: ReasoningPlan = {
-      intent: 'simple_answer', complexity: 'low', goal: 'gündelik sohbet',
+      intent: 'analysis', complexity: 'low', goal: 'uçak rezervasyon sürecini analiz et',
       knowledgeRequired: false, enterpriseGroundingRequired: false, webMode: 'none',
       verificationRequired: false, creativeMode: false, evidenceQueries: [], steps: [], executionMode: 'direct',
     }
     const publicPrompt = composeAssistantPrompt(configured, publicPlan)
     expect(requiresEnterpriseAssistantPersona(publicPlan)).toBe(false)
     expect(publicPrompt).toContain('Sen JetWork AI asistanısın')
+    expect(publicPrompt).toContain('Genel analiz')
     expect(publicPrompt).not.toContain('Enerjisa IT')
     expect(publicPrompt).not.toContain('Proje veya Support')
+
+    const optionalPlan: ReasoningPlan = {
+      intent: 'analysis', complexity: 'medium', goal: 'satış sürecini değerlendir',
+      knowledgeRequired: true, enterpriseGroundingRequired: false, webMode: 'none',
+      verificationRequired: false, creativeMode: false, evidenceQueries: ['satış süreci'], steps: [], executionMode: 'knowledge',
+    }
+    const optionalPrompt = composeAssistantPrompt(configured, optionalPlan)
+    expect(requiresEnterpriseAssistantPersona(optionalPlan)).toBe(true)
+    expect(optionalPrompt).toContain('Enerjisa IT')
+    expect(optionalPrompt).not.toContain('EXACT TECHNICAL EVIDENCE')
 
     const technicalPlan = enterprisePlan()
     const enterprisePrompt = composeAssistantPrompt(configured, technicalPlan)
@@ -221,6 +336,7 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     const plan = semanticPlanFromMessage(semanticMessage('CHECK_ZTKS hangi mesajları üretiyor?', {
       ...legacyProviderWebPlan('CHECK_ZTKS hata mesajlarını kurumsal kaynaktan doğrula', ['CHECK_ZTKS']),
       intent: 'sap_diagnosis',
+      enterpriseGroundingRequired: true,
       verificationRequired: true,
     }))
 
