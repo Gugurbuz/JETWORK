@@ -15,6 +15,10 @@ import {
   compactAssistantConversationMemory,
   isAssistantOperationalErrorText,
 } from '../../../supabase/functions/_shared/conversationMemory'
+import {
+  composeAssistantPrompt,
+  requiresEnterpriseAssistantPersona,
+} from '../../../supabase/functions/_shared/assistantPromptProfiles'
 
 const semanticMessage = (message: string, plan: Record<string, unknown>) => [
   message,
@@ -54,6 +58,37 @@ const legacyProviderWebPlan = (resolvedRequest: string, activeEntities: string[]
   orchestratorVersion: 'semantic-orchestrator-v3.4-active-operation',
 })
 
+const directPlan = (resolvedRequest: string) => ({
+  intent: 'simple_answer',
+  complexity: 'medium',
+  executionMode: 'direct',
+  goal: resolvedRequest,
+  knowledgeRequired: false,
+  webMode: 'none',
+  verificationRequired: false,
+  creativeMode: false,
+  evidenceQueries: [resolvedRequest],
+  promptProfile: 'base',
+  steps: [{ id: 'synthesize', label: 'answer', toolHint: 'synthesis', successCriteria: 'answer' }],
+  conversationState: {
+    continuation: false,
+    topic: resolvedRequest,
+    userMove: 'new_request',
+    operationMove: 'none',
+    priorIntent: 'none',
+    rejectedHypotheses: [],
+    rejectedScopes: [],
+    retainedContext: [],
+    openQuestions: [],
+    resolvedRequest,
+    activeEntities: [],
+    requestedEvidence: ['user_intent'],
+    userDecisions: [],
+    verifiedFactRefs: [],
+  },
+  orchestratorVersion: 'semantic-orchestrator-v3.4-active-operation',
+})
+
 const enterprisePlan = (): ReasoningPlan => ({
   intent: 'analysis',
   complexity: 'medium',
@@ -69,13 +104,31 @@ const enterprisePlan = (): ReasoningPlan => ({
 })
 
 describe('P0 assistant routing, grounding and recovery boundaries', () => {
-  it('keeps daily social language on the deterministic fast path', () => {
+  it('keeps canonical social language on the deterministic fast path', () => {
     expect(shouldUseTrivialAssistantFastPath({
       message: 'Nasıl gidiyor',
       model: 'gemini-3.5-flash',
       attachmentCount: 0,
     })).toBe(true)
     expect(deterministicTrivialResponseForMessage('Nasıl gidiyor')).toContain('İyi gidiyor')
+  })
+
+  it('uses the universal short-turn lane for typos, abbreviations and daily language without enumerating every phrase', () => {
+    for (const message of ['Mrb', 'Nabet', 'Bok', 'Çöpleri atmayı unutma', 'Galatasaray']) {
+      expect(shouldUseTrivialAssistantFastPath({
+        message,
+        model: 'gemini-3.1-pro-preview',
+        attachmentCount: 0,
+      })).toBe(true)
+    }
+
+    for (const message of ['CHECK_ZTKS', 'Galatasaray nasıl gidiyor?', 'Rapor hazırla']) {
+      expect(shouldUseTrivialAssistantFastPath({
+        message,
+        model: 'gemini-3.1-pro-preview',
+        attachmentCount: 0,
+      })).toBe(false)
+    }
   })
 
   it('never carries runtime failures into semantic memory', () => {
@@ -109,6 +162,21 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     expect(plan?.goal).not.toContain('güncel durum')
   })
 
+  it('does not overwrite a correct direct semantic interpretation merely because the message is short', () => {
+    const plan = semanticPlanFromMessage(semanticMessage(
+      'Çöpleri atmayı unutma',
+      directPlan('Çöpleri atmayı unutma'),
+    ))
+
+    expect(plan).not.toBeNull()
+    expect(plan?.executionMode).toBe('direct')
+    expect(plan?.knowledgeRequired).toBe(false)
+    expect(plan?.webMode).toBe('none')
+    expect(plan?.goal).toBe('Çöpleri atmayı unutma')
+    expect(plan?.conversationState?.resolvedRequest).toBe('Çöpleri atmayı unutma')
+    expect(plan?.orchestratorVersion).not.toContain('bare-topic-safety')
+  })
+
   it('repairs legacy Gemini provider-web encoding into public web without enterprise RAG', () => {
     const plan = semanticPlanFromMessage(semanticMessage(
       'Galatasaray nasıl gidiyor?',
@@ -121,6 +189,32 @@ describe('P0 assistant routing, grounding and recovery boundaries', () => {
     expect(plan?.webMode).toBe('required')
     expect(plan?.evidenceQueries).toEqual([])
     expect(plan?.goal).not.toContain('JETWORK_CAPABILITY')
+  })
+
+  it('uses a universal persona for public/direct turns and preserves the enterprise persona only for grounded enterprise work', () => {
+    const configured = [
+      "Sen Enerjisa IT'de çalışan kıdemli bir İş Analistisin.",
+      'Her yeni talebi içeride Proje veya Support olarak değerlendir.',
+      '[JETWORK EXACT TECHNICAL EVIDENCE CONTRACT v1]',
+      'Teknik identifierları kaynaktan doğrula.',
+    ].join('\n')
+
+    const publicPlan: ReasoningPlan = {
+      intent: 'simple_answer', complexity: 'low', goal: 'gündelik sohbet',
+      knowledgeRequired: false, enterpriseGroundingRequired: false, webMode: 'none',
+      verificationRequired: false, creativeMode: false, evidenceQueries: [], steps: [], executionMode: 'direct',
+    }
+    const publicPrompt = composeAssistantPrompt(configured, publicPlan)
+    expect(requiresEnterpriseAssistantPersona(publicPlan)).toBe(false)
+    expect(publicPrompt).toContain('Sen JetWork AI asistanısın')
+    expect(publicPrompt).not.toContain('Enerjisa IT')
+    expect(publicPrompt).not.toContain('Proje veya Support')
+
+    const technicalPlan = enterprisePlan()
+    const enterprisePrompt = composeAssistantPrompt(configured, technicalPlan)
+    expect(requiresEnterpriseAssistantPersona(technicalPlan)).toBe(true)
+    expect(enterprisePrompt).toContain('Enerjisa IT')
+    expect(enterprisePrompt).toContain('EXACT TECHNICAL EVIDENCE')
   })
 
   it('keeps technical enterprise plans fail-closed even when a provider-web marker exists', () => {
