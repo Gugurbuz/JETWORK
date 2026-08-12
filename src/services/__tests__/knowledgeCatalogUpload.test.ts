@@ -75,7 +75,7 @@ describe('ingestKnowledgeFile', () => {
     });
     expect(uploadMock).toHaveBeenCalledTimes(1);
     const [storagePath, uploadedFile, options] = uploadMock.mock.calls[0];
-    expect(storagePath).toMatch(/^user-1\/space-1\/[0-9a-f-]+\/CRM_Class_Envanteri-1\.md$/i);
+    expect(storagePath).toMatch(/^user-1\/space-1\/[0-9a-f-]+\/CRM_Class_Envanteri-1-\.md$/i);
     expect(uploadedFile).toBe(file);
     expect(options).toMatchObject({
       contentType: 'text/markdown',
