@@ -109,6 +109,36 @@ const isBareTopicSurface = (message: string): boolean => {
   return words.length >= 1 && words.length <= 4 && /^[\p{L}\p{M}\d.'’&+\- ]+$/u.test(current)
 }
 
+const semanticPlannerExpandedBareTopic = (input: {
+  raw: Record<string, unknown>
+  currentMessage: string
+  intent: ReasoningIntent
+  rawWebMode: WebMode
+}): boolean => {
+  if (!isBareTopicSurface(input.currentMessage)) return false
+
+  // Enumeration is an explicit enterprise capability decision, not a public
+  // bare-topic expansion. Never discard its target/cursor metadata here.
+  if (input.raw.enumerationTarget && typeof input.raw.enumerationTarget === 'object') return false
+
+  const rawGoal = String(input.raw.goal || '')
+  const executionMode = String(input.raw.executionMode || '')
+  const stateRaw = input.raw.conversationState && typeof input.raw.conversationState === 'object'
+    ? input.raw.conversationState as Record<string, unknown>
+    : undefined
+  const resolvedRequest = String(stateRaw?.resolvedRequest || '').trim()
+  const normalizedCurrent = normalizeForIntent(input.currentMessage)
+  const normalizedResolved = normalizeForIntent(resolvedRequest)
+  const changedResolvedRequest = Boolean(normalizedResolved && normalizedResolved !== normalizedCurrent)
+
+  return input.raw.knowledgeRequired === true
+    || input.rawWebMode !== 'none'
+    || rawGoal.includes(PROVIDER_WEB_CAPABILITY_MARKER)
+    || input.intent !== 'simple_answer'
+    || executionMode !== 'direct'
+    || changedResolvedRequest
+}
+
 const normalizeKnownEntityAlias = (value: string) => {
   const raw = String(value || '').trim()
   const upper = raw.toLocaleUpperCase('tr-TR')
@@ -154,7 +184,7 @@ const promptProfileForPlan = (
 const bareTopicPlan = (message: string, orchestratorVersion: string): ReasoningPlan => ({
   intent: 'simple_answer',
   complexity: 'low',
-  goal: `Kullanıcı yalnızca "${message.slice(0, 100)}" konusunu yazdı. Neyi merak ettiğini tek kısa soruyla netleştir. Bilgi vermeye başlama; güncel durum, tarihçe, Enerjisa ilişkisi veya başka bir bağlam uydurma.`,
+  goal: `Kullanıcı yalnızca "${message.slice(0, 100)}" konusunu yazdı. Neyi merak ettiğini tek kısa soruyla netleştir. Kullanıcının yerine ek bir bilgi talebi, amaç veya bağlam uydurma.`,
   knowledgeRequired: false,
   enterpriseGroundingRequired: false,
   webMode: 'none',
@@ -200,7 +230,7 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
 
   const rawGoal = String(raw.goal || '').trim().slice(0, 1_000)
   const orchestratorVersion = String(raw.orchestratorVersion || 'semantic-orchestrator-v1').slice(0, 80)
-  if (currentMessage && isBareTopicSurface(currentMessage)) {
+  if (currentMessage && semanticPlannerExpandedBareTopic({ raw, currentMessage, intent, rawWebMode })) {
     return bareTopicPlan(currentMessage, orchestratorVersion)
   }
 
