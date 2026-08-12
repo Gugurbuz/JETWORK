@@ -430,18 +430,8 @@ button.assistant-work__summary:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-work__logo-motion,
-  .assistant-work__label,
   .assistant-work__activity--active .assistant-work__activity-icon,
   .assistant-work__live-status svg {
     animation: none;
-  }
-
-  .assistant-work__logo-motion {
-    transform: none;
-  }
-
-  .assistant-work__label {
-    background-position: 50% 50%;
   }
 }
