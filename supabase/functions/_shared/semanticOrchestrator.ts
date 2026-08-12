@@ -58,6 +58,22 @@ const normalize = (value: string) => value
   .replace(/\s+/g, ' ')
   .trim()
 
+export const compactSemanticConversation = (messages: SemanticContextMessage[]) => {
+  const recent = messages.slice(-8)
+  const compact: SemanticContextMessage[] = []
+  let characters = 0
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const item = recent[index]
+    const max = item.role === 'assistant' ? 900 : 1_600
+    const content = cleanText(item.content, max)
+    if (!content) continue
+    if (characters + content.length > 8_000) break
+    compact.unshift({ role: item.role, content })
+    characters += content.length
+  }
+  return compact
+}
+
 const TECHNICAL_ENTITY_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]+)*|CHECK_[A-Z0-9_]+|NINJA_[A-Z0-9_]+|[A-Z][A-Z0-9_]{2,}-\d{2,4})\b/g
 const REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
 const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
@@ -238,7 +254,7 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
       evidenceQueries: [],
       verificationRequired: false,
       enterpriseGroundingRequired: false,
-      webMode: provider === 'gemini' ? 'if_internal_insufficient' : 'if_internal_insufficient',
+      webMode: 'if_internal_insufficient',
       steps: [{
         id: 'primary-agent-loop',
         label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
@@ -318,7 +334,7 @@ export async function buildSemanticExecutionPlan(input: {
 }): Promise<SemanticOrchestrationResult> {
   const plan = applyAgentLoopPolicy(buildPrimaryAgentPlan({
     message: input.message,
-    conversation: input.conversation,
+    conversation: compactSemanticConversation(input.conversation),
     priorExecution: input.priorExecution,
   }), input.provider)
   return {
