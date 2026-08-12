@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import type { AttachmentIngestion, KnowledgeItem, MessageAttachment } from '../types';
+import { toKnowledgeOperationError } from './knowledgeUploadErrors';
 
 const KNOWLEDGE_BUCKET = 'knowledge-sources';
 
@@ -124,7 +125,7 @@ export async function resolveKnowledgeContext(workspaceId: string): Promise<Know
   const { data, error } = await supabase.rpc('resolve_knowledge_context', {
     p_workspace_id: workspaceId,
   });
-  if (error) throw error;
+  if (error) throw toKnowledgeOperationError(error, 'Bilgi bankası kapsamı hazırlanırken');
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.global_space_id) {
     throw new Error('JetWork Bilgi Bankası çözümlenemedi.');
@@ -144,7 +145,7 @@ export async function resolveKnowledgeSpace(
     p_workspace_id: workspaceId,
     p_scope_type: scope,
   });
-  if (error) throw error;
+  if (error) throw toKnowledgeOperationError(error, 'Bilgi bankası kapsamı hazırlanırken');
   if (typeof data !== 'string' || !data) {
     throw new Error(scope === 'global' ? 'JetWork Bilgi Bankası bulunamadı.' : 'Proje Bilgi Bankası bulunamadı.');
   }
@@ -161,15 +162,24 @@ export async function ingestKnowledgeFile(
     throw new Error('Bilgi bankası TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyalarını destekliyor.');
   }
 
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError || !authData.user) {
-    throw authError || new Error('Bilgi kaynağı yüklemek için oturum gerekli.');
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const user = sessionData.session?.user;
+  if (sessionError || !user) {
+    throw sessionError
+      ? toKnowledgeOperationError(sessionError, 'Bilgi kaynağı yükleme oturumu hazırlanırken')
+      : new Error('Bilgi kaynağı yüklemek için oturum gerekli.');
   }
 
-  const knowledgeSpaceId = await resolveKnowledgeSpace(workspaceId, scope);
+  let knowledgeSpaceId: string;
+  try {
+    knowledgeSpaceId = await resolveKnowledgeSpace(workspaceId, scope);
+  } catch (error) {
+    throw toKnowledgeOperationError(error, 'Bilgi bankası kapsamı hazırlanırken');
+  }
+
   const fileName = sanitizeFileName(file.name);
   const mimeType = inferKnowledgeMimeType(file, fileName);
-  const storagePath = `${authData.user.id}/${knowledgeSpaceId}/${crypto.randomUUID()}/${fileName}`;
+  const storagePath = `${user.id}/${knowledgeSpaceId}/${crypto.randomUUID()}/${fileName}`;
 
   await onStatus?.({ status: 'uploading' });
   const { error: uploadError } = await supabase.storage
@@ -180,8 +190,9 @@ export async function ingestKnowledgeFile(
       cacheControl: '3600',
     });
   if (uploadError) {
-    await onStatus?.({ status: 'failed', error: uploadError.message });
-    throw uploadError;
+    const normalizedError = toKnowledgeOperationError(uploadError, 'Bilgi kaynağı dosyası yüklenirken');
+    await onStatus?.({ status: 'failed', error: normalizedError.message });
+    throw normalizedError;
   }
 
   try {
@@ -194,7 +205,7 @@ export async function ingestKnowledgeFile(
         mimeType,
       },
     });
-    if (error) throw error;
+    if (error) throw toKnowledgeOperationError(error, 'Bilgi kaynağı işlenirken');
     if (!data?.sourceId) throw new Error(data?.error || 'Bilgi kaynağı işlenemedi.');
     const result = data as KnowledgeIngestionResult;
     await onStatus?.({
@@ -208,11 +219,12 @@ export async function ingestKnowledgeFile(
     return result;
   } catch (error) {
     await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]).catch(() => undefined);
+    const normalizedError = toKnowledgeOperationError(error, 'Bilgi kaynağı işlenirken');
     await onStatus?.({
       status: 'failed',
-      error: error instanceof Error ? error.message : 'Bilgi kaynağı işlenemedi.',
+      error: normalizedError.message,
     });
-    throw error;
+    throw normalizedError;
   }
 }
 
