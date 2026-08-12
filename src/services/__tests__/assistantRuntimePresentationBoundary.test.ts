@@ -36,6 +36,14 @@ describe('assistant runtime presentation boundary', () => {
       workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'),
     );
     expect(mobileBlock).not.toContain('assistant-work__logo-motion');
+
+    const reducedMotionBlock = workIndicatorCss.slice(
+      workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'),
+    );
+    expect(reducedMotionBlock).not.toContain('.assistant-work__logo-motion');
+    expect(reducedMotionBlock).not.toContain('.assistant-work__label');
+    expect(reducedMotionBlock).toContain('.assistant-work__activity--active .assistant-work__activity-icon');
+    expect(reducedMotionBlock).toContain('.assistant-work__live-status svg');
   });
 
   it('persists the safe work summary and total duration but keeps provider routing private', () => {
