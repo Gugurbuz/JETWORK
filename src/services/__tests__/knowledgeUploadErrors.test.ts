@@ -22,7 +22,7 @@ describe('knowledge upload transport errors', () => {
     );
 
     expect(error.message).toBe(
-      'Bilgi kaynağı dosyası yüklenirken sırasında Supabase bağlantısı kurulamadı. İnternet bağlantısını kontrol edip tekrar deneyin.',
+      'Bilgi kaynağı dosyası yüklenirken Supabase bağlantısı kurulamadı. İnternet bağlantısını kontrol edip tekrar deneyin.',
     );
   });
 
