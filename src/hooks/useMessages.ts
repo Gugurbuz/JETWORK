@@ -202,9 +202,44 @@ export const useMessages = (channelRef: any) => {
       persistenceStatus: 'pending',
     };
 
-    if (!isAssistantRetry) {
-      setMessages(prev => [...prev, newMsg]);
+    const knowledgeAttachments = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && !isAssistantRetry
+      ? (preparedAttachments || []).filter(attachment => attachment.purpose === 'knowledge_bank')
+      : [];
+    const hasOnlyKnowledgeAttachments = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+      && !!preparedAttachments?.length
+      && preparedAttachments.every(attachment => attachment.purpose === 'knowledge_bank');
+    const shouldShowAssistantPending = !(!messageText.trim() && hasOnlyKnowledgeAttachments);
+    const aiMsgId = options.retryAiMessageId || crypto.randomUUID();
+    const aiCreatedAt = Date.now();
+    const pendingAiMessage: Message = {
+      id: aiMsgId,
+      role: 'model',
+      text: '',
+      senderName: targetAgentName || 'JetWork AI',
+      senderRole: targetAgentName ? targetAgentName : 'Sistem Asistanı',
+      agentRole: targetAgentRole || undefined,
+      createdAt: aiCreatedAt,
+      phaseLabel: 'Asistana bağlanılıyor...',
+      isTyping: true
+    };
 
+    if (shouldShowAssistantPending) {
+      // Optimistic UI: render the user's message and the assistant work indicator
+      // before persistence/network work so the interface reacts immediately.
+      setIsGenerating(true);
+      setMessages(previous => {
+        const nextMessages = isAssistantRetry ? previous : [...previous, newMsg];
+        if (!options.retryAiMessageId) return [...nextMessages, pendingAiMessage];
+        const retryTargetExists = nextMessages.some(message => message.id === options.retryAiMessageId);
+        return retryTargetExists
+          ? nextMessages.map(message => message.id === options.retryAiMessageId ? pendingAiMessage : message)
+          : [...nextMessages, pendingAiMessage];
+      });
+    } else if (!isAssistantRetry) {
+      setMessages(previous => [...previous, newMsg]);
+    }
+
+    if (!isAssistantRetry) {
       try {
         await saveUserMessage(currentWorkspaceId, user.uid, newMsg);
         setMessages(previous => previous.map(message => (
@@ -212,9 +247,15 @@ export const useMessages = (channelRef: any) => {
         )));
       } catch (err) {
         console.error('Failed to save user message to database:', err);
-        setMessages(previous => previous.map(message => (
-          message.id === newMsg.id ? { ...message, persistenceStatus: 'failed' } : message
-        )));
+        setMessages(previous => previous
+          .filter(message => !shouldShowAssistantPending || message.id !== aiMsgId)
+          .map(message => (
+            message.id === newMsg.id ? { ...message, persistenceStatus: 'failed' } : message
+          )));
+        if (generationAbortRef.current === generationController) {
+          generationAbortRef.current = null;
+          setIsGenerating(false);
+        }
         toast.error('Mesaj kaydedilemedi. Bağlantını kontrol edip tekrar gönder.');
         return;
       }
@@ -225,9 +266,6 @@ export const useMessages = (channelRef: any) => {
       });
     }
 
-    const knowledgeAttachments = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && !isAssistantRetry
-      ? (preparedAttachments || []).filter(attachment => attachment.purpose === 'knowledge_bank')
-      : [];
     const ingestionNotes: string[] = [];
     if (knowledgeAttachments.length > 0) {
       setIsGenerating(true);
@@ -278,8 +316,6 @@ export const useMessages = (channelRef: any) => {
         }
       }
 
-      const hasOnlyKnowledgeAttachments = !!preparedAttachments?.length
-        && preparedAttachments.every(attachment => attachment.purpose === 'knowledge_bank');
       if (!messageText.trim() && hasOnlyKnowledgeAttachments) {
         if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
           if (generationAbortRef.current === generationController) {
@@ -326,27 +362,6 @@ export const useMessages = (channelRef: any) => {
         ].join('\n').trim();
       }
     }
-
-    setIsGenerating(true);
-    const aiMsgId = options.retryAiMessageId || crypto.randomUUID();
-    const aiCreatedAt = Date.now();
-    const pendingAiMessage: Message = {
-      id: aiMsgId,
-      role: 'model',
-      text: '',
-      senderName: targetAgentName || 'JetWork AI',
-      senderRole: targetAgentName ? targetAgentName : 'Sistem Asistanı',
-      agentRole: targetAgentRole || undefined,
-      createdAt: aiCreatedAt,
-      isTyping: true
-    };
-    setMessages(previous => {
-      if (!options.retryAiMessageId) return [...previous, pendingAiMessage];
-      const retryTargetExists = previous.some(message => message.id === options.retryAiMessageId);
-      return retryTargetExists
-        ? previous.map(message => message.id === options.retryAiMessageId ? pendingAiMessage : message)
-        : [...previous, pendingAiMessage];
-    });
 
     if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
       let streamedText = '';
