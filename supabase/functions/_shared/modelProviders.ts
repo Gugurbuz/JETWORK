@@ -41,6 +41,7 @@ export const providerForModel = (model: string): AssistantProvider => {
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[END_JETWORK_SEMANTIC_PLAN\]\s*/gi
 const INTERNAL_EVIDENCE_PATTERN = /\n?\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]\s*/gi
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const ENUMERATION_KNOWLEDGE_TOOLS = new Set(['list_knowledge_catalog', 'list_class_inventory'])
 
 export const stripInternalSemanticPlan = (value: string) => value
   .replace(INTERNAL_SEMANTIC_PLAN_PATTERN, '\n')
@@ -128,9 +129,12 @@ export async function requestGeminiResponse(input: {
   const requestedModel = normalizeGeminiRequestedModel(input.model)
   const plan = extractSemanticPlanFromItems(input.items)
 
-  // Keep only the authoritative deterministic inventory shortcut. All ordinary
-  // knowledge decisions are made by the requested primary model itself.
-  const enumerationDispatch = input.allowTools ? buildEnumerationFastPathDispatch(input.items) : null
+  // Enumeration is a knowledge-only shortcut. Skill or web capability alone
+  // must never materialize a knowledge enumeration function call.
+  const enumerationKnowledgeEnabled = input.tools.some(tool => ENUMERATION_KNOWLEDGE_TOOLS.has(String(tool.name || '')))
+  const enumerationDispatch = input.allowTools && enumerationKnowledgeEnabled
+    ? buildEnumerationFastPathDispatch(input.items)
+    : null
   if (enumerationDispatch) {
     return {
       id: `jetwork-enum-fast:${crypto.randomUUID()}`,
