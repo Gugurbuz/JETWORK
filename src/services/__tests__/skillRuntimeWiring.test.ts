@@ -41,6 +41,12 @@ describe('JetWork skill runtime wiring', () => {
     expect(implementationSource).toContain('allowProviderWeb: providerWebEnabled')
   })
 
+  it('does not let skill-only Gemini tool availability trigger knowledge enumeration', () => {
+    expect(providerSource).toContain("const ENUMERATION_KNOWLEDGE_TOOLS = new Set(['list_knowledge_catalog', 'list_class_inventory'])")
+    expect(providerSource).toContain('const enumerationKnowledgeEnabled = input.tools.some(tool => ENUMERATION_KNOWLEDGE_TOOLS.has(String(tool.name || \'\')))')
+    expect(providerSource).toContain('const enumerationDispatch = input.allowTools && enumerationKnowledgeEnabled')
+  })
+
   it('keeps skill instructions explicitly non-citable in final synthesis policy', () => {
     expect(implementationSource).toContain('kurumsal gerçek, evidence veya citation olarak kullanma')
   })
