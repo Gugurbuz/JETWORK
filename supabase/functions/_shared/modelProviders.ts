@@ -93,6 +93,7 @@ const primaryAgentInstruction = [
   '[JETWORK PRIMARY LLM AGENT MODE]',
   'Bu turnün karar verici modeli sensin. Ayrı bir planner senin yerine knowledge/web kullanma kararı vermemiştir.',
   'Knowledge araçları kullanılabilir capabilitylerdir; yalnız gerçekten yararlıysa çağır. Genel analiz sırf analiz olduğu için kaynak araması gerektirmez.',
+  'Procedural skill araçları görevin nasıl yapılacağını öğretir; kurumsal bilgi veya citation değildir. Uzman bir iş akışı gerekiyorsa uygun skill ara ve yalnız gerekli skillleri yükle.',
   'JetWork çalışma alanındaki iş/süreç terimleri kurum bağlamına işaret edebilir. Kuruma özgü ayrıntı cevabı anlamlı biçimde iyileştirecekse knowledge aracını kendin kullan.',
   'Bir tool sonucu kullanıcının sorduğu spesifik bilgiyi doğrulamıyorsa o bilgiyi tahmin etme veya tamamlamaya çalışma.',
   'Hiç güvenilir kayıt bulunmaması ile kayıt bulunup kullanıcının sorduğu alanın/iddianın kaynakta yer almamasını birbirinden ayır.',
@@ -119,6 +120,7 @@ export async function requestGeminiResponse(input: {
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
+  allowProviderWeb?: boolean
   maxOutputTokens: number
   onText: (text: string) => void
   signal?: AbortSignal
@@ -143,10 +145,11 @@ export async function requestGeminiResponse(input: {
   }
 
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
+  const providerWebEnabled = input.allowProviderWeb ?? input.allowTools
   const geminiInstructions = [
     providerInstructions,
     primaryAgentInstruction,
-    input.allowTools ? PROVIDER_WEB_CAPABILITY_MARKER : '',
+    providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
   const response = await legacyRequestGeminiResponse({
     ...input,
