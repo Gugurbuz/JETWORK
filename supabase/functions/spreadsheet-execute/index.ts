@@ -20,6 +20,7 @@ const ASSISTANT_FILES_BUCKET = 'assistant-files'
 const MAX_FILE_BYTES = 20 * 1024 * 1024
 const MAX_INSPECT_ROWS = 8
 const MAX_INSPECT_COLUMNS = 30
+const ARTIFACT_LINK_TTL_SECONDS = 7 * 24 * 60 * 60
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -287,6 +288,14 @@ serve(async req => {
     )
     if (uploadError) throw uploadError
 
+    const { data: signedData, error: signedError } = await client.storage
+      .from(ASSISTANT_FILES_BUCKET)
+      .createSignedUrl(outputPath, ARTIFACT_LINK_TTL_SECONDS, { download: outputName })
+    if (signedError || !signedData?.signedUrl) {
+      await client.storage.from(ASSISTANT_FILES_BUCKET).remove([outputPath]).catch(() => undefined)
+      throw signedError || new Error('Artifact download link could not be created.')
+    }
+
     const outputHash = await sha256Bytes(outputBytes)
     return jsonResponse({
       operation,
@@ -296,6 +305,8 @@ serve(async req => {
         mimeType: XLSX_MIME,
         storageBucket: ASSISTANT_FILES_BUCKET,
         storagePath: outputPath,
+        downloadUrl: signedData.signedUrl,
+        downloadUrlExpiresInSeconds: ARTIFACT_LINK_TTL_SECONDS,
         sha256: outputHash,
         byteSize: outputBytes.byteLength,
       },
