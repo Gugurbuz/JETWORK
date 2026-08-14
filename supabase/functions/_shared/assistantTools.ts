@@ -1,4 +1,6 @@
 import { CLASS_INVENTORY_TOOL, executeClassInventoryTool } from './classInventoryTool.ts'
+import { isExecutionTool } from './executionTools.ts'
+import { executeSpreadsheetAssistantTool } from './spreadsheetAssistantTool.ts'
 
 export interface AssistantSourceRef {
   sourceId?: string
@@ -566,5 +568,6 @@ export async function executeAssistantTool(
     return getExactObject(client, workspaceId, canonicalKey, objectTypes, toolName)
   }
   if (toolName === 'get_related_objects') return getRelatedObjects(client, workspaceId, args)
+  if (isExecutionTool(toolName)) return executeSpreadsheetAssistantTool(client, workspaceId, toolName, args)
   throw new Error(`Unknown assistant tool: ${toolName}`)
 }
