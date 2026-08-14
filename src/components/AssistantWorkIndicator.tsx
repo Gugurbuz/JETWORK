@@ -240,8 +240,12 @@ export function AssistantWorkIndicator({
 
   const completedSummaryContent = (
     <>
-      <span className="assistant-work__summary-logo" aria-hidden="true">
-        <JetWorkLogo className="assistant-work__summary-logo-mark" />
+      <span
+        data-testid="assistant-work-completed-logo"
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center"
+        aria-hidden="true"
+      >
+        <JetWorkLogo className="h-4 w-4" />
       </span>
       <span>{formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}</span>
     </>
@@ -296,7 +300,7 @@ export function AssistantWorkIndicator({
         )}
 
         {!isActive && isExpanded && hasSourceDetails ? (
-          <div className="assistant-work__details" data-testid="assistant-work-details">
+          <div className="assistant-work__details !ml-6 !border-l-0 !pl-0" data-testid="assistant-work-details">
             <div className="assistant-work__source-facts">
               {knowledgeSourceCount > 0 ? (
                 <div className="assistant-work__source-fact">
@@ -334,7 +338,7 @@ export function AssistantWorkIndicator({
         ) : null}
 
         {!isActive && onFollowUp ? (
-          <div className="assistant-work__follow-ups assistant-work__follow-ups--summary">
+          <div className="assistant-work__follow-ups !ml-6">
             {hasSourceGap ? (
               <button type="button" onClick={requestWebSearch} disabled={followUpDisabled}>
                 <Globe2 aria-hidden="true" />
