@@ -244,13 +244,12 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
 
   // Public web evidence and enterprise evidence are separate trust domains.
   // Provider-native Gemini web is encoded with a compatibility marker; repair
-  // that encoding without turning public web into enterprise RAG.
+  // that encoding without turning public web into enterprise RAG. An explicit
+  // semantic-agent decision always wins over the legacy intent-derived default.
   const routeSaysEnterprise = currentRoute.knowledgeRequired === true || ENTERPRISE_SURFACE_PATTERN.test(currentMessage)
-  const enterpriseGroundingRequired = Boolean(
-    intent === 'sap_diagnosis'
-    || explicitEnterpriseFlag === true
-    || (explicitEnterpriseFlag === undefined && rawKnowledgeRequired && routeSaysEnterprise)
-  )
+  const enterpriseGroundingRequired = explicitEnterpriseFlag !== undefined
+    ? explicitEnterpriseFlag
+    : Boolean(intent === 'sap_diagnosis' || (rawKnowledgeRequired && routeSaysEnterprise))
   const knowledgeRequired = providerWebMarker && !routeSaysEnterprise
     ? false
     : Boolean(rawKnowledgeRequired || enterpriseGroundingRequired)
