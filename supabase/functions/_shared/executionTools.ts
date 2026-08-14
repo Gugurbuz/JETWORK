@@ -56,7 +56,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
     name: 'list_spreadsheet_attachments',
-    description: 'List recent XLSX action attachments available in the active workspace. Use this first when a spreadsheet task refers to attached files so you can obtain the real attachment IDs and names before inspecting or editing them. The result is execution context, not evidence or a citation.',
+    description: 'List recent XLSX action attachments available in the active workspace. Use this first when a spreadsheet task refers to attached files so you can obtain the real attachment IDs and names before inspecting or editing them. If records are returned, the files are available: never tell the user they are missing. The result is execution context, not evidence or a citation.',
     strict: true,
     parameters: {
       type: 'object',
@@ -83,7 +83,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
     name: 'sync_spreadsheet_with_jira_export',
-    description: 'Update a target XLSX from an attached Jira-export XLSX using explicit column mappings. First list the attachments and inspect both files. Preserves existing workbook structure/styles where possible, writes completion status and latest sprint, validates the generated workbook, and returns a private signed output artifact link.',
+    description: 'Update a target XLSX from an attached Jira-export XLSX using explicit column mappings. When the user asks to update/sync attached spreadsheets, this is the required completion tool: first list attachments and inspect the files/sheets needed to infer the real column mappings, then call this tool before giving a final answer. Do not stop after inspection and do not claim files are missing after list returned records. Preserves existing workbook structure/styles where possible, writes completion status and latest sprint, validates the generated workbook, and returns a private signed output artifact link.',
     strict: true,
     parameters: {
       type: 'object',
