@@ -13,3 +13,5 @@ Canlı canary başarı koşulları:
 7. Execution sonuçları grounding/citation kanıtı değildir (`executionOnly=true`, `citationReady=false`, `sources=[]`).
 
 2026-08-14 canlı canary sırasında tespit edilen routing hatası: UI iki XLSX'i `chat_only` olarak persist etmiş, `assistant-files` bucket boş kalmış ve runtime dosyaları legacy text-attachment guard'ına göndermiştir. `6ae780e79e15a430af90f7dc8bad15c06d769955` hotfix'i XLSX default purpose, shared attachment persistence ve defensive text-parser bypass katmanlarını birlikte düzeltir.
+
+Aynı doğrulama sırasında response-boundary grounding için ek güvenlik sınırı da kilitlendi: kullanıcı bir enterprise identifier'ı gereksinim olarak verdiğinde bu bilgi analiz bağlamı olarak kullanılabilir; ancak `CHECK_ZTKS hangi mesajları üretiyor?` gibi exact technical fact lookup veya explicit strict-grounding isteklerinde identifier'ın kullanıcı mesajında geçmesi kanıt sayılmaz. Public web kaynağı enterprise evidence değildir; doğrulanmış knowledge evidence olmadan kesin teknik iddia fail-closed kalır.
