@@ -27,7 +27,7 @@ describe('AssistantWorkIndicator', () => {
     expect(activities[2].state).toBe('active');
   });
 
-  it('does not invent activity rows from source counts or generic connection noise', () => {
+  it('keeps explicit connection activity without inventing rows from source counts', () => {
     const activities = buildAssistantWorkActivities({
       isActive: false,
       activityText: '• Asistana bağlanılıyor...',
@@ -35,7 +35,9 @@ describe('AssistantWorkIndicator', () => {
       webSourceCount: 2,
     });
 
-    expect(activities).toEqual([]);
+    expect(activities).toEqual([
+      { label: 'Asistana bağlanılıyor...', state: 'completed' },
+    ]);
   });
 
   it('renders a stopped result as worked-and-stopped rather than completed', () => {
