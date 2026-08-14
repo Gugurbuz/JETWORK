@@ -8,10 +8,14 @@ import {
 import { JETWORK_SKILLS } from '../../../supabase/functions/_shared/skillRegistry.generated.ts'
 
 describe('JetWork skill runtime foundation', () => {
-  it('keeps a compact P0 runtime registry separate from the 140-skill roadmap', () => {
-    expect(JETWORK_SKILLS.length).toBeGreaterThanOrEqual(6)
+  it('activates the first 40 P0/P1 skills while keeping the 140-skill roadmap separate', () => {
+    expect(JETWORK_SKILLS).toHaveLength(40)
     expect(new Set(JETWORK_SKILLS.map(skill => skill.key)).size).toBe(JETWORK_SKILLS.length)
-    expect(JETWORK_SKILLS.every(skill => skill.priority === 'P0')).toBe(true)
+    expect(JETWORK_SKILLS.every(skill => ['P0', 'P1'].includes(skill.priority))).toBe(true)
+    const categories = new Set(JETWORK_SKILLS.map(skill => skill.category))
+    for (const category of ['spreadsheet', 'jira', 'business-analysis', 'sap', 'engineering', 'files']) {
+      expect(categories.has(category)).toBe(true)
+    }
   })
 
   it('finds the table-join skill for the real Jira/Excel mapping request', () => {
@@ -30,23 +34,33 @@ describe('JetWork skill runtime foundation', () => {
     expect(results.some(result => result.key === 'jira/latest-sprint')).toBe(true)
   })
 
-  it('loads at most four explicit skills and preserves missing-key errors', () => {
+  it('discovers business-analysis and SAP skills from natural Turkish requests', () => {
+    const impact = searchSkills({ query: 'bu değişiklik hangi sistemleri ve entegrasyonları etkiler', limit: 6 })
+    expect(impact.some(result => result.key === 'business-analysis/impact-analysis')).toBe(true)
+
+    const diagnosis = searchSkills({ query: 'SAP hata mesajının kök nedenini method ve source üzerinden analiz et', limit: 6 })
+    expect(diagnosis.some(result => result.key === 'sap/diagnosis')).toBe(true)
+  })
+
+  it('loads at most four explicit skills and supports P1 materialization', () => {
     const results = loadSkills([
       'spreadsheet/inspect',
       'spreadsheet/table-join',
-      'jira/export-analysis',
-      'jira/latest-sprint',
+      'business-analysis/impact-analysis',
+      'sap/diagnosis',
       'missing/skill',
     ])
     expect(results).toHaveLength(4)
     expect(results[0]).toMatchObject({ key: 'spreadsheet/inspect' })
-    expect('content' in results[0]).toBe(true)
+    expect(results[2]).toMatchObject({ key: 'business-analysis/impact-analysis' })
+    expect(results[3]).toMatchObject({ key: 'sap/diagnosis' })
+    expect(results.every(result => 'content' in result)).toBe(true)
   })
 
   it('marks skill tool output as procedural and never citation-ready evidence', () => {
-    const result = executeSkillTool('load_skills', { keys: ['spreadsheet/table-join'] })
+    const result = executeSkillTool('load_skills', { keys: ['business-analysis/impact-analysis', 'sap/diagnosis'] })
     expect(result.sources).toEqual([])
-    expect(result.summary).toMatchObject({ proceduralOnly: true, citationReady: false, loadedCount: 1 })
+    expect(result.summary).toMatchObject({ proceduralOnly: true, citationReady: false, loadedCount: 2 })
     expect(result.output).toContain('TRUSTED_JETWORK_SKILL_INSTRUCTION')
   })
 
