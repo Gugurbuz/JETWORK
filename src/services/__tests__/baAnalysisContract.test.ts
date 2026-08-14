@@ -43,6 +43,23 @@ describe('JetWork BA analysis contract', () => {
     expect(BA_ANALYSIS_CONTRACT).toMatch(/yalnız kullanıcı\/doğrulanmış kaynak açıkça/i)
   })
 
+  it('preserves contradictory requirements instead of silently normalizing them', () => {
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Çelişki koruma guardı/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/birlikte uygulanamıyorsa/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/tek bir kesin kural gibi birleştirme/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Açık Karar/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/sessizce diğerine üstün sayma/i)
+  })
+
+  it('separates requested capability from unproven implementation shape', () => {
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Implementation-shape guardı/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/iş kabiliyeti veya davranış/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/array\/list\/batch payload/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/hardcode\/config/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/yeni servis veya endpoint/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/yalnız Tasarım Seçeneği/i)
+  })
+
   it('covers generic functional-analysis boundaries without prescribing implementation', () => {
     expect(BA_ANALYSIS_CONTRACT).toMatch(/read\/görüntüleme/i)
     expect(BA_ANALYSIS_CONTRACT).toMatch(/update\/kayıt/i)
