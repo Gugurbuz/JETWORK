@@ -16,6 +16,7 @@ import {
   normalizeGeminiRequestedModel,
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
+import { assertExplicitGeminiModelPreserved } from './geminiProviderLock.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
 import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
 import {
@@ -259,6 +260,7 @@ export async function requestGeminiResponse(input: {
     tools: effectiveAllowTools ? input.tools : [],
     allowTools: effectiveAllowTools,
   })
+  assertExplicitGeminiModelPreserved(requestedModel, firstResponse.model)
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
     primary_llm_final_calls: effectiveAllowTools ? 0 : 1,
@@ -286,6 +288,7 @@ export async function requestGeminiResponse(input: {
     tools: [],
     allowTools: false,
   })
+  assertExplicitGeminiModelPreserved(requestedModel, recoveryResponse.model)
   const recoveryUsage = usageWithGeminiEstimatedCost(String(recoveryResponse.model || requestedModel), recoveryResponse.usage, {
     primary_llm_agent_calls: 0,
     primary_llm_final_calls: 1,
