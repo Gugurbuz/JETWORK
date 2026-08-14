@@ -86,7 +86,13 @@ export async function saveUserMessage(
   message: Message,
 ): Promise<void> {
   if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && Array.isArray(message.attachments)) {
-    message.attachments = await persistAssistantToolAttachments(workspaceId, message.attachments);
+    const originalAttachments = message.attachments;
+    const persistedAttachments = await persistAssistantToolAttachments(workspaceId, originalAttachments);
+    // Keep the caller's attachment array in sync. useMessages passes this same array
+    // into prepareAssistantChatAttachments after persistence; mutating in place ensures
+    // XLSX action files are no longer treated as text chat attachments.
+    originalAttachments.splice(0, originalAttachments.length, ...persistedAttachments);
+    message.attachments = originalAttachments;
   }
 
   const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, message, ownerId));
