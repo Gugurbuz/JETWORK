@@ -8,16 +8,13 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: pr121-xlsx-routing-hotfix
-  cancel-in-progress: true
-
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: fix one-shot XLSX hotfix runner'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           ref: feat/skill-runtime-foundation
           fetch-depth: 0
