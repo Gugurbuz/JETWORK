@@ -134,6 +134,15 @@ const emitSseEvent = (
     return;
   }
 
+  // A server-side assistant error is a terminal application event, not a broken
+  // transport. Forward it once and stop reconnecting; otherwise the same failed
+  // turn is reclaimed repeatedly and can remain stuck in running state.
+  if (eventName === 'error') {
+    state.completedSeen = true;
+    controller.enqueue(encoder.encode(`${rawEvent}\n\n`));
+    return;
+  }
+
   // During replay, pre-prefix status/source events are safe but redundant. Skip
   // them until text catches up; the completed cached response will still carry
   // the final sources and completion metadata afterwards.

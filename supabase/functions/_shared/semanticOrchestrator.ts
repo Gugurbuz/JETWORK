@@ -80,6 +80,14 @@ const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek isted
 const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct)$/i
 const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|more|rest|continue|next)\b/i
 const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari)\b/i
+const STRUCTURED_REQUIREMENT_NUMBER_PATTERN = /^\s*\d+(?:\.\d+){1,}\s+/gmu
+const STRUCTURED_REQUIREMENT_LANGUAGE_PATTERN = /\b(?:gereksinim[a-z]*|is kurali|servis[a-z]* guncellen[a-z]*|guncellenmelidir|olacaktir|donmelidir|yapilmalidir|mevcutta|proje ile|senaryo)\b/gu
+
+const looksLikeUserProvidedRequirements = (message: string): boolean => {
+  const numberedItems = message.match(STRUCTURED_REQUIREMENT_NUMBER_PATTERN)?.length || 0
+  const requirementSignals = normalize(message).match(STRUCTURED_REQUIREMENT_LANGUAGE_PATTERN)?.length || 0
+  return message.trim().length >= 350 && (numberedItems >= 2 || requirementSignals >= 3)
+}
 
 const extractTechnicalEntities = (value: string) => unique([...value.toLocaleUpperCase('en-US').matchAll(TECHNICAL_ENTITY_PATTERN)].map(match => match[0]), 10)
 
@@ -198,7 +206,18 @@ const buildPrimaryAgentPlan = (input: {
   priorExecution?: PriorExecutionContext
 }): ReasoningPlan => {
   const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()
-  const route = routeReasoningRequest(currentMessage)
+  const routed = routeReasoningRequest(currentMessage)
+  const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)
+  const route = userProvidedRequirements
+    ? {
+        ...routed,
+        intent: 'analysis' as const,
+        knowledgeRequired: false,
+        webMode: 'none' as const,
+        verificationRequired: false,
+        creativeMode: false,
+      }
+    : routed
   const state = buildConversationState({
     currentMessage,
     conversation: input.conversation,
@@ -210,13 +229,12 @@ const buildPrimaryAgentPlan = (input: {
     complexity: route.complexity,
     executionMode,
     goal: state.resolvedRequest || currentMessage,
-    // Compatibility envelope: the core currently uses knowledgeRequired/webMode to
-    // expose tools. In primary-agent mode these flags mean "capability available",
-    // not "preflight retrieval required". evidenceQueries stays empty so no RAG runs
-    // before the primary model asks for it.
-    knowledgeRequired: true,
+    // The user's supplied requirement/specification text is itself the primary
+    // evidence for analysis. Knowledge/web capabilities remain available for
+    // genuinely unknown facts, but are not prerequisites for analysing input.
+    knowledgeRequired: userProvidedRequirements ? false : true,
     enterpriseGroundingRequired: false,
-    webMode: 'if_internal_insufficient',
+    webMode: userProvidedRequirements ? 'none' : 'if_internal_insufficient',
     verificationRequired: false,
     creativeMode: route.creativeMode,
     evidenceQueries: [],
@@ -225,7 +243,9 @@ const buildPrimaryAgentPlan = (input: {
       id: 'primary-agent-loop',
       label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
       toolHint: 'synthesis',
-      successCriteria: 'Tool seçimi planner tarafından zorlanmaz; primary LLM ihtiyaç halinde knowledge/web capability kullanır.',
+      successCriteria: userProvidedRequirements
+        ? 'Kullanıcının verdiği gereksinimler doğrudan analiz edilir; yalnız gerçekten eksik dış fact için capability kullanılır.'
+        : 'Tool seçimi planner tarafından zorlanmaz; primary LLM ihtiyaç halinde knowledge/web capability kullanır.',
     }],
     conversationState: state,
     orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
@@ -254,12 +274,14 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
       evidenceQueries: [],
       verificationRequired: false,
       enterpriseGroundingRequired: false,
-      webMode: 'if_internal_insufficient',
+      webMode: inputPlan.webMode,
       steps: [{
         id: 'primary-agent-loop',
         label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
         toolHint: 'synthesis',
-        successCriteria: 'Kaynak ve web kullanımı primary LLM kararına bağlıdır; boş kaynak sonucu cevap vermeyi engellemez.',
+        successCriteria: inputPlan.knowledgeRequired || inputPlan.webMode !== 'none'
+          ? 'Kaynak ve web kullanımı primary LLM kararına bağlıdır; boş kaynak sonucu cevap vermeyi engellemez.'
+          : 'Kullanıcının verdiği bilgi doğrudan analiz edilir; gereksiz kaynak araması yapılmaz.',
       }],
       orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
     }

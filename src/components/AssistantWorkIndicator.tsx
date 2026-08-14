@@ -20,7 +20,7 @@ const ACTIVITY_PREFIX = /^(?:[•*\-–—]|\d+[.)])\s*/u;
 const MARKDOWN_DECORATION = /[*#`_]/gu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
-const LOW_VALUE_ACTIVITY = /^(?:asistana bağlanılıyor|çalışılıyor|yanıt hazırlanıyor|yanıt oluşturuluyor)\.{0,3}$/iu;
+const LOW_VALUE_ACTIVITY = /^çalışılıyor\.{0,3}$/iu;
 
 export interface AssistantWorkActivity {
   label: string;
@@ -54,6 +54,66 @@ const appendUnique = (target: string[], value: string | undefined) => {
   if (target.some(item => item.toLocaleLowerCase('tr-TR') === key)) return;
   target.push(normalized);
 };
+
+export function formatAssistantWorkActivityLabel(value: string, completed = false): string {
+  const normalized = normalizeActivity(value);
+  if (!normalized) return '';
+
+  if (/^asistana bağlanılıyor/iu.test(normalized)) {
+    return completed ? 'Talep işleme alındı' : 'Talebin kapsamı değerlendiriliyor...';
+  }
+
+  if (/^talep sınıflandırıldı/iu.test(normalized)) {
+    return normalized.replace(/^talep sınıflandırıldı/iu, 'Talep türü değerlendirildi');
+  }
+
+  if (/^araştırma ve doğrulama planı oluşturuluyor/iu.test(normalized)) {
+    return completed
+      ? 'Araştırma ve doğrulama yaklaşımı belirlendi'
+      : 'Araştırma ve doğrulama yaklaşımı hazırlanıyor';
+  }
+
+  const planReadyMatch = normalized.match(/^plan hazır(?::\s*(.+))?\.?$/iu);
+  if (planReadyMatch) {
+    return planReadyMatch[1]
+      ? `Çalışma adımları belirlendi: ${planReadyMatch[1]}`
+      : 'Çalışma adımları belirlendi';
+  }
+
+  if (/^kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(normalized)) {
+    return completed
+      ? 'Bulguların yeterliliği ve tutarlılığı kontrol edildi'
+      : 'Bulguların yeterliliği ve tutarlılığı kontrol ediliyor...';
+  }
+
+  if (/^sentez sırasında ek teknik kanıt isteniyor/iu.test(normalized)) {
+    return completed
+      ? 'Ek teknik kanıt arandı'
+      : 'Bilgi bankasında ek teknik kanıt aranıyor...';
+  }
+
+  if (/^kanıtlar ve doğrulama sonucu sentezleniyor/iu.test(normalized)) {
+    return completed
+      ? 'Bulgular karşılaştırıldı ve doğrulandı'
+      : 'Bulgular karşılaştırılıyor ve doğrulanıyor';
+  }
+
+  if (/^yanıt hazırlandı/iu.test(normalized)) {
+    return completed ? 'Yanıt oluşturuldu' : 'Yanıt oluşturuluyor';
+  }
+
+  if (!completed) return normalized;
+
+  return normalized
+    .replace(/inceleniyor/giu, 'incelendi')
+    .replace(/aranıyor/giu, 'incelendi')
+    .replace(/taranıyor/giu, 'tarandı')
+    .replace(/karşılaştırılıyor/giu, 'karşılaştırıldı')
+    .replace(/doğrulanıyor/giu, 'doğrulandı')
+    .replace(/seçiliyor/giu, 'seçildi')
+    .replace(/hazırlanıyor/giu, 'hazırlandı')
+    .replace(/oluşturuluyor/giu, 'oluşturuldu');
+}
 
 export function buildAssistantWorkActivities(input: {
   isActive: boolean;
@@ -140,7 +200,6 @@ const mergeObservedActivities = (
 
 const ActivityStateIcon = ({ state }: { state: AssistantWorkActivity['state'] }) => {
   if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
-  if (state === 'active') return <LoaderCircle aria-hidden="true" />;
   return <Check aria-hidden="true" />;
 };
 
@@ -215,20 +274,24 @@ export function AssistantWorkIndicator({
     if (!isActive) setIsExpanded(false);
   }, [isActive]);
 
-  const activities = isActive
-    ? mergeObservedActivities(observedActivities, reportedActivities)
-    : observedActivities.map(activity => ({
-        ...activity,
-        state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
-      }));
-  const currentActivity = isActive
-    ? [...activities].reverse().find(activity => activity.state === 'active')?.label
-      || activities.at(-1)?.label
+  const activityEvidence = mergeObservedActivities(observedActivities, reportedActivities);
+  const currentActivityRaw = isActive
+    ? [...activityEvidence].reverse().find(activity => activity.state === 'active')?.label
+      || activityEvidence.at(-1)?.label
     : undefined;
+  const currentActivity = currentActivityRaw
+    ? formatAssistantWorkActivityLabel(currentActivityRaw, false)
+    : undefined;
+  const completedActivities = activityEvidence.map(activity => ({
+    ...activity,
+    state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
+    label: formatAssistantWorkActivityLabel(activity.label, true),
+  }));
+  const hasWorkDetails = completedActivities.length > 0;
   const hasSourceDetails = knowledgeSourceCount > 0 || webSourceCount > 0;
-  const canShowDetails = activities.length > 0 || hasSourceDetails;
+  const canShowDetails = hasWorkDetails || hasSourceDetails;
   const hasSourceGap = webSourceCount === 0
-    && activities.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
+    && activityEvidence.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
 
   const requestWebSearch = () => onFollowUp?.(
     'Bu soruyu web üzerinde de araştır. Güncel ve güvenilir web kaynaklarıyla bulguları doğrula ve kaynakları göster.',
@@ -251,6 +314,19 @@ export function AssistantWorkIndicator({
         composerStopTarget,
       )
     : null;
+
+  const completedSummaryContent = (
+    <>
+      <span
+        data-testid="assistant-work-completed-logo"
+        className="assistant-work__logo-stage"
+        aria-hidden="true"
+      >
+        <JetWorkLogo className="assistant-work__logo" />
+      </span>
+      <span>{formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}</span>
+    </>
+  );
 
   return (
     <>
@@ -282,19 +358,6 @@ export function AssistantWorkIndicator({
                 <span>{currentActivity}</span>
               </div>
             ) : null}
-
-            {canShowDetails && (activities.length > 1 || hasSourceDetails) ? (
-              <button
-                type="button"
-                className="assistant-work__action"
-                onClick={() => setIsExpanded(previous => !previous)}
-                aria-expanded={isExpanded}
-                aria-label="Nasıl hazırlandı?"
-              >
-                {isExpanded ? 'Ayrıntıları gizle' : 'Çalışma ayrıntıları'}
-                <ChevronDown className={cn('assistant-work__chevron', isExpanded && 'assistant-work__chevron--open')} aria-hidden="true" />
-              </button>
-            ) : null}
           </>
         ) : canShowDetails ? (
           <button
@@ -302,21 +365,22 @@ export function AssistantWorkIndicator({
             className="assistant-work__summary"
             onClick={() => setIsExpanded(previous => !previous)}
             aria-expanded={isExpanded}
+            aria-label="Çalışma ayrıntılarını göster"
           >
-            <span>{formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}</span>
+            {completedSummaryContent}
             <ChevronDown className={cn('assistant-work__chevron', isExpanded && 'assistant-work__chevron--open')} aria-hidden="true" />
           </button>
         ) : (
           <div className="assistant-work__summary assistant-work__summary--static">
-            {formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}
+            {completedSummaryContent}
           </div>
         )}
 
-        {isExpanded && canShowDetails ? (
+        {!isActive && isExpanded && canShowDetails ? (
           <div className="assistant-work__details" data-testid="assistant-work-details">
-            {activities.length > 0 ? (
+            {hasWorkDetails ? (
               <ol className="assistant-work__activity-list">
-                {activities.map(activity => (
+                {completedActivities.map(activity => (
                   <li
                     key={activity.label}
                     className={cn('assistant-work__activity', `assistant-work__activity--${activity.state}`)}
@@ -365,22 +429,22 @@ export function AssistantWorkIndicator({
                 </div>
               </div>
             ) : null}
+          </div>
+        ) : null}
 
-            {!isActive && onFollowUp ? (
-              <div className="assistant-work__follow-ups">
-                {hasSourceGap ? (
-                  <button type="button" onClick={requestWebSearch} disabled={followUpDisabled}>
-                    <Globe2 aria-hidden="true" />
-                    Web’de de ara
-                  </button>
-                ) : null}
-                {!isStopped ? (
-                  <button type="button" onClick={requestDeepResearch} disabled={followUpDisabled}>
-                    <Search aria-hidden="true" />
-                    Daha derin araştır
-                  </button>
-                ) : null}
-              </div>
+        {!isActive && onFollowUp ? (
+          <div className="assistant-work__follow-ups">
+            {hasSourceGap ? (
+              <button type="button" onClick={requestWebSearch} disabled={followUpDisabled}>
+                <Globe2 aria-hidden="true" />
+                Web’de de ara
+              </button>
+            ) : null}
+            {!isStopped ? (
+              <button type="button" onClick={requestDeepResearch} disabled={followUpDisabled}>
+                <Search aria-hidden="true" />
+                Daha derin araştır
+              </button>
             ) : null}
           </div>
         ) : null}
