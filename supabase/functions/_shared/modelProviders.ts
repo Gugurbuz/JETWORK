@@ -43,6 +43,7 @@ export const providerForModel = (model: string): AssistantProvider => {
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[END_JETWORK_SEMANTIC_PLAN\]\s*/gi
 const INTERNAL_EVIDENCE_PATTERN = /\n?\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]\s*/gi
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const ENUMERATION_KNOWLEDGE_TOOLS = new Set(['list_knowledge_catalog', 'list_class_inventory'])
 const MAX_EMPTY_KNOWLEDGE_SEARCHES = 2
 
 export const stripInternalSemanticPlan = (value: string) => value
@@ -191,6 +192,7 @@ const primaryAgentInstruction = [
   '[JETWORK PRIMARY LLM AGENT MODE]',
   'Bu turnün karar verici modeli sensin. Ayrı bir planner senin yerine knowledge/web kullanma kararı vermemiştir.',
   'Knowledge araçları kullanılabilir capabilitylerdir; yalnız gerçekten yararlıysa çağır. Genel analiz sırf analiz olduğu için kaynak araması gerektirmez.',
+  'Procedural skill araçları görevin nasıl yapılacağını öğretir; kurumsal bilgi veya citation değildir. Uzman bir iş akışı gerekiyorsa uygun skill ara ve yalnız gerekli skillleri yükle.',
   'JetWork çalışma alanındaki iş/süreç terimleri kurum bağlamına işaret edebilir. Kuruma özgü ayrıntı cevabı anlamlı biçimde iyileştirecekse knowledge aracını kendin kullan.',
   'Bir tool sonucu kullanıcının sorduğu spesifik bilgiyi doğrulamıyorsa o bilgiyi tahmin etme veya tamamlamaya çalışma.',
   'Hiç güvenilir kayıt bulunmaması ile kayıt bulunup kullanıcının sorduğu alanın/iddianın kaynakta yer almamasını birbirinden ayır.',
@@ -222,6 +224,7 @@ export async function requestGeminiResponse(input: {
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
+  allowProviderWeb?: boolean
   maxOutputTokens: number
   onText: (text: string) => void
   signal?: AbortSignal
@@ -230,9 +233,12 @@ export async function requestGeminiResponse(input: {
   const plan = extractSemanticPlanFromItems(input.items)
   const baAnalysisInstruction = baAnalysisInstructionForPlan(plan)
 
-  // Keep only the authoritative deterministic inventory shortcut. All ordinary
-  // knowledge decisions are made by the requested primary model itself.
-  const enumerationDispatch = input.allowTools ? buildEnumerationFastPathDispatch(input.items) : null
+  // Enumeration is a knowledge-only shortcut. Skill or web capability alone
+  // must never materialize a knowledge enumeration function call.
+  const enumerationKnowledgeEnabled = input.tools.some(tool => ENUMERATION_KNOWLEDGE_TOOLS.has(String(tool.name || '')))
+  const enumerationDispatch = input.allowTools && enumerationKnowledgeEnabled
+    ? buildEnumerationFastPathDispatch(input.items)
+    : null
   if (enumerationDispatch) {
     return {
       id: `jetwork-enum-fast:${crypto.randomUUID()}`,
@@ -250,6 +256,7 @@ export async function requestGeminiResponse(input: {
   const forceNoToolSynthesis = input.allowTools && emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES
   const effectiveAllowTools = input.allowTools && !forceNoToolSynthesis
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
+  const providerWebEnabled = input.allowProviderWeb ?? input.allowTools
   const geminiInstructions = [
     providerInstructions,
     primaryAgentInstruction,
@@ -257,7 +264,7 @@ export async function requestGeminiResponse(input: {
     forceNoToolSynthesis
       ? 'İki ayrı knowledge araması da sonuç vermedi. Yeni araç çağırma; kullanıcının verdiği bilgiler ve mevcut kanıtlarla dürüst nihai yanıtı üret. Kaynakta doğrulanamayan kurum özelini açıkça belirt ama kullanıcının kendi verdiği gereksinimleri analiz etmeyi bırakma.'
       : '',
-    effectiveAllowTools ? PROVIDER_WEB_CAPABILITY_MARKER : '',
+    !forceNoToolSynthesis && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
   const firstResponse = await legacyRequestGeminiResponse({
     ...input,

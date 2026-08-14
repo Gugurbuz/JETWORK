@@ -174,6 +174,9 @@ export const useMessages = (channelRef: any) => {
     const preparedAttachments = attachments?.map(attachment => ({
       ...attachment,
       attachmentId: attachment.attachmentId || crypto.randomUUID(),
+      ingestion: attachment.purpose === 'knowledge_bank'
+        ? { status: 'queued' as const }
+        : attachment.ingestion,
     }));
     const isAssistantRetry = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
       && !!options.retryMessageId;
@@ -187,17 +190,7 @@ export const useMessages = (channelRef: any) => {
       senderRole: 'Kullanıcı',
       senderColor: user.color,
       createdAt: Date.now(),
-      attachments: preparedAttachments?.map(a => ({
-        attachmentId: a.attachmentId,
-        url: a.url,
-        data: a.data,
-        name: a.name,
-        mimeType: a.mimeType,
-        purpose: a.purpose,
-        ingestion: a.purpose === 'knowledge_bank'
-          ? { status: 'queued' }
-          : undefined,
-      })),
+      attachments: preparedAttachments,
       replyToId,
       persistenceStatus: 'pending',
     };

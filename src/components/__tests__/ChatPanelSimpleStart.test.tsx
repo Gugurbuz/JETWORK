@@ -59,7 +59,7 @@ describe('ChatPanel simple BA start', () => {
     expect(html).toContain('assistant-work__logo-motion');
     expect(html).toContain('Düşünüyor');
     expect(html).toContain(' sn');
-    expect(html).toContain('Çalışma ayrıntıları');
+    expect(html).toContain('data-testid="assistant-work-live-details"');
     expect(html).toContain('Bilgi bankasında ilgili kayıtlar seçiliyor');
     expect(html).not.toContain('>Durdur<');
     expect(html).not.toContain('Arka planda çalışsın');

@@ -44,7 +44,7 @@ export interface Question {
   options: string[];
 }
 
-export type AttachmentPurpose = 'chat_only' | 'knowledge_bank';
+export type AttachmentPurpose = 'chat_only' | 'knowledge_bank' | 'tool_input' | 'tool_output';
 
 export interface AttachmentIngestion {
   status: 'queued' | 'uploading' | 'processing' | 'ready' | 'failed';
@@ -64,6 +64,8 @@ export interface MessageAttachment {
   name?: string;
   file?: File;
   purpose?: AttachmentPurpose;
+  storageBucket?: string;
+  storagePath?: string;
   ingestion?: AttachmentIngestion;
 }
 

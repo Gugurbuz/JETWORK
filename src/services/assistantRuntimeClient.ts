@@ -22,6 +22,7 @@ import {
 } from './artifactTaskRepository';
 import { parseAssistantPresentationMetadata } from './assistantPresentationMetadata';
 import { useDocumentStore } from '../store/useDocumentStore';
+import { isSpreadsheetExecutionAttachment } from './assistantFileRepository';
 
 const DEFAULT_TIMEOUT_MS = 150_000;
 const MAX_CHAT_ATTACHMENTS = 3;
@@ -344,7 +345,10 @@ async function readAttachmentText(attachment: MessageAttachment): Promise<string
 export async function prepareAssistantChatAttachments(
   attachments: MessageAttachment[] = [],
 ): Promise<AssistantChatAttachment[]> {
-  const chatAttachments = attachments.filter(candidate => candidate.purpose === 'chat_only');
+  const chatAttachments = attachments.filter(candidate => (
+    candidate.purpose === 'chat_only'
+    && !isSpreadsheetExecutionAttachment(candidate)
+  ));
   if (chatAttachments.length > MAX_CHAT_ATTACHMENTS) {
     throw new AssistantAttachmentValidationError(
       `Bir mesajda en fazla ${MAX_CHAT_ATTACHMENTS} sohbet eki kullanılabilir.`,

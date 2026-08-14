@@ -11,9 +11,11 @@ const legacy = readFileSync(
 );
 
 describe('primary-agent provider parity', () => {
-  it('exposes Gemini native web as an optional capability on tool-enabled primary turns', () => {
+  it('exposes Gemini native web only when provider web capability is enabled', () => {
     expect(wrapper).toContain("PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'");
-    expect(wrapper).toContain('input.allowTools ? PROVIDER_WEB_CAPABILITY_MARKER');
+    expect(wrapper).toContain('allowProviderWeb?: boolean');
+    expect(wrapper).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
+    expect(wrapper).toContain('providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER');
     expect(legacy).toContain('googleSearch: {}');
     expect(legacy).toContain("providerWebEnabled ? 'VALIDATED' : 'AUTO'");
   });
