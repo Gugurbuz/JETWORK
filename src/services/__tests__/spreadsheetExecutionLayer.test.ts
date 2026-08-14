@@ -108,6 +108,10 @@ describe('Spreadsheet Execution Layer', () => {
     expect(executionNames).toEqual([
       'list_spreadsheet_attachments',
       'inspect_spreadsheet_file',
+      'edit_spreadsheet_file',
+      'transform_spreadsheet_file',
+      'create_spreadsheet_file',
+      'validate_spreadsheet_file',
       'sync_spreadsheet_with_jira_export',
     ])
     expect(ASSISTANT_SKILL_TOOLS.map(tool => tool.name)).toEqual(expect.arrayContaining(executionNames))

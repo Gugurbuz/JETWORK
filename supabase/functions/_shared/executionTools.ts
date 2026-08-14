@@ -109,7 +109,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
     name: 'list_spreadsheet_attachments',
-    description: 'List recent XLSX action attachments available in the active workspace. Use this first for spreadsheet tasks. If records are returned, the files are available: never tell the user they are missing. This result is execution context, not evidence.',
+    description: 'List recent XLSX action attachments available in the active workspace. Use this first for spreadsheet tasks. If records are returned, the files are available: never tell the user they are missing; do not claim files are missing. This result is execution context, not evidence.',
     strict: true,
     parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
@@ -131,7 +131,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
     name: 'edit_spreadsheet_file',
-    description: 'Apply allow-listed workbook edits to an attached XLSX and return a new XLSX artifact. Use for direct value/formula/formatting/sheet edits such as "tüm satırları kırmızıya boya". Inspect first when the target sheet/range is not already known. operation target/value/number fields are interpreted by operation: set_fill uses value as hex/color name; set_formula uses value as formula text; set_bold uses value boolean; set_font_size/row_height/column_width use number; merge/unmerge/filter/freeze use target; add_sheet uses value; rename_sheet uses target=old and value=new.',
+    description: 'Apply allow-listed workbook edits to an attached XLSX and return a new XLSX artifact. Use for direct value, formula, fill color, bold, font size, merge, filter, freeze-pane and add-sheet edits such as \"tüm satırları kırmızıya boya\". Inspect first when the target sheet/range is not already known. set_fill uses value as a color name or hex; set_formula uses value as formula text; set_bold makes the target bold; set_font_size uses number; merge/filter/freeze use target; add_sheet uses value.',
     strict: true,
     parameters: {
       type: 'object',
@@ -143,7 +143,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
           items: {
             type: 'object',
             properties: {
-              operation: { type: 'string', enum: ['set_value','set_formula','set_fill','set_bold','set_font_size','merge_cells','unmerge_cells','add_filter','freeze_panes','add_sheet','rename_sheet'] },
+              operation: { type: 'string', enum: ['set_value','set_formula','set_fill','set_bold','set_font_size','merge_cells','add_filter','freeze_panes','add_sheet'] },
               target: nullableText(120),
               value: { type: ['string','number','boolean','null'], maxLength: 2_000 },
               number: nullableNumber(0, 1_000),
