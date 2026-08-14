@@ -16,6 +16,10 @@ export interface GroundingToolResultLike {
 export interface GroundingPlanLike {
   knowledgeRequired?: boolean
   enterpriseGroundingRequired?: boolean
+  goal?: string
+  conversationState?: {
+    resolvedRequest?: string
+  }
 }
 
 export interface GroundingCoverageResult {
@@ -51,7 +55,10 @@ const canonicalIdentifier = (value: string) => {
     .toLocaleUpperCase('en-US')
 }
 
-const TECHNICAL_IDENTIFIER_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?\b/g
+// ASCII-looking SAP identifiers can appear inside Turkish words when \b treats
+// letters such as Ö/Ş as non-word characters (for example SÖZLEŞME -> ZLE).
+// Unicode letter/number guards make sure an identifier is a standalone token.
+const TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?(?![\p{L}\p{N}_])/gu
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
 const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
@@ -73,6 +80,11 @@ export const extractTechnicalIdentifiers = (text: string): string[] => {
   for (const match of clean(text).matchAll(CANONICAL_KEY_PATTERN)) add(match[0])
   return [...values]
 }
+
+const suppliedRequestText = (plan: GroundingPlanLike) => [
+  clean(plan.goal, 32_000),
+  clean(plan.conversationState?.resolvedRequest, 32_000),
+].filter(Boolean).join('\n')
 
 const evidenceGapIdentifiers = (text: string) => {
   const identifiers = new Set<string>()
@@ -198,6 +210,13 @@ const sameExactMessage = (claimed: string, expected: string) => {
   return Boolean(left && right && (left === right || left.includes(right) || right.includes(left)))
 }
 
+const suppliedExactClaim = (
+  claim: { identifier: string; claimed: string },
+  suppliedClaims: Array<{ identifier: string; claimed: string }>,
+) => suppliedClaims.some(supplied => (
+  supplied.identifier === claim.identifier && sameExactMessage(claim.claimed, supplied.claimed)
+))
+
 export const evaluateGroundedTechnicalClaims = (input: {
   text: string
   plan: GroundingPlanLike
@@ -205,7 +224,20 @@ export const evaluateGroundedTechnicalClaims = (input: {
   toolResults: GroundingToolResultLike[]
 }): GroundingCoverageResult => {
   const responseIdentifiers = extractTechnicalIdentifiers(input.text)
-  const strictEnterpriseClaim = enterpriseGroundingRequiredForPlan(input.plan) || responseIdentifiers.length > 0
+  const suppliedText = suppliedRequestText(input.plan)
+  const suppliedIdentifiers = new Set(extractTechnicalIdentifiers(suppliedText))
+  const responseMessageClaims = exactMessageClaims(input.text)
+  const suppliedMessageClaims = exactMessageClaims(suppliedText)
+  const novelResponseIdentifiers = responseIdentifiers.filter(identifier => !suppliedIdentifiers.has(identifier))
+  const novelExactMessageClaims = responseMessageClaims.filter(claim => !suppliedExactClaim(claim, suppliedMessageClaims))
+
+  // An explicit enterprise-grounding decision remains authoritative. When the
+  // plan does not require grounding, only *new* technical facts introduced by
+  // the model activate the strict guard; facts supplied by the user may be
+  // analysed without forcing an unrelated knowledge lookup.
+  const strictEnterpriseClaim = enterpriseGroundingRequiredForPlan(input.plan)
+    || novelResponseIdentifiers.length > 0
+    || novelExactMessageClaims.length > 0
   if (!strictEnterpriseClaim) {
     return { ok: true, verifiedKnowledgeEvidence: false, unsupportedIdentifiers: [], messageTextMismatches: [] }
   }
@@ -215,34 +247,44 @@ export const evaluateGroundedTechnicalClaims = (input: {
     source.sourceType !== 'web' && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
   ))
   const supported = verifiedIdentifierSet(input.sources, verifiedResults)
+  for (const identifier of suppliedIdentifiers) supported.add(identifier)
+
   const safeGapIdentifiers = evidenceGapIdentifiers(input.text)
-  const unsupportedIdentifiers = responseIdentifiers.filter(identifier => (
+  const unsupportedIdentifiers = new Set(responseIdentifiers.filter(identifier => (
     !supported.has(identifier) && !safeGapIdentifiers.has(identifier)
-  ))
+  )))
 
   const titles = messageTitleMap(input.sources, verifiedResults)
-  const messageClaims = exactMessageClaims(input.text)
-  const messageTextMismatches = messageClaims.flatMap(claim => {
+  for (const claim of novelExactMessageClaims) {
+    if (!titles.has(claim.identifier) && !safeGapIdentifiers.has(claim.identifier)) {
+      unsupportedIdentifiers.add(claim.identifier)
+    }
+  }
+
+  const messageTextMismatches = responseMessageClaims.flatMap(claim => {
     const expected = titles.get(claim.identifier)
     if (!expected || sameExactMessage(claim.claimed, expected)) return []
     return [{ identifier: claim.identifier, claimed: claim.claimed, expected }]
   })
+  const unsupportedIdentifierList = [...unsupportedIdentifiers]
+  const userSuppliedTechnicalEvidence = responseIdentifiers.some(identifier => suppliedIdentifiers.has(identifier))
+    || responseMessageClaims.some(claim => suppliedExactClaim(claim, suppliedMessageClaims))
   const evidenceGapOnlyResponse = !verifiedKnowledgeEvidence
-    && messageClaims.length === 0
-    && unsupportedIdentifiers.length === 0
+    && !userSuppliedTechnicalEvidence
+    && responseMessageClaims.length === 0
+    && unsupportedIdentifierList.length === 0
     && isEvidenceGapResponse(input.text)
 
   return {
-    // Exact enterprise claims remain evidence-bound. A response that only says
-    // the requested fact could not be verified is not itself an enterprise fact
-    // claim and is therefore safe to return without fabricating an answer.
+    // Authoritative knowledge and user-supplied requirements are both valid
+    // evidence domains. New enterprise facts still fail closed unless verified.
     ok: (
-      verifiedKnowledgeEvidence
-        && unsupportedIdentifiers.length === 0
+      (verifiedKnowledgeEvidence || userSuppliedTechnicalEvidence)
+        && unsupportedIdentifierList.length === 0
         && messageTextMismatches.length === 0
     ) || evidenceGapOnlyResponse,
     verifiedKnowledgeEvidence,
-    unsupportedIdentifiers,
+    unsupportedIdentifiers: unsupportedIdentifierList,
     messageTextMismatches,
   }
 }

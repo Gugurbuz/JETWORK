@@ -7,6 +7,7 @@ import {
   buildPendingRuntimeActivities,
   formatAssistantWorkActivityLabel,
   formatAssistantWorkDuration,
+  selectCompletedActivityEvidence,
 } from '../AssistantWorkIndicator';
 
 describe('AssistantWorkIndicator', () => {
@@ -116,6 +117,24 @@ describe('AssistantWorkIndicator', () => {
     expect(html).toContain('Talep için çalışma planı hazırlanıyor...');
     expect(html).toContain('Model yanıtı üzerinde çalışıyor...');
     expect(html).toContain('assistant-work__activity--active');
+  });
+
+  it('uses the completed runtime summary as the authoritative final chronology', () => {
+    const reported = [
+      { label: 'Talep sınıflandırıldı: Analiz · Yüksek', state: 'completed' as const },
+      { label: 'Araştırma ve doğrulama planı oluşturuluyor...', state: 'completed' as const },
+      { label: 'Plan hazır: 1 operasyonel adım', state: 'completed' as const },
+      { label: 'Yanıt hazırlandı', state: 'completed' as const },
+    ];
+    const observed = [
+      ...reported,
+      { label: 'Talep işleme alındı', state: 'completed' as const },
+      { label: 'Konuşma bağlamı hazırlandı', state: 'completed' as const },
+    ];
+
+    expect(selectCompletedActivityEvidence(reported, observed).map(item => item.label)).toEqual(
+      reported.map(item => item.label),
+    );
   });
 
   it('renders a stopped result as worked-and-stopped and keeps the JetWork logo', () => {

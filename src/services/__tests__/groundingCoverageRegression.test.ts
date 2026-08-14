@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   evaluateGroundedTechnicalClaims,
+  extractTechnicalIdentifiers,
   resultHasVerifiedKnowledgeEvidence,
   shouldFailClosedGroundedAnswer,
 } from '../../../supabase/functions/_shared/groundingGuard'
@@ -20,6 +21,53 @@ describe('grounding claim coverage P0', () => {
     expect(resultHasVerifiedKnowledgeEvidence({
       output: '{}', sources: [], summary: { citationReady: false, resultCount: 6 },
     })).toBe(false)
+  })
+
+  it('does not extract fake SAP identifiers from uppercase Turkish words', () => {
+    expect(extractTechnicalIdentifiers('SÖZLEŞME DURUMU VE MÜŞTERİ İZİNLERİ')).toEqual([])
+    expect(extractTechnicalIdentifiers('ZCRM2-545 ve ZCL_ORDER_SAVE/CHECK_ZTKS')).toEqual([
+      'ZCRM2-545',
+      'ZCL_ORDER_SAVE/CHECK_ZTKS',
+    ])
+  })
+
+  it('accepts technical requirements supplied directly by the user when enterprise grounding is explicitly off', () => {
+    const supplied = [
+      'B2B Portal gereksinimi:',
+      'ZCRM2-545',
+      'Mesaj Metni: Kullanıcının verdiği örnek hata metni.',
+    ].join('\n')
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: {
+        knowledgeRequired: false,
+        enterpriseGroundingRequired: false,
+        goal: supplied,
+        conversationState: { resolvedRequest: supplied },
+      },
+      sources: [],
+      toolResults: [],
+      text: [
+        'Analizde ZCRM2-545 dikkate alınmalıdır.',
+        'Mesaj Metni: Kullanıcının verdiği örnek hata metni.',
+      ].join('\n'),
+    })
+    expect(coverage.ok).toBe(true)
+    expect(coverage.unsupportedIdentifiers).toEqual([])
+  })
+
+  it('still blocks a new technical identifier invented by the model', () => {
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: {
+        knowledgeRequired: false,
+        enterpriseGroundingRequired: false,
+        goal: 'B2B Portal müşteri izinleri gereksinimini analiz et.',
+      },
+      sources: [],
+      toolResults: [],
+      text: 'Bu akış ZCL_FAKE_PERMISSION/CHECK_AUTH metoduyla yönetilir.',
+    })
+    expect(coverage.ok).toBe(false)
+    expect(coverage.unsupportedIdentifiers).toEqual(['ZCL_FAKE_PERMISSION/CHECK_AUTH'])
   })
 
   it('blocks the reproduced one-source-enables-many-claims incident', () => {

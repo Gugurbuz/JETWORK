@@ -16,8 +16,10 @@ import {
   normalizeGeminiRequestedModel,
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
+import { assertExplicitGeminiModelPreserved } from './geminiProviderLock.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
 import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
+import { baAnalysisInstructionForPlan } from './baAnalysisContract.ts'
 import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
@@ -201,14 +203,18 @@ const primaryAgentInstruction = [
   'Gereksiz tool çağrısı yapma. İlk tool sonucu yetersizse ancak gerçekten gerekiyorsa sorguyu iyileştirip bir kez daha dene.',
 ].join('\n')
 
-const openAiPrimaryAgentDeveloperItem = {
-  type: 'message',
-  role: 'developer',
-  content: [
-    primaryAgentInstruction,
-    'Bu primary-agent policy, daha önceki promptta analysis/proje/support sınıflandırmasını otomatik RAG veya kurumsal kaynak zorunluluğuna bağlayan talimatların yerine geçer.',
-    'Knowledge capabilitysinin mevcut olması onu kullanmak zorunda olduğun anlamına gelmez.',
-  ].join('\n'),
+const openAiPrimaryAgentDeveloperItem = (items: Array<Record<string, unknown>>) => {
+  const plan = extractSemanticPlanFromItems(items)
+  return {
+    type: 'message',
+    role: 'developer',
+    content: [
+      primaryAgentInstruction,
+      baAnalysisInstructionForPlan(plan),
+      'Bu primary-agent policy, daha önceki promptta analysis/proje/support sınıflandırmasını otomatik RAG veya kurumsal kaynak zorunluluğuna bağlayan talimatların yerine geçer.',
+      'Knowledge capabilitysinin mevcut olması onu kullanmak zorunda olduğun anlamına gelmez.',
+    ].filter(Boolean).join('\n\n'),
+  }
 }
 
 export async function requestGeminiResponse(input: {
@@ -225,6 +231,7 @@ export async function requestGeminiResponse(input: {
 }): Promise<NormalizedModelResponse> {
   const requestedModel = normalizeGeminiRequestedModel(input.model)
   const plan = extractSemanticPlanFromItems(input.items)
+  const baAnalysisInstruction = baAnalysisInstructionForPlan(plan)
 
   // Enumeration is a knowledge-only shortcut. Skill or web capability alone
   // must never materialize a knowledge enumeration function call.
@@ -253,6 +260,7 @@ export async function requestGeminiResponse(input: {
   const geminiInstructions = [
     providerInstructions,
     primaryAgentInstruction,
+    baAnalysisInstruction,
     forceNoToolSynthesis
       ? 'İki ayrı knowledge araması da sonuç vermedi. Yeni araç çağırma; kullanıcının verdiği bilgiler ve mevcut kanıtlarla dürüst nihai yanıtı üret. Kaynakta doğrulanamayan kurum özelini açıkça belirt ama kullanıcının kendi verdiği gereksinimleri analiz etmeyi bırakma.'
       : '',
@@ -266,6 +274,7 @@ export async function requestGeminiResponse(input: {
     tools: effectiveAllowTools ? input.tools : [],
     allowTools: effectiveAllowTools,
   })
+  assertExplicitGeminiModelPreserved(requestedModel, firstResponse.model)
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
     primary_llm_final_calls: effectiveAllowTools ? 0 : 1,
@@ -282,6 +291,7 @@ export async function requestGeminiResponse(input: {
   const recoveryInstructions = [
     providerInstructions,
     primaryAgentInstruction,
+    baAnalysisInstruction,
     '[JETWORK EMPTY FINAL RECOVERY]',
     'Önceki deneme kullanıcıya görünür bir yanıt üretmedi. Bu son denemede hiçbir araç çağırma. Kullanıcının mesajını ve varsa mevcut tool sonuçlarını kullanarak doğrudan, dürüst bir nihai yanıt üret. Kaynak bulunamadıysa bunu açıkça söyle; kullanıcının bizzat verdiği gereksinimleri yine de analiz et.',
   ].join('\n\n')
@@ -293,6 +303,7 @@ export async function requestGeminiResponse(input: {
     tools: [],
     allowTools: false,
   })
+  assertExplicitGeminiModelPreserved(requestedModel, recoveryResponse.model)
   const recoveryUsage = usageWithGeminiEstimatedCost(String(recoveryResponse.model || requestedModel), recoveryResponse.usage, {
     primary_llm_agent_calls: 0,
     primary_llm_final_calls: 1,
@@ -310,7 +321,7 @@ export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>
     return clean
   })
   const enumerationDispatch = buildEnumerationFastPathDispatch(items)
-  const withPrimaryAgentPolicy = [openAiPrimaryAgentDeveloperItem, ...cleaned]
+  const withPrimaryAgentPolicy = [openAiPrimaryAgentDeveloperItem(items), ...cleaned]
   return enumerationDispatch
     ? [...withPrimaryAgentPolicy, buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)]
     : withPrimaryAgentPolicy

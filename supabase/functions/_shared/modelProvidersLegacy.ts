@@ -12,11 +12,9 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const GEMINI_RETRY_DELAYS_MS = [350] as const
-const GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 10_000
+const GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 45_000
 const GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000
 const GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000
-const GEMINI_PRO_CIRCUIT_BREAKER_MS = 60_000
-let geminiProUnavailableUntil = 0
 
 export type AssistantProvider = 'openai' | 'gemini'
 
@@ -219,6 +217,8 @@ const isRetryableGeminiError = (error: unknown) => {
   return /408|429|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|AbortError|signal has been aborted|high demand|temporar|timeout|timed out|network/i.test(geminiErrorText(error))
 }
 
+const isGeminiAttemptTimeout = (error: unknown) => /TimeoutError|provider attempt timed out/i.test(geminiErrorText(error))
+
 const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
   if (milliseconds <= 0) return
   if (signal?.aborted) throw signal.reason || new DOMException('Aborted', 'AbortError')
@@ -253,6 +253,11 @@ const generateGeminiAttempt = async (input: {
   const timeout = setTimeout(() => controller.abort(new DOMException('Gemini provider attempt timed out.', 'TimeoutError')), input.timeoutMs)
   try {
     return await input.ai.models.generateContent({ model: input.model, contents: input.contents, config: { ...input.config, abortSignal: controller.signal } } as any)
+  } catch (error) {
+    if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === 'TimeoutError') {
+      throw controller.signal.reason
+    }
+    throw error
   } finally {
     clearTimeout(timeout)
     input.parentSignal?.removeEventListener('abort', onParentAbort)
@@ -264,56 +269,45 @@ async function generateGeminiContentWithResilience(input: {
   model: string
   contents: Array<Record<string, unknown>>
   config: Record<string, unknown>
-  allowSameProviderModelFallback: boolean
   finalSynthesis: boolean
   artifactSynthesis: boolean
   signal?: AbortSignal
 }) {
-  const canFailOverFromPro = input.allowSameProviderModelFallback && input.model === GEMINI_SUBSTANTIVE_MODEL
-  const proCircuitOpen = canFailOverFromPro && Date.now() < geminiProUnavailableUntil
-  const models = proCircuitOpen ? [DEFAULT_GEMINI_MODEL] : [input.model, ...(canFailOverFromPro ? [DEFAULT_GEMINI_MODEL] : [])]
+  const isExplicitPro = input.model === GEMINI_SUBSTANTIVE_MODEL
+  const maxAttempts = input.artifactSynthesis ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
   let lastError: unknown
-  for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
-    const model = models[modelIndex]
-    const immediateFailoverCandidate = model === GEMINI_SUBSTANTIVE_MODEL && modelIndex < models.length - 1
-    const maxAttempts = immediateFailoverCandidate || input.artifactSynthesis ? 1 : GEMINI_RETRY_DELAYS_MS.length + 1
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      try {
-        const response = await generateGeminiAttempt({
-          ai: input.ai,
-          model,
-          contents: input.contents,
-          config: input.config,
-          timeoutMs: model === GEMINI_SUBSTANTIVE_MODEL
-            ? GEMINI_PRO_ATTEMPT_TIMEOUT_MS
-            : input.finalSynthesis || input.artifactSynthesis
-              ? GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS
-              : GEMINI_TOOL_ATTEMPT_TIMEOUT_MS,
-          parentSignal: input.signal,
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await generateGeminiAttempt({
+        ai: input.ai,
+        model: input.model,
+        contents: input.contents,
+        config: input.config,
+        timeoutMs: isExplicitPro
+          ? GEMINI_PRO_ATTEMPT_TIMEOUT_MS
+          : input.finalSynthesis || input.artifactSynthesis
+            ? GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS
+            : GEMINI_TOOL_ATTEMPT_TIMEOUT_MS,
+        parentSignal: input.signal,
+      })
+      return { response, model: input.model }
+    } catch (error) {
+      lastError = error
+      if (input.signal?.aborted) throw error
+      if (!isRetryableGeminiError(error)) throw error
+      if (isExplicitPro && isGeminiAttemptTimeout(error)) {
+        throw new Error(`GEMINI_PRO_UNAVAILABLE: ${geminiErrorText(error)}`)
+      }
+      if (attempt < maxAttempts - 1) {
+        const delayMs = GEMINI_RETRY_DELAYS_MS[Math.min(attempt, GEMINI_RETRY_DELAYS_MS.length - 1)]
+        console.warn('Gemini request failed transiently; retrying the same selected model once with bounded backoff', {
+          model: input.model, attempt: attempt + 1, delayMs, error: geminiErrorText(error).slice(0, 500),
         })
-        if (model === GEMINI_SUBSTANTIVE_MODEL) geminiProUnavailableUntil = 0
-        return { response, model }
-      } catch (error) {
-        lastError = error
-        if (input.signal?.aborted) throw error
-        if (!isRetryableGeminiError(error)) throw error
-        if (immediateFailoverCandidate) {
-          geminiProUnavailableUntil = Date.now() + GEMINI_PRO_CIRCUIT_BREAKER_MS
-          console.warn('Gemini Pro failed transiently; switching immediately to same-provider stable Flash fallback', {
-            fromModel: model, toModel: models[modelIndex + 1], error: geminiErrorText(error).slice(0, 500),
-          })
-          break
-        }
-        if (attempt < maxAttempts - 1) {
-          const delayMs = GEMINI_RETRY_DELAYS_MS[Math.min(attempt, GEMINI_RETRY_DELAYS_MS.length - 1)]
-          console.warn('Gemini request failed transiently; retrying once with bounded backoff', {
-            model, attempt: attempt + 1, delayMs, error: geminiErrorText(error).slice(0, 500),
-          })
-          await delayWithAbort(delayMs, input.signal)
-        }
+        await delayWithAbort(delayMs, input.signal)
       }
     }
   }
+  if (isExplicitPro) throw new Error(`GEMINI_PRO_UNAVAILABLE: ${geminiErrorText(lastError)}`)
   throw lastError || new Error('Gemini request failed without an error payload.')
 }
 
@@ -340,12 +334,8 @@ export async function requestGeminiResponse(input: {
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
   }
   if (artifactSynthesis) {
-    // Artifact generation needs some planning headroom, but the former default
-    // thinking level consumed thousands of reasoning tokens for templated output.
     config.thinkingConfig = { thinkingLevel: 'low' }
   } else if (finalSynthesis && executionModel === DEFAULT_GEMINI_MODEL) {
-    // Grounded answer synthesis should spend tokens on evidence/output rather than
-    // hidden reasoning after tools have already resolved the task.
     config.thinkingConfig = { thinkingLevel: 'minimal' }
   }
   if (input.allowTools) {
@@ -364,12 +354,12 @@ export async function requestGeminiResponse(input: {
       model: executionModel,
       contents: toGeminiContents(effectiveItems),
       config,
-      allowSameProviderModelFallback: !trivialConversation,
       finalSynthesis,
       artifactSynthesis,
       signal: input.signal,
     })
   } catch (error) {
+    if (executionModel === GEMINI_SUBSTANTIVE_MODEL) throw error
     if (!input.allowTools || trivialConversation || input.signal?.aborted || !isRetryableGeminiError(error)) throw error
     console.warn('Gemini tool loop exhausted transient retries; forcing one bounded no-tool recovery synthesis', {
       fromModel: executionModel,
