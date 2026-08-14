@@ -1,0 +1,178 @@
+name: PR121 XLSX Routing Hotfix
+
+on:
+  push:
+    branches:
+      - feat/skill-runtime-foundation
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr121-xlsx-routing-hotfix
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: stage one-shot XLSX routing hotfix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/skill-runtime-foundation
+          fetch-depth: 0
+
+      - name: Apply exact XLSX execution routing patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, count: int = 1):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {actual}')
+              p.write_text(text.replace(old, new, count))
+
+          # ChatPanel: XLSX is an execution input by default, not a text chat attachment.
+          replace_exact(
+              'src/components/ChatPanel.tsx',
+              "const defaultAttachmentPurpose = (): MessageAttachment['purpose'] => 'chat_only';",
+              """const isSpreadsheetToolAttachment = (attachment: Pick<MessageAttachment, 'name' | 'mimeType'>): boolean => (
+  /\\.xlsx$/i.test(attachment.name || '')
+  || attachment.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+);
+
+const defaultAttachmentPurpose = (
+  attachment: Pick<MessageAttachment, 'name' | 'mimeType'>,
+): MessageAttachment['purpose'] => (
+  FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && isSpreadsheetToolAttachment(attachment)
+    ? 'tool_input'
+    : 'chat_only'
+);""",
+          )
+          replace_exact(
+              'src/components/ChatPanel.tsx',
+              'purpose: defaultAttachmentPurpose(),',
+              "purpose: defaultAttachmentPurpose({ name: file.name, mimeType: file.type }),",
+              count=2,
+          )
+          replace_exact(
+              'src/components/ChatPanel.tsx',
+              """      target?.purpose === 'knowledge_bank'
+      && selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length
+        >= MAX_CHAT_ATTACHMENTS""",
+              """      target?.purpose === 'knowledge_bank'
+      && !isSpreadsheetToolAttachment(target)
+      && selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length
+        >= MAX_CHAT_ATTACHMENTS""",
+          )
+          replace_exact(
+              'src/components/ChatPanel.tsx',
+              "purpose: attachment.purpose === 'knowledge_bank' ? 'chat_only' : 'knowledge_bank',",
+              """purpose: attachment.purpose === 'knowledge_bank'
+              ? (isSpreadsheetToolAttachment(attachment) ? 'tool_input' : 'chat_only')
+              : 'knowledge_bank',""",
+          )
+
+          # useMessages: persistence and runtime must share the same attachment objects/array.
+          replace_exact(
+              'src/hooks/useMessages.ts',
+              """    const preparedAttachments = attachments?.map(attachment => ({
+      ...attachment,
+      attachmentId: attachment.attachmentId || crypto.randomUUID(),
+    }));""",
+              """    const preparedAttachments = attachments?.map(attachment => ({
+      ...attachment,
+      attachmentId: attachment.attachmentId || crypto.randomUUID(),
+      ingestion: attachment.purpose === 'knowledge_bank'
+        ? { status: 'queued' as const }
+        : attachment.ingestion,
+    }));""",
+          )
+          old_attachment_block = """      attachments: preparedAttachments?.map(a => ({
+        attachmentId: a.attachmentId,
+        url: a.url,
+        data: a.data,
+        name: a.name,
+        mimeType: a.mimeType,
+        purpose: a.purpose,
+        ingestion: a.purpose === 'knowledge_bank'
+          ? { status: 'queued' }
+          : undefined,
+      })),"""
+          replace_exact(
+              'src/hooks/useMessages.ts',
+              old_attachment_block,
+              '      attachments: preparedAttachments,',
+          )
+
+          # Defensive compatibility: stale chat_only XLSX must never enter UTF-8 text extraction.
+          replace_exact(
+              'src/services/assistantRuntimeClient.ts',
+              "import { useDocumentStore } from '../store/useDocumentStore';",
+              """import { useDocumentStore } from '../store/useDocumentStore';
+import { isSpreadsheetExecutionAttachment } from './assistantFileRepository';""",
+          )
+          replace_exact(
+              'src/services/assistantRuntimeClient.ts',
+              "const chatAttachments = attachments.filter(candidate => candidate.purpose === 'chat_only');",
+              """const chatAttachments = attachments.filter(candidate => (
+    candidate.purpose === 'chat_only'
+    && !isSpreadsheetExecutionAttachment(candidate)
+  ));""",
+          )
+
+          # Regression contract: exact live failure cannot return.
+          test_path = Path('src/services/__tests__/spreadsheetExecutionLayer.test.ts')
+          test = test_path.read_text()
+          marker = """const messageRepositorySource = readFileSync(
+  new URL('../messageRepository.ts', import.meta.url),
+  'utf8',
+)
+"""
+          if test.count(marker) != 1:
+              raise SystemExit('spreadsheetExecutionLayer.test.ts: messageRepository marker drifted')
+          test = test.replace(marker, marker + """const chatPanelSource = readFileSync(
+  new URL('../../components/ChatPanel.tsx', import.meta.url),
+  'utf8',
+)
+const useMessagesSource = readFileSync(
+  new URL('../../hooks/useMessages.ts', import.meta.url),
+  'utf8',
+)
+const assistantRuntimeClientSource = readFileSync(
+  new URL('../assistantRuntimeClient.ts', import.meta.url),
+  'utf8',
+)
+""", 1)
+          marker2 = """  it('wires execution through the authenticated assistant dispatcher and private worker', () => {
+"""
+          if test.count(marker2) != 1:
+              raise SystemExit('spreadsheetExecutionLayer.test.ts: execution marker drifted')
+          regression = """  it('routes XLSX attachments to execution before legacy text attachment parsing', () => {
+    expect(chatPanelSource).toContain("? 'tool_input'")
+    expect(chatPanelSource).toContain('isSpreadsheetToolAttachment')
+    expect(useMessagesSource).toContain('attachments: preparedAttachments,')
+    expect(useMessagesSource).toContain("attachment.purpose === 'knowledge_bank'")
+    expect(assistantRuntimeClientSource).toContain("candidate.purpose === 'chat_only'")
+    expect(assistantRuntimeClientSource).toContain('!isSpreadsheetExecutionAttachment(candidate)')
+    expect(assistantRuntimeClientSource).toContain("import { isSpreadsheetExecutionAttachment } from './assistantFileRepository';")
+  })
+
+"""
+          test = test.replace(marker2, regression + marker2, 1)
+          test_path.write_text(test)
+
+      - name: Remove one-shot workflow and commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/pr121-xlsx-routing-hotfix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/ChatPanel.tsx src/hooks/useMessages.ts src/services/assistantRuntimeClient.ts src/services/__tests__/spreadsheetExecutionLayer.test.ts .github/workflows/pr121-xlsx-routing-hotfix.yml
+          git diff --cached --check
+          git commit -m "fix: route XLSX attachments to spreadsheet execution"
+          git push origin HEAD:feat/skill-runtime-foundation
