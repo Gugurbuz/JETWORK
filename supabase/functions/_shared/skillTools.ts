@@ -1,4 +1,5 @@
 import { JETWORK_SKILLS, type JetWorkSkillRecord } from './skillRegistry.generated.ts'
+import { ASSISTANT_EXECUTION_TOOLS } from './executionTools.ts'
 
 export interface SkillToolExecution {
   output: string
@@ -91,6 +92,9 @@ export const loadSkills = (keys: string[]) => {
   })
 }
 
+// This is the non-final procedural/capability tool menu used by both providers.
+// isSkillTool deliberately remains limited to search/load so execution calls flow
+// through the authenticated assistant tool dispatcher rather than the pure skill loader.
 export const ASSISTANT_SKILL_TOOLS = [
   {
     type: 'function',
@@ -122,6 +126,7 @@ export const ASSISTANT_SKILL_TOOLS = [
       additionalProperties: false,
     },
   },
+  ...ASSISTANT_EXECUTION_TOOLS,
 ] as const
 
 export const isSkillTool = (toolName: string) => toolName === 'search_skills' || toolName === 'load_skills'
