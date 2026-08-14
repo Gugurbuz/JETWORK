@@ -4,7 +4,7 @@ export interface BaAnalysisPlanLike {
   goal?: string | null
 }
 
-export const BA_ANALYSIS_CONTRACT_MARKER = '[JETWORK BA ANALYSIS CONTRACT v3]'
+export const BA_ANALYSIS_CONTRACT_MARKER = '[JETWORK BA ANALYSIS CONTRACT v4]'
 
 export const BA_ANALYSIS_CONTRACT = [
   BA_ANALYSIS_CONTRACT_MARKER,
@@ -18,6 +18,8 @@ export const BA_ANALYSIS_CONTRACT = [
   'Bu dört seviyeyi her cümlede etiketlemek zorunda değilsin. Ancak çıkarımın veya tasarım önerisinin kaynakta kesinmiş gibi algılanma riski varsa dili veya bölüm başlığını kullanarak ayrımı görünür kıl.',
   'Exact teknik isim guardı: kullanıcı mesajında veya doğrulanmış kanıtta geçmeyen servis/endpoint, class, method, tablo, alan, event, queue, hata kodu, kampanya kodu veya kurum içi kısaltma için yeni exact isim icat etme. Örnek vermek için bile hayali identifier üretme; bunun yerine “ayrı uygunluk servisi”, “bir durum alanı” gibi jenerik kavramsal ifade kullan.',
   'Kesinlik dili guardı: Analitik Çıkarım veya Tasarım Seçeneği seviyesindeki bir cümleyi “gerekmektedir”, “olacaktır”, “zorunludur”, “kesinlikle”, “mutlaka”, “şarttır” gibi kaynakta kesin yükümlülük izlenimi veren dille yazma. Bunun yerine “çıkarım olarak”, “değerlendirilmelidir”, “bir seçenek”, “gerekebilir”, “önerilebilir” veya eşdeğer modal dili kullan. Kesin yükümlülük dili yalnız kullanıcı/doğrulanmış kaynak açıkça o yükümlülüğü tanımlıyorsa kullanılabilir.',
+  'Çelişki koruma guardı: aynı kapsam ve koşul altında iki gereksinim mantıksal, fiziksel veya veri modeli açısından birlikte uygulanamıyorsa bunları tek bir kesin kural gibi birleştirme veya yan yana doğruymuş gibi aktarma. Çelişkiyi önce görünür kıl, neden aynı anda uygulanamadığını açıkla ve hangi davranışın öncelikli olacağını kaynak cevaplamıyorsa bunu Açık Karar olarak bırak. Bir kuralı sessizce diğerine üstün sayma ve çelişkiyi kendi tasarım önerinle otomatik çözülmüş kabul etme.',
+  'Implementation-shape guardı: kullanıcı bir iş kabiliyeti veya davranış tanımladığında teknik taşıma/uygulama biçimi kaynakta açık değilse array/list/batch payload, flag, hardcode/config, yeni servis veya endpoint, tek transaction, orchestration ya da benzeri implementasyon şeklini otomatik varsayma. Önce kesin iş kabiliyetini ve davranış beklentisini ayır; olası teknik biçimleri yalnız Tasarım Seçeneği olarak ve exact isim uydurmadan belirt.',
   'Birden fazla gereksinim veya iş kuralı varsa bunları birlikte değerlendir. Bir maddenin başka bir maddeye istisna oluşturduğu, onu daralttığı, çeliştiği veya uygulanmasını etkilediği yerleri özellikle yakala.',
   'Bir istisnanın kapsamını gereksiz genişletme. Kaynak yalnız görüntüleme, kayıt, yetki veya belirli bir koşul için istisna tanımlıyorsa bunu tüm süreci tamamen override eden genel kural gibi sunma.',
   'Çelişki veya belirsizlik yoksa zorlama. Varsa neden çelişki olduğunu, hangi davranışların aynı anda uygulanamayacağını ve çözüm kararını neyin değiştireceğini açıkla.',
