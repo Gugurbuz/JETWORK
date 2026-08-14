@@ -105,8 +105,8 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
 
   return normalized
     .replace(/inceleniyor/giu, 'incelendi')
-    .replace(/aranıyor/giu, 'incelendi')
     .replace(/taranıyor/giu, 'tarandı')
+    .replace(/aranıyor/giu, 'incelendi')
     .replace(/karşılaştırılıyor/giu, 'karşılaştırıldı')
     .replace(/doğrulanıyor/giu, 'doğrulandı')
     .replace(/seçiliyor/giu, 'seçildi')
