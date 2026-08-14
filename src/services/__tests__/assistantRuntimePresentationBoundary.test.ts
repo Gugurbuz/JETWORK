@@ -13,7 +13,7 @@ describe('assistant runtime presentation boundary', () => {
 
   it('shows bounded operational activities without stage-level timing telemetry', () => {
     expect(workIndicatorSource).toContain('buildAssistantWorkActivities');
-    expect(workIndicatorSource).toContain('assistant-work__live-status');
+    expect(workIndicatorSource).toContain('data-testid="assistant-work-live-details"');
     expect(workIndicatorSource).not.toContain('plannerDuration');
     expect(workIndicatorSource).not.toContain('toolDuration');
     expect(workIndicatorSource).not.toContain('finalModelDuration');
@@ -43,7 +43,6 @@ describe('assistant runtime presentation boundary', () => {
     expect(reducedMotionBlock).not.toContain('.assistant-work__logo-motion');
     expect(reducedMotionBlock).not.toContain('.assistant-work__label');
     expect(reducedMotionBlock).toContain('.assistant-work__activity--active .assistant-work__activity-icon');
-    expect(reducedMotionBlock).toContain('.assistant-work__live-status svg');
   });
 
   it('persists the safe work summary and total duration but keeps provider routing private', () => {
