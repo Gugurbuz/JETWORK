@@ -43,7 +43,7 @@ const scoreSkill = (skill: JetWorkSkillRecord, query: string) => {
   if (normalize(skill.title).includes(normalizedQuery)) score += 8
   if (skill.aliases.some(alias => normalize(alias) === normalizedQuery)) score += 12
   if (haystack.includes(normalizedQuery)) score += 6
-  const queryTokens = tokens(normalizedQuery)
+  const queryTokens = [...new Set(tokens(normalizedQuery))]
   for (const token of queryTokens) {
     if (normalize(skill.key).includes(token)) score += 4
     else if (normalize(skill.title).includes(token)) score += 3
