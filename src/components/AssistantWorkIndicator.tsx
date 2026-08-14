@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle,
-  Check,
   ChevronDown,
   Database,
   Globe2,
@@ -20,7 +18,7 @@ const ACTIVITY_PREFIX = /^(?:[•*\-–—]|\d+[.)])\s*/u;
 const MARKDOWN_DECORATION = /[*#`_]/gu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
-const LOW_VALUE_ACTIVITY = /^(?:asistana bağlanılıyor|çalışılıyor|yanıt hazırlanıyor|yanıt oluşturuluyor)\.{0,3}$/iu;
+const LOW_VALUE_ACTIVITY = /^(?:asistana bağlanılıyor|çalışılıyor|yanıt hazırlanıyor|yanıt oluşturuluyor|yanıt hazırlandı|araştırma ve doğrulama planı oluşturuluyor|kanıtlar ve doğrulama sonucu sentezleniyor|talep sınıflandırıldı(?::.*)?|plan hazır(?::.*)?)\.{0,3}$/iu;
 
 export interface AssistantWorkActivity {
   label: string;
@@ -138,12 +136,6 @@ const mergeObservedActivities = (
   return next.slice(-8);
 };
 
-const ActivityStateIcon = ({ state }: { state: AssistantWorkActivity['state'] }) => {
-  if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
-  if (state === 'active') return <LoaderCircle aria-hidden="true" />;
-  return <Check aria-hidden="true" />;
-};
-
 function useComposerStopTarget(isActive: boolean, onStop?: () => void): HTMLElement | null {
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
@@ -215,20 +207,14 @@ export function AssistantWorkIndicator({
     if (!isActive) setIsExpanded(false);
   }, [isActive]);
 
-  const activities = isActive
-    ? mergeObservedActivities(observedActivities, reportedActivities)
-    : observedActivities.map(activity => ({
-        ...activity,
-        state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
-      }));
+  const activityEvidence = mergeObservedActivities(observedActivities, reportedActivities);
   const currentActivity = isActive
-    ? [...activities].reverse().find(activity => activity.state === 'active')?.label
-      || activities.at(-1)?.label
+    ? [...activityEvidence].reverse().find(activity => activity.state === 'active')?.label
+      || activityEvidence.at(-1)?.label
     : undefined;
   const hasSourceDetails = knowledgeSourceCount > 0 || webSourceCount > 0;
-  const canShowDetails = activities.length > 0 || hasSourceDetails;
   const hasSourceGap = webSourceCount === 0
-    && activities.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
+    && activityEvidence.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
 
   const requestWebSearch = () => onFollowUp?.(
     'Bu soruyu web üzerinde de araştır. Güncel ve güvenilir web kaynaklarıyla bulguları doğrula ve kaynakları göster.',
@@ -251,6 +237,15 @@ export function AssistantWorkIndicator({
         composerStopTarget,
       )
     : null;
+
+  const completedSummaryContent = (
+    <>
+      <span className="assistant-work__summary-logo" aria-hidden="true">
+        <JetWorkLogo className="assistant-work__summary-logo-mark" />
+      </span>
+      <span>{formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}</span>
+    </>
+  );
 
   return (
     <>
@@ -282,70 +277,40 @@ export function AssistantWorkIndicator({
                 <span>{currentActivity}</span>
               </div>
             ) : null}
-
-            {canShowDetails && (activities.length > 1 || hasSourceDetails) ? (
-              <button
-                type="button"
-                className="assistant-work__action"
-                onClick={() => setIsExpanded(previous => !previous)}
-                aria-expanded={isExpanded}
-                aria-label="Nasıl hazırlandı?"
-              >
-                {isExpanded ? 'Ayrıntıları gizle' : 'Çalışma ayrıntıları'}
-                <ChevronDown className={cn('assistant-work__chevron', isExpanded && 'assistant-work__chevron--open')} aria-hidden="true" />
-              </button>
-            ) : null}
           </>
-        ) : canShowDetails ? (
+        ) : hasSourceDetails ? (
           <button
             type="button"
             className="assistant-work__summary"
             onClick={() => setIsExpanded(previous => !previous)}
             aria-expanded={isExpanded}
+            aria-label="Kullanılan kaynakları göster"
           >
-            <span>{formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}</span>
+            {completedSummaryContent}
             <ChevronDown className={cn('assistant-work__chevron', isExpanded && 'assistant-work__chevron--open')} aria-hidden="true" />
           </button>
         ) : (
           <div className="assistant-work__summary assistant-work__summary--static">
-            {formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}
+            {completedSummaryContent}
           </div>
         )}
 
-        {isExpanded && canShowDetails ? (
+        {!isActive && isExpanded && hasSourceDetails ? (
           <div className="assistant-work__details" data-testid="assistant-work-details">
-            {activities.length > 0 ? (
-              <ol className="assistant-work__activity-list">
-                {activities.map(activity => (
-                  <li
-                    key={activity.label}
-                    className={cn('assistant-work__activity', `assistant-work__activity--${activity.state}`)}
-                  >
-                    <span className="assistant-work__activity-icon">
-                      <ActivityStateIcon state={activity.state} />
-                    </span>
-                    <span>{activity.label}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-
-            {hasSourceDetails ? (
-              <div className="assistant-work__source-facts">
-                {knowledgeSourceCount > 0 ? (
-                  <div className="assistant-work__source-fact">
-                    <Database aria-hidden="true" />
-                    <span>{knowledgeSourceCount} kurumsal kaynak kullanıldı</span>
-                  </div>
-                ) : null}
-                {webSourceCount > 0 ? (
-                  <div className="assistant-work__source-fact">
-                    <Globe2 aria-hidden="true" />
-                    <span>{webSourceCount} web kaynağı kullanıldı</span>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="assistant-work__source-facts">
+              {knowledgeSourceCount > 0 ? (
+                <div className="assistant-work__source-fact">
+                  <Database aria-hidden="true" />
+                  <span>{knowledgeSourceCount} kurumsal kaynak kullanıldı</span>
+                </div>
+              ) : null}
+              {webSourceCount > 0 ? (
+                <div className="assistant-work__source-fact">
+                  <Globe2 aria-hidden="true" />
+                  <span>{webSourceCount} web kaynağı kullanıldı</span>
+                </div>
+              ) : null}
+            </div>
 
             {sourceView.groundingUrls.length > 0 ? (
               <div className="assistant-work__sources" aria-label="Kullanılan web kaynakları">
@@ -365,22 +330,22 @@ export function AssistantWorkIndicator({
                 </div>
               </div>
             ) : null}
+          </div>
+        ) : null}
 
-            {!isActive && onFollowUp ? (
-              <div className="assistant-work__follow-ups">
-                {hasSourceGap ? (
-                  <button type="button" onClick={requestWebSearch} disabled={followUpDisabled}>
-                    <Globe2 aria-hidden="true" />
-                    Web’de de ara
-                  </button>
-                ) : null}
-                {!isStopped ? (
-                  <button type="button" onClick={requestDeepResearch} disabled={followUpDisabled}>
-                    <Search aria-hidden="true" />
-                    Daha derin araştır
-                  </button>
-                ) : null}
-              </div>
+        {!isActive && onFollowUp ? (
+          <div className="assistant-work__follow-ups assistant-work__follow-ups--summary">
+            {hasSourceGap ? (
+              <button type="button" onClick={requestWebSearch} disabled={followUpDisabled}>
+                <Globe2 aria-hidden="true" />
+                Web’de de ara
+              </button>
+            ) : null}
+            {!isStopped ? (
+              <button type="button" onClick={requestDeepResearch} disabled={followUpDisabled}>
+                <Search aria-hidden="true" />
+                Daha derin araştır
+              </button>
             ) : null}
           </div>
         ) : null}
