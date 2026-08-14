@@ -19,6 +19,7 @@ import {
 import { assertExplicitGeminiModelPreserved } from './geminiProviderLock.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
 import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
+import { baAnalysisInstructionForPlan } from './baAnalysisContract.ts'
 import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
@@ -200,14 +201,18 @@ const primaryAgentInstruction = [
   'Gereksiz tool çağrısı yapma. İlk tool sonucu yetersizse ancak gerçekten gerekiyorsa sorguyu iyileştirip bir kez daha dene.',
 ].join('\n')
 
-const openAiPrimaryAgentDeveloperItem = {
-  type: 'message',
-  role: 'developer',
-  content: [
-    primaryAgentInstruction,
-    'Bu primary-agent policy, daha önceki promptta analysis/proje/support sınıflandırmasını otomatik RAG veya kurumsal kaynak zorunluluğuna bağlayan talimatların yerine geçer.',
-    'Knowledge capabilitysinin mevcut olması onu kullanmak zorunda olduğun anlamına gelmez.',
-  ].join('\n'),
+const openAiPrimaryAgentDeveloperItem = (items: Array<Record<string, unknown>>) => {
+  const plan = extractSemanticPlanFromItems(items)
+  return {
+    type: 'message',
+    role: 'developer',
+    content: [
+      primaryAgentInstruction,
+      baAnalysisInstructionForPlan(plan),
+      'Bu primary-agent policy, daha önceki promptta analysis/proje/support sınıflandırmasını otomatik RAG veya kurumsal kaynak zorunluluğuna bağlayan talimatların yerine geçer.',
+      'Knowledge capabilitysinin mevcut olması onu kullanmak zorunda olduğun anlamına gelmez.',
+    ].filter(Boolean).join('\n\n'),
+  }
 }
 
 export async function requestGeminiResponse(input: {
@@ -223,6 +228,7 @@ export async function requestGeminiResponse(input: {
 }): Promise<NormalizedModelResponse> {
   const requestedModel = normalizeGeminiRequestedModel(input.model)
   const plan = extractSemanticPlanFromItems(input.items)
+  const baAnalysisInstruction = baAnalysisInstructionForPlan(plan)
 
   // Keep only the authoritative deterministic inventory shortcut. All ordinary
   // knowledge decisions are made by the requested primary model itself.
@@ -247,6 +253,7 @@ export async function requestGeminiResponse(input: {
   const geminiInstructions = [
     providerInstructions,
     primaryAgentInstruction,
+    baAnalysisInstruction,
     forceNoToolSynthesis
       ? 'İki ayrı knowledge araması da sonuç vermedi. Yeni araç çağırma; kullanıcının verdiği bilgiler ve mevcut kanıtlarla dürüst nihai yanıtı üret. Kaynakta doğrulanamayan kurum özelini açıkça belirt ama kullanıcının kendi verdiği gereksinimleri analiz etmeyi bırakma.'
       : '',
@@ -277,6 +284,7 @@ export async function requestGeminiResponse(input: {
   const recoveryInstructions = [
     providerInstructions,
     primaryAgentInstruction,
+    baAnalysisInstruction,
     '[JETWORK EMPTY FINAL RECOVERY]',
     'Önceki deneme kullanıcıya görünür bir yanıt üretmedi. Bu son denemede hiçbir araç çağırma. Kullanıcının mesajını ve varsa mevcut tool sonuçlarını kullanarak doğrudan, dürüst bir nihai yanıt üret. Kaynak bulunamadıysa bunu açıkça söyle; kullanıcının bizzat verdiği gereksinimleri yine de analiz et.',
   ].join('\n\n')
@@ -306,7 +314,7 @@ export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>
     return clean
   })
   const enumerationDispatch = buildEnumerationFastPathDispatch(items)
-  const withPrimaryAgentPolicy = [openAiPrimaryAgentDeveloperItem, ...cleaned]
+  const withPrimaryAgentPolicy = [openAiPrimaryAgentDeveloperItem(items), ...cleaned]
   return enumerationDispatch
     ? [...withPrimaryAgentPolicy, buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)]
     : withPrimaryAgentPolicy
