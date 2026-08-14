@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ASSISTANT_SKILL_TOOLS,
   executeSkillTool,
+  isSkillTool,
   loadSkills,
   searchSkills,
 } from '../../../supabase/functions/_shared/skillTools.ts'
@@ -64,7 +65,18 @@ describe('JetWork skill runtime foundation', () => {
     expect(result.output).toContain('TRUSTED_JETWORK_SKILL_INSTRUCTION')
   })
 
-  it('exposes only discovery and materialization as model-facing skill tools', () => {
-    expect(ASSISTANT_SKILL_TOOLS.map(tool => tool.name)).toEqual(['search_skills', 'load_skills'])
+  it('keeps pure skill execution limited to discovery/materialization while exposing execution capabilities separately', () => {
+    const names = ASSISTANT_SKILL_TOOLS.map(tool => tool.name)
+    expect(names.slice(0, 2)).toEqual(['search_skills', 'load_skills'])
+    expect(names).toEqual(expect.arrayContaining([
+      'list_spreadsheet_attachments',
+      'inspect_spreadsheet_file',
+      'sync_spreadsheet_with_jira_export',
+    ]))
+    expect(isSkillTool('search_skills')).toBe(true)
+    expect(isSkillTool('load_skills')).toBe(true)
+    expect(isSkillTool('list_spreadsheet_attachments')).toBe(false)
+    expect(isSkillTool('inspect_spreadsheet_file')).toBe(false)
+    expect(isSkillTool('sync_spreadsheet_with_jira_export')).toBe(false)
   })
 })
