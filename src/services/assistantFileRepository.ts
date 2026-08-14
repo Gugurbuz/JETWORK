@@ -60,8 +60,10 @@ export const normalizedAssistantFileMime = (
   attachment: Pick<MessageAttachment, 'name' | 'mimeType'>,
 ): string => {
   const mime = String(attachment.mimeType || '').trim().toLocaleLowerCase('en-US');
+  const extensionMime = MIME_BY_EXTENSION[extensionOf(attachment.name)];
+  if (extensionMime) return extensionMime;
   if (ACTIONABLE_MIME_TYPES.has(mime)) return mime;
-  return MIME_BY_EXTENSION[extensionOf(attachment.name)] || mime || 'application/octet-stream';
+  return mime || 'application/octet-stream';
 };
 
 export const isActionableExecutionAttachment = (

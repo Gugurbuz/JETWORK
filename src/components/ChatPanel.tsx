@@ -15,7 +15,7 @@ import { KnowledgeBankModal } from './KnowledgeBankModal';
 import { JetWorkLogo } from './JetWorkLogo';
 import { AssistantWorkIndicator } from './AssistantWorkIndicator';
 import { splitAssistantSources } from '../services/assistantSources';
-import { createAssistantFileDownloadUrl } from '../services/assistantFileRepository';
+import { createAssistantFileDownloadUrl, isActionableExecutionAttachment } from '../services/assistantFileRepository';
 import { toast } from 'sonner';
 
 const contextualQuestionOptions = (question: Question): string[] => {
@@ -183,7 +183,7 @@ const isSpreadsheetToolAttachment = (attachment: Pick<MessageAttachment, 'name' 
 const defaultAttachmentPurpose = (
   attachment: Pick<MessageAttachment, 'name' | 'mimeType'>,
 ): MessageAttachment['purpose'] => (
-  FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && isSpreadsheetToolAttachment(attachment)
+  FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && isActionableExecutionAttachment(attachment)
     ? 'tool_input'
     : 'chat_only'
 );
@@ -791,11 +791,11 @@ export function ChatPanel({
           setSelectedAttachments(prev => [...prev, {
             url: `data:text/plain;base64,${base64Text}`,
             data: base64Text,
-            mimeType: 'text/plain',
+            mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             name: file.name,
             file: file,
             attachmentId: crypto.randomUUID(),
-            purpose: 'chat_only',
+            purpose: defaultAttachmentPurpose({ name: file.name, mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
           }]);
         } catch (err) {
           console.error("Error parsing DOCX:", err);
@@ -840,7 +840,7 @@ export function ChatPanel({
     const target = selectedAttachments[index];
     if (
       target?.purpose === 'knowledge_bank'
-      && !isSpreadsheetToolAttachment(target)
+      && !isActionableExecutionAttachment(target)
       && selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length
         >= MAX_CHAT_ATTACHMENTS
     ) {
@@ -852,7 +852,7 @@ export function ChatPanel({
         ? {
             ...attachment,
             purpose: attachment.purpose === 'knowledge_bank'
-              ? (isSpreadsheetToolAttachment(attachment) ? 'tool_input' : 'chat_only')
+              ? (isActionableExecutionAttachment(attachment) ? 'tool_input' : 'chat_only')
               : 'knowledge_bank',
           }
         : attachment
@@ -1028,11 +1028,11 @@ export function ChatPanel({
           setSelectedAttachments(prev => [...prev, {
             url: `data:text/plain;base64,${base64Text}`,
             data: base64Text,
-            mimeType: 'text/plain',
+            mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             name: file.name,
             file: file,
             attachmentId: crypto.randomUUID(),
-            purpose: 'chat_only',
+            purpose: defaultAttachmentPurpose({ name: file.name, mimeType: file.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
           }]);
         } catch (err) {
           console.error("Error parsing DOCX:", err);
@@ -1379,46 +1379,56 @@ export function ChatPanel({
             className="relative"
           >
             {selectedAttachments.length > 0 && (
-              <div className="absolute bottom-full mb-2 left-0 right-0 flex gap-2 overflow-x-auto p-2 bg-theme-surface border border-theme-border shadow-sm rounded-lg">
-                {selectedAttachments.map((att, idx) => (
-                  <div key={att.attachmentId || idx} className="relative group/img flex shrink-0 items-center gap-2 pr-1">
-                    {att.mimeType.startsWith('image/') ? (
-                      <img src={att.url} alt="upload preview" className="h-16 w-16 object-cover border border-theme-border/50 rounded-md" />
-                    ) : (
-                      <div className="h-16 w-16 flex flex-col items-center justify-center bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden p-1">
-                        <FileText size={16} className="text-theme-primary shrink-0" />
-                        <span className="text-[9px] font-bold text-theme-text-muted uppercase truncate w-full text-center mt-1">
-                          {att.name?.split('.').pop() || 'FILE'}
-                        </span>
-                        <span className="text-[8px] text-theme-text-muted truncate w-full text-center mt-0.5">
-                          {att.name}
-                        </span>
+              <div className="absolute bottom-full mb-2 left-0 right-0 flex gap-2 overflow-x-auto rounded-xl border border-theme-border bg-theme-surface/95 p-2 shadow-lg backdrop-blur-sm">
+                {selectedAttachments.map((att, idx) => {
+                  const extension = (att.name?.split('.').pop() || 'FILE').toUpperCase();
+                  const actionReady = att.purpose === 'tool_input' || (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && isActionableExecutionAttachment(att));
+                  const stateLabel = att.purpose === 'knowledge_bank' ? 'Bilgi bankası' : actionReady ? 'Hazır' : 'Sohbet eki';
+                  return (
+                    <div key={att.attachmentId || idx} className="group/file relative flex h-16 min-w-[280px] max-w-[360px] shrink-0 items-center gap-3 rounded-xl border border-theme-border/80 bg-theme-bg px-3 py-2 shadow-sm transition-colors hover:border-theme-primary/45">
+                      {att.mimeType.startsWith('image/') ? (
+                        <img src={att.url} alt="upload preview" className="h-10 w-10 shrink-0 rounded-lg border border-theme-border/60 object-cover" />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-theme-primary/20 bg-theme-primary/5 text-theme-primary">
+                          <FileText size={19} />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-semibold text-theme-text" title={att.name}>{att.name || 'Dosya'}</div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-theme-text-muted">
+                          <span className="font-semibold">{extension}</span>
+                          <span>·</span>
+                          <span className={cn('inline-flex items-center gap-1', actionReady && 'text-theme-primary')}>
+                            {actionReady && <Check size={11} />} {stateLabel}
+                          </span>
+                        </div>
                       </div>
-                    )}
-                    {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && supportsKnowledgeBank(att) && (
+                      {FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && supportsKnowledgeBank(att) && (
+                        <button
+                          type="button"
+                          onClick={() => toggleAttachmentPurpose(idx)}
+                          className={cn(
+                            'shrink-0 rounded-full border px-2 py-1 text-[9px] font-semibold transition-colors',
+                            att.purpose === 'knowledge_bank'
+                              ? 'border-theme-primary/40 bg-theme-primary/10 text-theme-primary'
+                              : 'border-theme-border bg-theme-surface text-theme-text-muted hover:border-theme-primary/35',
+                          )}
+                          title="Dosyayı kalıcı bilgi bankası ile bu görevde kullanılabilir action dosyası arasında değiştir"
+                        >
+                          {att.purpose === 'knowledge_bank' ? 'Bilgi bankası' : 'Görev dosyası'}
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => toggleAttachmentPurpose(idx)}
-                        className={cn(
-                          'rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition-colors',
-                          att.purpose === 'knowledge_bank'
-                            ? 'border-theme-primary/40 bg-theme-primary/10 text-theme-primary'
-                            : 'border-theme-border bg-theme-bg text-theme-text-muted',
-                        )}
-                        title="Bu dosyanın kalıcı bilgi bankasına mı yoksa yalnızca bu sohbete mi ekleneceğini seç"
+                        onClick={() => removeAttachment(idx)}
+                        className="absolute -right-1.5 -top-1.5 rounded-full border border-theme-border bg-theme-bg p-0.5 text-theme-text-muted opacity-0 shadow-sm transition-opacity hover:text-theme-text group-hover/file:opacity-100"
+                        aria-label="Dosyayı kaldır"
                       >
-                        {att.purpose === 'knowledge_bank' ? 'Bilgi bankası' : 'Yalnızca sohbet'}
+                        <X size={12} />
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(idx)}
-                      className="absolute -top-2 -right-2 bg-theme-primary text-theme-primary-fg p-0.5 opacity-0 group-hover/img:opacity-100 transition-opacity hover:bg-theme-primary-hover rounded-full shadow-sm"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
             

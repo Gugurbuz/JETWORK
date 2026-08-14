@@ -2,6 +2,7 @@ import { JETWORK_SKILLS, type JetWorkSkillRecord } from './skillRegistry.generat
 import { JETWORK_V2_SKILLS, JETWORK_V2_SKILL_COUNT } from './skillRegistry.v2.ts'
 import { getCapabilityRuntimeStatus, type CapabilityReadiness } from './capabilityManifest.ts'
 import { ASSISTANT_EXECUTION_TOOLS } from './executionTools.ts'
+import { ASSISTANT_ARTIFACT_TOOLS } from './artifactExecutionTools.ts'
 
 export interface SkillToolExecution {
   output: string
@@ -181,6 +182,7 @@ export const ASSISTANT_SKILL_TOOLS = [
     },
   },
   ...ASSISTANT_EXECUTION_TOOLS,
+  ...ASSISTANT_ARTIFACT_TOOLS,
 ] as const
 
 export const isSkillTool = (toolName: string) => (
