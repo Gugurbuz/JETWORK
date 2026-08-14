@@ -1,188 +1,107 @@
-# JetWork Skill Catalog v1
+# JetWork Capability Catalog v2
 
-Hedef katalog **140 skill**. İlk foundation paketinde spreadsheet/Jira odaklı 6 P0 skill aktiftir; kalanlar P0/P1/P2 önceliğiyle iteratif yazılacaktır.
+Capability System v2 defines **242 baseline skills across 20 families**. Existing curated `/skills/**/SKILL.md` entries remain richer runtime overrides for matching keys.
 
-## Aktif P0
+A catalog entry has a readiness state:
 
-- `spreadsheet/inspect`
-- `spreadsheet/table-join`
-- `spreadsheet/format-preserve`
-- `spreadsheet/quality-check`
-- `jira/export-analysis`
-- `jira/latest-sprint`
+- `defined`: procedure exists.
+- `executable`: a real runtime path exists.
+- `verified`: executable path has regression/live proof for the advertised contract.
 
-## Core / Orchestration — 15
+Do not infer execution support from the presence of a skill alone.
 
-1. `task-intent-detection`
-2. `task-complexity-assessment`
-3. `skill-selection`
-4. `multi-skill-orchestration`
-5. `task-planning`
-6. `clarification-decision`
-7. `tool-selection`
-8. `context-resolution`
-9. `conversation-context-use`
-10. `workspace-context-use`
-11. `failure-recovery`
-12. `retry-strategy`
-13. `response-completeness-check`
-14. `response-consistency-check`
-15. `final-answer-composer`
+## Family inventory
 
-## Knowledge / RAG / Grounding — 20
+| Family | Skill count | Runtime character |
+|---|---:|---|
+| Agent / Orchestration | 12 | model/runtime orchestration |
+| Reasoning / Decision | 10 | model reasoning |
+| Knowledge / RAG / Grounding | 16 | enterprise evidence tools |
+| Web / Research | 10 | provider/web research |
+| Data Analysis | 12 | analysis/reconciliation |
+| File Intelligence | 10 | action-file discovery/inspect |
+| Spreadsheet | 24 | XLSX inspect/edit/transform/create/QA + Jira sync |
+| PDF | 12 | inspect + merge/split; other mutations readiness-gated |
+| Word / Documents | 12 | OOXML inspect, safe text edit, generation |
+| Presentation | 12 | OOXML inspect, basic edit, generation |
+| Image / Vision | 12 | multimodal inspect + image generation/edit |
+| Business Analysis | 22 | requirements/process/impact/solution analysis |
+| Process / Architecture | 10 | flow/context/sequence/topology analysis |
+| Agile / Jira / Product | 16 | export, status, sprint, capacity, roadmap |
+| SAP / Enterprise Technical | 10 | evidence-grounded object/code/process diagnosis |
+| Engineering / Code | 10 | repo/bug/change/test/review workflows |
+| Artifact Generation | 8 | file creation/edit/delivery lifecycle |
+| Automation / Actions | 8 | defined; side effects require connected action backend |
+| Communication | 8 | audience-aware business communication |
+| Quality / Verification | 8 | factual/completeness/calculation/artifact QA |
+| **Total** | **242** | |
 
-16. `knowledge-source-decision`
-17. `enterprise-knowledge-detection`
-18. `general-knowledge-decision`
-19. `rag-query-generation`
-20. `rag-query-expansion`
-21. `rag-result-ranking`
-22. `rag-evidence-selection`
-23. `multi-source-synthesis`
-24. `source-conflict-resolution`
-25. `source-freshness-check`
-26. `source-authority-check`
-27. `citation-generation`
-28. `citation-coverage-check`
-29. `grounded-answer-generation`
-30. `hallucination-check`
-31. `insufficient-evidence-handling`
-32. `knowledge-gap-detection`
-33. `document-chunking-strategy`
-34. `metadata-generation`
-35. `knowledge-ingestion`
+The generated baseline is `supabase/functions/_shared/skillRegistry.v2.ts`; readiness is `supabase/functions/_shared/capabilityManifest.ts`.
 
-## Files / Documents — 10
+## Spreadsheet executor v2
 
-36. `file-type-detection`
-37. `multi-file-analysis`
-38. `file-content-extraction`
-39. `file-relationship-detection`
-40. `file-comparison`
-41. `file-diff`
-42. `file-summary`
-43. `structured-data-extraction`
-44. `document-classification`
-45. `document-quality-check`
+Real tool surface:
 
-## Spreadsheet — 20
+- `list_spreadsheet_attachments`
+- `inspect_spreadsheet_file`
+- `edit_spreadsheet_file`
+- `transform_spreadsheet_file`
+- `create_spreadsheet_file`
+- `validate_spreadsheet_file`
+- `sync_spreadsheet_with_jira_export`
 
-46. `spreadsheet-read` → active implementation: `spreadsheet/inspect`
-47. `spreadsheet-write`
-48. `spreadsheet-schema-detect`
-49. `spreadsheet-data-cleaning`
-50. `spreadsheet-column-normalization`
-51. `spreadsheet-type-inference`
-52. `spreadsheet-table-join` → active implementation: `spreadsheet/table-join`
-53. `spreadsheet-fuzzy-match`
-54. `spreadsheet-deduplication`
-55. `spreadsheet-filtering`
-56. `spreadsheet-formula-generation`
-57. `spreadsheet-pivot`
-58. `spreadsheet-aggregation`
-59. `spreadsheet-formatting`
-60. `spreadsheet-conditional-formatting`
-61. `spreadsheet-chart-generation`
-62. `spreadsheet-sheet-management`
-63. `spreadsheet-quality-check` → active implementation: `spreadsheet/quality-check`
-64. `spreadsheet-preserve-format` → active implementation: `spreadsheet/format-preserve`
-65. `spreadsheet-change-report`
+Allow-listed direct edits currently include values, formulas, fill colors, bold/font size, cell merge, filter, freeze pane and sheet addition. Transform supports sort, filter, deduplicate, clean, normalize, aggregate and exact join. Unsupported advanced spreadsheet skills such as arbitrary pivot/chart/conditional-formatting remain `defined` until a dedicated executor is added and tested.
 
-## PDF / Word / Presentation — 14
+## Multi-format artifact executor v2
 
-66. `pdf-read`
-67. `pdf-table-extraction`
-68. `pdf-visual-analysis`
-69. `pdf-generation`
-70. `docx-read`
-71. `docx-edit`
-72. `docx-generation`
-73. `document-format-preservation`
-74. `presentation-read`
-75. `presentation-generation`
-76. `presentation-layout`
-77. `presentation-storytelling`
-78. `presentation-chart-selection`
-79. `presentation-quality-check`
+Real tool surface:
 
-## Business Analysis — 25
+- `list_action_attachments`
+- `inspect_file_attachment`
+- `transform_pdf_file`
+- `edit_office_file`
+- `create_document_file`
+- `generate_or_edit_image`
 
-80. `requirement-understanding`
-81. `requirement-decomposition`
-82. `requirement-gap-analysis`
-83. `requirement-conflict-analysis`
-84. `business-rule-extraction`
-85. `acceptance-criteria-generation`
-86. `as-is-analysis`
-87. `to-be-design`
-88. `gap-analysis`
-89. `impact-analysis`
-90. `dependency-analysis`
-91. `risk-analysis`
-92. `assumption-management`
-93. `open-question-generation`
-94. `scope-definition`
-95. `process-analysis`
-96. `process-flow-generation`
-97. `use-case-generation`
-98. `user-story-generation`
-99. `functional-analysis`
-100. `technical-analysis`
-101. `solution-option-analysis`
-102. `solution-recommendation`
-103. `traceability-matrix`
-104. `conceptual-document-mapping`
+Supported action-file storage includes XLSX, PDF, DOCX, PPTX, common images, CSV/TSV/TXT/MD/JSON. All binary inputs are private workspace-scoped `tool_input` objects and generated files return as `tool_output` artifacts.
 
-## Agile / Jira / Product — 20
+### PDF
 
-105. `jira-export-read` → active implementation: `jira/export-analysis`
-106. `jira-key-matching`
-107. `jira-status-normalization`
-108. `jira-sprint-extraction`
-109. `jira-latest-sprint-detection` → active implementation: `jira/latest-sprint`
-110. `jira-aging-analysis`
-111. `jira-comment-analysis`
-112. `jira-backlog-quality`
-113. `jira-story-quality`
-114. `sprint-analysis`
-115. `velocity-analysis`
-116. `roadmap-analysis`
-117. `epic-analysis`
-118. `work-type-classification`
-119. `effort-analysis`
-120. `functional-effort-analysis`
-121. `ba-effort-analysis`
-122. `capacity-analysis`
-123. `wip-analysis`
-124. `release-readiness`
+Executable: multimodal inspect, merge, split. Other catalog items stay readiness-gated.
 
-## SAP / Enterprise Technical — 12
+### DOCX
 
-125. `sap-object-recognition`
-126. `sap-code-analysis`
-127. `sap-method-analysis`
-128. `sap-call-chain-analysis`
-129. `sap-message-analysis`
-130. `sap-table-relationship`
-131. `sap-data-flow-analysis`
-132. `sap-integration-analysis`
-133. `sap-crm-process-analysis`
-134. `sap-isu-process-analysis`
-135. `sap-c4c-process-analysis`
-136. `sap-error-root-cause`
+Executable: OOXML text/structure inspect, exact text replacement, safe append for DOCX, and document generation. Exact replacement intentionally fails when source text cannot be located safely rather than silently corrupting content.
 
-## Engineering / JetWork — 4
+### PPTX
 
-137. `repository-analysis`
-138. `code-change-planning`
-139. `regression-analysis`
-140. `implementation-validation`
+Executable: slide text/structure inspect, exact text replacement when the OOXML run is matchable, and deterministic basic slide generation. Arbitrary preservation-aware visual redesign is not claimed by this executor.
 
-## Uygulama sırası
+### Image
 
-1. **Foundation** — canonical `SKILL.md` kontratı ve katalog.
-2. **Runtime discovery** — `search_skills` + `load_skills` tool'ları; model yalnız gereken skill'i lazy-load eder.
-3. **Spreadsheet/Jira expansion** — fuzzy match, status normalization, sprint extraction, chart/formula/pivot.
-4. **BA/SAP expansion** — requirement, impact, acceptance criteria, SAP method/message/call-chain/root-cause.
-5. **Artifact expansion** — PDF/DOCX/PPTX üretim ve kalite skill'leri.
-6. **Governance** — versioning, eval set, usage telemetry, deprecation ve provider parity testleri.
+Executable: multimodal inspect and provider-backed image generation/edit. Generated images use the same private artifact delivery path as office files.
+
+## Capability discovery
+
+The model receives:
+
+- `search_skills` — semantic/procedural discovery.
+- `load_skills` — lazy-load up to the relevant procedures.
+- `list_capabilities` — readiness-aware self-inspection.
+
+This keeps the global prompt small while preventing “skill exists, therefore I executed it” errors.
+
+## Evidence boundary
+
+Skills and execution results are procedural/action context, **not enterprise evidence**. SAP and enterprise technical facts still require verified knowledge objects/relations. Web-current facts still require the normal research path. Artifact execution cannot satisfy grounding by itself.
+
+## Completion guards
+
+For real file work, core runtime has completion contracts:
+
+- Jira/XLSX sync cannot finish before `sync_spreadsheet_with_jira_export`.
+- Generic XLSX edit cannot finish before `edit_spreadsheet_file` or `transform_spreadsheet_file`.
+- New XLSX creation cannot finish before `create_spreadsheet_file`.
+- PDF/DOCX/PPTX/Image mutation/generation cannot finish before the matching artifact executor.
+
+If the required executor is absent or fails, JetWork must report non-completion instead of claiming success or issuing a generic false refusal.
