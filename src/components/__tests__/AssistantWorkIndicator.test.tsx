@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AssistantWorkIndicator,
   buildAssistantWorkActivities,
+  buildPendingRuntimeActivities,
   formatAssistantWorkActivityLabel,
   formatAssistantWorkDuration,
 } from '../AssistantWorkIndicator';
@@ -36,7 +37,7 @@ describe('AssistantWorkIndicator', () => {
       webSourceCount: 2,
     });
 
-    expect(activities).toEqual([]);
+    expect(activities.map(activity => activity.label)).toEqual(['Asistana bağlanılıyor...']);
   });
 
   it('keeps reported planning and synthesis steps instead of deleting them', () => {
@@ -70,15 +71,51 @@ describe('AssistantWorkIndicator', () => {
     expect(formatAssistantWorkActivityLabel(
       'Araştırma ve doğrulama planı oluşturuluyor...',
       true,
-    )).toBe('Araştırma ve doğrulama yaklaşımı belirlendi');
+    )).toBe('Çalışma yaklaşımı belirlendi');
+    expect(formatAssistantWorkActivityLabel(
+      'Plan hazır: 1 operasyonel adım',
+      true,
+    )).toBe('Çalışma yolu belirlendi');
     expect(formatAssistantWorkActivityLabel(
       'Kanıtlar ve doğrulama sonucu sentezleniyor...',
       true,
-    )).toBe('Bulgular karşılaştırıldı ve doğrulandı');
+    )).toBe('Yanıt için bilgiler birleştirildi');
     expect(formatAssistantWorkActivityLabel(
       'Bilgi bankasında ilgili kayıtlar aranıyor',
       true,
     )).toBe('Bilgi bankasında ilgili kayıtlar incelendi');
+  });
+
+  it('builds a progressive operational timeline while the upstream runtime has not emitted real stages yet', () => {
+    expect(buildPendingRuntimeActivities(1)).toEqual([
+      { label: 'Talep işleme alındı', state: 'active' },
+    ]);
+    expect(buildPendingRuntimeActivities(12)).toEqual([
+      { label: 'Talep işleme alındı', state: 'completed' },
+      { label: 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...', state: 'completed' },
+      { label: 'Talep için çalışma planı hazırlanıyor...', state: 'active' },
+    ]);
+    expect(buildPendingRuntimeActivities(37).at(-1)).toEqual({
+      label: 'Yanıt üretimi devam ediyor...',
+      state: 'active',
+    });
+  });
+
+  it('renders the progressive work timeline while thinking instead of a single status row', () => {
+    const html = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive
+        startedAt={Date.now() - 22_000}
+        phaseLabel="Asistana bağlanılıyor..."
+      />,
+    );
+
+    expect(html).toContain('data-testid="assistant-work-live-details"');
+    expect(html).toContain('Talep işleme alındı');
+    expect(html).toContain('Konuşma bağlamı ve çalışma yolu hazırlanıyor...');
+    expect(html).toContain('Talep için çalışma planı hazırlanıyor...');
+    expect(html).toContain('Model yanıtı üzerinde çalışıyor...');
+    expect(html).toContain('assistant-work__activity--active');
   });
 
   it('renders a stopped result as worked-and-stopped and keeps the JetWork logo', () => {
@@ -99,7 +136,7 @@ describe('AssistantWorkIndicator', () => {
     expect(html).not.toContain('hazırlandı');
   });
 
-  it('keeps the branded thinking state and exposes the current real activity without an inline stop button', () => {
+  it('keeps the branded thinking state and exposes the current real activity as a live timeline', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
@@ -113,6 +150,8 @@ describe('AssistantWorkIndicator', () => {
     expect(html).toContain('assistant-work__logo-stage');
     expect(html).toContain('assistant-work__logo');
     expect(html).toContain('Düşünüyor');
+    expect(html).toContain('data-testid="assistant-work-live-details"');
+    expect(html).toContain('Kurumsal bilgi bankası tarandı');
     expect(html).toContain('İlgili kayıtlar karşılaştırılıyor');
     expect(html).not.toContain('>Durdur<');
     expect(html).not.toContain('Arka planda çalışsın');
