@@ -22,6 +22,15 @@ export const isSpreadsheetExecutionAttachment = (
   || attachment.mimeType === XLSX_MIME
 );
 
+const shouldPersistAsToolInput = (attachment: MessageAttachment): boolean => (
+  attachment.purpose === 'tool_input'
+  || (
+    attachment.purpose !== 'knowledge_bank'
+    && attachment.purpose !== 'tool_output'
+    && isSpreadsheetExecutionAttachment(attachment)
+  )
+);
+
 const dataUrlToBlob = (attachment: MessageAttachment): Blob | null => {
   if (!attachment.data) return null;
   const bytes = Uint8Array.from(atob(attachment.data), character => character.charCodeAt(0));
@@ -36,7 +45,7 @@ export async function persistAssistantToolAttachments(
   workspaceId: string,
   attachments: MessageAttachment[] = [],
 ): Promise<MessageAttachment[]> {
-  const toolInputs = attachments.filter(attachment => attachment.purpose === 'tool_input');
+  const toolInputs = attachments.filter(shouldPersistAsToolInput);
   if (!toolInputs.length) return attachments;
 
   const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -48,7 +57,7 @@ export async function persistAssistantToolAttachments(
   try {
     const persisted: MessageAttachment[] = [];
     for (const attachment of attachments) {
-      if (attachment.purpose !== 'tool_input') {
+      if (!shouldPersistAsToolInput(attachment)) {
         persisted.push(attachment);
         continue;
       }
@@ -56,7 +65,13 @@ export async function persistAssistantToolAttachments(
         throw new Error(`Dosya işlemi için yalnız XLSX destekleniyor: ${attachment.name || 'Dosya'}`);
       }
       if (attachment.storageBucket === ASSISTANT_FILES_BUCKET && attachment.storagePath) {
-        persisted.push({ ...attachment, file: undefined, data: undefined, url: '' });
+        persisted.push({
+          ...attachment,
+          purpose: 'tool_input',
+          file: undefined,
+          data: undefined,
+          url: '',
+        });
         continue;
       }
 
