@@ -59,7 +59,15 @@ export async function executeSpreadsheetAssistantTool(
     attachments,
     invoke: async request => {
       const { data, error } = await client.functions.invoke('spreadsheet-execute', { body: request })
-      if (error) throw error
+      if (error) {
+        let workerDetail = ''
+        try {
+          const context = (error as any)?.context
+          const payload = context && typeof context.json === 'function' ? await context.json() : null
+          workerDetail = clean(payload?.error || payload?.message, 2_000)
+        } catch { /* best-effort worker error detail */ }
+        throw new Error(workerDetail || clean((error as any)?.message, 2_000) || 'Spreadsheet worker çağrısı başarısız oldu.')
+      }
       if (!data || typeof data !== 'object') throw new Error('Spreadsheet worker boş veya geçersiz sonuç döndürdü.')
       const result = data as Record<string, unknown>
       if (result.error) throw new Error(clean(result.error, 2_000))

@@ -28,6 +28,7 @@ export interface SpreadsheetCellUpdate {
 export interface SpreadsheetJiraSyncPlan {
   updates: SpreadsheetCellUpdate[]
   targetStatusColumn: number
+  targetStatusColumnCreated: boolean
   targetSprintColumn: number
   targetSprintColumnCreated: boolean
   matchedRows: number
@@ -93,10 +94,12 @@ export function planSpreadsheetJiraSync(
   const targetKeyIndex = requireColumn(target.headers, config.targetKeyColumn, 'target')
   const jiraKeyIndex = requireColumn(jira.headers, config.jiraKeyColumn, 'jira')
   const jiraStatusIndex = requireColumn(jira.headers, config.jiraStatusColumn, 'jira')
-  const targetStatusIndex = requireColumn(target.headers, config.targetStatusColumn, 'target')
   const jiraSprintIndex = requireColumn(jira.headers, config.jiraSprintColumn, 'jira')
+  const existingTargetStatusIndex = columnIndex(target.headers, config.targetStatusColumn)
   const existingTargetSprintIndex = columnIndex(target.headers, config.targetSprintColumn)
-  const targetSprintIndex = existingTargetSprintIndex >= 0 ? existingTargetSprintIndex : target.headers.length
+  let nextTargetColumnIndex = target.headers.length
+  const targetStatusIndex = existingTargetStatusIndex >= 0 ? existingTargetStatusIndex : nextTargetColumnIndex++
+  const targetSprintIndex = existingTargetSprintIndex >= 0 ? existingTargetSprintIndex : nextTargetColumnIndex++
   const doneStatuses = uniqueNormalized(config.doneStatuses)
 
   const jiraByKey = new Map<string, { statuses: SpreadsheetScalar[]; sprints: SpreadsheetScalar[]; count: number }>()
@@ -160,11 +163,13 @@ export function planSpreadsheetJiraSync(
   const warnings: string[] = []
   if (unmatchedRows > 0) warnings.push(`${unmatchedRows} hedef satır için Jira eşleşmesi bulunamadı.`)
   if (duplicateJiraKeys > 0) warnings.push(`${duplicateJiraKeys} ek Jira kaydı aynı issue key altında birleştirildi.`)
+  if (existingTargetStatusIndex < 0) warnings.push(`"${config.targetStatusColumn}" kolonu hedef dosyaya eklenecek.`)
   if (existingTargetSprintIndex < 0) warnings.push(`"${config.targetSprintColumn}" kolonu hedef dosyaya eklenecek.`)
 
   return {
     updates,
     targetStatusColumn: targetStatusIndex + 1,
+    targetStatusColumnCreated: existingTargetStatusIndex < 0,
     targetSprintColumn: targetSprintIndex + 1,
     targetSprintColumnCreated: existingTargetSprintIndex < 0,
     matchedRows,

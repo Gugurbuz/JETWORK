@@ -230,7 +230,7 @@ serve(async req => {
       return jsonResponse({ error: 'Jira sync column mapping is incomplete.' }, 400)
     }
 
-    const targetTable = toTable(targetSheet, [targetKeyColumn, targetStatusColumn])
+    const targetTable = toTable(targetSheet, [targetKeyColumn])
     const jiraTable = toTable(jiraSheet, [jiraKeyColumn, jiraStatusColumn, jiraSprintColumn])
     const originalSheetNames = worksheetRefs(workbook).map((ref: any) => clean(ref.sheet?.title, 120))
     const originalTargetMaxRow = getMaxRow(targetSheet)
@@ -248,6 +248,10 @@ serve(async req => {
       sprintNamePattern,
     })
 
+    if (plan.targetStatusColumnCreated) {
+      const headerStyleId = getCell(targetSheet, targetTable.headerRow, Math.max(1, plan.targetStatusColumn - 1))?.styleId
+      setCell(targetSheet, targetTable.headerRow, plan.targetStatusColumn, targetStatusColumn, headerStyleId)
+    }
     if (plan.targetSprintColumnCreated) {
       const headerStyleId = getCell(targetSheet, targetTable.headerRow, Math.max(1, plan.targetSprintColumn - 1))?.styleId
       setCell(targetSheet, targetTable.headerRow, plan.targetSprintColumn, targetSprintColumn, headerStyleId)
@@ -255,7 +259,9 @@ serve(async req => {
 
     for (const update of plan.updates) {
       const existing = getCell(targetSheet, update.row, update.column)
-      const fallbackStyle = update.reason === 'sprint'
+      const needsAdjacentStyle = (update.reason === 'status' && plan.targetStatusColumnCreated)
+        || (update.reason === 'sprint' && plan.targetSprintColumnCreated)
+      const fallbackStyle = needsAdjacentStyle
         ? getCell(targetSheet, update.row, Math.max(1, update.column - 1))?.styleId
         : undefined
       setCell(targetSheet, update.row, update.column, update.value, existing?.styleId ?? fallbackStyle)
@@ -268,7 +274,8 @@ serve(async req => {
     const qaSheetNames = worksheetRefs(qaWorkbook).map((ref: any) => clean(ref.sheet?.title, 120))
     if (!sameStringArray(originalSheetNames, qaSheetNames)) throw new Error('QA failed: workbook sheet structure changed unexpectedly.')
     if (getMaxRow(qaSheet) !== originalTargetMaxRow) throw new Error('QA failed: target row count changed unexpectedly.')
-    if (getMaxCol(qaSheet) < originalTargetMaxCol || getMaxCol(qaSheet) > originalTargetMaxCol + (plan.targetSprintColumnCreated ? 1 : 0)) {
+    const createdColumnCount = Number(plan.targetStatusColumnCreated) + Number(plan.targetSprintColumnCreated)
+    if (getMaxCol(qaSheet) < originalTargetMaxCol || getMaxCol(qaSheet) > originalTargetMaxCol + createdColumnCount) {
       throw new Error('QA failed: target column count changed unexpectedly.')
     }
     for (const update of plan.updates) {
