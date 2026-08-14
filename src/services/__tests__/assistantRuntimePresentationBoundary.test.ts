@@ -13,7 +13,7 @@ describe('assistant runtime presentation boundary', () => {
 
   it('shows bounded operational activities without stage-level timing telemetry', () => {
     expect(workIndicatorSource).toContain('buildAssistantWorkActivities');
-    expect(workIndicatorSource).toContain('Nasıl hazırlandı?');
+    expect(workIndicatorSource).toContain('assistant-work__live-status');
     expect(workIndicatorSource).not.toContain('plannerDuration');
     expect(workIndicatorSource).not.toContain('toolDuration');
     expect(workIndicatorSource).not.toContain('finalModelDuration');
