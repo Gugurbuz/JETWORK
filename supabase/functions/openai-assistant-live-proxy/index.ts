@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'npm:@supabase/supabase-js@2.99.3'
 import { createSafeStreamSink } from '../_shared/safeStreamSink.ts'
 
 const corsHeaders = {
@@ -21,6 +22,56 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.strin
   status,
   headers: { ...corsHeaders, 'Content-Type': 'application/json' },
 })
+
+const cleanString = (value: unknown, maxLength = 320) => String(value ?? '').trim().slice(0, maxLength)
+
+const parseRequestBody = (body: ArrayBuffer): Record<string, unknown> | null => {
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(body))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+const isSpreadsheetToolInput = (value: unknown) => {
+  if (!value || typeof value !== 'object') return false
+  const attachment = value as Record<string, unknown>
+  const name = cleanString(attachment.name, 240)
+  const mimeType = cleanString(attachment.mimeType, 160)
+  return cleanString(attachment.purpose, 40) === 'tool_input'
+    && cleanString(attachment.storageBucket, 120) === 'assistant-files'
+    && !!cleanString(attachment.storagePath, 1_000)
+    && (/\.xlsx$/i.test(name) || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+}
+
+const attachmentOnlySpreadsheetResponse = (messageId: string) => new Response(
+  new ReadableStream<Uint8Array>({
+    start(controller) {
+      const sink = createSafeStreamSink(controller)
+      sink.event('status', {
+        type: 'status',
+        stage: 'connecting',
+        label: 'Dosyalar hazır',
+      })
+      sink.event('text_delta', {
+        type: 'text_delta',
+        delta: 'Dosyalar yüklendi. Ne yapmamı istediğini yaz.',
+      })
+      sink.event('sources', { type: 'sources', sources: [] })
+      sink.event('completed', {
+        type: 'completed',
+        conversationId: messageId,
+        model: 'system',
+        fallbackUsed: false,
+      })
+      sink.done()
+    },
+  }),
+  { headers: streamHeaders },
+)
 
 const edgeWaitUntil = (promise: Promise<unknown>) => {
   const runtime = (globalThis as typeof globalThis & {
@@ -49,6 +100,33 @@ serve(async req => {
     body = await req.arrayBuffer()
   } catch {
     return jsonResponse({ error: 'Request body could not be read.' }, 400)
+  }
+
+  const parsedBody = parseRequestBody(body)
+  const workspaceId = cleanString(parsedBody?.workspaceId, 200)
+  const messageId = cleanString(parsedBody?.messageId, 240)
+  const message = cleanString(parsedBody?.message, 32_000)
+
+  if (workspaceId && messageId && !message) {
+    const client = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authorization } },
+      auth: { persistSession: false },
+    })
+    const { data, error } = await client
+      .from('messages')
+      .select('attachments')
+      .eq('workspace_id', workspaceId)
+      .eq('id', messageId)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('Attachment-only assistant turn could not be inspected:', error.message)
+    } else {
+      const attachments = Array.isArray(data?.attachments) ? data.attachments : []
+      if (attachments.some(isSpreadsheetToolInput)) {
+        return attachmentOnlySpreadsheetResponse(messageId)
+      }
+    }
   }
 
   let downstreamCancelled = false
