@@ -220,6 +220,25 @@ export const selectCompletedActivityEvidence = (
   reported.length > 0 ? reported : observed
 );
 
+export const dedupeAssistantWorkActivities = (
+  activities: AssistantWorkActivity[],
+): AssistantWorkActivity[] => {
+  const result: AssistantWorkActivity[] = [];
+  const indexByLabel = new Map<string, number>();
+  for (const activity of activities) {
+    const key = normalizeActivity(activity.label).toLocaleLowerCase('tr-TR');
+    if (!key) continue;
+    const existingIndex = indexByLabel.get(key);
+    if (existingIndex === undefined) {
+      indexByLabel.set(key, result.length);
+      result.push(activity);
+    } else {
+      result[existingIndex] = activity;
+    }
+  }
+  return result;
+};
+
 const ActivityStateIcon = ({ state }: { state: AssistantWorkActivity['state'] }) => {
   if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
   if (state === 'active') return <LoaderCircle aria-hidden="true" />;
@@ -302,18 +321,18 @@ export function AssistantWorkIndicator({
   const liveActivities = isActive
     ? (hasRealRuntimeActivity ? activityEvidence : buildPendingRuntimeActivities(elapsedSeconds))
     : [];
-  const formattedLiveActivities = liveActivities.map(activity => ({
+  const formattedLiveActivities = dedupeAssistantWorkActivities(liveActivities.map(activity => ({
     ...activity,
     label: hasRealRuntimeActivity
       ? formatAssistantWorkActivityLabel(activity.label, activity.state !== 'active')
       : activity.label,
-  }));
+  })));
   const completedEvidence = selectCompletedActivityEvidence(reportedActivities, activityEvidence);
-  const completedActivities = completedEvidence.map(activity => ({
+  const completedActivities = dedupeAssistantWorkActivities(completedEvidence.map(activity => ({
     ...activity,
     state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
     label: formatAssistantWorkActivityLabel(activity.label, true),
-  }));
+  })));
   const hasWorkDetails = completedActivities.length > 0;
   const hasSourceDetails = knowledgeSourceCount > 0 || webSourceCount > 0;
   const canShowDetails = hasWorkDetails || hasSourceDetails;
