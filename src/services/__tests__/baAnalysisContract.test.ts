@@ -28,6 +28,21 @@ describe('JetWork BA analysis contract', () => {
     expect(BA_ANALYSIS_CONTRACT).toMatch(/teknik implementasyonu zorunlu gerçek gibi yazma/i)
   })
 
+  it('forbids invented exact technical names when evidence did not provide them', () => {
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Exact teknik isim guardı/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/yeni exact isim icat etme/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Örnek vermek için bile hayali identifier üretme/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/jenerik kavramsal ifade/i)
+  })
+
+  it('keeps inference and design language modal instead of asserting requirements', () => {
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Kesinlik dili guardı/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/Analitik Çıkarım veya Tasarım Seçeneği/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/gerekmektedir.*olacaktır.*zorunludur/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/değerlendirilmelidir.*gerekebilir.*önerilebilir/i)
+    expect(BA_ANALYSIS_CONTRACT).toMatch(/yalnız kullanıcı\/doğrulanmış kaynak açıkça/i)
+  })
+
   it('covers generic functional-analysis boundaries without prescribing implementation', () => {
     expect(BA_ANALYSIS_CONTRACT).toMatch(/read\/görüntüleme/i)
     expect(BA_ANALYSIS_CONTRACT).toMatch(/update\/kayıt/i)

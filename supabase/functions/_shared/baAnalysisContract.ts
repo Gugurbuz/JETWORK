@@ -4,7 +4,7 @@ export interface BaAnalysisPlanLike {
   goal?: string | null
 }
 
-export const BA_ANALYSIS_CONTRACT_MARKER = '[JETWORK BA ANALYSIS CONTRACT v2]'
+export const BA_ANALYSIS_CONTRACT_MARKER = '[JETWORK BA ANALYSIS CONTRACT v3]'
 
 export const BA_ANALYSIS_CONTRACT = [
   BA_ANALYSIS_CONTRACT_MARKER,
@@ -16,6 +16,8 @@ export const BA_ANALYSIS_CONTRACT = [
   'Tasarım Seçeneği: ihtiyacı karşılamak için mümkün bir çözüm biçimidir. Kullanıcı veya doğrulanmış kaynak söylemediyse alan adı, endpoint, servis sayısı, transaction modeli, flag, tablo veya teknik implementasyonu zorunlu gerçek gibi yazma.',
   'Açık Karar: çözüm davranışını, kabul kriterini, veri tutarlılığını, güvenliği veya entegrasyonu gerçekten değiştirecek ama kaynakta cevabı bulunmayan konudur. Kaynakta cevabı olan konuyu soru haline getirme.',
   'Bu dört seviyeyi her cümlede etiketlemek zorunda değilsin. Ancak çıkarımın veya tasarım önerisinin kaynakta kesinmiş gibi algılanma riski varsa dili veya bölüm başlığını kullanarak ayrımı görünür kıl.',
+  'Exact teknik isim guardı: kullanıcı mesajında veya doğrulanmış kanıtta geçmeyen servis/endpoint, class, method, tablo, alan, event, queue, hata kodu, kampanya kodu veya kurum içi kısaltma için yeni exact isim icat etme. Örnek vermek için bile hayali identifier üretme; bunun yerine “ayrı uygunluk servisi”, “bir durum alanı” gibi jenerik kavramsal ifade kullan.',
+  'Kesinlik dili guardı: Analitik Çıkarım veya Tasarım Seçeneği seviyesindeki bir cümleyi “gerekmektedir”, “olacaktır”, “zorunludur”, “kesinlikle”, “mutlaka”, “şarttır” gibi kaynakta kesin yükümlülük izlenimi veren dille yazma. Bunun yerine “çıkarım olarak”, “değerlendirilmelidir”, “bir seçenek”, “gerekebilir”, “önerilebilir” veya eşdeğer modal dili kullan. Kesin yükümlülük dili yalnız kullanıcı/doğrulanmış kaynak açıkça o yükümlülüğü tanımlıyorsa kullanılabilir.',
   'Birden fazla gereksinim veya iş kuralı varsa bunları birlikte değerlendir. Bir maddenin başka bir maddeye istisna oluşturduğu, onu daralttığı, çeliştiği veya uygulanmasını etkilediği yerleri özellikle yakala.',
   'Bir istisnanın kapsamını gereksiz genişletme. Kaynak yalnız görüntüleme, kayıt, yetki veya belirli bir koşul için istisna tanımlıyorsa bunu tüm süreci tamamen override eden genel kural gibi sunma.',
   'Çelişki veya belirsizlik yoksa zorlama. Varsa neden çelişki olduğunu, hangi davranışların aynı anda uygulanamayacağını ve çözüm kararını neyin değiştireceğini açıkla.',
