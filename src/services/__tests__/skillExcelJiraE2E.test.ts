@@ -23,21 +23,33 @@ const EXPECTED_CHAIN = [
   'spreadsheet/quality-check',
 ] as const
 
-describe('JetWork Excel + Jira E2E skill chain', () => {
-  it('discovers the execution-relevant skills from the real user request', () => {
-    const results = searchSkills({ query: USER_REQUEST, limit: 8 })
-    const keys = new Set(results.map(result => result.key))
+const expectSearchContains = (query: string, expected: readonly string[]) => {
+  const results = searchSkills({ query, limit: 8 })
+  const keys = new Set(results.map(result => result.key))
+  for (const key of expected) {
+    expect(keys.has(key), `expected discovery to include ${key}; got ${[...keys].join(', ')}`).toBe(true)
+  }
+}
 
-    for (const key of [
+describe('JetWork Excel + Jira E2E skill chain', () => {
+  it('discovers the main execution skills from the real user request', () => {
+    expectSearchContains(USER_REQUEST, [
       'jira/export-analysis',
       'spreadsheet/table-join',
       'jira/status-normalize',
       'jira/latest-sprint',
-      'spreadsheet/format-preserve',
-      'spreadsheet/quality-check',
-    ]) {
-      expect(keys.has(key), `expected discovery to include ${key}; got ${[...keys].join(', ')}`).toBe(true)
-    }
+    ])
+  })
+
+  it('uses iterative lazy discovery for preparation and finalization skills', () => {
+    expectSearchContains(
+      'Excel workbook yapısını değiştirmeden önce incele, sheet header formül ve veri tiplerini kontrol et',
+      ['spreadsheet/inspect'],
+    )
+    expectSearchContains(
+      'Mevcut Excel formatını bozma, biçimi ve formülleri koru; çıktı dosyasını teslim etmeden önce kalite kontrol et',
+      ['spreadsheet/format-preserve', 'spreadsheet/quality-check'],
+    )
   })
 
   it('keeps the full expected chain active in the 40-skill runtime registry', () => {
