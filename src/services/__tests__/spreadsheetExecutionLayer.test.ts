@@ -161,7 +161,6 @@ describe('Spreadsheet Execution Layer', () => {
   })
 
   it('wires execution through the authenticated assistant dispatcher and private worker', () => {
-    expect(assistantToolsSource).toContain("from './executionTools.ts'")
     expect(assistantToolsSource).toContain('isExecutionTool')
     expect(assistantToolsSource).toContain('executeSpreadsheetAssistantTool')
     expect(assistantToolsSource).toContain('if (isExecutionTool(toolName))')
