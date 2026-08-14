@@ -36,18 +36,15 @@ const parseRequestBody = (body: ArrayBuffer): Record<string, unknown> | null => 
   }
 }
 
-const isSpreadsheetToolInput = (value: unknown) => {
+const isActionToolInput = (value: unknown) => {
   if (!value || typeof value !== 'object') return false
   const attachment = value as Record<string, unknown>
-  const name = cleanString(attachment.name, 240)
-  const mimeType = cleanString(attachment.mimeType, 160)
   return cleanString(attachment.purpose, 40) === 'tool_input'
     && cleanString(attachment.storageBucket, 120) === 'assistant-files'
     && !!cleanString(attachment.storagePath, 1_000)
-    && (/\.xlsx$/i.test(name) || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 }
 
-const attachmentOnlySpreadsheetResponse = (messageId: string) => new Response(
+const attachmentOnlyActionResponse = (messageId: string) => new Response(
   new ReadableStream<Uint8Array>({
     start(controller) {
       const sink = createSafeStreamSink(controller)
@@ -123,8 +120,8 @@ serve(async req => {
       console.warn('Attachment-only assistant turn could not be inspected:', error.message)
     } else {
       const attachments = Array.isArray(data?.attachments) ? data.attachments : []
-      if (attachments.some(isSpreadsheetToolInput)) {
-        return attachmentOnlySpreadsheetResponse(messageId)
+      if (attachments.some(isActionToolInput)) {
+        return attachmentOnlyActionResponse(messageId)
       }
     }
   }

@@ -375,25 +375,25 @@ const MessageItem = memo(({
               {msg.attachments && msg.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
                   {msg.attachments.map((att, idx) => (
-                    att.mimeType.startsWith('image/') ? (
-                      <img key={idx} src={att.url} alt="uploaded" className="max-w-[200px] max-h-[200px] object-cover border border-theme-border/50 rounded-md shadow-sm" />
-                    ) : att.purpose === 'tool_output' && att.storagePath ? (
+                    att.purpose === 'tool_output' && att.storagePath ? (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => void downloadToolOutput(att)}
-                        className="group/file flex max-w-[320px] items-center gap-2 overflow-hidden rounded-lg border border-theme-primary/25 bg-theme-surface p-2.5 text-left shadow-sm transition-colors hover:border-theme-primary/60 hover:bg-theme-primary/5"
-                        title={`${att.name || 'XLSX çıktı'} dosyasını indir`}
+                        className="group/file flex max-w-[340px] items-center gap-2 overflow-hidden rounded-lg border border-theme-primary/25 bg-theme-surface p-2.5 text-left shadow-sm transition-colors hover:border-theme-primary/60 hover:bg-theme-primary/5"
+                        title={`${att.name || 'JetWork çıktısı'} dosyasını indir`}
                       >
                         <FileText size={18} className="shrink-0 text-theme-primary" />
                         <div className="min-w-0 flex-1">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-theme-primary">XLSX Çıktısı</div>
-                          <div className="truncate text-xs font-medium text-theme-text">{att.name || 'jetwork-output.xlsx'}</div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-theme-primary">{(att.name?.split('.').pop() || 'FILE').toUpperCase()} Çıktısı</div>
+                          <div className="truncate text-xs font-medium text-theme-text">{att.name || 'jetwork-output'}</div>
                         </div>
                         <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-theme-text-muted group-hover/file:text-theme-primary">
                           <Download size={13} /> İndir
                         </span>
                       </button>
+                    ) : att.mimeType.startsWith('image/') ? (
+                      <img key={idx} src={att.url} alt="uploaded" className="max-w-[200px] max-h-[200px] object-cover border border-theme-border/50 rounded-md shadow-sm" />
                     ) : (
                       <div key={idx} className="flex items-center gap-2 p-2 bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden max-w-[240px]">
                         <FileText size={16} className="text-theme-primary shrink-0" />

@@ -22,7 +22,7 @@ import {
 } from './artifactTaskRepository';
 import { parseAssistantPresentationMetadata } from './assistantPresentationMetadata';
 import { useDocumentStore } from '../store/useDocumentStore';
-import { isSpreadsheetExecutionAttachment } from './assistantFileRepository';
+import { isActionableExecutionAttachment } from './assistantFileRepository';
 
 const DEFAULT_TIMEOUT_MS = 150_000;
 const MAX_CHAT_ATTACHMENTS = 3;
@@ -376,7 +376,7 @@ export async function prepareAssistantChatAttachments(
 ): Promise<AssistantChatAttachment[]> {
   const chatAttachments = attachments.filter(candidate => (
     candidate.purpose === 'chat_only'
-    && !isSpreadsheetExecutionAttachment(candidate)
+    && !isActionableExecutionAttachment(candidate)
   ));
   if (chatAttachments.length > MAX_CHAT_ATTACHMENTS) {
     throw new AssistantAttachmentValidationError(
