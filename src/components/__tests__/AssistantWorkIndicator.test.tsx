@@ -38,7 +38,25 @@ describe('AssistantWorkIndicator', () => {
     expect(activities).toEqual([]);
   });
 
-  it('renders a stopped result as worked-and-stopped rather than completed', () => {
+  it('filters internal planning and synthesis labels from user-visible activity', () => {
+    const activities = buildAssistantWorkActivities({
+      isActive: true,
+      activityText: [
+        '• Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
+        '• Araştırma ve doğrulama planı oluşturuluyor...',
+        '• Plan hazır: 1 operasyonel adım',
+        '• Kanıtlar ve doğrulama sonucu sentezleniyor...',
+        '• Bilgi bankasında ilgili kayıtlar aranıyor',
+      ].join('\n'),
+      phaseLabel: 'Yanıt hazırlandı',
+    });
+
+    expect(activities.map(activity => activity.label)).toEqual([
+      'Bilgi bankasında ilgili kayıtlar aranıyor',
+    ]);
+  });
+
+  it('renders a stopped result as worked-and-stopped and keeps the JetWork logo', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive={false}
@@ -50,6 +68,7 @@ describe('AssistantWorkIndicator', () => {
     );
 
     expect(html).toContain('12 sn çalıştı · durduruldu');
+    expect(html).toContain('data-testid="assistant-work-completed-logo"');
     expect(html).not.toContain('hazırlandı');
   });
 
@@ -76,15 +95,39 @@ describe('AssistantWorkIndicator', () => {
     expect(formatAssistantWorkDuration(126)).toBe('2 dk 6 sn');
   });
 
-  it('does not expose planner, tool, final-model timing, or the old prepared wording', () => {
+  it('shows only the compact worked summary after completion when there are no source details', () => {
+    const html = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive={false}
+        completedSeconds={19}
+        activityText="• Talep sınıflandırıldı: Proje / ürün çalışması · Orta\n• Plan hazır: 1 operasyonel adım\n• Yanıt hazırlandı"
+      />,
+    );
+
+    expect(html).toContain('19 sn çalıştı');
+    expect(html).toContain('data-testid="assistant-work-completed-logo"');
+    expect(html).not.toContain('Talep sınıflandırıldı');
+    expect(html).not.toContain('Plan hazır');
+    expect(html).not.toContain('Yanıt hazırlandı');
+    expect(html).not.toContain('assistant-work-details');
+  });
+
+  it('keeps source disclosure available without exposing the old activity timeline', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive={false}
         completedSeconds={9}
-        activityText="• Yanıt hazırlandı."
+        activityText="• Kanıtlar ve doğrulama sonucu sentezleniyor..."
+        knowledgeSources={[{
+          sourceName: 'Kurumsal Kaynak',
+          title: 'İş Kuralı Dokümanı',
+          sourceType: 'knowledge',
+        }]}
       />,
     );
 
+    expect(html).toContain('aria-label="Kullanılan kaynakları göster"');
+    expect(html).not.toContain('Kanıtlar ve doğrulama sonucu sentezleniyor');
     expect(html).not.toContain('Planner');
     expect(html).not.toContain('Tool');
     expect(html).not.toContain('Final model');
