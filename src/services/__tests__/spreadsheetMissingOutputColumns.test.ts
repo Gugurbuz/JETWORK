@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { planSpreadsheetJiraSync } from '../../../supabase/functions/_shared/spreadsheetTransform.ts'
 
+// Live regression: Guncel_Durum/BACKLOG has JIRA but no Durum or Enfast Sprint columns.
+// Jira sync must create the requested output columns instead of failing before mutation.
 const workerSource = readFileSync(
   new URL('../../../supabase/functions/spreadsheet-execute/index.ts', import.meta.url),
   'utf8',
