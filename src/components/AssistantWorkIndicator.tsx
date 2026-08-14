@@ -21,6 +21,7 @@ const MARKDOWN_DECORATION = /[*#`_]/gu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
 const LOW_VALUE_ACTIVITY = /^çalışılıyor\.{0,3}$/iu;
+const CONNECTION_ACTIVITY = /^asistana bağlanılıyor\.{0,3}$/iu;
 
 export interface AssistantWorkActivity {
   label: string;
@@ -69,37 +70,35 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
 
   if (/^araştırma ve doğrulama planı oluşturuluyor/iu.test(normalized)) {
     return completed
-      ? 'Araştırma ve doğrulama yaklaşımı belirlendi'
-      : 'Araştırma ve doğrulama yaklaşımı hazırlanıyor';
+      ? 'Çalışma yaklaşımı belirlendi'
+      : 'Çalışma yaklaşımı hazırlanıyor...';
   }
 
   const planReadyMatch = normalized.match(/^plan hazır(?::\s*(.+))?\.?$/iu);
   if (planReadyMatch) {
-    return planReadyMatch[1]
-      ? `Çalışma adımları belirlendi: ${planReadyMatch[1]}`
-      : 'Çalışma adımları belirlendi';
+    return completed ? 'Çalışma yolu belirlendi' : 'Çalışma yolu belirleniyor...';
   }
 
   if (/^kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(normalized)) {
     return completed
-      ? 'Bulguların yeterliliği ve tutarlılığı kontrol edildi'
-      : 'Bulguların yeterliliği ve tutarlılığı kontrol ediliyor...';
+      ? 'Kaynakların yeterliliği ve tutarlılığı kontrol edildi'
+      : 'Kaynakların yeterliliği ve tutarlılığı kontrol ediliyor...';
   }
 
   if (/^sentez sırasında ek teknik kanıt isteniyor/iu.test(normalized)) {
     return completed
-      ? 'Ek teknik kanıt arandı'
-      : 'Bilgi bankasında ek teknik kanıt aranıyor...';
+      ? 'Ek teknik kaynak arandı'
+      : 'Bilgi bankasında ek teknik kaynak aranıyor...';
   }
 
   if (/^kanıtlar ve doğrulama sonucu sentezleniyor/iu.test(normalized)) {
     return completed
-      ? 'Bulgular karşılaştırıldı ve doğrulandı'
-      : 'Bulgular karşılaştırılıyor ve doğrulanıyor';
+      ? 'Yanıt için bilgiler birleştirildi'
+      : 'Yanıt için bilgiler birleştiriliyor...';
   }
 
   if (/^yanıt hazırlandı/iu.test(normalized)) {
-    return completed ? 'Yanıt oluşturuldu' : 'Yanıt oluşturuluyor';
+    return completed ? 'Yanıt oluşturuldu' : 'Yanıt oluşturuluyor...';
   }
 
   if (!completed) return normalized;
@@ -140,6 +139,22 @@ export function buildAssistantWorkActivities(input: {
         )
         ? 'active'
         : 'completed',
+  }));
+}
+
+export function buildPendingRuntimeActivities(elapsedSeconds: number): AssistantWorkActivity[] {
+  const elapsed = Math.max(0, Math.floor(elapsedSeconds));
+  const steps = [
+    { at: 0, label: 'Talep işleme alındı' },
+    { at: 3, label: 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...' },
+    { at: 10, label: 'Talep için çalışma planı hazırlanıyor...' },
+    { at: 20, label: 'Model yanıtı üzerinde çalışıyor...' },
+    { at: 35, label: 'Yanıt üretimi devam ediyor...' },
+  ];
+  const visible = steps.filter(step => elapsed >= step.at);
+  return visible.map((step, index) => ({
+    label: step.label,
+    state: index === visible.length - 1 ? 'active' as const : 'completed' as const,
   }));
 }
 
@@ -200,6 +215,7 @@ const mergeObservedActivities = (
 
 const ActivityStateIcon = ({ state }: { state: AssistantWorkActivity['state'] }) => {
   if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
+  if (state === 'active') return <LoaderCircle aria-hidden="true" />;
   return <Check aria-hidden="true" />;
 };
 
@@ -275,13 +291,16 @@ export function AssistantWorkIndicator({
   }, [isActive]);
 
   const activityEvidence = mergeObservedActivities(observedActivities, reportedActivities);
-  const currentActivityRaw = isActive
-    ? [...activityEvidence].reverse().find(activity => activity.state === 'active')?.label
-      || activityEvidence.at(-1)?.label
-    : undefined;
-  const currentActivity = currentActivityRaw
-    ? formatAssistantWorkActivityLabel(currentActivityRaw, false)
-    : undefined;
+  const hasRealRuntimeActivity = activityEvidence.some(activity => !CONNECTION_ACTIVITY.test(normalizeActivity(activity.label)));
+  const liveActivities = isActive
+    ? (hasRealRuntimeActivity ? activityEvidence : buildPendingRuntimeActivities(elapsedSeconds))
+    : [];
+  const formattedLiveActivities = liveActivities.map(activity => ({
+    ...activity,
+    label: hasRealRuntimeActivity
+      ? formatAssistantWorkActivityLabel(activity.label, activity.state !== 'active')
+      : activity.label,
+  }));
   const completedActivities = activityEvidence.map(activity => ({
     ...activity,
     state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
@@ -352,10 +371,25 @@ export function AssistantWorkIndicator({
               <time className="assistant-work__time">{formattedDuration}</time>
             </div>
 
-            {currentActivity ? (
-              <div className="assistant-work__live-status" aria-live="polite">
-                <LoaderCircle aria-hidden="true" />
-                <span>{currentActivity}</span>
+            {formattedLiveActivities.length > 0 ? (
+              <div
+                className="assistant-work__details assistant-work__details--live"
+                data-testid="assistant-work-live-details"
+                aria-live="polite"
+              >
+                <ol className="assistant-work__activity-list">
+                  {formattedLiveActivities.map((activity, index) => (
+                    <li
+                      key={`${activity.label}-${index}`}
+                      className={cn('assistant-work__activity', `assistant-work__activity--${activity.state}`)}
+                    >
+                      <span className="assistant-work__activity-icon">
+                        <ActivityStateIcon state={activity.state} />
+                      </span>
+                      <span>{activity.label}</span>
+                    </li>
+                  ))}
+                </ol>
               </div>
             ) : null}
           </>
