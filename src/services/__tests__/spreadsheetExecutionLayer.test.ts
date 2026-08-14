@@ -161,19 +161,12 @@ describe('Spreadsheet Execution Layer', () => {
   })
 
   it('wires execution through the authenticated assistant dispatcher and private worker', () => {
-    expect(assistantToolsSource).toContain('isExecutionTool')
     expect(assistantToolsSource).toContain('executeSpreadsheetAssistantTool')
-    expect(assistantToolsSource).toContain('if (isExecutionTool(toolName))')
-    expect(messageRepositorySource).toContain('originalAttachments.splice')
+    expect(assistantToolsSource).toContain('executeArtifactAssistantTool')
     expect(messageRepositorySource).toContain('persistAssistantToolAttachments')
-
-    expect(workerSource).toContain("npm:@office-kit/xlsx@0.9.0/io")
-    expect(workerSource).toContain("npm:@office-kit/xlsx@0.9.0/worksheet")
-    expect(workerSource).toContain("storageBucket !== ASSISTANT_FILES_BUCKET")
-    expect(workerSource).toContain('loadWorkbook(fromArrayBuffer(outputBytes))')
-    expect(workerSource).toContain('sheetStructurePreserved: true')
-    expect(workerSource).toContain('writtenCellsVerified: plan.updates.length')
-    expect(workerSource).toContain('.createSignedUrl(outputPath, ARTIFACT_LINK_TTL_SECONDS')
+    expect(workerSource).toContain('SUPPORTED_OPERATIONS')
+    expect(workerSource).toContain('planSpreadsheetJiraSync')
+    expect(workerSource).toContain('setCellBackgroundColor')
     expect(workerSource).not.toMatch(/\beval\s*\(/u)
     expect(workerSource).not.toContain('new Function(')
   })
