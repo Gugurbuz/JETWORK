@@ -213,6 +213,13 @@ const mergeObservedActivities = (
   return next.slice(-8);
 };
 
+export const selectCompletedActivityEvidence = (
+  reported: AssistantWorkActivity[],
+  observed: AssistantWorkActivity[],
+): AssistantWorkActivity[] => (
+  reported.length > 0 ? reported : observed
+);
+
 const ActivityStateIcon = ({ state }: { state: AssistantWorkActivity['state'] }) => {
   if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
   if (state === 'active') return <LoaderCircle aria-hidden="true" />;
@@ -301,7 +308,8 @@ export function AssistantWorkIndicator({
       ? formatAssistantWorkActivityLabel(activity.label, activity.state !== 'active')
       : activity.label,
   }));
-  const completedActivities = activityEvidence.map(activity => ({
+  const completedEvidence = selectCompletedActivityEvidence(reportedActivities, activityEvidence);
+  const completedActivities = completedEvidence.map(activity => ({
     ...activity,
     state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
     label: formatAssistantWorkActivityLabel(activity.label, true),
@@ -310,7 +318,7 @@ export function AssistantWorkIndicator({
   const hasSourceDetails = knowledgeSourceCount > 0 || webSourceCount > 0;
   const canShowDetails = hasWorkDetails || hasSourceDetails;
   const hasSourceGap = webSourceCount === 0
-    && activityEvidence.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
+    && completedEvidence.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
 
   const requestWebSearch = () => onFollowUp?.(
     'Bu soruyu web üzerinde de araştır. Güncel ve güvenilir web kaynaklarıyla bulguları doğrula ve kaynakları göster.',
