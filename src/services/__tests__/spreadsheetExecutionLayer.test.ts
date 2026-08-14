@@ -28,7 +28,11 @@ const messageRepositorySource = readFileSync(
   'utf8',
 )
 const migrationSource = readFileSync(
-  new URL('../../../supabase/migrations/20260814114500_create_assistant_files_bucket.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260814091412_create_assistant_files_bucket.sql', import.meta.url),
+  'utf8',
+)
+const hardeningMigrationSource = readFileSync(
+  new URL('../../../supabase/migrations/20260814091641_harden_assistant_files_permanent_users.sql', import.meta.url),
   'utf8',
 )
 
@@ -148,10 +152,13 @@ describe('Spreadsheet Execution Layer', () => {
     expect(workerSource).not.toContain('new Function(')
   })
 
-  it('keeps assistant file storage private and workspace scoped', () => {
+  it('keeps assistant file storage private, workspace scoped and permanent-user only', () => {
     expect(migrationSource).toContain("'assistant-files'")
     expect(migrationSource).toContain('false,')
     expect(migrationSource).toContain('(storage.foldername(name))[1] = (select auth.uid())::text')
     expect(migrationSource).toContain('public.is_workspace_member((storage.foldername(name))[2])')
+    expect(hardeningMigrationSource).toContain('as restrictive')
+    expect(hardeningMigrationSource).toContain("auth.jwt()->>'is_anonymous'")
+    expect(hardeningMigrationSource).toContain("bucket_id <> 'assistant-files'")
   })
 })
