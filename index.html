@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JetWork</title>
+    <style>
+      /* Provider/model telemetry is operational metadata, not chat content.
+         Keep historical rows with previously persisted provider values clean too. */
+      .chat-scroll-container [title="openai"],
+      .chat-scroll-container [title="gemini"],
+      .chat-scroll-container [title^="gpt-"],
+      .chat-scroll-container [title^="gemini-"] {
+        display: none !important;
+      }
+    </style>
+    <script type="module" crossorigin src="https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@jetwork-production-assets-pr121/assets/index-DPY9SPKG.js"></script>
+    <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@jetwork-production-assets-pr121/assets/index-CiJ-XD9Y.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
