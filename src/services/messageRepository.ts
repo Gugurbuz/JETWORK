@@ -2,6 +2,7 @@ import { supabase } from '../supabase';
 import { nowIso } from '../lib/mapping';
 import type { Message } from '../types';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
+import { persistAssistantToolAttachments } from './assistantFileRepository';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
   let attachments = message.attachments;
@@ -84,6 +85,10 @@ export async function saveUserMessage(
   ownerId: string,
   message: Message,
 ): Promise<void> {
+  if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && Array.isArray(message.attachments)) {
+    message.attachments = await persistAssistantToolAttachments(workspaceId, message.attachments);
+  }
+
   const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, message, ownerId));
   if (error) throw error;
 
