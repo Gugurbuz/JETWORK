@@ -1,5 +1,5 @@
 import { CLASS_INVENTORY_TOOL, executeClassInventoryTool } from './classInventoryTool.ts'
-import { isExecutionTool } from './executionTools.ts'
+import { isExecutionTool, type AssistantGeneratedFileRef } from './executionTools.ts'
 import { executeSpreadsheetAssistantTool } from './spreadsheetAssistantTool.ts'
 
 export interface AssistantSourceRef {
@@ -14,6 +14,7 @@ export interface AssistantToolExecution {
   output: string
   sources: AssistantSourceRef[]
   summary: Record<string, unknown>
+  artifacts?: AssistantGeneratedFileRef[]
 }
 
 const objectTypes = [

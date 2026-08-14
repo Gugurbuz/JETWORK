@@ -83,7 +83,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
     name: 'sync_spreadsheet_with_jira_export',
-    description: 'Update a target XLSX from an attached Jira-export XLSX using explicit column mappings. When the user asks to update/sync attached spreadsheets, this is the required completion tool: first list attachments and inspect the files/sheets needed to infer the real column mappings, then call this tool before giving a final answer. Do not stop after inspection and do not claim files are missing after list returned records. Preserves existing workbook structure/styles where possible, writes completion status and latest sprint, validates the generated workbook, and returns a private signed output artifact link.',
+    description: 'Update a target XLSX from an attached Jira-export XLSX using explicit column mappings. When the user asks to update/sync attached spreadsheets, this is the required completion tool: first list attachments and inspect the files/sheets needed to infer the real column mappings, then call this tool before giving a final answer. Do not stop after inspection and do not claim files are missing after list returned records. If the target has no suitable status column, use Durum as targetStatusColumn. Preserves existing workbook structure/styles where possible, writes completion status and latest sprint, validates the generated workbook, and returns output artifact metadata for the JetWork file card.',
     strict: true,
     parameters: {
       type: 'object',
@@ -192,8 +192,22 @@ export async function executeExecutionTool(input: {
           storagePath: clean(artifact.storagePath, 1_000),
         }]
       : []
+    const { artifact: _artifact, ...resultWithoutArtifact } = result
+    const modelArtifact = artifact
+      ? {
+          attachmentId: clean(artifact.attachmentId, 200),
+          name: clean(artifact.name || 'jetwork-output.xlsx', 240),
+          mimeType: clean(artifact.mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 160),
+          byteSize: Number(artifact.byteSize || 0),
+          sha256: clean(artifact.sha256, 128),
+        }
+      : null
     return {
-      output: JSON.stringify({ securityNotice: EXECUTION_NOTICE, tool: input.toolName, result }),
+      output: JSON.stringify({
+        securityNotice: EXECUTION_NOTICE,
+        tool: input.toolName,
+        result: { ...resultWithoutArtifact, artifact: modelArtifact },
+      }),
       artifacts,
       summary: {
         executionOnly: true,

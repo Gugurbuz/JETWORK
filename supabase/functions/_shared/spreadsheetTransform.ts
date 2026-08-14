@@ -28,6 +28,7 @@ export interface SpreadsheetCellUpdate {
 export interface SpreadsheetJiraSyncPlan {
   updates: SpreadsheetCellUpdate[]
   targetStatusColumn: number
+  targetStatusColumnName: string
   targetStatusColumnCreated: boolean
   targetSprintColumn: number
   targetSprintColumnCreated: boolean
@@ -95,7 +96,16 @@ export function planSpreadsheetJiraSync(
   const jiraKeyIndex = requireColumn(jira.headers, config.jiraKeyColumn, 'jira')
   const jiraStatusIndex = requireColumn(jira.headers, config.jiraStatusColumn, 'jira')
   const jiraSprintIndex = requireColumn(jira.headers, config.jiraSprintColumn, 'jira')
-  const existingTargetStatusIndex = columnIndex(target.headers, config.targetStatusColumn)
+  const requestedTargetStatusIndex = columnIndex(target.headers, config.targetStatusColumn)
+  const standardTargetStatusIndex = ['Durum', 'Status', 'Statü', 'Statu', 'Tamamlanma']
+    .map(name => columnIndex(target.headers, name))
+    .find(index => index >= 0) ?? -1
+  const existingTargetStatusIndex = requestedTargetStatusIndex >= 0
+    ? requestedTargetStatusIndex
+    : standardTargetStatusIndex
+  const targetStatusColumnName = existingTargetStatusIndex >= 0
+    ? target.headers[existingTargetStatusIndex]
+    : 'Durum'
   const existingTargetSprintIndex = columnIndex(target.headers, config.targetSprintColumn)
   let nextTargetColumnIndex = target.headers.length
   const targetStatusIndex = existingTargetStatusIndex >= 0 ? existingTargetStatusIndex : nextTargetColumnIndex++
@@ -163,12 +173,13 @@ export function planSpreadsheetJiraSync(
   const warnings: string[] = []
   if (unmatchedRows > 0) warnings.push(`${unmatchedRows} hedef satır için Jira eşleşmesi bulunamadı.`)
   if (duplicateJiraKeys > 0) warnings.push(`${duplicateJiraKeys} ek Jira kaydı aynı issue key altında birleştirildi.`)
-  if (existingTargetStatusIndex < 0) warnings.push(`"${config.targetStatusColumn}" kolonu hedef dosyaya eklenecek.`)
+  if (existingTargetStatusIndex < 0) warnings.push(`"${targetStatusColumnName}" kolonu hedef dosyaya eklenecek.`)
   if (existingTargetSprintIndex < 0) warnings.push(`"${config.targetSprintColumn}" kolonu hedef dosyaya eklenecek.`)
 
   return {
     updates,
     targetStatusColumn: targetStatusIndex + 1,
+    targetStatusColumnName,
     targetStatusColumnCreated: existingTargetStatusIndex < 0,
     targetSprintColumn: targetSprintIndex + 1,
     targetSprintColumnCreated: existingTargetSprintIndex < 0,

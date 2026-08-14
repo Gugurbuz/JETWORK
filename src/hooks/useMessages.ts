@@ -360,6 +360,7 @@ export const useMessages = (channelRef: any) => {
       let streamedText = '';
       let streamedKnowledgeSources: Message['knowledgeSources'] = [];
       let streamedGroundingUrls: Message['groundingUrls'] = [];
+      let streamedAttachments: Message['attachments'] = [];
       const stageNotes: string[] = [];
       const patchStreamingText = (fullText: string) => {
         streamedText = fullText;
@@ -396,6 +397,19 @@ export const useMessages = (channelRef: any) => {
           signal: generationController.signal,
           onText: fullText => {
             textSmoother.push(fullText);
+          },
+          onArtifacts: attachments => {
+            streamedAttachments = attachments;
+            setMessages(previous => previous.map(message => (
+              message.id === aiMsgId ? { ...message, attachments } : message
+            )));
+            broadcastMessage(channelRef, 'ai_stream_chunk', {
+              id: aiMsgId,
+              text: streamedText,
+              attachments,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+            });
           },
           onSources: sources => {
             const sourceView = splitAssistantSources(sources);
@@ -458,6 +472,7 @@ export const useMessages = (channelRef: any) => {
           actionSummary: result.actionSummary,
           knowledgeSources: finalSourceView.knowledgeSources,
           groundingUrls: finalSourceView.groundingUrls,
+          attachments: result.attachments?.length ? result.attachments : streamedAttachments,
           tokenCount: result.usage?.total_tokens || result.usage?.totalTokens,
           thinkingTime: elapsedSecondsSince(aiCreatedAt),
           phase: null,

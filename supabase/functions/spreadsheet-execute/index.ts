@@ -250,7 +250,7 @@ serve(async req => {
 
     if (plan.targetStatusColumnCreated) {
       const headerStyleId = getCell(targetSheet, targetTable.headerRow, Math.max(1, plan.targetStatusColumn - 1))?.styleId
-      setCell(targetSheet, targetTable.headerRow, plan.targetStatusColumn, targetStatusColumn, headerStyleId)
+      setCell(targetSheet, targetTable.headerRow, plan.targetStatusColumn, plan.targetStatusColumnName, headerStyleId)
     }
     if (plan.targetSprintColumnCreated) {
       const headerStyleId = getCell(targetSheet, targetTable.headerRow, Math.max(1, plan.targetSprintColumn - 1))?.styleId
@@ -325,6 +325,8 @@ serve(async req => {
         completedRows: plan.completedRows,
         sprintRows: plan.sprintRows,
         changedCells: plan.updates.length,
+        targetStatusColumnName: plan.targetStatusColumnName,
+        targetStatusColumnCreated: plan.targetStatusColumnCreated,
         targetSprintColumnCreated: plan.targetSprintColumnCreated,
         duplicateJiraKeys: plan.duplicateJiraKeys,
         qa: {

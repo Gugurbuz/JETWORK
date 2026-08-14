@@ -78,6 +78,7 @@ export async function executeSpreadsheetAssistantTool(
   return {
     output: execution.output,
     sources: [],
+    artifacts: execution.artifacts,
     summary: {
       ...execution.summary,
       executionOnly: true,

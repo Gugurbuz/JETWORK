@@ -51,6 +51,7 @@ export type AssistantRuntimeStage =
 export type AssistantRuntimeEvent =
   | { type: 'text_delta'; delta: string }
   | { type: 'sources'; sources: AssistantKnowledgeSource[] }
+  | { type: 'artifacts'; attachments: MessageAttachment[] }
   | { type: 'status'; stage: AssistantRuntimeStage; label?: string }
   | {
     type: 'completed';
@@ -71,6 +72,7 @@ export interface AssistantRuntimeResult {
   provider?: 'openai' | 'gemini';
   fallbackUsed?: boolean;
   usage?: Record<string, number>;
+  attachments?: MessageAttachment[];
   workSummary?: string;
   questions?: Question[];
   actionSummary?: string;
@@ -137,6 +139,33 @@ function asKnowledgeSources(value: unknown): AssistantKnowledgeSource[] {
       };
     })
     .filter((item): item is AssistantKnowledgeSource => !!item);
+}
+
+function asToolOutputAttachments(value: unknown): MessageAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): MessageAttachment | null => {
+      if (!item || typeof item !== 'object') return null;
+      const candidate = item as Record<string, unknown>;
+      const attachmentId = String(candidate.attachmentId || '').trim();
+      const name = String(candidate.name || '').trim();
+      const mimeType = String(candidate.mimeType || '').trim();
+      const storageBucket = String(candidate.storageBucket || '').trim();
+      const storagePath = String(candidate.storagePath || '').trim();
+      if (!attachmentId || !name || !storagePath || storageBucket !== 'assistant-files') return null;
+      if (!/\.xlsx$/i.test(name) && mimeType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return null;
+      if (!storagePath.includes('/outputs/')) return null;
+      return {
+        attachmentId,
+        name,
+        mimeType: mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        purpose: 'tool_output',
+        storageBucket,
+        storagePath,
+        url: '',
+      };
+    })
+    .filter((item): item is MessageAttachment => !!item);
 }
 
 function documentStageLabel(
@@ -397,6 +426,9 @@ export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEve
   if (eventType === 'sources') {
     return { type: 'sources', sources: asKnowledgeSources(payload.sources) };
   }
+  if (eventType === 'artifacts') {
+    return { type: 'artifacts', attachments: asToolOutputAttachments(payload.artifacts) };
+  }
   if (eventType === 'status') {
     const allowedStages = new Set<AssistantRuntimeStage>([
       'connecting',
@@ -454,6 +486,7 @@ export async function streamAssistantResponse(input: {
   timeoutMs?: number;
   onText?: (fullText: string) => void;
   onSources?: (sources: AssistantKnowledgeSource[]) => void;
+  onArtifacts?: (attachments: MessageAttachment[]) => void;
   onStatus?: (stage: AssistantRuntimeStage, label?: string) => void;
 }): Promise<AssistantRuntimeResult> {
   const env = runtimeEnv();
@@ -505,6 +538,7 @@ export async function streamAssistantResponse(input: {
 
   let fullText = '';
   let sources: AssistantKnowledgeSource[] = [];
+  let attachments: MessageAttachment[] = [];
   let conversationId: string | undefined;
   let model: string | undefined;
   let provider: 'openai' | 'gemini' | undefined;
@@ -580,6 +614,11 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'sources') {
         sources = parsed.sources;
         input.onSources?.(sources);
+        return;
+      }
+      if (parsed.type === 'artifacts') {
+        attachments = parsed.attachments;
+        input.onArtifacts?.(attachments);
         return;
       }
       if (parsed.type === 'status') {
@@ -793,6 +832,7 @@ export async function streamAssistantResponse(input: {
       provider,
       fallbackUsed,
       usage,
+      attachments,
       workSummary: runtimeWorkSummary || presentation.workSummary,
       questions: presentation.questions,
       actionSummary: presentation.actionSummary,
