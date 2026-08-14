@@ -55,8 +55,20 @@ const requireAttachment = (
 export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
+    name: 'list_spreadsheet_attachments',
+    description: 'List recent XLSX action attachments available in the active workspace. Use this first when a spreadsheet task refers to attached files so you can obtain the real attachment IDs and names before inspecting or editing them. The result is execution context, not evidence or a citation.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
     name: 'inspect_spreadsheet_file',
-    description: 'Inspect an attached XLSX action file before editing it. Returns worksheet names, dimensions, headers and bounded sample rows. This is execution context, not a citation source.',
+    description: 'Inspect one XLSX action attachment before editing it. Use an attachmentId returned by list_spreadsheet_attachments. Returns worksheet names, dimensions, headers and bounded sample rows. This is execution context, not a citation source.',
     strict: true,
     parameters: {
       type: 'object',
@@ -71,7 +83,7 @@ export const ASSISTANT_EXECUTION_TOOLS = [
   {
     type: 'function',
     name: 'sync_spreadsheet_with_jira_export',
-    description: 'Update a target XLSX from an attached Jira-export XLSX using explicit column mappings. Preserves existing workbook structure/styles where possible, writes completion status and latest sprint, validates the generated workbook, and returns a private output artifact.',
+    description: 'Update a target XLSX from an attached Jira-export XLSX using explicit column mappings. First list the attachments and inspect both files. Preserves existing workbook structure/styles where possible, writes completion status and latest sprint, validates the generated workbook, and returns a private signed output artifact link.',
     strict: true,
     parameters: {
       type: 'object',
@@ -103,7 +115,9 @@ export const ASSISTANT_EXECUTION_TOOLS = [
 ] as const
 
 export const isExecutionTool = (toolName: string) => (
-  toolName === 'inspect_spreadsheet_file' || toolName === 'sync_spreadsheet_with_jira_export'
+  toolName === 'list_spreadsheet_attachments'
+  || toolName === 'inspect_spreadsheet_file'
+  || toolName === 'sync_spreadsheet_with_jira_export'
 )
 
 export async function executeExecutionTool(input: {
@@ -113,6 +127,20 @@ export async function executeExecutionTool(input: {
   attachments: AssistantExecutionAttachmentRef[]
   invoke: (request: SpreadsheetExecutionRequest) => Promise<Record<string, unknown>>
 }): Promise<ExecutionToolResult> {
+  if (input.toolName === 'list_spreadsheet_attachments') {
+    const records = input.attachments.map((attachment, index) => ({
+      position: index + 1,
+      attachmentId: attachment.attachmentId,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+    }))
+    return {
+      output: JSON.stringify({ securityNotice: EXECUTION_NOTICE, tool: input.toolName, records }),
+      artifacts: [],
+      summary: { executionOnly: true, citationReady: false, operation: 'list', resultCount: records.length },
+    }
+  }
+
   if (input.toolName === 'inspect_spreadsheet_file') {
     const attachment = requireAttachment(input.args.attachmentId, input.attachments)
     const result = await input.invoke({
