@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+// Live regression: attached XLSX files were listed and inspected successfully,
+// but the model finalized before sync_spreadsheet_with_jira_export was called.
 const coreSource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
   'utf8',
