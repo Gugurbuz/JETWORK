@@ -2,6 +2,8 @@
 // Canonical source lives under /skills/**/SKILL.md. Keep skill text procedural:
 // skills are trusted JetWork workflow instructions, never enterprise evidence.
 
+import { JETWORK_WAVE1_SKILLS } from './skillRegistry.wave1.ts'
+
 export interface JetWorkSkillRecord {
   key: string
   title: string
@@ -13,7 +15,7 @@ export interface JetWorkSkillRecord {
   markdown: string
 }
 
-export const JETWORK_SKILLS: readonly JetWorkSkillRecord[] = [
+const CORE_SKILLS: readonly JetWorkSkillRecord[] = [
   {
     key: 'spreadsheet/inspect',
     title: 'Spreadsheet inspect',
@@ -26,13 +28,6 @@ export const JETWORK_SKILLS: readonly JetWorkSkillRecord[] = [
 
 ## Purpose
 E-tablo üzerinde işlem yapmadan önce gerçek workbook yapısını güvenli biçimde anlamak.
-
-## Use when
-- Bir e-tablo düzenlenecek veya analiz edilecekse.
-- Kolon adları, sheet yapısı veya gerçek veri tipleri bilinmiyorsa.
-
-## Do not use when
-- Kullanıcı yalnızca düz metin tablosu verdiğinde.
 
 ## Procedure
 1. Workbook içindeki tüm sheet adlarını ve kullanılan aralıkları belirle.
@@ -193,4 +188,9 @@ Jira exportundaki sprint geçmişinden hedef rapora yazılacak tek ve güvenilir
 ## Failure handling
 Sıralama bilgisi güvenilir değilse belirsiz adayları otomatik seçme.`,
   },
-] as const
+]
+
+export const JETWORK_SKILLS: readonly JetWorkSkillRecord[] = [
+  ...CORE_SKILLS,
+  ...JETWORK_WAVE1_SKILLS,
+]
