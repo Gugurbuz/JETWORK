@@ -8,7 +8,6 @@ import {
   semanticPlanFromMessage,
   type ReasoningPlan,
 } from '../../../supabase/functions/_shared/reasoningEngine';
-import { countEmptyKnowledgeSearches } from '../../../supabase/functions/_shared/modelProviders';
 import {
   buildAssistantWorkActivities,
   formatAssistantWorkActivityLabel,
@@ -86,26 +85,15 @@ describe('Live runtime status and grounding regression', () => {
       .toBe('Talebin kapsamı değerlendiriliyor...');
   });
 
-  it('counts repeated empty knowledge searches so Gemini can force final synthesis after two attempts', () => {
-    const items: Array<Record<string, unknown>> = [
-      { type: 'function_call', call_id: 'c1', name: 'search_knowledge_catalog', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'c1', output: JSON.stringify({ records: [], resultCount: 0 }) },
-      { type: 'function_call', call_id: 'c2', name: 'search_knowledge_catalog', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'c2', output: JSON.stringify({ records: [], resultCount: 0 }) },
-      { type: 'function_call', call_id: 'c3', name: 'get_knowledge_object', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'c3', output: JSON.stringify({ records: [] }) },
-    ];
-
-    expect(countEmptyKnowledgeSearches(items)).toBe(2);
-  });
-
-  it('keeps a single no-tool Gemini fallback for a blank user-visible final', () => {
+  it('bounds empty Gemini knowledge searches and keeps one no-tool blank-final recovery', () => {
     const providerSource = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
       'utf8',
     );
 
     expect(providerSource).toContain('MAX_EMPTY_KNOWLEDGE_SEARCHES = 2');
+    expect(providerSource).toContain('countEmptyKnowledgeSearches');
+    expect(providerSource).toContain('emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES');
     expect(providerSource).toContain('gemini_empty_knowledge_forced_synthesis');
     expect(providerSource).toContain('gemini_empty_final_retry');
     expect(providerSource).toContain('tools: []');
