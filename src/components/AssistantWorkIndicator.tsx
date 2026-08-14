@@ -20,7 +20,7 @@ const ACTIVITY_PREFIX = /^(?:[•*\-–—]|\d+[.)])\s*/u;
 const MARKDOWN_DECORATION = /[*#`_]/gu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
-const LOW_VALUE_ACTIVITY = /^(?:asistana bağlanılıyor|çalışılıyor)\.{0,3}$/iu;
+const LOW_VALUE_ACTIVITY = /^çalışılıyor\.{0,3}$/iu;
 
 export interface AssistantWorkActivity {
   label: string;
@@ -59,6 +59,10 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
   const normalized = normalizeActivity(value);
   if (!normalized) return '';
 
+  if (/^asistana bağlanılıyor/iu.test(normalized)) {
+    return completed ? 'Talep işleme alındı' : 'Talebin kapsamı değerlendiriliyor...';
+  }
+
   if (/^talep sınıflandırıldı/iu.test(normalized)) {
     return normalized.replace(/^talep sınıflandırıldı/iu, 'Talep türü değerlendirildi');
   }
@@ -74,6 +78,18 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
     return planReadyMatch[1]
       ? `Çalışma adımları belirlendi: ${planReadyMatch[1]}`
       : 'Çalışma adımları belirlendi';
+  }
+
+  if (/^kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(normalized)) {
+    return completed
+      ? 'Bulguların yeterliliği ve tutarlılığı kontrol edildi'
+      : 'Bulguların yeterliliği ve tutarlılığı kontrol ediliyor...';
+  }
+
+  if (/^sentez sırasında ek teknik kanıt isteniyor/iu.test(normalized)) {
+    return completed
+      ? 'Ek teknik kanıt arandı'
+      : 'Bilgi bankasında ek teknik kanıt aranıyor...';
   }
 
   if (/^kanıtlar ve doğrulama sonucu sentezleniyor/iu.test(normalized)) {
