@@ -50,7 +50,10 @@ export async function executeSpreadsheetAssistantTool(
 ): Promise<AssistantToolExecution> {
   if (!isExecutionTool(toolName)) throw new Error(`Unknown spreadsheet execution tool: ${toolName}`)
   const attachments = await loadWorkspaceExecutionAttachments(client, workspaceId)
-  if (!attachments.length) throw new Error('Bu çalışma alanında işlenebilir XLSX eki bulunamadı.')
+  const requiresExistingAttachment = toolName !== 'create_spreadsheet_file'
+  if (requiresExistingAttachment && !attachments.length) {
+    throw new Error('Bu çalışma alanında işlenebilir XLSX eki bulunamadı.')
+  }
 
   const execution = await executeExecutionTool({
     toolName,

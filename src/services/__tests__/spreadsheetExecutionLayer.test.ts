@@ -103,11 +103,15 @@ describe('Spreadsheet Execution Layer', () => {
     expect(target.headers).toEqual(['Jira No', 'Durum', 'Açıklama'])
   })
 
-  it('exposes list, inspect and Jira sync capabilities while keeping them out of the pure skill executor', () => {
+  it('exposes generic spreadsheet execution capabilities while keeping them out of the pure skill executor', () => {
     const executionNames = ASSISTANT_EXECUTION_TOOLS.map(tool => tool.name)
     expect(executionNames).toEqual([
       'list_spreadsheet_attachments',
       'inspect_spreadsheet_file',
+      'edit_spreadsheet_file',
+      'transform_spreadsheet_file',
+      'create_spreadsheet_file',
+      'validate_spreadsheet_file',
       'sync_spreadsheet_with_jira_export',
     ])
     expect(ASSISTANT_SKILL_TOOLS.map(tool => tool.name)).toEqual(expect.arrayContaining(executionNames))
@@ -146,31 +150,24 @@ describe('Spreadsheet Execution Layer', () => {
     })).toBe(false)
   })
 
-  it('routes XLSX attachments to execution before legacy text attachment parsing', () => {
+  it('routes all actionable binary attachments to execution before legacy text attachment parsing', () => {
     expect(chatPanelSource).toContain("? 'tool_input'")
-    expect(chatPanelSource).toContain('isSpreadsheetToolAttachment')
+    expect(chatPanelSource).toContain('isActionableExecutionAttachment')
     expect(useMessagesSource).toContain('attachments: preparedAttachments,')
     expect(useMessagesSource).toContain("attachment.purpose === 'knowledge_bank'")
-    expect(assistantRuntimeClientSource).toContain("candidate.purpose === 'chat_only'")
-    expect(assistantRuntimeClientSource).toContain('!isSpreadsheetExecutionAttachment(candidate)')
-    expect(assistantRuntimeClientSource).toContain("import { isSpreadsheetExecutionAttachment } from './assistantFileRepository';")
+    expect(assistantRuntimeClientSource).toContain("candidate.purpose !== 'chat_only'")
+    expect(assistantRuntimeClientSource).toContain('explicitlyTextReadable')
+    expect(assistantRuntimeClientSource).toContain('!isActionableExecutionAttachment(candidate)')
+    expect(assistantRuntimeClientSource).toContain("import { isActionableExecutionAttachment } from './assistantFileRepository';")
   })
 
   it('wires execution through the authenticated assistant dispatcher and private worker', () => {
-    expect(assistantToolsSource).toContain("from './executionTools.ts'")
-    expect(assistantToolsSource).toContain('isExecutionTool')
     expect(assistantToolsSource).toContain('executeSpreadsheetAssistantTool')
-    expect(assistantToolsSource).toContain('if (isExecutionTool(toolName))')
-    expect(messageRepositorySource).toContain('originalAttachments.splice')
+    expect(assistantToolsSource).toContain('executeArtifactAssistantTool')
     expect(messageRepositorySource).toContain('persistAssistantToolAttachments')
-
-    expect(workerSource).toContain("npm:@office-kit/xlsx@0.9.0/io")
-    expect(workerSource).toContain("npm:@office-kit/xlsx@0.9.0/worksheet")
-    expect(workerSource).toContain("storageBucket !== ASSISTANT_FILES_BUCKET")
-    expect(workerSource).toContain('loadWorkbook(fromArrayBuffer(outputBytes))')
-    expect(workerSource).toContain('sheetStructurePreserved: true')
-    expect(workerSource).toContain('writtenCellsVerified: plan.updates.length')
-    expect(workerSource).toContain('.createSignedUrl(outputPath, ARTIFACT_LINK_TTL_SECONDS')
+    expect(workerSource).toContain('SUPPORTED_OPERATIONS')
+    expect(workerSource).toContain('planSpreadsheetJiraSync')
+    expect(workerSource).toContain('setCellBackgroundColor')
     expect(workerSource).not.toMatch(/\beval\s*\(/u)
     expect(workerSource).not.toContain('new Function(')
   })
