@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
 import * as mammoth from 'mammoth';
-import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database, CloudOff, Loader2 } from 'lucide-react';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database, CloudOff, Loader2, Download } from 'lucide-react';
 import { Message, MessageAttachment, MessageSendOptions, Question } from '../types';
 import { cn, stringToColor } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -15,6 +15,8 @@ import { KnowledgeBankModal } from './KnowledgeBankModal';
 import { JetWorkLogo } from './JetWorkLogo';
 import { AssistantWorkIndicator } from './AssistantWorkIndicator';
 import { splitAssistantSources } from '../services/assistantSources';
+import { createAssistantFileDownloadUrl } from '../services/assistantFileRepository';
+import { toast } from 'sonner';
 
 const contextualQuestionOptions = (question: Question): string[] => {
   return (question.options || [])
@@ -249,6 +251,21 @@ const MessageItem = memo(({
   const showsWorkIndicator = msg.role === 'model'
     && (Boolean(msg.isTyping) || Boolean(msg.thinkingText) || msg.thinkingTime !== undefined);
   const isWorkOnly = msg.role === 'model' && Boolean(msg.isTyping) && !msg.text;
+  const downloadToolOutput = async (attachment: MessageAttachment) => {
+    try {
+      const url = attachment.url || await createAssistantFileDownloadUrl(attachment);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = attachment.name || 'jetwork-output.xlsx';
+      anchor.rel = 'noopener noreferrer';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (error) {
+      console.error('Generated file download failed:', error);
+      toast.error('Dosya indirme bağlantısı oluşturulamadı. Lütfen tekrar deneyin.');
+    }
+  };
 
   return (
     <motion.div 
@@ -360,6 +377,23 @@ const MessageItem = memo(({
                   {msg.attachments.map((att, idx) => (
                     att.mimeType.startsWith('image/') ? (
                       <img key={idx} src={att.url} alt="uploaded" className="max-w-[200px] max-h-[200px] object-cover border border-theme-border/50 rounded-md shadow-sm" />
+                    ) : att.purpose === 'tool_output' && att.storagePath ? (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => void downloadToolOutput(att)}
+                        className="group/file flex max-w-[320px] items-center gap-2 overflow-hidden rounded-lg border border-theme-primary/25 bg-theme-surface p-2.5 text-left shadow-sm transition-colors hover:border-theme-primary/60 hover:bg-theme-primary/5"
+                        title={`${att.name || 'XLSX çıktı'} dosyasını indir`}
+                      >
+                        <FileText size={18} className="shrink-0 text-theme-primary" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-theme-primary">XLSX Çıktısı</div>
+                          <div className="truncate text-xs font-medium text-theme-text">{att.name || 'jetwork-output.xlsx'}</div>
+                        </div>
+                        <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-theme-text-muted group-hover/file:text-theme-primary">
+                          <Download size={13} /> İndir
+                        </span>
+                      </button>
                     ) : (
                       <div key={idx} className="flex items-center gap-2 p-2 bg-theme-surface border border-theme-border/50 rounded-md shadow-sm overflow-hidden max-w-[240px]">
                         <FileText size={16} className="text-theme-primary shrink-0" />
