@@ -5,3 +5,5 @@ JetWork skill runtime foundation and Spreadsheet Execution Layer were merged thr
 This documentation-only marker triggers the standard Vercel Git production deployment after the merge webhook was blocked by the Hobby build-rate limit. It does not alter application runtime behavior.
 
 A single retry was issued after the first rolling 32-build/hour slot became available.
+
+BA Analysis Contract v4 received a documentation-only production retry after its first final-SHA Vercel deployment was rejected by the same rolling build-rate limit. Runtime behavior remains the one committed before this marker.
