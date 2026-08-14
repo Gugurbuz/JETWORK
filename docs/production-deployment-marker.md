@@ -7,3 +7,5 @@ This documentation-only marker triggers the standard Vercel Git production deplo
 A single retry was issued after the first rolling 32-build/hour slot became available.
 
 Automation retry issued after the build-rate window cleared on 2026-08-14.
+
+PR #122 secure spreadsheet output-card frontend deployment triggered on 2026-08-14.
