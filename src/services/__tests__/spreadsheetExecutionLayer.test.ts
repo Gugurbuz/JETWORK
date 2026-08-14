@@ -27,6 +27,18 @@ const messageRepositorySource = readFileSync(
   new URL('../messageRepository.ts', import.meta.url),
   'utf8',
 )
+const chatPanelSource = readFileSync(
+  new URL('../../components/ChatPanel.tsx', import.meta.url),
+  'utf8',
+)
+const useMessagesSource = readFileSync(
+  new URL('../../hooks/useMessages.ts', import.meta.url),
+  'utf8',
+)
+const assistantRuntimeClientSource = readFileSync(
+  new URL('../assistantRuntimeClient.ts', import.meta.url),
+  'utf8',
+)
 const migrationSource = readFileSync(
   new URL('../../../supabase/migrations/20260814091412_create_assistant_files_bucket.sql', import.meta.url),
   'utf8',
@@ -132,6 +144,16 @@ describe('Spreadsheet Execution Layer', () => {
       sources: [],
       summary: result.summary,
     })).toBe(false)
+  })
+
+  it('routes XLSX attachments to execution before legacy text attachment parsing', () => {
+    expect(chatPanelSource).toContain("? 'tool_input'")
+    expect(chatPanelSource).toContain('isSpreadsheetToolAttachment')
+    expect(useMessagesSource).toContain('attachments: preparedAttachments,')
+    expect(useMessagesSource).toContain("attachment.purpose === 'knowledge_bank'")
+    expect(assistantRuntimeClientSource).toContain("candidate.purpose === 'chat_only'")
+    expect(assistantRuntimeClientSource).toContain('!isSpreadsheetExecutionAttachment(candidate)')
+    expect(assistantRuntimeClientSource).toContain("import { isSpreadsheetExecutionAttachment } from './assistantFileRepository';")
   })
 
   it('wires execution through the authenticated assistant dispatcher and private worker', () => {

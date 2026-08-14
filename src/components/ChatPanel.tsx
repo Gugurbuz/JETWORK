@@ -173,7 +173,18 @@ const supportsKnowledgeBank = (attachment: Pick<MessageAttachment, 'name' | 'mim
   KNOWLEDGE_ATTACHMENT_EXTENSIONS.test(attachment.name || '')
   && KNOWLEDGE_ATTACHMENT_MIME_TYPES.has(attachment.mimeType || '');
 
-const defaultAttachmentPurpose = (): MessageAttachment['purpose'] => 'chat_only';
+const isSpreadsheetToolAttachment = (attachment: Pick<MessageAttachment, 'name' | 'mimeType'>): boolean => (
+  /\.xlsx$/i.test(attachment.name || '')
+  || attachment.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+);
+
+const defaultAttachmentPurpose = (
+  attachment: Pick<MessageAttachment, 'name' | 'mimeType'>,
+): MessageAttachment['purpose'] => (
+  FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && isSpreadsheetToolAttachment(attachment)
+    ? 'tool_input'
+    : 'chat_only'
+);
 
 const ingestionLabel = (attachment: MessageAttachment): string | null => {
   const ingestion = attachment.ingestion;
@@ -770,7 +781,7 @@ export function ChatPanel({
             name: file.name,
             file: file,
             attachmentId: crypto.randomUUID(),
-            purpose: defaultAttachmentPurpose(),
+            purpose: defaultAttachmentPurpose({ name: file.name, mimeType: file.type }),
           }]);
         };
         reader.readAsDataURL(file);
@@ -795,6 +806,7 @@ export function ChatPanel({
     const target = selectedAttachments[index];
     if (
       target?.purpose === 'knowledge_bank'
+      && !isSpreadsheetToolAttachment(target)
       && selectedAttachments.filter(attachment => attachment.purpose === 'chat_only').length
         >= MAX_CHAT_ATTACHMENTS
     ) {
@@ -805,7 +817,9 @@ export function ChatPanel({
       attachmentIndex === index
         ? {
             ...attachment,
-            purpose: attachment.purpose === 'knowledge_bank' ? 'chat_only' : 'knowledge_bank',
+            purpose: attachment.purpose === 'knowledge_bank'
+              ? (isSpreadsheetToolAttachment(attachment) ? 'tool_input' : 'chat_only')
+              : 'knowledge_bank',
           }
         : attachment
     )));
@@ -1003,7 +1017,7 @@ export function ChatPanel({
             name: file.name,
             file: file,
             attachmentId: crypto.randomUUID(),
-            purpose: defaultAttachmentPurpose(),
+            purpose: defaultAttachmentPurpose({ name: file.name, mimeType: file.type }),
           }]);
         };
         reader.readAsDataURL(file);
