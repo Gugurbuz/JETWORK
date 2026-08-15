@@ -48,6 +48,7 @@ const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const DEFAULT_MODEL = 'gpt-5.6-sol'
 const AUTO_MODEL = 'auto'
 const ENGINE_VERSION = 'reasoning-engine-v2'
+const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const ALLOWED_MODELS = new Set([AUTO_MODEL, ...OPENAI_MODELS, ...GEMINI_MODELS])
 const MAX_HISTORY_CHARACTERS = 36_000
 const MAX_CHAT_ATTACHMENTS = 3
@@ -433,6 +434,32 @@ const extractWebSourcesFromOutput = (output: Array<Record<string, unknown>>): Re
   return uniqueSources(sources)
 }
 
+const extractGeminiWebSources = (response: Record<string, unknown>): ReasoningSourceRef[] => {
+  const rawSources = Array.isArray(response.webSources) ? response.webSources : []
+  const sources: ReasoningSourceRef[] = []
+  for (const raw of rawSources) {
+    if (!raw || typeof raw !== 'object') continue
+    const candidate = raw as Record<string, unknown>
+    const url = String(candidate.url || '').trim()
+    if (!/^https?:\/\//i.test(url)) continue
+    const title = String(candidate.title || '').trim()
+    sources.push({
+      sourceId: url.slice(0, 2_000),
+      sourceName: webSourceName(url, title),
+      title: title.slice(0, 500) || undefined,
+      url: url.slice(0, 2_000),
+      sourceType: 'web',
+    })
+  }
+  return uniqueSources(sources)
+}
+
+const geminiWebSearchQueries = (response: Record<string, unknown>): string[] => (
+  Array.isArray(response.webSearchQueries)
+    ? [...new Set(response.webSearchQueries.map(query => String(query || '').trim()).filter(Boolean))].slice(0, 12)
+    : []
+)
+
 serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
@@ -612,15 +639,12 @@ serve(async req => {
         return 0
       }
       let turnCompleted = false
-      // Once a turn is durably claimed, transport disconnects must not cancel the
-      // reasoning run. The gateway may lose its HTTP client while the core still
-      // needs to finish and persist the turn. RUN_TIMEOUT_MS remains the lifecycle guard.
       const runController = new AbortController()
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
 
       const emitStatus = (stage: string, label: string) => {
         trace.push({ stage, label, at: new Date().toISOString() })
-        if (trace.length > 24) trace.shift()
+        if (trace.length > 32) trace.shift()
         sendEvent(controller, encoder, 'status', { type: 'status', stage, label })
       }
       const emitGeneratedArtifacts = () => {
@@ -772,9 +796,7 @@ serve(async req => {
             durationMs: Math.round(performance.now() - startedAt),
             errorMessage: hasVerifiableWebEvidence || !required ? undefined : 'Required web research returned no verifiable URL sources.',
           })
-          if (required && !hasVerifiableWebEvidence) {
-            throw new Error('Required web research returned no verifiable URL sources.')
-          }
+          if (required && !hasVerifiableWebEvidence) throw new Error('Required web research returned no verifiable URL sources.')
           return hasVerifiableWebEvidence
         } catch (webError) {
           if (!/Required web research returned no verifiable URL sources/i.test(errorMessage(webError))) {
@@ -807,6 +829,10 @@ serve(async req => {
           route, signal: runController.signal,
         })
         const plan = planned.plan
+        const geminiNativeWebPlanned = configuredProvider === 'gemini'
+          && String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)
+        let knowledgePreflightAttempted = false
+        let geminiWebSearchQueriesUsed: string[] = []
         usage = addUsage(usage, planned.usage); reasoningFallbackUsed ||= modelReasoningUsesOpenAi && planned.plannerFallback
         await patchReasoningRun(adminClient, reasoningRunId, { plan, fallback_used: reasoningFallbackUsed, execution_trace: trace })
         emitStatus('planning', `Plan hazır: ${plan.steps.length} operasyonel adım`)
@@ -814,6 +840,7 @@ serve(async req => {
         if (plan.knowledgeRequired && plan.evidenceQueries.length > 0) {
           emitStatus('searching_knowledge', 'JetWork Global + proje bilgi bankasında kanıt aranıyor...')
           await collectKnowledge(plan.evidenceQueries, plan, 'preflight')
+          knowledgePreflightAttempted = true
           emitStatus('searching_knowledge', `${sources.filter(source => source.sourceType !== 'web').length} kurumsal kaynak izi toplandı`)
           sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
         }
@@ -825,7 +852,11 @@ serve(async req => {
           sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
         }
 
-        if (plan.verificationRequired) {
+        if (geminiNativeWebPlanned) {
+          emitStatus('searching_web', 'Gemini ile resmi web kaynakları araştırılıyor...')
+        }
+
+        if (plan.verificationRequired && !geminiNativeWebPlanned) {
           emitStatus('verifying', 'Kanıt yeterliliği ve çelişkiler kontrol ediliyor...')
           const checked = await verifyReasoningEvidence({
             apiKey: reasoningApiKey, model: reasoningModel, plan, evidence, signal: runController.signal,
@@ -906,10 +937,7 @@ serve(async req => {
               deterministic_enumeration_records: deterministicEnumeration.collectedCount,
               deterministic_enumeration_complete: deterministicEnumeration.complete ? 1 : 0,
             })
-            const stateItems = compactConversationState([
-              ...baseItems,
-              { role: 'assistant', content: deterministicText },
-            ])
+            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: deterministicText }])
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
               p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
               p_expected_revision: conversationRevision, p_state_items: stateItems,
@@ -917,27 +945,18 @@ serve(async req => {
             })
             if (completionError) throw completionError
             turnCompleted = true
-            emitStatus('answering', deterministicEnumeration.complete
-              ? 'Liste sonuçları deterministik olarak tamamlandı'
-              : 'Kısmi liste sonuçları deterministik olarak hazırlandı')
+            emitStatus('answering', deterministicEnumeration.complete ? 'Liste sonuçları deterministik olarak tamamlandı' : 'Kısmi liste sonuçları deterministik olarak hazırlandı')
             await patchReasoningRun(adminClient, reasoningRunId, {
               plan, verification: verification || {}, execution_trace: trace,
               evidence_summary: {
-                requestedModel,
-                configuredModel,
-                responseModel,
-                provider: activeProvider,
-                evidenceItems: evidence.length,
-                sources: sources.length,
+                requestedModel, configuredModel, responseModel, provider: activeProvider,
+                evidenceItems: evidence.length, sources: sources.length,
                 knowledgeSources: sources.filter(source => source.sourceType !== 'web').length,
                 webSources: sources.filter(source => source.sourceType === 'web').length,
-                skillToolCalls,
-                loadedSkills: [...loadedSkillKeys],
+                skillToolCalls, loadedSkills: [...loadedSkillKeys],
                 deterministicEnumeration: {
-                  totalCount: deterministicEnumeration.totalCount,
-                  collectedCount: deterministicEnumeration.collectedCount,
-                  pageCount: deterministicEnumeration.pageCount,
-                  complete: deterministicEnumeration.complete,
+                  totalCount: deterministicEnumeration.totalCount, collectedCount: deterministicEnumeration.collectedCount,
+                  pageCount: deterministicEnumeration.pageCount, complete: deterministicEnumeration.complete,
                   nextCursor: deterministicEnumeration.nextCursor,
                 },
               },
@@ -949,21 +968,33 @@ serve(async req => {
             sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
             sendEvent(controller, encoder, 'completed', {
               type: 'completed', conversationId: conversation.id, model: responseModel, provider: activeProvider,
-              fallbackUsed: providerFallbackUsed, usage, reasoningEngine: ENGINE_VERSION,
-              deterministicEnumeration: true,
+              fallbackUsed: providerFallbackUsed, usage, reasoningEngine: ENGINE_VERSION, deterministicEnumeration: true,
             })
             controller.enqueue(encoder.encode('data: [DONE]\n\n')); controller.close(); return
           }
 
           let roundText = ''
+          let roundTextStreamed = false
+          let answerStreamingStatusEmitted = false
           const finalInstruction = mustSynthesize
             ? 'Araştırma bütçesi tamamlandı. Yeni araç çağrısı yapmadan mevcut kanıtlarla dürüst nihai yanıtı üret; kanıt eksikse bunu açıkça belirt.'
             : ''
+          const providerRoundStartedAt = performance.now()
 
           const requestActiveProvider = async () => {
-            const skillToolsEnabled = !mustSynthesize
-            const knowledgeToolsEnabled = !mustSynthesize && plan.knowledgeRequired
+            const skillToolsEnabled = !mustSynthesize && plan.intent !== 'research'
+            const knowledgeToolsEnabled = !mustSynthesize
+              && plan.knowledgeRequired
+              && !(geminiNativeWebPlanned && knowledgePreflightAttempted && sources.filter(source => source.sourceType !== 'web').length === 0)
             const providerWebEnabled = !mustSynthesize && plan.webMode !== 'none'
+            const canLiveStreamProviderText = activeProvider === 'gemini'
+              && geminiNativeWebPlanned
+              && plan.enterpriseGroundingRequired !== true
+              && plan.intent !== 'sap_diagnosis'
+              && !artifactMutationRequested
+              && !spreadsheetSyncRequested
+              && !spreadsheetMutationRequested
+              && !spreadsheetCreateRequested
 
             if (activeProvider === 'gemini') {
               const tools: Array<Record<string, unknown>> = []
@@ -973,19 +1004,28 @@ serve(async req => {
                 apiKey: String(geminiApiKey), model: activeModel,
                 instructions: [prompt.prompt_text, synthesisInstruction, finalInstruction].filter(Boolean).join('\n\n'),
                 items: runItems, tools,
-                allowTools: tools.length > 0 || providerWebEnabled,
-                allowProviderWeb: providerWebEnabled,
+                allowTools: tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned,
+                allowProviderWeb: providerWebEnabled || geminiNativeWebPlanned,
                 maxOutputTokens: MAX_OUTPUT_TOKENS,
-                onText: delta => { roundText += delta }, signal: runController.signal,
+                onText: delta => {
+                  roundText += delta
+                  if (canLiveStreamProviderText && delta) {
+                    if (!answerStreamingStatusEmitted) {
+                      answerStreamingStatusEmitted = true
+                      emitStatus('answering', 'Yanıt oluşturuluyor...')
+                    }
+                    roundTextStreamed = true
+                    sendEvent(controller, encoder, 'text_delta', { type: 'text_delta', delta })
+                  }
+                },
+                signal: runController.signal,
               })
             }
 
             const tools: Array<Record<string, unknown>> = []
             if (skillToolsEnabled) tools.push(...(ASSISTANT_SKILL_TOOLS as unknown as Array<Record<string, unknown>>))
             if (knowledgeToolsEnabled) tools.push(...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as Array<Record<string, unknown>>))
-            if (providerWebEnabled) tools.push({
-              type: 'web_search', search_context_size: plan.complexity === 'high' ? 'high' : 'medium',
-            })
+            if (providerWebEnabled) tools.push({ type: 'web_search', search_context_size: plan.complexity === 'high' ? 'high' : 'medium' })
             return await requestOpenAiResponse(String(openAiApiKey), {
               model: activeModel, instructions: prompt.prompt_text,
               input: mustSynthesize
@@ -1004,17 +1044,45 @@ serve(async req => {
             response = await requestActiveProvider()
           } catch (providerError) {
             if (requestedModel !== AUTO_MODEL || activeProvider !== 'openai' || !geminiApiKey || runController.signal.aborted) throw providerError
-            activeProvider = 'gemini'; activeModel = DEFAULT_GEMINI_MODEL; providerFallbackUsed = true; roundText = ''
+            activeProvider = 'gemini'; activeModel = DEFAULT_GEMINI_MODEL; providerFallbackUsed = true; roundText = ''; roundTextStreamed = false
             emitStatus('planning', 'OpenAI sağlayıcısı başarısız oldu; yedek modele kontrollü geçiş yapılıyor...')
             response = await requestActiveProvider()
           }
 
           usage = addUsage(usage, response.usage); responseModel = response.model || responseModel
           const output = response.output || []
-          const finalWebSources = activeProvider === 'openai' ? extractWebSourcesFromOutput(output) : []
+          const finalWebSources = activeProvider === 'openai'
+            ? extractWebSourcesFromOutput(output)
+            : extractGeminiWebSources(response as Record<string, unknown>)
           if (finalWebSources.length) {
-            webUsed = true; sources = uniqueSources([...sources, ...finalWebSources]); sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
+            const wasWebUsed = webUsed
+            webUsed = true
+            sources = uniqueSources([...sources, ...finalWebSources])
+            if (activeProvider === 'gemini') {
+              geminiWebSearchQueriesUsed = geminiWebSearchQueries(response as Record<string, unknown>)
+              if (!wasWebUsed) totalToolCalls += 1
+              usage = addUsage(usage, {
+                gemini_native_web_used: 1,
+                gemini_native_web_source_count: finalWebSources.length,
+                gemini_native_web_search_count: Math.max(1, geminiWebSearchQueriesUsed.length),
+              })
+              await logToolRun(adminClient, {
+                conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
+                promptVersionId: prompt.id, toolName: 'gemini_google_search', callId: `provider:gemini-web:${crypto.randomUUID()}`,
+                arguments: { queries: geminiWebSearchQueriesUsed },
+                resultSummary: {
+                  searchCount: Math.max(1, geminiWebSearchQueriesUsed.length), sourceCount: finalWebSources.length,
+                  provider: 'gemini', nativeProviderTool: true, engine: ENGINE_VERSION,
+                },
+                sourceRefs: finalWebSources, status: 'completed',
+                durationMs: Math.round(performance.now() - providerRoundStartedAt),
+              })
+              emitStatus('searching_web', `${finalWebSources.length} web kaynağı toplandı`)
+              if (plan.verificationRequired) emitStatus('verifying', 'Google grounding kaynakları yanıtla eşleştirildi')
+            }
+            sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
           }
+
           const functionCalls = output.filter((item: Record<string, unknown>) => item.type === 'function_call')
           if (!functionCalls.length) {
             const spreadsheetAttachmentsAvailable = listedSpreadsheetAttachmentCount() > 0
@@ -1062,33 +1130,23 @@ serve(async req => {
               roundText = 'Excel dosyaları bulundu ve okundu ancak güncelleme aracı bu çalışmada tamamlanamadı. Aynı talebi tekrar gönderebilirsin; dosyaları yeniden yüklemene gerek yok.'
             }
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
-            const groundingCoverage = evaluateGroundedTechnicalClaims({
-              text: roundText,
-              plan,
-              sources,
-              toolResults: [...toolResultCache.values()],
-            })
+            const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()] })
             if (shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })) {
               console.warn('ASSISTANT_GROUNDING_COVERAGE_BLOCKED', JSON.stringify({
-                messageId,
-                unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
+                messageId, unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
                 messageTextMismatchCount: groundingCoverage.messageTextMismatches.length,
                 verifiedKnowledgeEvidence: groundingCoverage.verifiedKnowledgeEvidence,
               }))
               roundText = groundingFailureText()
               usage = addUsage(usage, {
-                grounding_fail_closed: 1,
-                grounding_claim_coverage_blocked: 1,
+                grounding_fail_closed: 1, grounding_claim_coverage_blocked: 1,
                 grounding_unsupported_identifiers: groundingCoverage.unsupportedIdentifiers.length,
                 grounding_message_text_mismatches: groundingCoverage.messageTextMismatches.length,
                 grounding_unverified_provider_text_discarded: 1,
               })
               emitStatus('verifying', 'Kanıt kapsamı dışında kalan teknik iddialar engellendi')
             }
-            const stateItems = compactConversationState([
-              ...baseItems,
-              { role: 'assistant', content: roundText },
-            ])
+            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: roundText }])
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
               p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
               p_expected_revision: conversationRevision, p_state_items: stateItems,
@@ -1100,16 +1158,12 @@ serve(async req => {
             await patchReasoningRun(adminClient, reasoningRunId, {
               plan, verification: verification || {}, execution_trace: trace,
               evidence_summary: {
-                requestedModel,
-                configuredModel,
-                responseModel,
-                provider: activeProvider,
-                evidenceItems: evidence.length,
-                sources: sources.length,
+                requestedModel, configuredModel, responseModel, provider: activeProvider,
+                evidenceItems: evidence.length, sources: sources.length,
                 knowledgeSources: sources.filter(source => source.sourceType !== 'web').length,
                 webSources: sources.filter(source => source.sourceType === 'web').length,
-                skillToolCalls,
-                loadedSkills: [...loadedSkillKeys],
+                webSearchQueries: geminiWebSearchQueriesUsed,
+                skillToolCalls, loadedSkills: [...loadedSkillKeys],
                 groundingCoverage: {
                   blocked: !groundingCoverage.ok,
                   unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
@@ -1120,7 +1174,7 @@ serve(async req => {
               fallback_used: providerFallbackUsed || reasoningFallbackUsed, status: 'completed', completed_at: new Date().toISOString(),
             })
             emitGeneratedArtifacts()
-            sendEvent(controller, encoder, 'text_delta', { type: 'text_delta', delta: roundText })
+            if (!roundTextStreamed) sendEvent(controller, encoder, 'text_delta', { type: 'text_delta', delta: roundText })
             sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
             sendEvent(controller, encoder, 'completed', {
               type: 'completed', conversationId: conversation.id, model: responseModel, provider: activeProvider,
@@ -1131,9 +1185,7 @@ serve(async req => {
 
           runItems.push(...output)
           const hasSkillCalls = functionCalls.some((call: Record<string, unknown>) => isSkillTool(cleanString(call.name, 120)))
-          emitStatus('synthesizing', hasSkillCalls
-            ? 'İlgili JetWork skill prosedürleri yükleniyor...'
-            : 'Sentez sırasında ek teknik kanıt isteniyor...')
+          emitStatus('synthesizing', hasSkillCalls ? 'İlgili JetWork skill prosedürleri yükleniyor...' : 'Sentez sırasında ek teknik kanıt isteniyor...')
           for (const call of functionCalls) {
             if (totalToolCalls >= MAX_TOOL_CALLS) {
               runItems.push({ type: 'function_call_output', call_id: String(call.call_id || ''), output: JSON.stringify({ error: 'TOOL_BUDGET_EXHAUSTED' }) })
@@ -1173,7 +1225,7 @@ serve(async req => {
           controller.enqueue(encoder.encode('data: [DONE]\n\n')); controller.close()
         } catch { /* caller disconnected */ }
       } finally {
-        clearTimeout(runTimeout); req.signal.removeEventListener('abort', abortRun)
+        clearTimeout(runTimeout)
       }
     }})
 
