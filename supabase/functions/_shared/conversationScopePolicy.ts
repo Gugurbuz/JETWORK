@@ -3,6 +3,7 @@ import type { PriorExecutionContext, SemanticContextMessage } from './semanticOr
 import { shouldResumeAssistantActiveOperation } from './operationState.ts'
 
 const MESSAGE_METHOD_PREFIX = '__jetwork_message_methods__'
+const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 
 const cleanText = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 const normalize = (value: string) => value
@@ -178,13 +179,16 @@ export const applyConversationScopeInventoryPolicy = (input: {
   const definitionIdentifier = definitionLookupIdentifier(input.currentMessage)
   if (definitionIdentifier) {
     const explicitWebResearch = explicitWebResearchRequested(input.currentMessage)
+    const providerNativeWeb = explicitWebResearch && plan.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER)
     plan.intent = explicitWebResearch ? 'research' : 'analysis'
     plan.complexity = explicitWebResearch ? 'medium' : 'low'
     plan.executionMode = explicitWebResearch ? 'research' : 'knowledge'
     plan.promptProfile = explicitWebResearch ? 'research' : 'knowledge'
     plan.knowledgeRequired = true
     plan.verificationRequired = true
-    plan.webMode = explicitWebResearch ? 'required' : 'none'
+    // A provider-native marker means Gemini itself owns web search. Keep webMode
+    // at none so the core cannot run the OpenAI preflight web executor.
+    plan.webMode = explicitWebResearch ? (providerNativeWeb ? 'none' : 'required') : 'none'
     plan.evidenceQueries = [
       definitionIdentifier,
       cleanText(input.currentMessage, 300),
@@ -198,7 +202,8 @@ export const applyConversationScopeInventoryPolicy = (input: {
         ? 'Kullanıcı açıkça araştırma istiyor. Kurumsal lookup bu talebi engellemesin; resmi veya güvenilir web kaynaklarında tanım, entegrasyon ve teknik API ayrıntılarını araştır.'
         : 'Bilgi bankasında doğrudan destekleyen kanıt yoksa doğrulanmış kurum içi tanım bulunamadığını açıkça söyle; Enerjisa, SAP veya başka bir kurumsal açılım uydurma.',
       'Kurumsal kanıt ile kamuya açık genel bilgiyi açıkça ayır; doğrulanmamış kurum özelini kesin gerçek gibi yazma.',
-    ].join('\n')
+      providerNativeWeb ? PROVIDER_WEB_CAPABILITY_MARKER : '',
+    ].filter(Boolean).join('\n')
     plan.steps = explicitWebResearch
       ? [
           {
