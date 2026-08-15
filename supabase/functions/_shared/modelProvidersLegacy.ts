@@ -11,6 +11,7 @@ export const GEMINI_MODELS = new Set([
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'
 const GEMINI_RETRY_DELAYS_MS = [350] as const
 const GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 45_000
 const GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000
@@ -168,7 +169,16 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
       callNames.set(callId, name)
       let args: Record<string, unknown> = {}
       try { args = JSON.parse(String(item.arguments || '{}')) } catch { args = {} }
-      contents.push({ role: 'model', parts: [{ functionCall: { id: callId, name, args } }] })
+      contents.push({
+        role: 'model',
+        parts: [{
+          functionCall: { id: callId, name, args },
+          // Gemini 3 requires a thought signature on function calls in the current
+          // turn. Real Gemini calls keep their original candidate content above;
+          // this fallback signature is only for deterministic/injected calls.
+          thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE,
+        }],
+      })
       continue
     }
     if (type === 'function_call_output') {
@@ -218,6 +228,9 @@ const isRetryableGeminiError = (error: unknown) => {
 }
 
 const isGeminiAttemptTimeout = (error: unknown) => /TimeoutError|provider attempt timed out/i.test(geminiErrorText(error))
+const streamedTextBeforeError = (error: unknown) => !!(
+  error && typeof error === 'object' && (error as Record<string, unknown>).__jetworkStreamedText === true
+)
 
 const delayWithAbort = async (milliseconds: number, signal?: AbortSignal) => {
   if (milliseconds <= 0) return
@@ -244,6 +257,7 @@ const generateGeminiAttempt = async (input: {
   contents: Array<Record<string, unknown>>
   config: Record<string, unknown>
   timeoutMs: number
+  onText: (text: string) => void
   parentSignal?: AbortSignal
 }) => {
   const controller = new AbortController()
@@ -251,11 +265,57 @@ const generateGeminiAttempt = async (input: {
   if (input.parentSignal?.aborted) controller.abort(input.parentSignal.reason)
   else input.parentSignal?.addEventListener('abort', onParentAbort, { once: true })
   const timeout = setTimeout(() => controller.abort(new DOMException('Gemini provider attempt timed out.', 'TimeoutError')), input.timeoutMs)
+  let emittedVisibleText = false
   try {
-    return await input.ai.models.generateContent({ model: input.model, contents: input.contents, config: { ...input.config, abortSignal: controller.signal } } as any)
+    const stream = await input.ai.models.generateContentStream({
+      model: input.model,
+      contents: input.contents,
+      config: { ...input.config, abortSignal: controller.signal },
+    } as any)
+
+    const accumulatedParts: Array<Record<string, unknown>> = []
+    let candidateMetadata: Record<string, unknown> = {}
+    let candidateRole = 'model'
+    let usageMetadata: Record<string, unknown> = {}
+    let responseId = ''
+
+    for await (const chunk of stream as any) {
+      responseId = String(chunk?.responseId || responseId)
+      if (chunk?.usageMetadata && typeof chunk.usageMetadata === 'object') {
+        usageMetadata = chunk.usageMetadata as Record<string, unknown>
+      }
+      const candidate = chunk?.candidates?.[0]
+      if (!candidate) continue
+      if (candidate?.groundingMetadata) candidateMetadata.groundingMetadata = candidate.groundingMetadata
+      if (candidate?.finishReason) candidateMetadata.finishReason = candidate.finishReason
+      if (candidate?.content?.role) candidateRole = String(candidate.content.role)
+      const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : []
+      for (const part of parts) {
+        if (!part || typeof part !== 'object') continue
+        accumulatedParts.push(part as Record<string, unknown>)
+        if (!(part as any)?.thought && typeof (part as any)?.text === 'string' && String((part as any).text)) {
+          emittedVisibleText = true
+          input.onText(String((part as any).text))
+        }
+      }
+    }
+
+    return {
+      responseId,
+      candidates: [{
+        ...candidateMetadata,
+        content: { role: candidateRole, parts: accumulatedParts },
+      }],
+      usageMetadata,
+    }
   } catch (error) {
+    if (emittedVisibleText && error && typeof error === 'object') {
+      try { (error as Record<string, unknown>).__jetworkStreamedText = true } catch { /* non-extensible provider error */ }
+    }
     if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === 'TimeoutError') {
-      throw controller.signal.reason
+      const timeoutError = controller.signal.reason as DOMException & { __jetworkStreamedText?: boolean }
+      if (emittedVisibleText) timeoutError.__jetworkStreamedText = true
+      throw timeoutError
     }
     throw error
   } finally {
@@ -271,6 +331,7 @@ async function generateGeminiContentWithResilience(input: {
   config: Record<string, unknown>
   finalSynthesis: boolean
   artifactSynthesis: boolean
+  onText: (text: string) => void
   signal?: AbortSignal
 }) {
   const isExplicitPro = input.model === GEMINI_SUBSTANTIVE_MODEL
@@ -288,12 +349,13 @@ async function generateGeminiContentWithResilience(input: {
           : input.finalSynthesis || input.artifactSynthesis
             ? GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS
             : GEMINI_TOOL_ATTEMPT_TIMEOUT_MS,
+        onText: input.onText,
         parentSignal: input.signal,
       })
       return { response, model: input.model }
     } catch (error) {
       lastError = error
-      if (input.signal?.aborted) throw error
+      if (input.signal?.aborted || streamedTextBeforeError(error)) throw error
       if (!isRetryableGeminiError(error)) throw error
       if (isExplicitPro && isGeminiAttemptTimeout(error)) {
         throw new Error(`GEMINI_PRO_UNAVAILABLE: ${geminiErrorText(error)}`)
@@ -356,11 +418,12 @@ export async function requestGeminiResponse(input: {
       config,
       finalSynthesis,
       artifactSynthesis,
+      onText: input.onText,
       signal: input.signal,
     })
   } catch (error) {
     if (executionModel === GEMINI_SUBSTANTIVE_MODEL) throw error
-    if (!input.allowTools || trivialConversation || input.signal?.aborted || !isRetryableGeminiError(error)) throw error
+    if (!input.allowTools || trivialConversation || input.signal?.aborted || streamedTextBeforeError(error) || !isRetryableGeminiError(error)) throw error
     console.warn('Gemini tool loop exhausted transient retries; forcing one bounded no-tool recovery synthesis', {
       fromModel: executionModel,
       toModel: DEFAULT_GEMINI_MODEL,
@@ -382,6 +445,7 @@ export async function requestGeminiResponse(input: {
       contents: toGeminiContents(compactToolRecoveryItems(input.items)),
       config: recoveryConfig,
       timeoutMs: GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS,
+      onText: input.onText,
       parentSignal: input.signal,
     })
     generated = { response: recoveryResponse, model: DEFAULT_GEMINI_MODEL }
@@ -394,7 +458,9 @@ export async function requestGeminiResponse(input: {
   const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : []
   const rawVisibleText = parts.filter((part: any) => !part?.thought && typeof part?.text === 'string').map((part: any) => part.text).join('')
   const visibleText = providerWebEnabled ? appendGroundingSources(rawVisibleText, candidate) : rawVisibleText
-  if (visibleText) input.onText(visibleText)
+  if (visibleText.length > rawVisibleText.length) {
+    input.onText(visibleText.slice(rawVisibleText.length))
+  }
   const functionCalls = parts.filter((part: any) => part?.functionCall)
   const output = functionCalls.length
     ? functionCalls.map((part: any, index: number) => {

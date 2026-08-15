@@ -18,6 +18,18 @@ const hasExactPhrase = (normalized: string, phrase: string): boolean => (
   ` ${normalized} `.includes(` ${phrase} `)
 );
 
+const phraseIndexes = (value: string, phrase: string): number[] => {
+  const indexes: number[] = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    const index = value.indexOf(phrase, cursor);
+    if (index < 0) break;
+    indexes.push(index);
+    cursor = index + Math.max(1, phrase.length);
+  }
+  return indexes;
+};
+
 const CREATION_VERBS = [
   'olustur',
   'hazirla',
@@ -42,6 +54,19 @@ const DOCUMENT_TARGETS = [
   'test case',
   'test caseleri',
 ];
+
+const hasNearbyDocumentCreationIntent = (normalized: string): boolean => {
+  const padded = ` ${normalized} `;
+  const verbIndexes = CREATION_VERBS.flatMap(verb => (
+    phraseIndexes(padded, ` ${verb} `).map(index => Math.max(0, index - 1))
+  ));
+  if (!verbIndexes.length) return false;
+
+  const targetIndexes = DOCUMENT_TARGETS.flatMap(target => phraseIndexes(normalized, target));
+  return verbIndexes.some(verbIndex => (
+    targetIndexes.some(targetIndex => Math.abs(verbIndex - targetIndex) <= 120)
+  ));
+};
 
 const REVISION_VERBS = [
   'degistir',
@@ -219,7 +244,10 @@ export function resolveAssistantDocumentRequestMode(
 
   const hasCreationVerb = CREATION_VERBS.some(verb => hasExactPhrase(normalized, verb));
   const hasDocumentTarget = DOCUMENT_TARGETS.some(target => normalized.includes(target));
-  if (hasCreationVerb && hasDocumentTarget) return 'create';
+  // A long analytical prompt can mention documents and later ask to "create a
+  // plan". Treat creation as artifact intent only when the creation verb and
+  // document target are part of the same local instruction.
+  if (hasCreationVerb && hasDocumentTarget && hasNearbyDocumentCreationIntent(normalized)) return 'create';
 
   return isExplicitDocumentRevisionRequest(message, document) ? 'revise' : 'none';
 }
