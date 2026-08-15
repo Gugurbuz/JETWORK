@@ -15,7 +15,7 @@ const streamHeaders = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  'X-JetWork-Live-Progress': 'v4',
+  'X-JetWork-Live-Progress': 'v5',
 }
 
 const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
@@ -97,6 +97,7 @@ const friendlyRuntimeLabel = (stage: string, rawLabel: string) => {
   if (/^Kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(label)) return 'Kaynakların yeterliliği ve tutarlılığı kontrol ediliyor...'
   if (/^Doğrulama tamamlandı:/iu.test(label)) return 'Kaynak doğrulaması tamamlandı'
   if (/^Güncel web kaynakları araştırılıyor/iu.test(label)) return "Web'de güncel kaynaklar araştırılıyor..."
+  if (/^Gemini ile resmi web kaynakları araştırılıyor/iu.test(label)) return "Web'de resmi kaynaklar araştırılıyor..."
   if (/^Doğrulama için ek web araştırması yapılıyor/iu.test(label)) return "Web'de ek doğrulama kaynakları araştırılıyor..."
   if (/^Yanıt hazırlandı$/iu.test(label)) return 'Yanıt oluşturuldu'
   if (/^(\d+) kurumsal kaynak izi toplandı$/iu.test(label)) {
@@ -199,6 +200,15 @@ interface StreamTimingState {
   statusCount: number
 }
 
+interface StreamTimingSnapshot {
+  firstStatusMs: number | null
+  firstTextDeltaMs: number | null
+  lastTextDeltaMs: number | null
+  textDeltaCount: number
+  statusCount: number
+  totalMs: number
+}
+
 const elapsedMs = (timing: StreamTimingState) => Math.max(0, Date.now() - timing.startedAtMs)
 const observeStatus = (timing: StreamTimingState) => {
   const at = elapsedMs(timing)
@@ -211,7 +221,7 @@ const observeTextDelta = (timing: StreamTimingState) => {
   timing.lastTextDeltaMs = at
   timing.textDeltaCount += 1
 }
-const timingSnapshot = (timing: StreamTimingState) => ({
+const timingSnapshot = (timing: StreamTimingState): StreamTimingSnapshot => ({
   firstStatusMs: timing.firstStatusMs,
   firstTextDeltaMs: timing.firstTextDeltaMs,
   lastTextDeltaMs: timing.lastTextDeltaMs,
@@ -219,6 +229,66 @@ const timingSnapshot = (timing: StreamTimingState) => ({
   statusCount: timing.statusCount,
   totalMs: elapsedMs(timing),
 })
+
+const streamTimingUsage = (snapshot: StreamTimingSnapshot): Record<string, number> => ({
+  ...(snapshot.firstStatusMs == null ? {} : { stream_first_status_ms: snapshot.firstStatusMs }),
+  ...(snapshot.firstTextDeltaMs == null ? {} : { stream_first_text_delta_ms: snapshot.firstTextDeltaMs }),
+  ...(snapshot.lastTextDeltaMs == null ? {} : { stream_last_text_delta_ms: snapshot.lastTextDeltaMs }),
+  stream_text_delta_count: snapshot.textDeltaCount,
+  stream_status_count: snapshot.statusCount,
+  stream_total_ms: snapshot.totalMs,
+})
+
+const persistStreamTiming = async (
+  client: ReturnType<typeof createClient>,
+  workspaceId: string,
+  messageId: string,
+  snapshot: StreamTimingSnapshot,
+) => {
+  if (!workspaceId || !messageId) return
+  const { data: turn, error: turnError } = await client
+    .from('assistant_turns')
+    .select('id,usage')
+    .eq('workspace_id', workspaceId)
+    .eq('message_id', messageId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (turnError || !turn?.id) {
+    if (turnError) console.warn('Live stream timing turn lookup failed:', turnError.message)
+    return
+  }
+
+  const existingUsage = turn.usage && typeof turn.usage === 'object' && !Array.isArray(turn.usage)
+    ? turn.usage as Record<string, unknown>
+    : {}
+  const { error: usageError } = await client.from('assistant_turns').update({
+    usage: { ...existingUsage, ...streamTimingUsage(snapshot) },
+    updated_at: new Date().toISOString(),
+  }).eq('id', turn.id)
+  if (usageError) console.warn('Live stream timing usage persistence failed:', usageError.message)
+
+  const { data: run, error: runError } = await client
+    .from('assistant_reasoning_runs')
+    .select('id,evidence_summary')
+    .eq('workspace_id', workspaceId)
+    .eq('turn_id', turn.id)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (runError || !run?.id) {
+    if (runError) console.warn('Live stream timing reasoning lookup failed:', runError.message)
+    return
+  }
+  const existingSummary = run.evidence_summary && typeof run.evidence_summary === 'object' && !Array.isArray(run.evidence_summary)
+    ? run.evidence_summary as Record<string, unknown>
+    : {}
+  const { error: summaryError } = await client.from('assistant_reasoning_runs').update({
+    evidence_summary: { ...existingSummary, streamTiming: snapshot },
+    updated_at: new Date().toISOString(),
+  }).eq('id', run.id)
+  if (summaryError) console.warn('Live stream timing reasoning persistence failed:', summaryError.message)
+}
 
 const serializeFrame = (eventName: string, payload: Record<string, unknown>) => (
   `event: ${eventName || String(payload.type || 'message')}\ndata: ${JSON.stringify(payload)}`
@@ -388,7 +458,7 @@ serve(async req => {
               Authorization: authorization,
               apikey: anonKey,
               'Content-Type': req.headers.get('Content-Type') || 'application/json',
-              'x-client-info': 'jetwork-live-progress-proxy/v4',
+              'x-client-info': 'jetwork-live-progress-proxy/v5',
             },
             body,
           })
@@ -450,8 +520,14 @@ serve(async req => {
             sink.done()
           }
         } finally {
+          const snapshot = timingSnapshot(timing)
+          if (serviceRoleKey) {
+            await persistStreamTiming(planClient, workspaceId, messageId, snapshot).catch(error => {
+              console.warn('Live stream timing persistence failed:', errorMessage(error))
+            })
+          }
           console.info('ASSISTANT_LIVE_STREAM_TIMING', JSON.stringify({
-            workspaceId, messageId, downstreamCancelled, ...timingSnapshot(timing),
+            workspaceId, messageId, downstreamCancelled, ...snapshot,
           }))
           if (!downstreamCancelled) sink.close()
         }
