@@ -243,9 +243,9 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
     : undefined
 
   // Public web evidence and enterprise evidence are separate trust domains.
-  // Provider-native Gemini web is encoded with a compatibility marker; repair
-  // that encoding without turning public web into enterprise RAG. An explicit
-  // semantic-agent decision always wins over the legacy intent-derived default.
+  // Provider-native Gemini web remains encoded as a marker with webMode=none;
+  // the Gemini provider consumes the marker directly. Never rehydrate it into
+  // required/conditional mode because those modes invoke the OpenAI web executor.
   const routeSaysEnterprise = currentRoute.knowledgeRequired === true || ENTERPRISE_SURFACE_PATTERN.test(currentMessage)
   const enterpriseGroundingRequired = explicitEnterpriseFlag !== undefined
     ? explicitEnterpriseFlag
@@ -253,11 +253,7 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
   const knowledgeRequired = providerWebMarker && !routeSaysEnterprise
     ? false
     : Boolean(rawKnowledgeRequired || enterpriseGroundingRequired)
-  const webMode: WebMode = providerWebMarker
-    ? (routeSaysEnterprise
-      ? (currentRoute.webMode !== 'none' ? currentRoute.webMode : 'if_internal_insufficient')
-      : (currentRoute.webMode !== 'none' ? currentRoute.webMode : 'required'))
-    : rawWebMode
+  const webMode: WebMode = providerWebMarker ? 'none' : rawWebMode
 
   const evidenceRequiredSimpleAnswer = knowledgeRequired && intent === 'simple_answer'
   const normalizedIntent: ReasoningIntent = evidenceRequiredSimpleAnswer ? 'analysis' : intent
@@ -319,11 +315,12 @@ const normalizeSemanticPlan = (value: unknown, currentMessage = ''): ReasoningPl
   const promptProfile = ['base','knowledge','research','document','artifact'].includes(profile)
     ? (profile === 'knowledge' && !knowledgeRequired ? promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode) : profile)
     : promptProfileForPlan(normalizedIntent, normalizedExecutionMode, knowledgeRequired, webMode)
-  const cleanGoal = rawGoal.replace(PROVIDER_WEB_CAPABILITY_MARKER, '').trim()
   return {
     intent: normalizedIntent,
     complexity,
-    goal: cleanGoal || currentMessage || 'Kullanıcı talebini bağlamı koruyarak doğru yanıtla.',
+    // Keep the marker internal to the semantic plan so the Gemini provider can
+    // detect native web capability without exposing it in user-visible text.
+    goal: rawGoal || currentMessage || 'Kullanıcı talebini bağlamı koruyarak doğru yanıtla.',
     knowledgeRequired,
     enterpriseGroundingRequired,
     webMode,
