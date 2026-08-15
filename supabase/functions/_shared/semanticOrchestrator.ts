@@ -269,12 +269,19 @@ const mergeCachedConversationState = (
 export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: AssistantProvider): ReasoningPlan => {
   const primaryAgent = String(inputPlan.orchestratorVersion || '').includes('primary-llm-agent')
   if (primaryAgent) {
+    const providerNativeWeb = provider === 'gemini' && inputPlan.webMode !== 'none'
+    const goal = providerNativeWeb && !inputPlan.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER)
+      ? `${inputPlan.goal}\n${PROVIDER_WEB_CAPABILITY_MARKER}`.trim()
+      : inputPlan.goal
     return {
       ...inputPlan,
+      goal,
       evidenceQueries: [],
       verificationRequired: false,
       enterpriseGroundingRequired: false,
-      webMode: inputPlan.webMode,
+      // Gemini keeps provider lock by encoding public web as a native capability
+      // marker. The core must not interpret this as an OpenAI preflight request.
+      webMode: providerNativeWeb ? 'none' : inputPlan.webMode,
       steps: [{
         id: 'primary-agent-loop',
         label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
