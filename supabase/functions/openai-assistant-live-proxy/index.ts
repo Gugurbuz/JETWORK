@@ -15,7 +15,7 @@ const streamHeaders = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  'X-JetWork-Live-Progress': 'v1',
+  'X-JetWork-Live-Progress': 'v2',
 }
 
 const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
@@ -52,6 +52,8 @@ const attachmentOnlyActionResponse = (messageId: string) => new Response(
         type: 'status',
         stage: 'connecting',
         label: 'Dosyalar hazır',
+        activityKind: 'artifact',
+        activityState: 'completed',
       })
       sink.event('text_delta', {
         type: 'text_delta',
@@ -130,24 +132,24 @@ serve(async req => {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const sink = createSafeStreamSink(controller)
-      const timers: number[] = []
-      const scheduleStatus = (delayMs: number, stage: string, label: string) => {
-        timers.push(setTimeout(() => {
-          if (!sink.isOpen()) return
-          sink.event('status', { type: 'status', stage, label })
-        }, delayMs))
-      }
-      const clearTimers = () => timers.forEach(timer => clearTimeout(timer))
 
+      // These are lifecycle events tied to real boundaries in this proxy. There
+      // are deliberately no elapsed-time simulation timers: subsequent detail
+      // must come from the semantic/reasoning runtime itself.
       sink.event('status', {
         type: 'status',
         stage: 'connecting',
         label: 'Talep işleme alındı',
+        activityKind: 'request',
+        activityState: 'completed',
       })
-      scheduleStatus(700, 'planning', 'Konuşma bağlamı hazırlanıyor...')
-      scheduleStatus(4_000, 'planning', 'Talep türü ve çalışma yolu belirleniyor...')
-      scheduleStatus(9_000, 'planning', 'Çalışma planı hazırlanıyor...')
-      scheduleStatus(16_000, 'planning', 'Model için çalışma bağlamı hazırlanıyor...')
+      sink.event('status', {
+        type: 'status',
+        stage: 'planning',
+        label: 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...',
+        activityKind: 'reasoning',
+        activityState: 'active',
+      })
 
       const pump = (async () => {
         try {
@@ -157,11 +159,10 @@ serve(async req => {
               Authorization: authorization,
               apikey: anonKey,
               'Content-Type': req.headers.get('Content-Type') || 'application/json',
-              'x-client-info': 'jetwork-live-progress-proxy/v1',
+              'x-client-info': 'jetwork-live-progress-proxy/v2',
             },
             body,
           })
-          clearTimers()
 
           if (!upstream.ok) {
             const payload = await upstream.json().catch(() => ({})) as Record<string, unknown>
@@ -179,6 +180,16 @@ serve(async req => {
               sink.done()
             }
             return
+          }
+
+          if (sink.isOpen()) {
+            sink.event('status', {
+              type: 'status',
+              stage: 'planning',
+              label: 'Çalışma yolu belirlendi; reasoning akışı başlatıldı',
+              activityKind: 'reasoning',
+              activityState: 'completed',
+            })
           }
 
           const reader = upstream.body.getReader()
@@ -201,7 +212,6 @@ serve(async req => {
             sink.done()
           }
         } finally {
-          clearTimers()
           if (!downstreamCancelled) sink.close()
         }
       })()

@@ -21,7 +21,6 @@ const MARKDOWN_DECORATION = /[*#`_]/gu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
 const LOW_VALUE_ACTIVITY = /^çalışılıyor\.{0,3}$/iu;
-const CONNECTION_ACTIVITY = /^asistana bağlanılıyor\.{0,3}$/iu;
 
 export interface AssistantWorkActivity {
   label: string;
@@ -61,7 +60,23 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
   if (!normalized) return '';
 
   if (/^asistana bağlanılıyor/iu.test(normalized)) {
-    return completed ? 'Talep işleme alındı' : 'Talebin kapsamı değerlendiriliyor...';
+    return completed ? 'Talep işleme alındı' : 'Asistana bağlanılıyor...';
+  }
+
+  if (/^talep işleme alındı$/iu.test(normalized)) {
+    return 'Talep işleme alındı';
+  }
+
+  if (/^konuşma bağlamı ve çalışma yolu hazırlanıyor/iu.test(normalized)) {
+    return completed
+      ? 'Konuşma bağlamı ve çalışma yolu hazırlandı'
+      : 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...';
+  }
+
+  if (/^çalışma yolu belirlendi; reasoning akışı başlatıldı/iu.test(normalized)) {
+    return completed
+      ? 'Çalışma yolu belirlendi · reasoning akışı başlatıldı'
+      : 'Reasoning akışı başlatılıyor...';
   }
 
   if (/^talep sınıflandırıldı/iu.test(normalized)) {
@@ -70,13 +85,22 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
 
   if (/^araştırma ve doğrulama planı oluşturuluyor/iu.test(normalized)) {
     return completed
-      ? 'Çalışma yaklaşımı belirlendi'
-      : 'Çalışma yaklaşımı hazırlanıyor...';
+      ? 'Araştırma ve doğrulama planı oluşturuldu'
+      : 'Araştırma ve doğrulama planı oluşturuluyor...';
   }
 
   const planReadyMatch = normalized.match(/^plan hazır(?::\s*(.+))?\.?$/iu);
   if (planReadyMatch) {
-    return completed ? 'Çalışma yolu belirlendi' : 'Çalışma yolu belirleniyor...';
+    const detail = planReadyMatch[1]?.trim();
+    return completed
+      ? `Plan oluşturuldu${detail ? ` · ${detail}` : ''}`
+      : `Plan oluşturuluyor${detail ? ` · ${detail}` : '...'}`;
+  }
+
+  if (/^ilgili jetwork skill prosedürleri yükleniyor/iu.test(normalized)) {
+    return completed
+      ? 'Gerekli JetWork yetenekleri hazırlandı'
+      : 'Gerekli JetWork yetenekleri hazırlanıyor...';
   }
 
   if (/^kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(normalized)) {
@@ -142,20 +166,11 @@ export function buildAssistantWorkActivities(input: {
   }));
 }
 
-export function buildPendingRuntimeActivities(elapsedSeconds: number): AssistantWorkActivity[] {
-  const elapsed = Math.max(0, Math.floor(elapsedSeconds));
-  const steps = [
-    { at: 0, label: 'Talep işleme alındı' },
-    { at: 3, label: 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...' },
-    { at: 10, label: 'Talep için çalışma planı hazırlanıyor...' },
-    { at: 20, label: 'Model yanıtı üzerinde çalışıyor...' },
-    { at: 35, label: 'Yanıt üretimi devam ediyor...' },
-  ];
-  const visible = steps.filter(step => elapsed >= step.at);
-  return visible.map((step, index) => ({
-    label: step.label,
-    state: index === visible.length - 1 ? 'active' as const : 'completed' as const,
-  }));
+// Kept as an exported compatibility helper for existing callers/tests. JetWork no
+// longer invents elapsed-time progress rows; live activity must come from the
+// runtime or from the initial connection state.
+export function buildPendingRuntimeActivities(_elapsedSeconds: number): AssistantWorkActivity[] {
+  return [];
 }
 
 const elapsedFrom = (startedAt?: number): number => {
@@ -210,7 +225,7 @@ const mergeObservedActivities = (
     }
   }
 
-  return next.slice(-8);
+  return next.slice(-12);
 };
 
 export const selectCompletedActivityEvidence = (
@@ -317,15 +332,10 @@ export function AssistantWorkIndicator({
   }, [isActive]);
 
   const activityEvidence = mergeObservedActivities(observedActivities, reportedActivities);
-  const hasRealRuntimeActivity = activityEvidence.some(activity => !CONNECTION_ACTIVITY.test(normalizeActivity(activity.label)));
-  const liveActivities = isActive
-    ? (hasRealRuntimeActivity ? activityEvidence : buildPendingRuntimeActivities(elapsedSeconds))
-    : [];
+  const liveActivities = isActive ? activityEvidence : [];
   const formattedLiveActivities = dedupeAssistantWorkActivities(liveActivities.map(activity => ({
     ...activity,
-    label: hasRealRuntimeActivity
-      ? formatAssistantWorkActivityLabel(activity.label, activity.state !== 'active')
-      : activity.label,
+    label: formatAssistantWorkActivityLabel(activity.label, activity.state !== 'active'),
   })));
   const completedEvidence = selectCompletedActivityEvidence(reportedActivities, activityEvidence);
   const completedActivities = dedupeAssistantWorkActivities(completedEvidence.map(activity => ({

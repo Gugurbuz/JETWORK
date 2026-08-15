@@ -64,7 +64,7 @@ describe('AssistantWorkIndicator', () => {
     ]);
   });
 
-  it('translates runtime labels into clearer end-user work descriptions', () => {
+  it('translates runtime labels into clearer end-user work descriptions without hiding plan detail', () => {
     expect(formatAssistantWorkActivityLabel(
       'Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
       true,
@@ -72,11 +72,11 @@ describe('AssistantWorkIndicator', () => {
     expect(formatAssistantWorkActivityLabel(
       'Araştırma ve doğrulama planı oluşturuluyor...',
       true,
-    )).toBe('Çalışma yaklaşımı belirlendi');
+    )).toBe('Araştırma ve doğrulama planı oluşturuldu');
     expect(formatAssistantWorkActivityLabel(
       'Plan hazır: 1 operasyonel adım',
       true,
-    )).toBe('Çalışma yolu belirlendi');
+    )).toBe('Plan oluşturuldu · 1 operasyonel adım');
     expect(formatAssistantWorkActivityLabel(
       'Kanıtlar ve doğrulama sonucu sentezleniyor...',
       true,
@@ -87,22 +87,13 @@ describe('AssistantWorkIndicator', () => {
     )).toBe('Bilgi bankasında ilgili kayıtlar incelendi');
   });
 
-  it('builds a progressive operational timeline while the upstream runtime has not emitted real stages yet', () => {
-    expect(buildPendingRuntimeActivities(1)).toEqual([
-      { label: 'Talep işleme alındı', state: 'active' },
-    ]);
-    expect(buildPendingRuntimeActivities(12)).toEqual([
-      { label: 'Talep işleme alındı', state: 'completed' },
-      { label: 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...', state: 'completed' },
-      { label: 'Talep için çalışma planı hazırlanıyor...', state: 'active' },
-    ]);
-    expect(buildPendingRuntimeActivities(37).at(-1)).toEqual({
-      label: 'Yanıt üretimi devam ediyor...',
-      state: 'active',
-    });
+  it('does not synthesize elapsed-time progress rows', () => {
+    expect(buildPendingRuntimeActivities(1)).toEqual([]);
+    expect(buildPendingRuntimeActivities(12)).toEqual([]);
+    expect(buildPendingRuntimeActivities(37)).toEqual([]);
   });
 
-  it('renders the progressive work timeline while thinking instead of a single status row', () => {
+  it('shows only the actual connection state when runtime detail has not arrived yet', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
@@ -112,11 +103,37 @@ describe('AssistantWorkIndicator', () => {
     );
 
     expect(html).toContain('data-testid="assistant-work-live-details"');
-    expect(html).toContain('Talep işleme alındı');
-    expect(html).toContain('Konuşma bağlamı ve çalışma yolu hazırlanıyor...');
-    expect(html).toContain('Talep için çalışma planı hazırlanıyor...');
-    expect(html).toContain('Model yanıtı üzerinde çalışıyor...');
+    expect(html).toContain('Asistana bağlanılıyor...');
+    expect(html).not.toContain('Talep için çalışma planı hazırlanıyor...');
+    expect(html).not.toContain('Model yanıtı üzerinde çalışıyor...');
+    expect(html).not.toContain('Yanıt üretimi devam ediyor...');
     expect(html).toContain('assistant-work__activity--active');
+  });
+
+  it('renders real proxy and reasoning events as the live chronology', () => {
+    const html = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive
+        startedAt={Date.now() - 12_000}
+        activityText={[
+          '• Talep işleme alındı',
+          '• Konuşma bağlamı ve çalışma yolu hazırlanıyor...',
+          '• Çalışma yolu belirlendi; reasoning akışı başlatıldı',
+          '• Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
+          '• Araştırma ve doğrulama planı oluşturuluyor...',
+          '• Plan hazır: 2 operasyonel adım',
+        ].join('\n')}
+        phaseLabel="JetWork Global + proje bilgi bankasında kanıt aranıyor..."
+      />,
+    );
+
+    expect(html).toContain('Talep işleme alındı');
+    expect(html).toContain('Konuşma bağlamı ve çalışma yolu hazırlandı');
+    expect(html).toContain('Çalışma yolu belirlendi · reasoning akışı başlatıldı');
+    expect(html).toContain('Talep türü değerlendirildi: Proje / ürün çalışması · Orta');
+    expect(html).toContain('Araştırma ve doğrulama planı oluşturuldu');
+    expect(html).toContain('Plan oluşturuldu · 2 operasyonel adım');
+    expect(html).toContain('JetWork Global + proje bilgi bankasında kanıt aranıyor...');
   });
 
   it('uses the completed runtime summary as the authoritative final chronology', () => {
