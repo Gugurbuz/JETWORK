@@ -9,13 +9,33 @@ const legacy = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
   'utf8',
 );
+const semantic = readFileSync(
+  new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
+  'utf8',
+);
+const scopePolicy = readFileSync(
+  new URL('../../../supabase/functions/_shared/conversationScopePolicy.ts', import.meta.url),
+  'utf8',
+);
+const reasoning = readFileSync(
+  new URL('../../../supabase/functions/_shared/reasoningEngine.ts', import.meta.url),
+  'utf8',
+);
 
 describe('primary-agent provider parity', () => {
-  it('exposes Gemini native web only when provider web capability is enabled', () => {
-    expect(wrapper).toContain("PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'");
-    expect(wrapper).toContain('allowProviderWeb?: boolean');
-    expect(wrapper).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
-    expect(wrapper).toContain('providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER');
+  it('routes Gemini web research through native Google Search without OpenAI preflight semantics', () => {
+    expect(semantic).toContain("const providerNativeWeb = provider === 'gemini' && inputPlan.webMode !== 'none'");
+    expect(semantic).toContain("webMode: providerNativeWeb ? 'none' : inputPlan.webMode");
+    expect(scopePolicy).toContain('const providerNativeWeb = explicitWebResearch && plan.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER)');
+    expect(scopePolicy).toContain("plan.webMode = explicitWebResearch ? (providerNativeWeb ? 'none' : 'required') : 'none'");
+    expect(reasoning).toContain("const webMode: WebMode = providerWebMarker ? 'none' : rawWebMode");
+    expect(reasoning).not.toContain("currentRoute.webMode !== 'none' ? currentRoute.webMode : 'required'");
+  });
+
+  it('keeps Gemini native web available after empty knowledge searches', () => {
+    expect(wrapper).toContain("const providerNativeWebRequested = String(plan?.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)");
+    expect(wrapper).toContain('&& !providerNativeWebRequested');
+    expect(wrapper).toContain('const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)');
     expect(legacy).toContain('googleSearch: {}');
     expect(legacy).toContain("providerWebEnabled ? 'VALIDATED' : 'AUTO'");
   });
