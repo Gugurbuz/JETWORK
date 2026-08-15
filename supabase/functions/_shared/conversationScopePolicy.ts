@@ -16,6 +16,12 @@ const normalize = (value: string) => value
 
 const hasStem = (text: string, stem: string) => text.split(' ').some(token => token.startsWith(stem))
 
+const explicitWebResearchRequested = (message: string) => {
+  const text = normalize(message)
+  return hasStem(text, 'arastir')
+    || /\b(?:web|internet|internette|internetten|google|online|latest|guncel|haber|mevzuat|resmi dokuman|dis kaynak)\b/.test(text)
+}
+
 const objectTypeFromMessage = (message: string) => {
   const text = normalize(message)
   if (/\b(class|classlar|classes|sinif|siniflar|klas|klaslar)\b/.test(text)) return 'class'
@@ -171,40 +177,75 @@ export const applyConversationScopeInventoryPolicy = (input: {
 
   const definitionIdentifier = definitionLookupIdentifier(input.currentMessage)
   if (definitionIdentifier) {
-    plan.intent = 'analysis'
-    plan.complexity = 'low'
-    plan.executionMode = 'knowledge'
+    const explicitWebResearch = explicitWebResearchRequested(input.currentMessage)
+    plan.intent = explicitWebResearch ? 'research' : 'analysis'
+    plan.complexity = explicitWebResearch ? 'medium' : 'low'
+    plan.executionMode = explicitWebResearch ? 'research' : 'knowledge'
+    plan.promptProfile = explicitWebResearch ? 'research' : 'knowledge'
     plan.knowledgeRequired = true
     plan.verificationRequired = true
-    plan.webMode = 'none'
-    plan.evidenceQueries = [definitionIdentifier, cleanText(input.currentMessage, 300)]
+    plan.webMode = explicitWebResearch ? 'required' : 'none'
+    plan.evidenceQueries = [
+      definitionIdentifier,
+      cleanText(input.currentMessage, 300),
+      ...(explicitWebResearch ? [`${definitionIdentifier} resmi API entegrasyon dokümantasyonu`] : []),
+    ]
     plan.goal = [
       cleanText(input.currentMessage, 700),
       `[JETWORK_DEFINITION_LOOKUP] identifier=${definitionIdentifier}.`,
       'Bu kısa terim veya kısaltmanın kurum içi anlamını yalnız JetWork bilgi bankası kanıtı açıkça destekliyorsa kurumsal gerçek olarak sun.',
-      'Bilgi bankasında doğrudan destekleyen kanıt yoksa doğrulanmış kurum içi tanım bulunamadığını açıkça söyle; Enerjisa, SAP veya başka bir kurumsal açılım uydurma.',
-      'Genel bir anlam vermek gerçekten yararlıysa onu kurum içi tanımdan açıkça ayır ve olasılık dili kullan.',
+      explicitWebResearch
+        ? 'Kullanıcı açıkça araştırma istiyor. Kurumsal lookup bu talebi engellemesin; resmi veya güvenilir web kaynaklarında tanım, entegrasyon ve teknik API ayrıntılarını araştır.'
+        : 'Bilgi bankasında doğrudan destekleyen kanıt yoksa doğrulanmış kurum içi tanım bulunamadığını açıkça söyle; Enerjisa, SAP veya başka bir kurumsal açılım uydurma.',
+      'Kurumsal kanıt ile kamuya açık genel bilgiyi açıkça ayır; doğrulanmamış kurum özelini kesin gerçek gibi yazma.',
     ].join('\n')
-    plan.steps = [
-      {
-        id: 'lookup-definition',
-        label: `${definitionIdentifier} için kurumsal kanıt ara`,
-        toolHint: 'knowledge',
-        successCriteria: 'Terimi doğrudan destekleyen yayımlanmış kanıt bulunur veya bulunamadığı doğrulanır.',
-      },
-      {
-        id: 'verify-definition',
-        label: 'Tanımın kanıtla desteklendiğini doğrula',
-        toolHint: 'verification',
-        successCriteria: 'Kurumsal tanım yalnız doğrudan kanıt varsa kesin ifade edilir.',
-      },
-      {
-        id: 'answer-definition',
-        label: 'Kanıt durumunu açıkça belirterek yanıtla',
-        toolHint: 'synthesis',
-        successCriteria: 'Kanıtsız kurumsal açılım üretilmez.',
-      },
-    ]
+    plan.steps = explicitWebResearch
+      ? [
+          {
+            id: 'lookup-definition',
+            label: `${definitionIdentifier} için kurumsal bağlamı kontrol et`,
+            toolHint: 'knowledge',
+            successCriteria: 'Terimi doğrudan destekleyen kurum içi kanıt bulunur veya bulunamadığı doğrulanır.',
+          },
+          {
+            id: 'research-public-definition',
+            label: `${definitionIdentifier} için resmi web kaynaklarında tanım ve teknik entegrasyonu araştır`,
+            toolHint: 'web',
+            successCriteria: 'Tanım ve API/entegrasyon ayrıntıları resmi veya güvenilir güncel kaynaklarla desteklenir.',
+          },
+          {
+            id: 'verify-definition',
+            label: 'Kurumsal ve web kaynaklarını ayırıp doğrula',
+            toolHint: 'verification',
+            successCriteria: 'Kurum özeli ile kamuya açık genel bilgi birbirine karıştırılmaz.',
+          },
+          {
+            id: 'answer-definition',
+            label: 'Doğrulanmış bulgularla yanıtla',
+            toolHint: 'synthesis',
+            successCriteria: 'Kaynaklı genel bilgi sunulur; kanıtsız kurum özeli üretilmez.',
+          },
+        ]
+      : [
+          {
+            id: 'lookup-definition',
+            label: `${definitionIdentifier} için kurumsal kanıt ara`,
+            toolHint: 'knowledge',
+            successCriteria: 'Terimi doğrudan destekleyen yayımlanmış kanıt bulunur veya bulunamadığı doğrulanır.',
+          },
+          {
+            id: 'verify-definition',
+            label: 'Tanımın kanıtla desteklendiğini doğrula',
+            toolHint: 'verification',
+            successCriteria: 'Kurumsal tanım yalnız doğrudan kanıt varsa kesin ifade edilir.',
+          },
+          {
+            id: 'answer-definition',
+            label: 'Kanıt durumunu açıkça belirterek yanıtla',
+            toolHint: 'synthesis',
+            successCriteria: 'Kanıtsız kurumsal açılım üretilmez.',
+          },
+        ]
     plan.conversationState = {
       continuation: false,
       topic: definitionIdentifier,
@@ -224,8 +265,6 @@ export const applyConversationScopeInventoryPolicy = (input: {
     activeOperation,
     operationMove: plan.conversationState?.operationMove,
     semanticFallbackUsed,
-    // Lexical continuation is intentionally fallback-only. Normal operation is
-    // semantic/state-driven and does not depend on maintaining a phrase dictionary.
     fallbackContinuationHint: semanticFallbackUsed && isEnumerationContinuation(input.currentMessage),
   })
   const activeObjectType = activeOperation?.objectType || (activeOperation?.tool === 'list_class_inventory' ? 'class' : null)

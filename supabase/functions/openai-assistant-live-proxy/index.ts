@@ -15,7 +15,7 @@ const streamHeaders = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  'X-JetWork-Live-Progress': 'v3',
+  'X-JetWork-Live-Progress': 'v4',
 }
 
 const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
@@ -49,22 +49,13 @@ const attachmentOnlyActionResponse = (messageId: string) => new Response(
     start(controller) {
       const sink = createSafeStreamSink(controller)
       sink.event('status', {
-        type: 'status',
-        stage: 'connecting',
-        label: 'Dosyalar hazır',
-        activityKind: 'artifact',
-        activityState: 'completed',
+        type: 'status', stage: 'connecting', label: 'Dosyalar hazır',
+        activityKind: 'artifact', activityState: 'completed',
       })
-      sink.event('text_delta', {
-        type: 'text_delta',
-        delta: 'Dosyalar yüklendi. Ne yapmamı istediğini yaz.',
-      })
+      sink.event('text_delta', { type: 'text_delta', delta: 'Dosyalar yüklendi. Ne yapmamı istediğini yaz.' })
       sink.event('sources', { type: 'sources', sources: [] })
       sink.event('completed', {
-        type: 'completed',
-        conversationId: messageId,
-        model: 'system',
-        fallbackUsed: false,
+        type: 'completed', conversationId: messageId, model: 'system', fallbackUsed: false,
       })
       sink.done()
     },
@@ -105,6 +96,8 @@ const friendlyRuntimeLabel = (stage: string, rawLabel: string) => {
   if (/^İlgili JetWork skill prosedürleri yükleniyor/iu.test(label)) return 'Gerekli JetWork yetenekleri hazırlanıyor...'
   if (/^Kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(label)) return 'Kaynakların yeterliliği ve tutarlılığı kontrol ediliyor...'
   if (/^Doğrulama tamamlandı:/iu.test(label)) return 'Kaynak doğrulaması tamamlandı'
+  if (/^Güncel web kaynakları araştırılıyor/iu.test(label)) return "Web'de güncel kaynaklar araştırılıyor..."
+  if (/^Doğrulama için ek web araştırması yapılıyor/iu.test(label)) return "Web'de ek doğrulama kaynakları araştırılıyor..."
   if (/^Yanıt hazırlandı$/iu.test(label)) return 'Yanıt oluşturuldu'
   if (/^(\d+) kurumsal kaynak izi toplandı$/iu.test(label)) {
     const count = label.match(/^(\d+)/u)?.[1]
@@ -116,6 +109,13 @@ const friendlyRuntimeLabel = (stage: string, rawLabel: string) => {
   }
   if (/^OpenAI sağlayıcısı başarısız oldu;/iu.test(label)) return 'Yanıt üretimi için yedek model devreye alınıyor...'
   if (stage === 'routing') return 'Talebin kapsamı değerlendiriliyor...'
+  return label
+}
+
+const humanizePlanStep = (value: string) => {
+  const label = cleanString(value, 160)
+  if (/Primary LLM kullanıcı talebini yorumlar/iu.test(label)) return 'Talebi değerlendir ve gerekli kaynakları seç'
+  if (/adaptive evidence/iu.test(label)) return 'Gerekli kanıt kaynaklarını seç'
   return label
 }
 
@@ -137,12 +137,37 @@ const loadConversationContextCount = async (
   return Array.isArray(data) ? data.length : 0
 }
 
+const planLabelsFrom = (plan: unknown): string[] => {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return []
+  const steps = Array.isArray((plan as Record<string, unknown>).steps)
+    ? (plan as Record<string, unknown>).steps as Array<Record<string, unknown>>
+    : []
+  return steps
+    .map(step => humanizePlanStep(String(step?.label || '')))
+    .filter(Boolean)
+    .slice(0, 4)
+}
+
 const loadReasoningPlanLabels = async (
   client: ReturnType<typeof createClient>,
   workspaceId: string,
   messageId: string,
 ): Promise<string[]> => {
   if (!workspaceId || !messageId) return []
+
+  const { data: semantic, error: semanticError } = await client
+    .from('assistant_semantic_plans')
+    .select('plan,status,updated_at')
+    .eq('workspace_id', workspaceId)
+    .eq('message_id', messageId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!semanticError) {
+    const labels = planLabelsFrom(semantic?.plan)
+    if (labels.length) return labels
+  }
+
   const { data: turn, error: turnError } = await client
     .from('assistant_turns')
     .select('id')
@@ -161,21 +186,48 @@ const loadReasoningPlanLabels = async (
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  if (runError || !run?.plan || typeof run.plan !== 'object') return []
-  const steps = Array.isArray((run.plan as Record<string, unknown>).steps)
-    ? (run.plan as Record<string, unknown>).steps as Array<Record<string, unknown>>
-    : []
-  return steps
-    .map(step => cleanString(step?.label, 140))
-    .filter(Boolean)
-    .slice(0, 4)
+  if (runError) return []
+  return planLabelsFrom(run?.plan)
 }
 
-const rewriteStatusFrame = async (input: {
+interface StreamTimingState {
+  startedAtMs: number
+  firstStatusMs: number | null
+  firstTextDeltaMs: number | null
+  lastTextDeltaMs: number | null
+  textDeltaCount: number
+  statusCount: number
+}
+
+const elapsedMs = (timing: StreamTimingState) => Math.max(0, Date.now() - timing.startedAtMs)
+const observeStatus = (timing: StreamTimingState) => {
+  const at = elapsedMs(timing)
+  if (timing.firstStatusMs == null) timing.firstStatusMs = at
+  timing.statusCount += 1
+}
+const observeTextDelta = (timing: StreamTimingState) => {
+  const at = elapsedMs(timing)
+  if (timing.firstTextDeltaMs == null) timing.firstTextDeltaMs = at
+  timing.lastTextDeltaMs = at
+  timing.textDeltaCount += 1
+}
+const timingSnapshot = (timing: StreamTimingState) => ({
+  firstStatusMs: timing.firstStatusMs,
+  firstTextDeltaMs: timing.firstTextDeltaMs,
+  lastTextDeltaMs: timing.lastTextDeltaMs,
+  textDeltaCount: timing.textDeltaCount,
+  statusCount: timing.statusCount,
+  totalMs: elapsedMs(timing),
+})
+
+const serializeFrame = (eventName: string, payload: Record<string, unknown>) => (
+  `event: ${eventName || String(payload.type || 'message')}\ndata: ${JSON.stringify(payload)}`
+)
+
+const rewriteRuntimeFrame = async (input: {
   frame: string
-  client: ReturnType<typeof createClient>
-  workspaceId: string
-  messageId: string
+  planLabelsPromise: Promise<string[]>
+  timing: StreamTimingState
 }) => {
   const eventLine = input.frame.split(/\r?\n/u).find(line => line.startsWith('event:'))
   const dataLines = input.frame.split(/\r?\n/u)
@@ -194,15 +246,26 @@ const rewriteStatusFrame = async (input: {
     return input.frame
   }
 
-  const eventName = cleanString(eventLine?.slice(6), 40)
+  const eventName = cleanString(eventLine?.slice(6), 40) || cleanString(payload.type, 40)
+  if (eventName === 'text_delta' || payload.type === 'text_delta') {
+    observeTextDelta(input.timing)
+    return input.frame
+  }
+
+  if (eventName === 'completed' || payload.type === 'completed') {
+    payload = { ...payload, streamTiming: timingSnapshot(input.timing) }
+    return serializeFrame('completed', payload)
+  }
+
   if (eventName !== 'status' && payload.type !== 'status') return input.frame
+  observeStatus(input.timing)
 
   const stage = cleanString(payload.stage, 80) || 'thinking'
   const originalLabel = cleanString(payload.label, 500)
   let label = friendlyRuntimeLabel(stage, originalLabel)
 
   if (/^Plan hazır(?::|$)/iu.test(originalLabel)) {
-    const planLabels = await loadReasoningPlanLabels(input.client, input.workspaceId, input.messageId).catch(() => [])
+    const planLabels = await input.planLabelsPromise.catch(() => [])
     label = planLabels.length
       ? `Plan: ${planLabels.join(' → ')}`
       : 'Çalışma planı oluşturuldu'
@@ -216,16 +279,18 @@ const rewriteStatusFrame = async (input: {
     activityKind: activityKindForStage(stage),
     activityState: completedLabel(label) || /^Plan:/u.test(label) ? 'completed' : 'active',
   }
-  return `event: status\ndata: ${JSON.stringify(payload)}`
+  return serializeFrame('status', payload)
 }
 
 serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
 
+  const requestStartedAtMs = Date.now()
   const authorization = req.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!authorization || !supabaseUrl || !anonKey) {
     return jsonResponse({ error: 'Authentication is required.' }, 401)
   }
@@ -246,6 +311,9 @@ serve(async req => {
     global: { headers: { Authorization: authorization } },
     auth: { persistSession: false },
   })
+  const planClient = serviceRoleKey
+    ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
+    : client
 
   if (workspaceId && messageId && !message) {
     const { data, error } = await client
@@ -259,62 +327,59 @@ serve(async req => {
       console.warn('Attachment-only assistant turn could not be inspected:', error.message)
     } else {
       const attachments = Array.isArray(data?.attachments) ? data.attachments : []
-      if (attachments.some(isActionToolInput)) {
-        return attachmentOnlyActionResponse(messageId)
-      }
+      if (attachments.some(isActionToolInput)) return attachmentOnlyActionResponse(messageId)
     }
   }
 
+  const timing: StreamTimingState = {
+    startedAtMs: requestStartedAtMs,
+    firstStatusMs: null,
+    firstTextDeltaMs: null,
+    lastTextDeltaMs: null,
+    textDeltaCount: 0,
+    statusCount: 0,
+  }
   let downstreamCancelled = false
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const sink = createSafeStreamSink(controller)
       const encoder = new TextEncoder()
       const decoder = new TextDecoder()
+      const emitStatus = (payload: Record<string, unknown>) => {
+        observeStatus(timing)
+        sink.event('status', payload)
+      }
 
-      sink.event('status', {
-        type: 'status',
-        stage: 'connecting',
-        label: 'Talep işleme alındı',
-        activityKind: 'request',
-        activityState: 'completed',
+      emitStatus({
+        type: 'status', stage: 'connecting', label: 'Talep işleme alındı',
+        activityKind: 'request', activityState: 'completed',
       })
 
       const pump = (async () => {
         try {
-          sink.event('status', {
-            type: 'status',
-            stage: 'thinking',
-            label: 'Önceki konuşma bağlamı hatırlanıyor...',
-            activityKind: 'memory',
-            activityState: 'active',
+          emitStatus({
+            type: 'status', stage: 'thinking', label: 'Önceki konuşma bağlamı hatırlanıyor...',
+            activityKind: 'memory', activityState: 'active',
           })
           try {
             const contextCount = await loadConversationContextCount(client, workspaceId, messageId)
-            sink.event('status', {
-              type: 'status',
-              stage: 'thinking',
+            emitStatus({
+              type: 'status', stage: 'thinking',
               label: contextCount > 0 ? 'Önceki konuşma bağlamı incelendi' : 'Önceki konuşma bağlamı kontrol edildi',
-              activityKind: 'memory',
-              activityState: 'completed',
+              activityKind: 'memory', activityState: 'completed',
             })
           } catch (contextError) {
             console.warn('Live progress context inspection failed:', errorMessage(contextError))
-            sink.event('status', {
-              type: 'status',
-              stage: 'thinking',
-              label: 'Konuşma bağlamı kontrol edildi',
-              activityKind: 'memory',
-              activityState: 'completed',
+            emitStatus({
+              type: 'status', stage: 'thinking', label: 'Konuşma bağlamı kontrol edildi',
+              activityKind: 'memory', activityState: 'completed',
             })
           }
 
-          sink.event('status', {
-            type: 'status',
-            stage: 'planning',
-            label: 'Talebin kapsamı ve çalışma yolu değerlendiriliyor...',
-            activityKind: 'reasoning',
-            activityState: 'active',
+          emitStatus({
+            type: 'status', stage: 'planning', label: 'Talebin kapsamı ve çalışma yolu değerlendiriliyor...',
+            activityKind: 'reasoning', activityState: 'active',
           })
 
           const upstream = await fetch(`${supabaseUrl}/functions/v1/openai-assistant-semantic-v2`, {
@@ -323,7 +388,7 @@ serve(async req => {
               Authorization: authorization,
               apikey: anonKey,
               'Content-Type': req.headers.get('Content-Type') || 'application/json',
-              'x-client-info': 'jetwork-live-progress-proxy/v3',
+              'x-client-info': 'jetwork-live-progress-proxy/v4',
             },
             body,
           })
@@ -346,14 +411,12 @@ serve(async req => {
             return
           }
 
-          sink.event('status', {
-            type: 'status',
-            stage: 'planning',
-            label: 'Çalışma yaklaşımı belirlendi',
-            activityKind: 'reasoning',
-            activityState: 'completed',
+          emitStatus({
+            type: 'status', stage: 'planning', label: 'Çalışma yaklaşımı belirlendi',
+            activityKind: 'reasoning', activityState: 'completed',
           })
 
+          const planLabelsPromise = loadReasoningPlanLabels(planClient, workspaceId, messageId)
           const reader = upstream.body.getReader()
           let buffer = ''
           try {
@@ -366,13 +429,13 @@ serve(async req => {
               buffer = frames.pop() || ''
               for (const frame of frames) {
                 if (!frame.trim()) continue
-                const rewritten = await rewriteStatusFrame({ frame, client, workspaceId, messageId })
+                const rewritten = await rewriteRuntimeFrame({ frame, planLabelsPromise, timing })
                 sink.write(encoder.encode(`${rewritten}\n\n`))
               }
             }
             buffer += decoder.decode()
             if (buffer.trim()) {
-              const rewritten = await rewriteStatusFrame({ frame: buffer, client, workspaceId, messageId })
+              const rewritten = await rewriteRuntimeFrame({ frame: buffer, planLabelsPromise, timing })
               sink.write(encoder.encode(`${rewritten}\n\n`))
             }
           } finally {
@@ -382,12 +445,14 @@ serve(async req => {
           console.error('Live progress proxy upstream failed:', errorMessage(error))
           if (sink.isOpen()) {
             sink.event('error', {
-              type: 'error',
-              message: 'Asistan çalışma akışı tamamlanamadı. Lütfen tekrar deneyin.',
+              type: 'error', message: 'Asistan çalışma akışı tamamlanamadı. Lütfen tekrar deneyin.',
             })
             sink.done()
           }
         } finally {
+          console.info('ASSISTANT_LIVE_STREAM_TIMING', JSON.stringify({
+            workspaceId, messageId, downstreamCancelled, ...timingSnapshot(timing),
+          }))
           if (!downstreamCancelled) sink.close()
         }
       })()
