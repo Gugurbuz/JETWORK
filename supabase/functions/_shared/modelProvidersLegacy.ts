@@ -25,6 +25,8 @@ export interface NormalizedModelResponse {
   model?: string
   output?: Array<Record<string, unknown>>
   usage?: Record<string, number>
+  webSources?: Array<{ title: string; url: string }>
+  webSearchQueries?: string[]
   error?: { message?: string }
   incomplete_details?: { reason?: string }
 }
@@ -135,6 +137,13 @@ const GEMINI_EVIDENCE_INSTRUCTIONS = [
   'Kanıt ile çıkarımı ayır. Kanıtsız teknik çıkarımı kesinlik diliyle sunma.',
 ].join('\n')
 
+const GEMINI_WEB_SOURCE_PRIORITY_INSTRUCTIONS = [
+  '[JETWORK WEB KAYNAK ÖNCELİĞİ]',
+  'Web araştırmasında önce resmi ve birincil kaynakları kullan: kurumun resmi sitesi, resmi geliştirici/API dokümantasyonu, mevzuat ve yetkili kamu kaynakları.',
+  'Teknik API veya entegrasyon sorularında blog, entegratör ve üçüncü taraf siteleri ancak resmi kaynakta eksik kalan noktaları tamamlamak için kullan.',
+  'Resmi kaynak ile üçüncü taraf kaynak çelişirse resmi kaynağı esas al ve belirsizliği açıkça belirt.',
+].join('\n')
+
 const parseToolOutput = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
   try { return JSON.parse(value) } catch { return value }
@@ -190,6 +199,36 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
   return contents
 }
 
+const mergeArrayValues = (left: unknown, right: unknown): unknown[] => {
+  const values = [
+    ...(Array.isArray(left) ? left : []),
+    ...(Array.isArray(right) ? right : []),
+  ]
+  const seen = new Set<string>()
+  return values.filter(value => {
+    let key = ''
+    try { key = JSON.stringify(value) } catch { key = String(value) }
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const mergeGroundingMetadata = (current: unknown, next: unknown): Record<string, unknown> => {
+  const left = current && typeof current === 'object' && !Array.isArray(current)
+    ? current as Record<string, unknown>
+    : {}
+  const right = next && typeof next === 'object' && !Array.isArray(next)
+    ? next as Record<string, unknown>
+    : {}
+  const merged: Record<string, unknown> = { ...left, ...right }
+  for (const key of ['groundingChunks', 'groundingSupports', 'webSearchQueries', 'imageSearchQueries']) {
+    const values = mergeArrayValues(left[key], right[key])
+    if (values.length) merged[key] = values
+  }
+  return merged
+}
+
 const groundingSources = (candidate: any): Array<{ title: string; url: string }> => {
   const chunks = Array.isArray(candidate?.groundingMetadata?.groundingChunks) ? candidate.groundingMetadata.groundingChunks : []
   const seen = new Set<string>()
@@ -201,7 +240,14 @@ const groundingSources = (candidate: any): Array<{ title: string; url: string }>
     seen.add(url)
     sources.push({ title: typeof web?.title === 'string' && web.title.trim() ? web.title.trim() : 'Web kaynağı', url })
   }
-  return sources.slice(0, 8)
+  return sources.slice(0, 12)
+}
+
+const groundingSearchQueries = (candidate: any): string[] => {
+  const queries = Array.isArray(candidate?.groundingMetadata?.webSearchQueries)
+    ? candidate.groundingMetadata.webSearchQueries
+    : []
+  return [...new Set(queries.map((query: unknown) => String(query || '').trim()).filter(Boolean))].slice(0, 12)
 }
 
 const appendGroundingSources = (text: string, candidate: any) => {
@@ -286,7 +332,12 @@ const generateGeminiAttempt = async (input: {
       }
       const candidate = chunk?.candidates?.[0]
       if (!candidate) continue
-      if (candidate?.groundingMetadata) candidateMetadata.groundingMetadata = candidate.groundingMetadata
+      if (candidate?.groundingMetadata) {
+        candidateMetadata.groundingMetadata = mergeGroundingMetadata(
+          candidateMetadata.groundingMetadata,
+          candidate.groundingMetadata,
+        )
+      }
       if (candidate?.finishReason) candidateMetadata.finishReason = candidate.finishReason
       if (candidate?.content?.role) candidateRole = String(candidate.content.role)
       const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : []
@@ -392,7 +443,9 @@ export async function requestGeminiResponse(input: {
   const artifactSynthesis = !trivialConversation && (input.instructions.includes('Intent: document') || input.instructions.includes('[JETWORK PROMPT PROFILE: artifact]'))
   const finalSynthesis = !input.allowTools && !trivialConversation
   const config: Record<string, unknown> = {
-    systemInstruction: trivialConversation ? TRIVIAL_CONVERSATION_INSTRUCTIONS : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS].filter(Boolean).join('\n\n'),
+    systemInstruction: trivialConversation
+      ? TRIVIAL_CONVERSATION_INSTRUCTIONS
+      : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS, providerWebEnabled ? GEMINI_WEB_SOURCE_PRIORITY_INSTRUCTIONS : ''].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
   }
   if (artifactSynthesis) {
@@ -457,7 +510,9 @@ export async function requestGeminiResponse(input: {
   const candidateContent = candidate?.content
   const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : []
   const rawVisibleText = parts.filter((part: any) => !part?.thought && typeof part?.text === 'string').map((part: any) => part.text).join('')
-  const visibleText = providerWebEnabled ? appendGroundingSources(rawVisibleText, candidate) : rawVisibleText
+  const webSources = providerWebEnabled ? groundingSources(candidate) : []
+  const webSearchQueries = providerWebEnabled ? groundingSearchQueries(candidate) : []
+  const visibleText = webSources.length ? appendGroundingSources(rawVisibleText, candidate) : rawVisibleText
   if (visibleText.length > rawVisibleText.length) {
     input.onText(visibleText.slice(rawVisibleText.length))
   }
@@ -471,7 +526,16 @@ export async function requestGeminiResponse(input: {
   const metadata = (response as any)?.usageMetadata || {}
   return {
     id: String((response as any)?.responseId || crypto.randomUUID()), status: 'completed', model: actualModel, output,
-    usage: { input_tokens: Number(metadata.promptTokenCount || 0), output_tokens: Number(metadata.candidatesTokenCount || 0), reasoning_tokens: Number(metadata.thoughtsTokenCount || 0), total_tokens: Number(metadata.totalTokenCount || 0) },
+    webSources,
+    webSearchQueries,
+    usage: {
+      input_tokens: Number(metadata.promptTokenCount || 0),
+      output_tokens: Number(metadata.candidatesTokenCount || 0),
+      reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
+      total_tokens: Number(metadata.totalTokenCount || 0),
+      ...(webSources.length ? { gemini_grounding_source_count: webSources.length } : {}),
+      ...(webSearchQueries.length ? { gemini_web_search_query_count: webSearchQueries.length } : {}),
+    },
   }
 }
 
