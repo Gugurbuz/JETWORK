@@ -199,7 +199,7 @@ const primaryAgentInstruction = [
   'Kanıt yetersizse cevabı kullanıcının gerçek sorusuna göre dinamik kur: tam olarak hangi bilgiyi doğrulayamadığını doğal dille söyle. Konu teknik değilse teknik terminoloji kullanma; kullanıcı sormadıysa class, method, tablo, kod gibi örnekler ekleme.',
   'Exact bir identifier kanıtta bulunmadıysa identifierı yalnız doğrulanamama bağlamında tekrar edebilirsin; onun koşulu, anlamı, metni, davranışı veya ilişkileri hakkında doğrulanmamış ayrıntı ekleme.',
   'Kaynak yetersizliği cevabın tamamını otomatik olarak yasaklamaz. Doğrulanmış kısmı ayır; genel reasoning yararlıysa bunun genel bir değerlendirme olduğunu açıkça belli ederek devam et.',
-  'Aynı bilgi alanında iki anlamlı knowledge araması da sonuç vermediyse yeni arama yapma; kullanıcının verdiği bilgiler ve mevcut kanıtlarla dürüst yanıtı üret.',
+  'Aynı bilgi alanında iki anlamlı knowledge araması da sonuç vermediyse yeni knowledge araması yapma; provider-native web capabilitysi açıksa web araştırmasına geçebilirsin.',
   'Gereksiz tool çağrısı yapma. İlk tool sonucu yetersizse ancak gerçekten gerekiyorsa sorguyu iyileştirip bir kez daha dene.',
 ].join('\n')
 
@@ -252,11 +252,14 @@ export async function requestGeminiResponse(input: {
     }
   }
 
+  const providerNativeWebRequested = String(plan?.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)
   const emptyKnowledgeSearches = countEmptyKnowledgeSearches(input.items)
-  const forceNoToolSynthesis = input.allowTools && emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES
+  const forceNoToolSynthesis = input.allowTools
+    && !providerNativeWebRequested
+    && emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES
   const effectiveAllowTools = input.allowTools && !forceNoToolSynthesis
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
-  const providerWebEnabled = input.allowProviderWeb ?? input.allowTools
+  const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)
   const geminiInstructions = [
     providerInstructions,
     primaryAgentInstruction,
@@ -279,6 +282,7 @@ export async function requestGeminiResponse(input: {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
     primary_llm_final_calls: effectiveAllowTools ? 0 : 1,
     ...(forceNoToolSynthesis ? { gemini_empty_knowledge_forced_synthesis: 1 } : {}),
+    ...(providerNativeWebRequested ? { gemini_native_web_requested: 1 } : {}),
   })
 
   if (responseHasFunctionCall(firstResponse) || responseHasVisibleText(firstResponse)) {
