@@ -53,7 +53,7 @@ const replaceOnce = (text, oldValue, newValue, label) => {
       if (!completedSeen || !isRecoverableAssistantTransportError(streamError)) {
         throw streamError;
       }
-      // The backend `completed` event is the terminal business state. A later
+      // The backend completed event is the terminal business state. A later
       // network/read close is transport noise and must not overwrite success.
       rememberExecutionLabel('Yanıt tamamlandı; bağlantı kapanışı güvenli şekilde yoksayıldı.');
     }
@@ -104,7 +104,7 @@ const replaceOnce = (text, oldValue, newValue, label) => {
           && streamedText.trim().length > 0;
         if (terminalTransportClose) {
           // Defense in depth. Normal transport closure after a terminal
-          // `completed` event must never turn the successful message red.
+          // completed event must never turn the successful message red.
           const terminalMessage: Message = {
             id: aiMsgId,
             role: 'model',
