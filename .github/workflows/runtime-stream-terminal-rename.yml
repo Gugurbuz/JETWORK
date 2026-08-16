@@ -1,0 +1,37 @@
+name: Runtime Stream Terminal Rename
+
+on:
+  push:
+    branches:
+      - fix/runtime-stream-stabilization-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/runtime-stream-stabilization-v2
+          fetch-depth: 0
+      - name: Align completed terminal state name
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/hooks/useMessages.ts')
+          text = path.read_text()
+          if text.count('terminalCompletedSeen') != 3:
+              raise SystemExit(f'Expected 3 terminalCompletedSeen references, got {text.count("terminalCompletedSeen")}')
+          path.write_text(text.replace('terminalCompletedSeen', 'completedSeen'))
+          PY
+      - name: Commit source and remove helper
+        run: |
+          git rm .github/workflows/runtime-stream-terminal-rename.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/hooks/useMessages.ts
+          git commit -m "fix: align completed stream terminal state"
+          git push origin HEAD:fix/runtime-stream-stabilization-v2
