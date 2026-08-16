@@ -1,9 +1,15 @@
 // Versioned Reasoning Engine v2 core implementation.
-// Install provider guards before loading the implementation so provider
-// requests share warm-isolate health state and bounded synthesis policy.
+// Install provider and stream lifecycle guards before loading the implementation
+// so warm isolates share bounded provider policy and durable transport safety.
 import { installGeminiFinalSynthesisThinkingGuard } from '../_shared/geminiThinkingGuard.ts'
 import { installOpenAiCircuitBreaker } from '../_shared/providerCircuitBreaker.ts'
+import { installStreamControllerLifecycleGuard } from '../_shared/streamControllerGuard.ts'
 
+// The reasoning core is durable: if the browser navigates away after the turn
+// starts, late SSE writes must become no-ops while model/tool execution and DB
+// completion continue. This guard only swallows native "controller closed"
+// lifecycle errors; unrelated stream/runtime errors still propagate.
+installStreamControllerLifecycleGuard()
 installOpenAiCircuitBreaker()
 installGeminiFinalSynthesisThinkingGuard()
 
