@@ -247,7 +247,10 @@ const groundingSearchQueries = (candidate: any): string[] => {
   const queries = Array.isArray(candidate?.groundingMetadata?.webSearchQueries)
     ? candidate.groundingMetadata.webSearchQueries
     : []
-  return [...new Set(queries.map((query: unknown) => String(query || '').trim()).filter(Boolean))].slice(0, 12)
+  const normalizedQueries: string[] = queries
+    .map((query: unknown) => String(query || '').trim())
+    .filter((query: string) => query.length > 0)
+  return [...new Set<string>(normalizedQueries)].slice(0, 12)
 }
 
 const appendGroundingSources = (text: string, candidate: any) => {
