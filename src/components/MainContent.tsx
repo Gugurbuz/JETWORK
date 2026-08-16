@@ -1,5 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Menu, MessageSquarePlus } from 'lucide-react';
+import { motion } from 'motion/react';
 import { ProjectDashboard } from './ProjectDashboard';
 import { JetWorkLogo } from './JetWorkLogo';
 import { useDataStore } from '../store/useDataStore';
@@ -8,14 +9,14 @@ import { useUIStore } from '../store/useUIStore';
 interface MainContentProps { children: React.ReactNode; onQuickStart: () => void; }
 
 const floatingLogos = [
-  { left: '7%', top: '16%', size: 42, duration: 10, delay: -2, drift: 24 },
-  { left: '18%', top: '68%', size: 58, duration: 13, delay: -7, drift: 34 },
-  { left: '31%', top: '25%', size: 34, duration: 11, delay: -5, drift: 22 },
-  { left: '42%', top: '78%', size: 46, duration: 15, delay: -3, drift: 30 },
-  { left: '57%', top: '14%', size: 52, duration: 14, delay: -9, drift: 32 },
-  { left: '69%', top: '66%', size: 36, duration: 12, delay: -4, drift: 24 },
-  { left: '82%', top: '22%', size: 64, duration: 16, delay: -11, drift: 38 },
-  { left: '91%', top: '73%', size: 44, duration: 13, delay: -6, drift: 28 },
+  { left: '7%', top: '16%', size: 42, duration: 7.5, delay: 0.2, drift: 34, direction: 1 },
+  { left: '18%', top: '68%', size: 58, duration: 9.5, delay: 0.8, drift: 46, direction: -1 },
+  { left: '31%', top: '25%', size: 34, duration: 8.25, delay: 1.4, drift: 32, direction: -1 },
+  { left: '42%', top: '78%', size: 46, duration: 10.5, delay: 0.5, drift: 42, direction: 1 },
+  { left: '57%', top: '14%', size: 52, duration: 9.25, delay: 1.1, drift: 44, direction: 1 },
+  { left: '69%', top: '66%', size: 36, duration: 8.75, delay: 1.8, drift: 34, direction: -1 },
+  { left: '82%', top: '22%', size: 64, duration: 11, delay: 0.35, drift: 52, direction: -1 },
+  { left: '91%', top: '73%', size: 44, duration: 9, delay: 1.55, drift: 38, direction: 1 },
 ];
 
 export function MainContent({ children, onQuickStart }: MainContentProps) {
@@ -39,49 +40,40 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
         onDeleteWorkspace={setDeletingWorkspace} />
     ) : (
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-theme-bg p-6">
-        <style>{`
-          @keyframes jetwork-float {
-            0%, 100% { transform: translate3d(0, 0, 0) rotate(-5deg) scale(1); }
-            25% { transform: translate3d(var(--jw-x1), var(--jw-y1), 0) rotate(4deg) scale(1.035); }
-            50% { transform: translate3d(var(--jw-x2), var(--jw-y2), 0) rotate(8deg) scale(.985); }
-            75% { transform: translate3d(var(--jw-x3), var(--jw-y3), 0) rotate(1deg) scale(1.025); }
-          }
-          @media (prefers-reduced-motion: reduce) {
-            .jetwork-floating-logo { animation: none !important; }
-          }
-        `}</style>
-
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
           {floatingLogos.map((logo, index) => {
-            const x1 = Math.round(logo.drift * 0.45);
-            const y1 = Math.round(logo.drift * -0.7);
-            const x2 = logo.drift;
-            const y2 = Math.round(logo.drift * -0.2);
-            const x3 = Math.round(logo.drift * 0.35);
-            const y3 = Math.round(logo.drift * 0.55);
+            const direction = logo.direction;
+            const drift = logo.drift;
 
             return (
-              <div
+              <motion.div
                 key={index}
-                className="jetwork-floating-logo absolute opacity-[0.09] blur-[0.15px]"
+                className="absolute opacity-[0.1] blur-[0.15px]"
                 style={{
                   left: logo.left,
                   top: logo.top,
                   width: logo.size,
                   height: logo.size,
-                  animation: `jetwork-float ${logo.duration}s ease-in-out ${logo.delay}s infinite`,
                   willChange: 'transform',
                   transformOrigin: 'center',
-                  ['--jw-x1' as string]: `${x1}px`,
-                  ['--jw-y1' as string]: `${y1}px`,
-                  ['--jw-x2' as string]: `${x2}px`,
-                  ['--jw-y2' as string]: `${y2}px`,
-                  ['--jw-x3' as string]: `${x3}px`,
-                  ['--jw-y3' as string]: `${y3}px`,
+                }}
+                initial={false}
+                animate={{
+                  x: [0, drift * 0.45 * direction, drift * direction, drift * 0.25 * direction, 0],
+                  y: [0, drift * -0.7, drift * -0.15, drift * 0.55, 0],
+                  rotate: [-5 * direction, 4 * direction, 9 * direction, -2 * direction, -5 * direction],
+                  scale: [1, 1.055, 0.985, 1.035, 1],
+                }}
+                transition={{
+                  duration: logo.duration,
+                  delay: logo.delay,
+                  ease: 'easeInOut',
+                  repeat: Infinity,
+                  repeatType: 'loop',
                 }}
               >
                 <JetWorkLogo className="h-full w-full drop-shadow-[0_10px_22px_rgba(0,0,0,0.12)]" />
-              </div>
+              </motion.div>
             );
           })}
         </div>
