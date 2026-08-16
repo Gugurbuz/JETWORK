@@ -31,6 +31,7 @@ import {
   type AssistantRuntimeStage,
 } from '../services/assistantRuntimeClient';
 import { splitAssistantSources } from '../services/assistantSources';
+import { isRecoverableAssistantTransportError } from '../services/assistantRuntimeRecovery';
 import { createAssistantTextSmoother } from '../services/assistantTextSmoother';
 import { toast } from 'sonner';
 
@@ -362,6 +363,7 @@ export const useMessages = (channelRef: any) => {
       let streamedGroundingUrls: Message['groundingUrls'] = [];
       let streamedAttachments: Message['attachments'] = [];
       const stageNotes: string[] = [];
+      let terminalCompletedSeen = false;
       const patchStreamingText = (fullText: string) => {
         streamedText = fullText;
         const patch = {
@@ -432,6 +434,9 @@ export const useMessages = (channelRef: any) => {
               senderName: 'JetWork AI',
               senderRole: 'Sistem Asistanı',
             });
+          },
+          onCompleted: () => {
+            terminalCompletedSeen = true;
           },
           onStatus: (stage, label) => {
             const safeLabel = (label || '').trim();
@@ -506,6 +511,48 @@ export const useMessages = (channelRef: any) => {
         console.error('Single assistant runtime error:', error);
         const wasAborted = isAbortFailure(error, generationController);
         const stoppedByUser = wasStoppedByUser(generationController);
+        const terminalTransportClose = terminalCompletedSeen
+          && !wasAborted
+          && isRecoverableAssistantTransportError(error)
+          && streamedText.trim().length > 0;
+        if (terminalTransportClose) {
+          // Defense in depth. Normal transport closure after a terminal
+          // completed event must never turn the successful message red.
+          const terminalMessage: Message = {
+            id: aiMsgId,
+            role: 'model',
+            text: streamedText,
+            thinkingText: stageNotesAsSummary(stageNotes),
+            thinkingTime: elapsedSecondsSince(aiCreatedAt),
+            knowledgeSources: streamedKnowledgeSources,
+            groundingUrls: streamedGroundingUrls,
+            attachments: streamedAttachments,
+            isTyping: false,
+            isError: false,
+            retryPayload: undefined,
+            senderName: 'JetWork AI',
+            senderRole: 'Sistem Asistanı',
+            createdAt: aiCreatedAt,
+            phase: null,
+            persistenceStatus: 'pending',
+          };
+          setMessages(previous => previous.map(message => (
+            message.id === aiMsgId ? terminalMessage : message
+          )));
+          broadcastMessage(channelRef, 'ai_stream_end', messageForRealtime(terminalMessage));
+          try {
+            await saveAiMessage(currentWorkspaceId, user.uid, terminalMessage);
+            setMessages(previous => previous.map(message => (
+              message.id === terminalMessage.id ? { ...message, persistenceStatus: 'saved' } : message
+            )));
+          } catch (persistError) {
+            console.error('Completed assistant response could not be persisted after transport close:', persistError);
+            setMessages(previous => previous.map(message => (
+              message.id === terminalMessage.id ? { ...message, persistenceStatus: 'failed' } : message
+            )));
+          }
+          return;
+        }
         const failureDetail = error instanceof Error
           ? error.message
           : 'Yeni asistan yanıtı oluşturulamadı.';
