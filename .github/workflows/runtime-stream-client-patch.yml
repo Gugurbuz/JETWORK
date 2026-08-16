@@ -1,0 +1,181 @@
+name: Runtime stream client patch
+
+on:
+  push:
+    branches:
+      - fix/runtime-stream-stabilization-v2
+
+permissions:
+  contents: write
+
+jobs:
+  patch-client-terminal-state:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/runtime-stream-stabilization-v2
+          fetch-depth: 0
+      - name: Apply terminal completed transport handling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime = Path('src/services/assistantRuntimeClient.ts')
+          text = runtime.read_text()
+
+          old = "  onStatus?: (stage: AssistantRuntimeStage, label?: string) => void;\n}): Promise<AssistantRuntimeResult> {"
+          new = "  onStatus?: (stage: AssistantRuntimeStage, label?: string) => void;\n  onCompleted?: () => void;\n}): Promise<AssistantRuntimeResult> {"
+          if old not in text:
+              raise SystemExit('assistantRuntimeClient input signature anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = "      completedSeen = true;\n      conversationId = parsed.conversationId;"
+          new = "      completedSeen = true;\n      input.onCompleted?.();\n      conversationId = parsed.conversationId;"
+          if old not in text:
+              raise SystemExit('completed event anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = consumeSseBuffer(buffer);
+      buffer = parsed.remainder;
+      parsed.events.forEach(handleEvent);
+    }
+    buffer += decoder.decode();
+    consumeSseBuffer(buffer, true).events.forEach(handleEvent);
+
+    if (!completedSeen) {"""
+          new = """    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = consumeSseBuffer(buffer);
+        buffer = parsed.remainder;
+        parsed.events.forEach(handleEvent);
+      }
+      buffer += decoder.decode();
+      consumeSseBuffer(buffer, true).events.forEach(handleEvent);
+    } catch (streamError) {
+      if (!completedSeen) throw streamError;
+      // `completed` is the terminal business event. A transport close after it
+      // must not turn a successfully persisted backend turn into a local error.
+      rememberExecutionLabel('Yanıt tamamlandı; bağlantı kapanışı güvenli şekilde yoksayıldı.');
+    }
+
+    if (!completedSeen) {"""
+          if old not in text:
+              raise SystemExit('reader loop anchor missing')
+          text = text.replace(old, new, 1)
+          runtime.write_text(text)
+
+          hook = Path('src/hooks/useMessages.ts')
+          text = hook.read_text()
+
+          old = "import { splitAssistantSources } from '../services/assistantSources';\n"
+          new = "import { splitAssistantSources } from '../services/assistantSources';\nimport { isRecoverableAssistantTransportError } from '../services/assistantRuntimeRecovery';\n"
+          if old not in text:
+              raise SystemExit('useMessages import anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """      const stageNotes: string[] = [];
+      const patchStreamingText = (fullText: string) => {"""
+          new = """      const stageNotes: string[] = [];
+      let terminalCompletedSeen = false;
+      const patchStreamingText = (fullText: string) => {"""
+          if old not in text:
+              raise SystemExit('useMessages stream state anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """          onStatus: (stage, label) => {
+            const safeLabel = (label || '').trim();"""
+          new = """          onCompleted: () => {
+            terminalCompletedSeen = true;
+          },
+          onStatus: (stage, label) => {
+            const safeLabel = (label || '').trim();"""
+          if old not in text:
+              raise SystemExit('useMessages onStatus anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = """        console.error('Single assistant runtime error:', error);
+        const wasAborted = isAbortFailure(error, generationController);
+        const stoppedByUser = wasStoppedByUser(generationController);
+        const failureDetail = error instanceof Error
+          ? error.message
+          : 'Yeni asistan yanıtı oluşturulamadı.';
+        const failedMessage: Message = {"""
+          new = """        console.error('Single assistant runtime error:', error);
+        const wasAborted = isAbortFailure(error, generationController);
+        const stoppedByUser = wasStoppedByUser(generationController);
+        const terminalTransportClose = terminalCompletedSeen
+          && !wasAborted
+          && isRecoverableAssistantTransportError(error)
+          && streamedText.trim().length > 0;
+        if (terminalTransportClose) {
+          // Defense in depth: streamAssistantResponse normally absorbs transport
+          // closure after `completed`. If a browser/runtime still surfaces that
+          // close here, preserve the completed text as a successful message
+          // instead of overwriting it with a red local error/retry card.
+          const terminalMessage: Message = {
+            id: aiMsgId,
+            role: 'model',
+            text: streamedText,
+            thinkingText: stageNotesAsSummary(stageNotes),
+            thinkingTime: elapsedSecondsSince(aiCreatedAt),
+            knowledgeSources: streamedKnowledgeSources,
+            groundingUrls: streamedGroundingUrls,
+            attachments: streamedAttachments,
+            isTyping: false,
+            isError: false,
+            retryPayload: undefined,
+            senderName: 'JetWork AI',
+            senderRole: 'Sistem Asistanı',
+            createdAt: aiCreatedAt,
+            phase: null,
+            persistenceStatus: 'pending',
+          };
+          setMessages(previous => previous.map(message => (
+            message.id === aiMsgId ? terminalMessage : message
+          )));
+          broadcastMessage(channelRef, 'ai_stream_end', messageForRealtime(terminalMessage));
+          try {
+            await saveAiMessage(currentWorkspaceId, user.uid, terminalMessage);
+            setMessages(previous => previous.map(message => (
+              message.id === terminalMessage.id ? { ...message, persistenceStatus: 'saved' } : message
+            )));
+          } catch (persistError) {
+            console.error('Completed assistant response could not be persisted after transport close:', persistError);
+            setMessages(previous => previous.map(message => (
+              message.id === terminalMessage.id ? { ...message, persistenceStatus: 'failed' } : message
+            )));
+          }
+          return;
+        }
+        const failureDetail = error instanceof Error
+          ? error.message
+          : 'Yeni asistan yanıtı oluşturulamadı.';
+        const failedMessage: Message = {"""
+          if old not in text:
+              raise SystemExit('useMessages catch anchor missing')
+          text = text.replace(old, new, 1)
+          hook.write_text(text)
+          PY
+      - name: Commit client terminal-state fix
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/services/assistantRuntimeClient.ts src/hooks/useMessages.ts
+          git commit -m "fix: preserve completed assistant terminal state"
+          git push origin HEAD:fix/runtime-stream-stabilization-v2
