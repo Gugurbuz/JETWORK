@@ -195,6 +195,11 @@ button.assistant-work__summary:hover {
   height: 0.75rem;
 }
 
+.assistant-work__summary .assistant-work__logo {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
 .assistant-work__chevron {
   transition: transform 160ms ease;
 }
