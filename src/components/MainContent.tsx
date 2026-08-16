@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { LayoutDashboard, Menu, MessageSquarePlus } from 'lucide-react';
+import { Menu, MessageSquarePlus } from 'lucide-react';
 import { ProjectDashboard } from './ProjectDashboard';
 import { JetWorkLogo } from './JetWorkLogo';
 import { useDataStore } from '../store/useDataStore';
@@ -109,7 +109,9 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
         </div>
 
         <div className="relative z-10 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-theme-border bg-theme-surface text-theme-text-muted"><LayoutDashboard size={32} /></div>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-theme-border bg-theme-surface shadow-sm">
+            <JetWorkLogo className="h-10 w-10" />
+          </div>
           <h2 className="mb-2 text-xl font-bold text-theme-text">JetWork'e Hoş Geldiniz</h2>
           <p className="mb-6 text-theme-text-muted">Doğrudan sohbet başlatın veya çalışmalarınızı proje altında düzenleyin.</p>
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
