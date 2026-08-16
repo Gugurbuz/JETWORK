@@ -363,7 +363,7 @@ export const useMessages = (channelRef: any) => {
       let streamedGroundingUrls: Message['groundingUrls'] = [];
       let streamedAttachments: Message['attachments'] = [];
       const stageNotes: string[] = [];
-      let terminalCompletedSeen = false;
+      let completedSeen = false;
       const patchStreamingText = (fullText: string) => {
         streamedText = fullText;
         const patch = {
@@ -436,7 +436,7 @@ export const useMessages = (channelRef: any) => {
             });
           },
           onCompleted: () => {
-            terminalCompletedSeen = true;
+            completedSeen = true;
           },
           onStatus: (stage, label) => {
             const safeLabel = (label || '').trim();
@@ -511,7 +511,7 @@ export const useMessages = (channelRef: any) => {
         console.error('Single assistant runtime error:', error);
         const wasAborted = isAbortFailure(error, generationController);
         const stoppedByUser = wasStoppedByUser(generationController);
-        const terminalTransportClose = terminalCompletedSeen
+        const terminalTransportClose = completedSeen
           && !wasAborted
           && isRecoverableAssistantTransportError(error)
           && streamedText.trim().length > 0;
