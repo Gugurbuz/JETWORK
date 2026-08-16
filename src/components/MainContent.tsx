@@ -8,14 +8,14 @@ import { useUIStore } from '../store/useUIStore';
 interface MainContentProps { children: React.ReactNode; onQuickStart: () => void; }
 
 const floatingLogos = [
-  { left: '7%', top: '16%', size: 42, duration: 10, delay: -2, drift: 18 },
-  { left: '18%', top: '68%', size: 58, duration: 13, delay: -7, drift: 24 },
-  { left: '31%', top: '25%', size: 34, duration: 11, delay: -5, drift: 16 },
-  { left: '42%', top: '78%', size: 46, duration: 15, delay: -3, drift: 20 },
-  { left: '57%', top: '14%', size: 52, duration: 14, delay: -9, drift: 22 },
-  { left: '69%', top: '66%', size: 36, duration: 12, delay: -4, drift: 17 },
-  { left: '82%', top: '22%', size: 64, duration: 16, delay: -11, drift: 26 },
-  { left: '91%', top: '73%', size: 44, duration: 13, delay: -6, drift: 19 },
+  { left: '7%', top: '16%', size: 42, duration: 10, delay: -2, drift: 24 },
+  { left: '18%', top: '68%', size: 58, duration: 13, delay: -7, drift: 34 },
+  { left: '31%', top: '25%', size: 34, duration: 11, delay: -5, drift: 22 },
+  { left: '42%', top: '78%', size: 46, duration: 15, delay: -3, drift: 30 },
+  { left: '57%', top: '14%', size: 52, duration: 14, delay: -9, drift: 32 },
+  { left: '69%', top: '66%', size: 36, duration: 12, delay: -4, drift: 24 },
+  { left: '82%', top: '22%', size: 64, duration: 16, delay: -11, drift: 38 },
+  { left: '91%', top: '73%', size: 44, duration: 13, delay: -6, drift: 28 },
 ];
 
 export function MainContent({ children, onQuickStart }: MainContentProps) {
@@ -41,10 +41,10 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-theme-bg p-6">
         <style>{`
           @keyframes jetwork-float {
-            0%, 100% { transform: translate3d(0, 0, 0) rotate(-4deg); }
-            25% { transform: translate3d(calc(var(--jw-drift) * .45), calc(var(--jw-drift) * -.7), 0) rotate(4deg); }
-            50% { transform: translate3d(var(--jw-drift), calc(var(--jw-drift) * -.2), 0) rotate(8deg); }
-            75% { transform: translate3d(calc(var(--jw-drift) * .35), calc(var(--jw-drift) * .55), 0) rotate(1deg); }
+            0%, 100% { transform: translate3d(0, 0, 0) rotate(-5deg) scale(1); }
+            25% { transform: translate3d(var(--jw-x1), var(--jw-y1), 0) rotate(4deg) scale(1.035); }
+            50% { transform: translate3d(var(--jw-x2), var(--jw-y2), 0) rotate(8deg) scale(.985); }
+            75% { transform: translate3d(var(--jw-x3), var(--jw-y3), 0) rotate(1deg) scale(1.025); }
           }
           @media (prefers-reduced-motion: reduce) {
             .jetwork-floating-logo { animation: none !important; }
@@ -52,22 +52,38 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
         `}</style>
 
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-          {floatingLogos.map((logo, index) => (
-            <div
-              key={index}
-              className="jetwork-floating-logo absolute opacity-[0.075] blur-[0.2px]"
-              style={{
-                left: logo.left,
-                top: logo.top,
-                width: logo.size,
-                height: logo.size,
-                animation: `jetwork-float ${logo.duration}s ease-in-out ${logo.delay}s infinite`,
-                ['--jw-drift' as string]: `${logo.drift}px`,
-              }}
-            >
-              <JetWorkLogo className="h-full w-full drop-shadow-[0_10px_22px_rgba(0,0,0,0.12)]" />
-            </div>
-          ))}
+          {floatingLogos.map((logo, index) => {
+            const x1 = Math.round(logo.drift * 0.45);
+            const y1 = Math.round(logo.drift * -0.7);
+            const x2 = logo.drift;
+            const y2 = Math.round(logo.drift * -0.2);
+            const x3 = Math.round(logo.drift * 0.35);
+            const y3 = Math.round(logo.drift * 0.55);
+
+            return (
+              <div
+                key={index}
+                className="jetwork-floating-logo absolute opacity-[0.09] blur-[0.15px]"
+                style={{
+                  left: logo.left,
+                  top: logo.top,
+                  width: logo.size,
+                  height: logo.size,
+                  animation: `jetwork-float ${logo.duration}s ease-in-out ${logo.delay}s infinite`,
+                  willChange: 'transform',
+                  transformOrigin: 'center',
+                  ['--jw-x1' as string]: `${x1}px`,
+                  ['--jw-y1' as string]: `${y1}px`,
+                  ['--jw-x2' as string]: `${x2}px`,
+                  ['--jw-y2' as string]: `${y2}px`,
+                  ['--jw-x3' as string]: `${x3}px`,
+                  ['--jw-y3' as string]: `${y3}px`,
+                }}
+              >
+                <JetWorkLogo className="h-full w-full drop-shadow-[0_10px_22px_rgba(0,0,0,0.12)]" />
+              </div>
+            );
+          })}
         </div>
 
         <div className="relative z-10 text-center">
