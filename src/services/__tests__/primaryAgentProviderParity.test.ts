@@ -32,10 +32,11 @@ describe('primary-agent provider parity', () => {
     expect(reasoning).not.toContain("currentRoute.webMode !== 'none' ? currentRoute.webMode : 'required'");
   });
 
-  it('keeps Gemini native web available after empty knowledge searches', () => {
+  it('keeps Gemini native web available after generic empty knowledge searches while suppressing it after an exact message miss', () => {
     expect(wrapper).toContain("const providerNativeWebRequested = String(plan?.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)");
     expect(wrapper).toContain('&& !providerNativeWebRequested');
-    expect(wrapper).toContain('const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)');
+    expect(wrapper).toContain('const providerWebEnabled = providerNativeWebRequested');
+    expect(wrapper).toContain('!emptyMessageDetailLookup && (input.allowProviderWeb ?? input.allowTools)');
     expect(legacy).toContain('googleSearch: {}');
     expect(legacy).toContain("providerWebEnabled ? 'VALIDATED' : 'AUTO'");
   });
