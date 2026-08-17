@@ -230,11 +230,11 @@ const buildPrimaryAgentPlan = (input: {
     executionMode,
     goal: state.resolvedRequest || currentMessage,
     // The user's supplied requirement/specification text is itself the primary
-    // evidence for analysis. Knowledge/web capabilities remain available for
-    // genuinely unknown facts, but are not prerequisites for analysing input.
-    knowledgeRequired: userProvidedRequirements ? false : true,
+    // evidence for analysis. Otherwise respect the deterministic router instead
+    // of forcing every primary-agent turn into knowledge + public web mode.
+    knowledgeRequired: userProvidedRequirements ? false : route.knowledgeRequired,
     enterpriseGroundingRequired: false,
-    webMode: userProvidedRequirements ? 'none' : 'if_internal_insufficient',
+    webMode: userProvidedRequirements ? 'none' : route.webMode,
     verificationRequired: false,
     creativeMode: route.creativeMode,
     evidenceQueries: [],
