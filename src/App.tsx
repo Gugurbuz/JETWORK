@@ -253,7 +253,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-theme-bg text-theme-text font-sans overflow-hidden selection:bg-theme-primary selection:text-theme-primary-fg transition-colors duration-300 relative">
+    <div className="relative flex h-[100dvh] max-h-[100dvh] min-h-0 w-full overflow-hidden overscroll-none bg-theme-bg font-sans text-theme-text selection:bg-theme-primary selection:text-theme-primary-fg transition-colors duration-300">
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-theme-primary/20 blur-[120px]" />
         <div className="absolute top-[40%] -right-[10%] w-[40%] h-[60%] rounded-full bg-theme-primary/10 blur-[100px]" />
