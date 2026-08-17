@@ -95,7 +95,7 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
   const selectWorkspace = useDataStore(state => state.selectWorkspace);
   const project = projects.find(item => item.id === currentProjectId);
 
-  return <main className="relative z-10 flex min-w-0 flex-1">
+  return <main className="relative z-10 flex min-h-0 min-w-0 flex-1 overflow-hidden">
     {!currentWorkspaceId && <button type="button" onClick={() => setMobileSidebarOpen(true)} aria-label="Projeler menüsünü aç"
       className="absolute left-3 top-3 z-30 rounded-lg border border-theme-border bg-theme-surface p-2 text-theme-text-muted md:hidden"><Menu size={20} /></button>}
     {!currentWorkspaceId ? project ? (
@@ -103,7 +103,7 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
         onNewWorkspace={() => setShowNewItemModal(true)} onEditWorkspace={setEditingWorkspace}
         onDeleteWorkspace={setDeletingWorkspace} />
     ) : (
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-theme-bg p-6">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-theme-bg p-6">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
           {floatingLogos.map((logo, index) => <FloatingLogo key={index} logo={logo} />)}
         </div>
