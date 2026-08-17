@@ -15,12 +15,13 @@ describe('observable assistant progress', () => {
     expect(proxySource).toContain('const reader = upstream.body.getReader()');
   });
 
-  it('emits lifecycle progress at real proxy boundaries and preserves upstream streaming', () => {
+  it('emits lifecycle progress at real proxy boundaries and preserves rewritten upstream streaming', () => {
     expect(proxySource).toContain("'X-JetWork-Live-Progress': 'v5'");
     expect(proxySource).toContain("label: 'Talep işleme alındı'");
     expect(proxySource).toContain("label: 'Talebin kapsamı ve çalışma yolu değerlendiriliyor...'");
     expect(proxySource).toContain("label: 'Çalışma yaklaşımı belirlendi'");
     expect(proxySource).toContain('const reader = upstream.body.getReader()');
-    expect(proxySource).toContain('if (value) sink.write(value)');
+    expect(proxySource).toContain('const rewritten = await rewriteRuntimeFrame');
+    expect(proxySource).toContain('sink.write(encoder.encode(`${rewritten}');
   });
 });
