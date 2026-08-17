@@ -38,11 +38,6 @@ const normalizePeriod = (value: unknown) => {
 
 const utcDateKey = (value: Date | string) => new Date(value).toISOString().slice(0, 10)
 
-const isManagerRole = (role: unknown) => {
-  const normalized = String(role || '').trim().toLocaleLowerCase('tr-TR')
-  return normalized === 'yönetici' || normalized === 'yonetici' || normalized === 'admin' || normalized === 'administrator'
-}
-
 type TurnRow = {
   created_at: string
   status: string | null
@@ -81,13 +76,13 @@ serve(async (req) => {
   }
 
   const userId = authData.user.id
+  const manager = authData.user.app_metadata?.jetwork_admin === true || authData.user.app_metadata?.role === 'admin'
   const { data: profile } = await admin
     .from('users')
     .select('role,name,surname')
     .eq('uid', userId)
     .maybeSingle()
 
-  const manager = isManagerRole(profile?.role)
   const body = await req.json().catch(() => ({}))
   const periodDays = normalizePeriod(body?.periodDays)
   const now = new Date()
