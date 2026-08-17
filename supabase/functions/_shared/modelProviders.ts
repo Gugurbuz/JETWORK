@@ -12,8 +12,11 @@ import {
 import {
   GEMINI_AGENT_MODEL,
   GEMINI_SEMANTIC_MODEL,
+  compactGeminiAgentItems,
+  costGuardAgentInstruction,
   extractSemanticPlanFromItems,
   normalizeGeminiRequestedModel,
+  toolBudgetForPlan,
   usageWithGeminiEstimatedCost,
 } from './geminiCostGuard.ts'
 import { assertExplicitGeminiModelPreserved } from './geminiProviderLock.ts'
@@ -44,6 +47,17 @@ const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[EN
 const INTERNAL_EVIDENCE_PATTERN = /\n?\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]\s*/gi
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const ENUMERATION_KNOWLEDGE_TOOLS = new Set(['list_knowledge_catalog', 'list_class_inventory'])
+const KNOWLEDGE_TOOL_NAMES = new Set([
+  'search_knowledge_catalog',
+  'list_knowledge_catalog',
+  'list_class_inventory',
+  'get_abap_source',
+  'get_message_detail',
+  'search_document',
+  'get_document_content',
+  'get_knowledge_object',
+  'get_related_objects',
+])
 const MAX_EMPTY_KNOWLEDGE_SEARCHES = 2
 
 export const stripInternalSemanticPlan = (value: string) => value
@@ -134,6 +148,21 @@ export const countEmptyKnowledgeSearches = (items: Array<Record<string, unknown>
   return emptySearches
 }
 
+export const countExecutedKnowledgeToolCalls = (items: Array<Record<string, unknown>>): number => {
+  const namesByCallId = new Map<string, string>()
+  let count = 0
+  for (const item of items) {
+    const type = String(item.type || '')
+    const callId = String(item.call_id || '')
+    if (type === 'function_call') {
+      namesByCallId.set(callId, String(item.name || ''))
+      continue
+    }
+    if (type === 'function_call_output' && KNOWLEDGE_TOOL_NAMES.has(namesByCallId.get(callId) || '')) count += 1
+  }
+  return count
+}
+
 const responseHasFunctionCall = (response: NormalizedModelResponse): boolean => (
   (response.output || []).some(item => item.type === 'function_call')
 )
@@ -184,6 +213,12 @@ const buildNoToolRecoveryItems = (items: Array<Record<string, unknown>>) => {
   const sanitized = sanitizeItems(items).filter(item => !['function_call', 'function_call_output'].includes(String(item.type || '')))
   const evidenceItem = toolEvidenceAsUserItem(items)
   return evidenceItem ? [...sanitized, evidenceItem] : sanitized
+}
+
+const boundedKnowledgeToolBudget = (plan: ReturnType<typeof extractSemanticPlanFromItems>) => {
+  const plannedBudget = toolBudgetForPlan(plan)
+  const hardCap = plan?.complexity === 'high' ? 3 : 2
+  return Math.max(0, Math.min(plannedBudget, hardCap))
 }
 
 export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => legacyIsTrivialConversationalTurn(sanitizeItems(items))
@@ -253,34 +288,59 @@ export async function requestGeminiResponse(input: {
   }
 
   const providerNativeWebRequested = String(plan?.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)
+  const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)
   const emptyKnowledgeSearches = countEmptyKnowledgeSearches(input.items)
+  const knowledgeBudget = boundedKnowledgeToolBudget(plan)
+  const executedKnowledgeCalls = countExecutedKnowledgeToolCalls(input.items)
+  const knowledgeToolsAvailable = input.tools.some(tool => KNOWLEDGE_TOOL_NAMES.has(String(tool.name || '')))
+  const knowledgeBudgetExhausted = Boolean(plan?.knowledgeRequired)
+    && knowledgeToolsAvailable
+    && executedKnowledgeCalls >= knowledgeBudget
   const forceNoToolSynthesis = input.allowTools
     && !providerNativeWebRequested
     && emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES
-  const effectiveAllowTools = input.allowTools && !forceNoToolSynthesis
+
+  const budgetFilteredTools = knowledgeBudgetExhausted
+    ? input.tools.filter(tool => !KNOWLEDGE_TOOL_NAMES.has(String(tool.name || '')))
+    : [...input.tools]
+  const effectiveAllowTools = input.allowTools
+    && !forceNoToolSynthesis
+    && (budgetFilteredTools.length > 0 || providerWebEnabled)
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
-  const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)
   const geminiInstructions = [
     providerInstructions,
     primaryAgentInstruction,
     baAnalysisInstruction,
+    effectiveAllowTools ? costGuardAgentInstruction({ budget: knowledgeBudget, executed: executedKnowledgeCalls, plan }) : '',
+    knowledgeBudgetExhausted
+      ? 'Kurumsal knowledge araç bütçesi tamamlandı. Yeni knowledge araması yapma; mevcut kanıtlarla ilerle. Procedural skill gerekiyorsa yalnız gerçekten zorunlu olduğunda kullan.'
+      : '',
     forceNoToolSynthesis
       ? 'İki ayrı knowledge araması da sonuç vermedi. Yeni araç çağırma; kullanıcının verdiği bilgiler ve mevcut kanıtlarla dürüst nihai yanıtı üret. Kaynakta doğrulanamayan kurum özelini açıkça belirt ama kullanıcının kendi verdiği gereksinimleri analiz etmeyi bırakma.'
       : '',
     !forceNoToolSynthesis && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
+
   const firstResponse = await legacyRequestGeminiResponse({
     ...input,
     model: requestedModel,
     instructions: geminiInstructions,
-    items: forceNoToolSynthesis ? buildNoToolRecoveryItems(input.items) : sanitizeItems(input.items),
-    tools: effectiveAllowTools ? input.tools : [],
+    items: forceNoToolSynthesis
+      ? buildNoToolRecoveryItems(input.items)
+      : effectiveAllowTools
+        ? compactGeminiAgentItems(sanitizeItems(input.items))
+        : sanitizeItems(input.items),
+    tools: effectiveAllowTools ? budgetFilteredTools : [],
     allowTools: effectiveAllowTools,
   })
   assertExplicitGeminiModelPreserved(requestedModel, firstResponse.model)
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
     primary_llm_final_calls: effectiveAllowTools ? 0 : 1,
+    cost_guard_context_compacted_calls: effectiveAllowTools ? 1 : 0,
+    cost_guard_knowledge_tool_budget: knowledgeBudget,
+    cost_guard_knowledge_tool_calls_seen: executedKnowledgeCalls,
+    ...(knowledgeBudgetExhausted ? { cost_guard_knowledge_budget_exhausted: 1 } : {}),
     ...(forceNoToolSynthesis ? { gemini_empty_knowledge_forced_synthesis: 1 } : {}),
     ...(providerNativeWebRequested ? { gemini_native_web_requested: 1 } : {}),
   })

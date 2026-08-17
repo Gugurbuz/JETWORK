@@ -24,7 +24,7 @@ describe('assistant runtime presentation boundary', () => {
     expect(mainSource).not.toContain("import './thinking-legacy.css'");
   });
 
-  it('keeps desktop and mobile on the same work indicator animation', () => {
+  it('keeps desktop and mobile on the same work indicator animation while honoring reduced motion', () => {
     expect(workIndicatorCss).toContain('@keyframes assistant-work-logo-story');
     expect(workIndicatorCss).toContain('animation: assistant-work-logo-story 4.4s cubic-bezier(0.45, 0, 0.2, 1) infinite;');
     expect(workIndicatorCss).not.toContain('assistant-work-orbit-spin');
@@ -40,9 +40,10 @@ describe('assistant runtime presentation boundary', () => {
     const reducedMotionBlock = workIndicatorCss.slice(
       workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'),
     );
-    expect(reducedMotionBlock).not.toContain('.assistant-work__logo-motion');
-    expect(reducedMotionBlock).not.toContain('.assistant-work__label');
+    expect(reducedMotionBlock).toContain('.assistant-work__logo-motion');
+    expect(reducedMotionBlock).toContain('.assistant-work__label');
     expect(reducedMotionBlock).toContain('.assistant-work__activity--active .assistant-work__activity-icon');
+    expect(reducedMotionBlock).toContain('animation: none;');
   });
 
   it('persists the safe work summary and total duration but keeps provider routing private', () => {

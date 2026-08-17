@@ -182,9 +182,6 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
         role: 'model',
         parts: [{
           functionCall: { id: callId, name, args },
-          // Gemini 3 requires a thought signature on function calls in the current
-          // turn. Real Gemini calls keep their original candidate content above;
-          // this fallback signature is only for deterministic/injected calls.
           thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE,
         }],
       })
@@ -247,7 +244,10 @@ const groundingSearchQueries = (candidate: any): string[] => {
   const queries = Array.isArray(candidate?.groundingMetadata?.webSearchQueries)
     ? candidate.groundingMetadata.webSearchQueries
     : []
-  return [...new Set(queries.map((query: unknown) => String(query || '').trim()).filter(Boolean))].slice(0, 12)
+  const normalizedQueries: string[] = queries
+    .map((query: unknown) => String(query || '').trim())
+    .filter((query: string) => query.length > 0)
+  return [...new Set<string>(normalizedQueries)].slice(0, 12)
 }
 
 const appendGroundingSources = (text: string, candidate: any) => {

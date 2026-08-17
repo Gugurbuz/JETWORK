@@ -12,18 +12,17 @@ describe('Reasoning Engine durable core transport lifecycle', () => {
   );
 
   it('does not bind a durably claimed reasoning run to the incoming HTTP request signal', () => {
-    expect(source).toContain('transport disconnects must not cancel the');
-    expect(source).toContain('RUN_TIMEOUT_MS remains the lifecycle guard');
-    expect(source).not.toContain("req.signal.addEventListener('abort', abortRun");
-    expect(source).not.toContain("runController.abort(req.signal.reason)");
-    expect(source).toContain("runController.abort(new DOMException('Assistant run timed out.'");
+    expect(source).not.toContain("req.signal.addEventListener('abort'");
+    expect(source).not.toContain("req.signal.removeEventListener('abort'");
+    expect(source).not.toContain('runController.abort(req.signal.reason)');
+    expect(source).toContain("const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.'");
+    expect(source).toContain('clearTimeout(runTimeout)');
   });
 
-  it('keeps the legacy stream-finalizer listener cleanup reference safe without reattaching request aborts', () => {
-    expect(source).toContain("req.signal.removeEventListener('abort', abortRun)");
-    expect(entrypointSource).toContain("globalThis & { abortRun?: () => void }");
-    expect(entrypointSource).toContain('.abortRun = () => {}');
+  it('keeps the core entrypoint free of request-abort compatibility shims', () => {
     expect(entrypointSource).not.toContain("req.signal.addEventListener('abort'");
+    expect(entrypointSource).not.toContain('abortRun?: () => void');
+    expect(entrypointSource).not.toContain('.abortRun = () => {}');
   });
 
   it('does not execute or display a deterministic knowledge preflight for an adaptive plan with empty evidence queries', () => {

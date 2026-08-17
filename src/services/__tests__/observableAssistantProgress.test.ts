@@ -10,18 +10,18 @@ const proxySource = readFileSync(
 describe('observable assistant progress', () => {
   it('does not synthesize time-based progress milestones in the live proxy', () => {
     expect(proxySource).not.toContain('scheduleStatus(');
-    expect(proxySource).not.toContain("setTimeout(() =>");
-    expect(proxySource).not.toContain('Talep türü ve çalışma yolu belirleniyor...');
-    expect(proxySource).not.toContain('Çalışma planı hazırlanıyor...');
-    expect(proxySource).not.toContain('Model için çalışma bağlamı hazırlanıyor...');
+    expect(proxySource).not.toContain('setTimeout(() =>');
+    expect(proxySource).toContain('const friendlyRuntimeLabel =');
+    expect(proxySource).toContain('const reader = upstream.body.getReader()');
   });
 
-  it('emits lifecycle progress at real proxy boundaries and preserves upstream streaming', () => {
-    expect(proxySource).toContain("'X-JetWork-Live-Progress': 'v2'");
+  it('emits lifecycle progress at real proxy boundaries and preserves rewritten upstream streaming', () => {
+    expect(proxySource).toContain("'X-JetWork-Live-Progress': 'v5'");
     expect(proxySource).toContain("label: 'Talep işleme alındı'");
-    expect(proxySource).toContain("label: 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...'");
-    expect(proxySource).toContain("label: 'Çalışma yolu belirlendi; reasoning akışı başlatıldı'");
+    expect(proxySource).toContain("label: 'Talebin kapsamı ve çalışma yolu değerlendiriliyor...'");
+    expect(proxySource).toContain("label: 'Çalışma yaklaşımı belirlendi'");
     expect(proxySource).toContain('const reader = upstream.body.getReader()');
-    expect(proxySource).toContain('if (value) sink.write(value)');
+    expect(proxySource).toContain('const rewritten = await rewriteRuntimeFrame');
+    expect(proxySource).toContain('sink.write(encoder.encode(`${rewritten}');
   });
 });

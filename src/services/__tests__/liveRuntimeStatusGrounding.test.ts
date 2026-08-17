@@ -82,7 +82,7 @@ describe('Live runtime status and grounding regression', () => {
       { label: 'Asistana bağlanılıyor...', state: 'active' },
     ]);
     expect(formatAssistantWorkActivityLabel(activities[0].label, false))
-      .toBe('Talebin kapsamı değerlendiriliyor...');
+      .toBe('Asistana bağlanılıyor...');
   });
 
   it('bounds empty Gemini knowledge searches and keeps one no-tool blank-final recovery', () => {
