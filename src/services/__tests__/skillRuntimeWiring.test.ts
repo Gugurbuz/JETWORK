@@ -34,9 +34,10 @@ describe('JetWork skill runtime wiring', () => {
     expect(implementationSource).toContain('loadedSkills: [...loadedSkillKeys]')
   })
 
-  it('keeps Gemini provider web capability independent from generic function tools', () => {
+  it('keeps Gemini provider web capability independent from generic function tools except after an exact identifier miss', () => {
     expect(providerSource).toContain('allowProviderWeb?: boolean')
-    expect(providerSource).toContain('const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)')
+    expect(providerSource).toContain('const providerWebEnabled = providerNativeWebRequested')
+    expect(providerSource).toContain('!emptyMessageDetailLookup && (input.allowProviderWeb ?? input.allowTools)')
     expect(providerSource).toContain("!forceNoToolSynthesis && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : ''")
     expect(implementationSource).toContain('allowProviderWeb: providerWebEnabled')
   })

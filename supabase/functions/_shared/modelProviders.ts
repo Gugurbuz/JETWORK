@@ -24,6 +24,10 @@ import { compactAssistantConversationMemory } from './conversationMemory.ts'
 import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
 import { baAnalysisInstructionForPlan } from './baAnalysisContract.ts'
 import {
+  findEmptyExactIdentifierPair,
+  hasEmptyMessageDetailLookup,
+} from './exactIdentifierEarlyStop.ts'
+import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
   buildSyntheticEnumerationFunctionCall,
@@ -288,10 +292,35 @@ export async function requestGeminiResponse(input: {
   }
 
   const providerNativeWebRequested = String(plan?.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)
-  const providerWebEnabled = providerNativeWebRequested || (input.allowProviderWeb ?? input.allowTools)
+  const emptyExactIdentifierPair = findEmptyExactIdentifierPair(input.items)
+  const emptyMessageDetailLookup = hasEmptyMessageDetailLookup(input.items)
+  const executedKnowledgeCalls = countExecutedKnowledgeToolCalls(input.items)
+
+  if (input.allowTools && !providerNativeWebRequested && emptyExactIdentifierPair) {
+    const identifier = emptyExactIdentifierPair.identifier
+    const deterministicText = `${identifier} için JetWork bilgi kaynaklarında doğrulanmış bir kayıt bulamadım. Bu nedenle mesaj metni, tetikleyici koşul veya teknik ilişki uydurmuyorum.`
+    input.onText(deterministicText)
+    return {
+      id: `jetwork-exact-id-miss:${crypto.randomUUID()}`,
+      status: 'completed',
+      model: requestedModel,
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: deterministicText, annotations: [] }],
+      }],
+      usage: {
+        cost_guard_exact_identifier_early_stop: 1,
+        deterministic_provider_calls_avoided: 1,
+        cost_guard_knowledge_tool_calls_seen: executedKnowledgeCalls,
+      },
+    }
+  }
+
+  const providerWebEnabled = providerNativeWebRequested
+    || (!emptyMessageDetailLookup && (input.allowProviderWeb ?? input.allowTools))
   const emptyKnowledgeSearches = countEmptyKnowledgeSearches(input.items)
   const knowledgeBudget = boundedKnowledgeToolBudget(plan)
-  const executedKnowledgeCalls = countExecutedKnowledgeToolCalls(input.items)
   const knowledgeToolsAvailable = input.tools.some(tool => KNOWLEDGE_TOOL_NAMES.has(String(tool.name || '')))
   const knowledgeBudgetExhausted = Boolean(plan?.knowledgeRequired)
     && knowledgeToolsAvailable
@@ -341,6 +370,7 @@ export async function requestGeminiResponse(input: {
     cost_guard_knowledge_tool_budget: knowledgeBudget,
     cost_guard_knowledge_tool_calls_seen: executedKnowledgeCalls,
     ...(knowledgeBudgetExhausted ? { cost_guard_knowledge_budget_exhausted: 1 } : {}),
+    ...(emptyMessageDetailLookup && !providerNativeWebRequested ? { cost_guard_provider_web_suppressed_after_exact_miss: 1 } : {}),
     ...(forceNoToolSynthesis ? { gemini_empty_knowledge_forced_synthesis: 1 } : {}),
     ...(providerNativeWebRequested ? { gemini_native_web_requested: 1 } : {}),
   })

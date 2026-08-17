@@ -37,4 +37,17 @@ describe('Gemini cost optimization routing', () => {
     expect(providerSource).toContain('emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES');
     expect(providerSource).toContain('gemini_empty_knowledge_forced_synthesis');
   });
+
+  it('stops an exact message identifier miss before a third provider call', () => {
+    expect(providerSource).toContain('findEmptyExactIdentifierPair(input.items)');
+    expect(providerSource).toContain('hasEmptyMessageDetailLookup(input.items)');
+    expect(providerSource).toContain('jetwork-exact-id-miss:');
+    expect(providerSource).toContain('cost_guard_exact_identifier_early_stop');
+    expect(providerSource).toContain('deterministic_provider_calls_avoided');
+  });
+
+  it('suppresses provider web after an exact message lookup miss unless web was explicitly requested', () => {
+    expect(providerSource).toContain("|| (!emptyMessageDetailLookup && (input.allowProviderWeb ?? input.allowTools))");
+    expect(providerSource).toContain('cost_guard_provider_web_suppressed_after_exact_miss');
+  });
 });
