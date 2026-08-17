@@ -7,12 +7,6 @@ import { installOpenAiCircuitBreaker } from '../_shared/providerCircuitBreaker.t
 installOpenAiCircuitBreaker()
 installGeminiFinalSynthesisThinkingGuard()
 
-// The durable-core transport no longer binds the reasoning lifecycle to the
-// incoming HTTP request signal. The legacy implementation finalizer still
-// removes its former `abortRun` listener after the SSE controller closes.
-// Keep that cleanup reference defined as a no-op until the implementation
-// finalizer is inlined/removed; importantly, this does NOT attach a request
-// abort listener or cancel the durable reasoning run.
-;(globalThis as typeof globalThis & { abortRun?: () => void }).abortRun = () => {}
-
+// The durable core owns its lifecycle with RUN_TIMEOUT_MS and no longer binds
+// reasoning execution to the incoming HTTP request abort signal.
 await import('./implementation.ts')
