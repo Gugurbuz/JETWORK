@@ -105,7 +105,11 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
     ) : (
       <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-theme-bg p-6">
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-          {floatingLogos.map((logo, index) => <FloatingLogo key={index} logo={logo} />)}
+          {floatingLogos.map((logo, index) => (
+            <React.Fragment key={index}>
+              <FloatingLogo logo={logo} />
+            </React.Fragment>
+          ))}
         </div>
 
         <div className="relative z-10 text-center">
