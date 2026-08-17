@@ -49,6 +49,17 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes assistant-work-settle {
+  from {
+    opacity: 0.72;
+    transform: translate3d(0, -1px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 .assistant-work {
   display: flex;
   width: fit-content;
@@ -426,17 +437,185 @@ button.assistant-work__summary:hover {
   display: none !important;
 }
 
+/*
+ * Assistant work chrome polish.
+ * Active and completed states intentionally share the same 32px geometry so the
+ * indicator settles in place instead of visually swapping to a second control.
+ */
+.assistant-work {
+  gap: 0.22rem;
+}
+
+.assistant-work__topline,
+.assistant-work__summary {
+  min-height: 2rem;
+}
+
+.assistant-work__topline {
+  gap: 0.5rem;
+}
+
+.assistant-work__logo-stage {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 1.5rem;
+}
+
+.assistant-work__logo-motion,
+.assistant-work__logo,
+.assistant-work__summary .assistant-work__logo {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.assistant-work__label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+}
+
+.assistant-work__separator {
+  color: color-mix(in srgb, var(--theme-text-muted) 82%, transparent);
+  font-size: 0.72rem;
+}
+
+.assistant-work__time {
+  min-width: auto;
+  color: var(--theme-text-muted);
+  font-size: 0.78rem;
+  font-weight: 540;
+}
+
+.assistant-work__summary {
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  color: color-mix(in srgb, var(--theme-text-muted) 92%, var(--theme-text));
+  font-size: 0.82rem;
+  font-weight: 560;
+  line-height: 1.35;
+  animation: assistant-work-settle 180ms ease-out both;
+}
+
+button.assistant-work__summary:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--theme-text) 88%, var(--theme-text-muted));
+}
+
+.assistant-work__summary svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.assistant-work__chevron {
+  margin-left: -0.1rem;
+  opacity: 0.72;
+  stroke-width: 1.8;
+}
+
+.assistant-work--completed .assistant-work__logo-stage {
+  filter: none;
+}
+
+.assistant-work__details {
+  width: min(31rem, calc(100vw - 7rem));
+  margin: 0.12rem 0 0.08rem 1.98rem;
+  border-left-color: color-mix(in srgb, var(--theme-primary) 22%, var(--theme-border));
+  padding: 0.32rem 0 0.22rem 0.72rem;
+}
+
+.assistant-work__details--live {
+  margin-top: 0.04rem;
+}
+
+.assistant-work__activity-list {
+  gap: 0.42rem;
+}
+
+.assistant-work__activity {
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  line-height: 1.42;
+}
+
+.assistant-work__activity-icon {
+  width: 0.82rem;
+  flex-basis: 0.82rem;
+}
+
+.assistant-work__activity-icon svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.assistant-work__source-facts {
+  gap: 0.34rem;
+  margin-top: 0.5rem;
+}
+
+.assistant-work__source-fact {
+  font-size: 0.7rem;
+}
+
+.assistant-work__follow-ups {
+  gap: 0.72rem;
+  margin-top: 0.42rem;
+  margin-left: 1.98rem;
+}
+
+.assistant-work__follow-ups button {
+  gap: 0.3rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.18rem 0;
+  color: var(--theme-text-muted);
+  font-size: 0.7rem;
+  font-weight: 560;
+}
+
+.assistant-work__follow-ups button:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--theme-text);
+}
+
+.assistant-work__follow-ups svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+/* Align the answer copy with the status text rather than with the logo. */
+.chat-scroll-container [data-message-role="model"] [data-testid="assistant-work-indicator"] ~ .prose {
+  width: calc(100% - 1.98rem);
+  max-width: calc(100% - 1.98rem);
+  margin-left: 1.98rem;
+}
+
 @media (max-width: 640px) {
   .assistant-work__details,
   .assistant-work__live-status {
     width: calc(100vw - 5rem);
     max-width: calc(100vw - 5rem);
   }
+
+  .assistant-work__details,
+  .assistant-work__follow-ups,
+  .chat-scroll-container [data-message-role="model"] [data-testid="assistant-work-indicator"] ~ .prose {
+    margin-left: 1.8rem;
+  }
+
+  .chat-scroll-container [data-message-role="model"] [data-testid="assistant-work-indicator"] ~ .prose {
+    width: calc(100% - 1.8rem);
+    max-width: calc(100% - 1.8rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .assistant-work__activity--active .assistant-work__activity-icon,
-  .assistant-work__live-status svg {
+  .assistant-work__live-status svg,
+  .assistant-work__logo-motion,
+  .assistant-work__label,
+  .assistant-work__summary {
     animation: none;
   }
 }
