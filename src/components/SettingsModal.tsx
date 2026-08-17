@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Settings as SettingsIcon, Save, Palette, BrainCircuit, ExternalLink } from 'lucide-react';
+import { X, User, Settings as SettingsIcon, Save, Palette, BrainCircuit, ExternalLink, DollarSign } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { stringToColor } from '../lib/utils';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { useDataStore } from '../store/useDataStore';
 import { ReasoningDebugModal } from './ReasoningDebugModal';
+import { AICostDashboard } from './AICostDashboard';
 
 interface SettingsModalProps {
   user: { name: string; role: string; color?: string } | null;
@@ -29,7 +30,7 @@ const PREDEFINED_COLORS = [
 ];
 
 export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUpdateModel }: SettingsModalProps) {
-  const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'reasoning'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'reasoning' | 'cost'>('profile');
   const [name, setName] = useState(user?.name || '');
   const [role, setRole] = useState(user?.role || '');
   const [color, setColor] = useState(user?.color || (user?.name ? stringToColor(user.name) : PREDEFINED_COLORS[0]));
@@ -83,7 +84,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
         <motion.div 
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          className="bg-theme-surface border border-theme-border rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]"
+          className="bg-theme-surface border border-theme-border rounded-xl shadow-2xl w-full max-w-6xl overflow-hidden flex flex-col max-h-[88vh]"
         >
           <div className="flex items-center justify-between px-6 py-4 border-b border-theme-border bg-theme-surface">
             <h2 className="text-lg font-bold text-theme-text tracking-tight flex items-center gap-2">
@@ -98,12 +99,12 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
             </button>
           </div>
 
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 overflow-hidden max-sm:flex-col">
             {/* Sidebar */}
-            <div className="w-48 border-r border-theme-border bg-theme-surface p-4 flex flex-col gap-2 shrink-0">
+            <div className="w-52 border-r border-theme-border bg-theme-surface p-4 flex flex-col gap-2 shrink-0 max-sm:w-full max-sm:flex-row max-sm:overflow-x-auto max-sm:border-r-0 max-sm:border-b">
               <button
                 onClick={() => setActiveTab('profile')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   activeTab === 'profile' 
                     ? 'bg-theme-primary/10 text-theme-primary' 
                     : 'text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover'
@@ -114,7 +115,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
               </button>
               <button
                 onClick={() => setActiveTab('preferences')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   activeTab === 'preferences' 
                     ? 'bg-theme-primary/10 text-theme-primary' 
                     : 'text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover'
@@ -125,7 +126,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
               </button>
               <button
                 onClick={() => setActiveTab('reasoning')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   activeTab === 'reasoning'
                     ? 'bg-theme-primary/10 text-theme-primary'
                     : 'text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover'
@@ -134,12 +135,24 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                 <BrainCircuit size={16} />
                 Reasoning Debug
               </button>
+              <button
+                onClick={() => setActiveTab('cost')}
+                className={`flex shrink-0 items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'cost'
+                    ? 'bg-theme-primary/10 text-theme-primary'
+                    : 'text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover'
+                }`}
+                data-testid="open-ai-cost-dashboard"
+              >
+                <DollarSign size={16} />
+                AI Maliyeti
+              </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 p-6 overflow-y-auto bg-theme-bg">
+            <div className="flex-1 p-6 overflow-y-auto bg-theme-bg max-sm:p-4">
               {activeTab === 'profile' && (
-                <form onSubmit={handleSaveProfile} className="space-y-6">
+                <form onSubmit={handleSaveProfile} className="space-y-6 max-w-2xl">
                   <div>
                     <h3 className="text-sm font-bold text-theme-text uppercase tracking-widest mb-4">Profil Bilgileri</h3>
                     <div className="space-y-4">
@@ -209,7 +222,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
               )}
 
               {activeTab === 'preferences' && (
-                <form onSubmit={handleSavePreferences} className="space-y-6">
+                <form onSubmit={handleSavePreferences} className="space-y-6 max-w-2xl">
                   <div>
                     <h3 className="text-sm font-bold text-theme-text uppercase tracking-widest mb-4">Uygulama Tercihleri</h3>
                     <div className="space-y-4">
@@ -267,7 +280,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
               )}
 
               {activeTab === 'reasoning' && (
-                <div className="space-y-5">
+                <div className="space-y-5 max-w-2xl">
                   <div>
                     <h3 className="text-sm font-bold text-theme-text uppercase tracking-widest mb-2">Reasoning Observability</h3>
                     <p className="text-sm leading-relaxed text-theme-text-muted">
@@ -296,6 +309,8 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                   </div>
                 </div>
               )}
+
+              {activeTab === 'cost' && <AICostDashboard />}
             </div>
           </div>
         </motion.div>
