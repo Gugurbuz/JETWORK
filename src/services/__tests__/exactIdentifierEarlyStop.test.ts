@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findEmptyExactIdentifierPair,
+  findEmptyMessageDetailNeedingCatalogCheck,
   hasEmptyMessageDetailLookup,
 } from '../../../supabase/functions/_shared/exactIdentifierEarlyStop';
 
@@ -33,10 +34,33 @@ describe('exact identifier early stop', () => {
     ];
 
     expect(hasEmptyMessageDetailLookup(items)).toBe(true);
+    expect(findEmptyMessageDetailNeedingCatalogCheck(items)).toBeNull();
     expect(findEmptyExactIdentifierPair(items)).toEqual({
       identifier: 'ZCRM2-545',
       lookupTool: 'get_message_detail',
     });
+  });
+
+  it('requests a deterministic exact catalog check after an empty detail lookup', () => {
+    const items = [
+      functionCall('detail', 'get_message_detail', { messageCode: 'ZCRM2-545' }),
+      emptyOutput('detail'),
+    ];
+
+    expect(findEmptyMessageDetailNeedingCatalogCheck(items)).toEqual({
+      identifier: 'ZCRM2-545',
+      lookupTool: 'get_message_detail',
+    });
+  });
+
+  it('does not request another exact catalog check after the exact query was already attempted', () => {
+    const items = [
+      functionCall('detail', 'get_message_detail', { messageCode: 'ZCRM2-545' }),
+      emptyOutput('detail'),
+      functionCall('search', 'search_knowledge_catalog', { query: 'ZCRM2-545' }),
+    ];
+
+    expect(findEmptyMessageDetailNeedingCatalogCheck(items)).toBeNull();
   });
 
   it('does not stop when the catalog query is broader than the exact identifier', () => {
@@ -47,6 +71,10 @@ describe('exact identifier early stop', () => {
       emptyOutput('search'),
     ];
 
+    expect(findEmptyMessageDetailNeedingCatalogCheck(items)).toEqual({
+      identifier: 'ZCRM2-545',
+      lookupTool: 'get_message_detail',
+    });
     expect(findEmptyExactIdentifierPair(items)).toBeNull();
   });
 

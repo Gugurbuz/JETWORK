@@ -25,8 +25,10 @@ import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
 import { baAnalysisInstructionForPlan } from './baAnalysisContract.ts'
 import {
   findEmptyExactIdentifierPair,
+  findEmptyMessageDetailNeedingCatalogCheck,
   hasEmptyMessageDetailLookup,
 } from './exactIdentifierEarlyStop.ts'
+import { sanitizeNovelCustomIdentifierClaims } from './providerAnswerabilityGuard.ts'
 import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
@@ -225,6 +227,15 @@ const boundedKnowledgeToolBudget = (plan: ReturnType<typeof extractSemanticPlanF
   return Math.max(0, Math.min(plannedBudget, hardCap))
 }
 
+const answerabilityRequestText = (plan: ReturnType<typeof extractSemanticPlanFromItems>) => [
+  String(plan?.conversationState?.resolvedRequest || ''),
+  String(plan?.goal || '').replace(PROVIDER_WEB_CAPABILITY_MARKER, ''),
+].filter(Boolean).join('\n')
+
+const shouldBufferForAnswerabilityGuard = (plan: ReturnType<typeof extractSemanticPlanFromItems>) => (
+  Boolean(plan?.knowledgeRequired) && plan?.enterpriseGroundingRequired !== true
+)
+
 export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => legacyIsTrivialConversationalTurn(sanitizeItems(items))
 
 const primaryAgentInstruction = [
@@ -236,6 +247,7 @@ const primaryAgentInstruction = [
   'Bir tool sonucu kullanıcının sorduğu spesifik bilgiyi doğrulamıyorsa o bilgiyi tahmin etme veya tamamlamaya çalışma.',
   'Hiç güvenilir kayıt bulunmaması ile kayıt bulunup kullanıcının sorduğu alanın/iddianın kaynakta yer almamasını birbirinden ayır.',
   'Kanıt yetersizse cevabı kullanıcının gerçek sorusuna göre dinamik kur: tam olarak hangi bilgiyi doğrulayamadığını doğal dille söyle. Konu teknik değilse teknik terminoloji kullanma; kullanıcı sormadıysa class, method, tablo, kod gibi örnekler ekleme.',
+  'Genel SAP veya teknik bilgi sorularında doğrulanmamış Z*, CHECK_* veya kuruma özel identifier örnekleri üretme. Genel bilgiyi bu özel kodlara bağlamadan açıklayabilirsin.',
   'Exact bir identifier kanıtta bulunmadıysa identifierı yalnız doğrulanamama bağlamında tekrar edebilirsin; onun koşulu, anlamı, metni, davranışı veya ilişkileri hakkında doğrulanmamış ayrıntı ekleme.',
   'Kaynak yetersizliği cevabın tamamını otomatik olarak yasaklamaz. Doğrulanmış kısmı ayır; genel reasoning yararlıysa bunun genel bir değerlendirme olduğunu açıkça belli ederek devam et.',
   'Aynı bilgi alanında iki anlamlı knowledge araması da sonuç vermediyse yeni knowledge araması yapma; provider-native web capabilitysi açıksa web araştırmasına geçebilirsin.',
@@ -294,7 +306,9 @@ export async function requestGeminiResponse(input: {
   const providerNativeWebRequested = String(plan?.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)
   const emptyExactIdentifierPair = findEmptyExactIdentifierPair(input.items)
   const emptyMessageDetailLookup = hasEmptyMessageDetailLookup(input.items)
+  const exactCatalogCheck = findEmptyMessageDetailNeedingCatalogCheck(input.items)
   const executedKnowledgeCalls = countExecutedKnowledgeToolCalls(input.items)
+  const exactCatalogSearchAvailable = input.tools.some(tool => String(tool.name || '') === 'search_knowledge_catalog')
 
   if (input.allowTools && !providerNativeWebRequested && emptyExactIdentifierPair) {
     const identifier = emptyExactIdentifierPair.identifier
@@ -311,6 +325,29 @@ export async function requestGeminiResponse(input: {
       }],
       usage: {
         cost_guard_exact_identifier_early_stop: 1,
+        deterministic_provider_calls_avoided: 1,
+        cost_guard_knowledge_tool_calls_seen: executedKnowledgeCalls,
+      },
+    }
+  }
+
+  if (input.allowTools && !providerNativeWebRequested && exactCatalogCheck && exactCatalogSearchAvailable) {
+    return {
+      id: `jetwork-exact-id-catalog:${crypto.randomUUID()}`,
+      status: 'completed',
+      model: requestedModel,
+      output: [{
+        type: 'function_call',
+        call_id: `jetwork-exact-id-catalog:${crypto.randomUUID()}`,
+        name: 'search_knowledge_catalog',
+        arguments: JSON.stringify({
+          query: exactCatalogCheck.identifier,
+          objectTypes: ['message'],
+          limit: 5,
+        }),
+      }],
+      usage: {
+        cost_guard_exact_identifier_catalog_dispatch: 1,
         deterministic_provider_calls_avoided: 1,
         cost_guard_knowledge_tool_calls_seen: executedKnowledgeCalls,
       },
@@ -350,6 +387,8 @@ export async function requestGeminiResponse(input: {
     !forceNoToolSynthesis && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
 
+  const bufferForAnswerability = shouldBufferForAnswerabilityGuard(plan)
+  let firstProviderText = ''
   const firstResponse = await legacyRequestGeminiResponse({
     ...input,
     model: requestedModel,
@@ -361,8 +400,18 @@ export async function requestGeminiResponse(input: {
         : sanitizeItems(input.items),
     tools: effectiveAllowTools ? budgetFilteredTools : [],
     allowTools: effectiveAllowTools,
+    onText: delta => {
+      if (bufferForAnswerability) firstProviderText += delta
+      else input.onText(delta)
+    },
   })
   assertExplicitGeminiModelPreserved(requestedModel, firstResponse.model)
+
+  const answerability = bufferForAnswerability
+    ? sanitizeNovelCustomIdentifierClaims(firstProviderText, answerabilityRequestText(plan))
+    : { text: firstProviderText, removedSegments: 0, removedIdentifiers: [] as string[] }
+  if (bufferForAnswerability && firstProviderText) input.onText(answerability.text)
+
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
     primary_llm_final_calls: effectiveAllowTools ? 0 : 1,
@@ -373,6 +422,10 @@ export async function requestGeminiResponse(input: {
     ...(emptyMessageDetailLookup && !providerNativeWebRequested ? { cost_guard_provider_web_suppressed_after_exact_miss: 1 } : {}),
     ...(forceNoToolSynthesis ? { gemini_empty_knowledge_forced_synthesis: 1 } : {}),
     ...(providerNativeWebRequested ? { gemini_native_web_requested: 1 } : {}),
+    ...(answerability.text !== firstProviderText ? {
+      grounding_preflight_custom_identifier_segments_removed: answerability.removedSegments,
+      grounding_preflight_custom_identifiers_removed: answerability.removedIdentifiers.length,
+    } : {}),
   })
 
   if (responseHasFunctionCall(firstResponse) || responseHasVisibleText(firstResponse)) {
@@ -389,6 +442,7 @@ export async function requestGeminiResponse(input: {
     '[JETWORK EMPTY FINAL RECOVERY]',
     'Önceki deneme kullanıcıya görünür bir yanıt üretmedi. Bu son denemede hiçbir araç çağırma. Kullanıcının mesajını ve varsa mevcut tool sonuçlarını kullanarak doğrudan, dürüst bir nihai yanıt üret. Kaynak bulunamadıysa bunu açıkça söyle; kullanıcının bizzat verdiği gereksinimleri yine de analiz et.',
   ].join('\n\n')
+  let recoveryProviderText = ''
   const recoveryResponse = await legacyRequestGeminiResponse({
     ...input,
     model: requestedModel,
@@ -396,12 +450,24 @@ export async function requestGeminiResponse(input: {
     items: buildNoToolRecoveryItems(input.items),
     tools: [],
     allowTools: false,
+    onText: delta => {
+      if (bufferForAnswerability) recoveryProviderText += delta
+      else input.onText(delta)
+    },
   })
   assertExplicitGeminiModelPreserved(requestedModel, recoveryResponse.model)
+  const recoveryAnswerability = bufferForAnswerability
+    ? sanitizeNovelCustomIdentifierClaims(recoveryProviderText, answerabilityRequestText(plan))
+    : { text: recoveryProviderText, removedSegments: 0, removedIdentifiers: [] as string[] }
+  if (bufferForAnswerability && recoveryProviderText) input.onText(recoveryAnswerability.text)
   const recoveryUsage = usageWithGeminiEstimatedCost(String(recoveryResponse.model || requestedModel), recoveryResponse.usage, {
     primary_llm_agent_calls: 0,
     primary_llm_final_calls: 1,
     gemini_empty_final_retry: 1,
+    ...(recoveryAnswerability.text !== recoveryProviderText ? {
+      grounding_preflight_custom_identifier_segments_removed: recoveryAnswerability.removedSegments,
+      grounding_preflight_custom_identifiers_removed: recoveryAnswerability.removedIdentifiers.length,
+    } : {}),
   })
   return {
     ...recoveryResponse,

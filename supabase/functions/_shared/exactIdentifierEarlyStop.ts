@@ -38,39 +38,25 @@ export type EmptyExactIdentifierPair = {
   lookupTool: 'get_message_detail'
 }
 
-export const hasEmptyMessageDetailLookup = (items: Array<Record<string, unknown>>): boolean => {
-  const calls = new Map<string, ToolCall>()
-  for (const item of items) {
-    const type = String(item.type || '')
-    const callId = String(item.call_id || '')
-    if (type === 'function_call') {
-      calls.set(callId, {
-        name: String(item.name || ''),
-        arguments: parseArguments(item.arguments),
-      })
-      continue
-    }
-    if (type !== 'function_call_output' || !isEmptyKnowledgeOutput(item.output)) continue
-    if (calls.get(callId)?.name === 'get_message_detail') return true
-  }
-  return false
-}
-
-export const findEmptyExactIdentifierPair = (
-  items: Array<Record<string, unknown>>,
-): EmptyExactIdentifierPair | null => {
+const collectToolState = (items: Array<Record<string, unknown>>) => {
   const calls = new Map<string, ToolCall>()
   const emptyMessageCodes = new Map<string, string>()
+  const exactCatalogQueries = new Set<string>()
   const emptyCatalogQueries = new Set<string>()
 
   for (const item of items) {
     const type = String(item.type || '')
     const callId = String(item.call_id || '')
     if (type === 'function_call') {
-      calls.set(callId, {
+      const call = {
         name: String(item.name || ''),
         arguments: parseArguments(item.arguments),
-      })
+      }
+      calls.set(callId, call)
+      if (call.name === 'search_knowledge_catalog') {
+        const normalized = normalizeIdentifier(call.arguments.query)
+        if (normalized) exactCatalogQueries.add(normalized)
+      }
       continue
     }
     if (type !== 'function_call_output' || !isEmptyKnowledgeOutput(item.output)) continue
@@ -88,6 +74,29 @@ export const findEmptyExactIdentifierPair = (
     }
   }
 
+  return { emptyMessageCodes, exactCatalogQueries, emptyCatalogQueries }
+}
+
+export const hasEmptyMessageDetailLookup = (items: Array<Record<string, unknown>>): boolean => (
+  collectToolState(items).emptyMessageCodes.size > 0
+)
+
+export const findEmptyMessageDetailNeedingCatalogCheck = (
+  items: Array<Record<string, unknown>>,
+): EmptyExactIdentifierPair | null => {
+  const { emptyMessageCodes, exactCatalogQueries } = collectToolState(items)
+  for (const [normalized, identifier] of emptyMessageCodes) {
+    if (!exactCatalogQueries.has(normalized)) {
+      return { identifier, lookupTool: 'get_message_detail' }
+    }
+  }
+  return null
+}
+
+export const findEmptyExactIdentifierPair = (
+  items: Array<Record<string, unknown>>,
+): EmptyExactIdentifierPair | null => {
+  const { emptyMessageCodes, emptyCatalogQueries } = collectToolState(items)
   for (const [normalized, identifier] of emptyMessageCodes) {
     if (emptyCatalogQueries.has(normalized)) {
       return { identifier, lookupTool: 'get_message_detail' }
