@@ -30,6 +30,7 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER)
     expect(result.plan.webMode).toBe('none')
   })
+
   it('binds deep research follow-up to the prior user request and keeps Gemini native web', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
@@ -43,6 +44,7 @@ describe('primary agent web routing regression', () => {
     })
 
     expect(result.plan.conversationState?.continuation).toBe(true)
+    expect(result.plan.conversationState?.topic).toBe('CHECK_ZTKS')
     expect(result.plan.goal).toContain('CHECK_ZTKS hangi mesajları üretiyor?')
     expect(result.plan.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER)
     expect(result.plan.knowledgeRequired).toBe(true)
@@ -58,5 +60,4 @@ describe('primary agent web routing regression', () => {
     expect(source).toContain("configuredProvider === 'gemini'\n          && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))")
     expect(source).toContain("if (plan.webMode === 'required' && !geminiNativeWebPlanned)")
   })
-
 })
