@@ -31,7 +31,7 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.webMode).toBe('none')
   })
 
-  it('binds deep research follow-up to the prior user request and keeps Gemini native web', async () => {
+  it('binds deep research follow-up to the prior user request and keeps Gemini web intent', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.5-flash',
@@ -53,22 +53,22 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.webMode).toBe('none')
   })
 
-  it('requires observable Gemini web evidence before accepting a Deep Research answer', () => {
+  it('executes Deep Research web deterministically before no-tool synthesis', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
       'utf8',
     )
 
-    expect(source).toContain("const requireProviderWebEvidence = plan?.intent === 'research' && providerWebEnabled")
-    expect(source).toContain('gemini_native_web_required_retry')
-    expect(source).toContain('gemini_native_web_required_miss')
-    expect(source).toContain('gemini_native_web_required_no_citable_sources')
-    expect(source).toContain('responseHasProviderWebEvidence(requiredWebResponse)')
-    expect(source).toContain('responseHasProviderWebExecution(requiredWebResponse)')
-    expect(source).toContain('...buildNoToolRecoveryItems(input.items)')
+    expect(source).toContain('runDeterministicGeminiWebResearch({')
+    expect(source).toContain("const providerWebRequested = input.allowProviderWeb ?? input.allowTools")
+    expect(source).toContain("plan?.intent === 'research' && providerWebRequested")
+    expect(source).toContain('deterministic_web_search_count')
+    expect(source).toContain('deterministic_web_source_count')
+    expect(source).toContain('allowProviderWeb: false')
+    expect(source).toContain('allowTools: false')
   })
 
-  it('does not call the OpenAI web preflight after Auto has routed the active model to Gemini', () => {
+  it('keeps the old OpenAI preflight bypass for Gemini at core while provider wrapper owns deterministic research', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',

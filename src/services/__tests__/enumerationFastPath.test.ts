@@ -109,7 +109,7 @@ describe('deterministic enumeration dispatch fast path', () => {
 
   it('wires the Gemini fast path before the real provider call', () => {
     const providers = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
       'utf8',
     );
     expect(providers).toContain('buildEnumerationFastPathDispatch(input.items)');
@@ -123,7 +123,7 @@ describe('deterministic enumeration dispatch fast path', () => {
 
   it('wires the OpenAI marker from the shared provider sanitizer', () => {
     const providers = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
       'utf8',
     );
     expect(providers).toContain('buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)');

@@ -87,7 +87,7 @@ describe('Live runtime status and grounding regression', () => {
 
   it('bounds empty Gemini knowledge searches and keeps one no-tool blank-final recovery', () => {
     const providerSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
       'utf8',
     );
 

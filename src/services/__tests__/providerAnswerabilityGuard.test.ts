@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createStreamingProviderAnswerabilityGuard,
   extractCustomTechnicalIdentifiers,
   sanitizeNovelCustomIdentifierClaims,
 } from '../../../supabase/functions/_shared/providerAnswerabilityGuard'
@@ -41,5 +42,72 @@ describe('provider answerability guard', () => {
       'ZCRM2-545',
       'ZCL_TEST/CHECK_AUTH',
     ])
+  })
+
+  it('streams multiple safe completed segments before finish', () => {
+    const emitted: string[] = []
+    const guard = createStreamingProviderAnswerabilityGuard({
+      requestText: 'SAP CRM hata mesajlarını genel olarak açıkla',
+      onText: text => emitted.push(text),
+    })
+
+    guard.push('SAP CRM hata mesajları mesaj sınıfları üzerinden yönetilir. ')
+    expect(emitted.length).toBe(1)
+    guard.push('Standart davranış sistem konfigürasyonuna bağlıdır. ')
+    expect(emitted.length).toBe(2)
+    guard.push('Son kontrol uygulama loglarından yapılabilir.')
+    guard.finish()
+
+    expect(emitted.length).toBe(3)
+    expect(emitted.join('')).toContain('Son kontrol')
+    expect(guard.stats().removedSegments).toBe(0)
+  })
+
+  it('never streams a segment that introduces an unsupported custom identifier', () => {
+    const emitted: string[] = []
+    const guard = createStreamingProviderAnswerabilityGuard({
+      requestText: 'SAP CRM hata mesajlarını genel olarak açıkla',
+      onText: text => emitted.push(text),
+    })
+
+    guard.push('Genel bilgi güvenlidir. ZCRM2-999 özel mesaj sınıfıdır. Sonuç yine genel tutulmalıdır.')
+    guard.finish()
+
+    expect(emitted.join('')).toContain('Genel bilgi güvenlidir.')
+    expect(emitted.join('')).toContain('Sonuç yine genel tutulmalıdır.')
+    expect(emitted.join('')).not.toContain('ZCRM2-999')
+    expect(guard.stats().removedIdentifiers).toEqual(['ZCRM2-999'])
+  })
+
+  it('keeps a safety tail so an identifier split across provider chunks cannot leak', () => {
+    const emitted: string[] = []
+    const guard = createStreamingProviderAnswerabilityGuard({
+      requestText: 'Yetki kontrolü nasıl çalışır?',
+      onText: text => emitted.push(text),
+    })
+
+    guard.push('Genel kontrol yaklaşımı güvenlidir. ZCL_FA')
+    guard.push('KE_PERMISSION/CHECK_AUTH özel davranışı yönetir. Güvenli kapanış yapılır.')
+    guard.finish()
+
+    const visible = emitted.join('')
+    expect(visible).toContain('Genel kontrol yaklaşımı güvenlidir.')
+    expect(visible).toContain('Güvenli kapanış yapılır.')
+    expect(visible).not.toContain('ZCL_FAKE_PERMISSION')
+    expect(guard.stats().removedSegments).toBe(1)
+  })
+
+  it('streams an exact custom identifier when the user supplied it', () => {
+    const emitted: string[] = []
+    const guard = createStreamingProviderAnswerabilityGuard({
+      requestText: 'ZCRM2-545 hangi koşulda alınır?',
+      onText: text => emitted.push(text),
+    })
+
+    guard.push('ZCRM2-545 için doğrulanmış koşul bulunamadı.')
+    guard.finish()
+
+    expect(emitted.join('')).toContain('ZCRM2-545')
+    expect(guard.stats().removedSegments).toBe(0)
   })
 })

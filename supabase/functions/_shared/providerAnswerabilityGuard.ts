@@ -27,6 +27,12 @@ export type AnswerabilitySanitization = {
   removedIdentifiers: string[]
 }
 
+export type StreamingAnswerabilityStats = {
+  emittedSegments: number
+  removedSegments: number
+  removedIdentifiers: string[]
+}
+
 /**
  * Removes only response segments that introduce custom-looking technical
  * identifiers the user did not supply in the current request. This runs before
@@ -71,5 +77,84 @@ export const sanitizeNovelCustomIdentifierClaims = (
     text: sanitized,
     removedSegments,
     removedIdentifiers: [...removed],
+  }
+}
+
+const STREAMING_TAIL_GUARD_CHARACTERS = 64
+const STREAMING_MAX_PENDING_CHARACTERS = 220
+
+/**
+ * Streaming variant of the answerability guard. It never emits an incomplete
+ * custom identifier: normal sentence/newline boundaries are flushed eagerly,
+ * while long unpunctuated text keeps a safety tail before emitting a chunk.
+ * Unlike the batch sanitizer, unsafe streamed segments are never restored — a
+ * streamed token cannot be retracted. The downstream authoritative grounding
+ * boundary remains the final safety net for the complete provider response.
+ */
+export const createStreamingProviderAnswerabilityGuard = (input: {
+  requestText: string
+  onText: (text: string) => void
+}) => {
+  const supplied = new Set(extractCustomTechnicalIdentifiers(input.requestText))
+  const removed = new Set<string>()
+  let pending = ''
+  let emittedSegments = 0
+  let removedSegments = 0
+
+  const emitChecked = (segment: string) => {
+    if (!segment) return
+    const novel = extractCustomTechnicalIdentifiers(segment).filter(identifier => !supplied.has(identifier))
+    if (novel.length) {
+      novel.forEach(identifier => removed.add(identifier))
+      removedSegments += 1
+      return
+    }
+    emittedSegments += 1
+    input.onText(segment)
+  }
+
+  const flushCompletedBoundaries = () => {
+    const boundary = /(?:\r?\n|[.!?;:](?:[ \t]+|$))/gu
+    let consumed = 0
+    for (const match of pending.matchAll(boundary)) {
+      const end = Number(match.index || 0) + match[0].length
+      if (end <= consumed) continue
+      emitChecked(pending.slice(consumed, end))
+      consumed = end
+    }
+    if (consumed > 0) pending = pending.slice(consumed)
+  }
+
+  const flushLongSafePrefix = () => {
+    while (pending.length > STREAMING_MAX_PENDING_CHARACTERS) {
+      const target = pending.length - STREAMING_TAIL_GUARD_CHARACTERS
+      const prefix = pending.slice(0, target)
+      const whitespace = Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('\t'))
+      const cutoff = whitespace > 0 ? whitespace + 1 : target
+      emitChecked(pending.slice(0, cutoff))
+      pending = pending.slice(cutoff)
+    }
+  }
+
+  return {
+    push(delta: string) {
+      if (!delta) return
+      pending += delta
+      flushCompletedBoundaries()
+      flushLongSafePrefix()
+    },
+    finish() {
+      if (pending) {
+        emitChecked(pending)
+        pending = ''
+      }
+    },
+    stats(): StreamingAnswerabilityStats {
+      return {
+        emittedSegments,
+        removedSegments,
+        removedIdentifiers: [...removed],
+      }
+    },
   }
 }

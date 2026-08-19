@@ -7,6 +7,10 @@ const providerSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
   'utf8',
 )
+const providerWrapperSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+  'utf8',
+)
 const liveProxySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-live-proxy/index.ts', import.meta.url),
   'utf8',
@@ -49,6 +53,15 @@ describe('true live assistant streaming contract', () => {
     expect(providerSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')
     expect(providerSource).toContain('!providerFunctionCallIds.has(callId)')
     expect(providerSource).toContain('for await (const chunk of stream')
+  })
+
+  it('keeps knowledge answerability protection without collapsing Gemini into one final delta', () => {
+    expect(providerWrapperSource).toContain('createStreamingProviderAnswerabilityGuard')
+    expect(providerWrapperSource).toContain('requestBaseWithStreamingAnswerability')
+    expect(providerWrapperSource).toContain('answerability_streaming_guard_used')
+    expect(providerWrapperSource).toContain('onText: delta => guard.push(delta)')
+    expect(providerWrapperSource).toContain('guard.finish()')
+    expect(providerWrapperSource).toContain('answerability_streaming_plan_override_applied')
   })
 
   it('surfaces real memory and plan activity without router metadata counts', () => {

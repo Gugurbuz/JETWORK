@@ -11,7 +11,7 @@ import {
 } from '../../../supabase/functions/_shared/geminiCostGuard';
 
 const providerWrapperSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
   'utf8',
 );
 const semanticSource = readFileSync(

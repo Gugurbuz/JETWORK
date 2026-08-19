@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('primary model observability source contract', () => {
   it('keeps the requested Gemini model as the tool-decision model and records primary-agent usage', () => {
-    const source = readFileSync(new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url), 'utf8');
+    const source = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url), 'utf8');
     expect(source).toContain('const requestedModel = normalizeGeminiRequestedModel(input.model)');
     expect(source).toContain('model: requestedModel');
     expect(source).toContain('primary_llm_agent_calls');
