@@ -7,6 +7,14 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 type ProviderKind = 'openai' | 'gemini'
 
+type ProviderObservation = {
+  provider: ProviderKind
+  sentAtMs: number
+  headersAtMs?: number
+  firstByteAtMs?: number
+  firstTextAtMs?: number
+}
+
 type TtftTrace = {
   traceId: string
   messageId: string
@@ -16,12 +24,9 @@ type TtftTrace = {
   promptDoneAtMs?: number
   turnClaimedAtMs?: number
   reasoningReadyAtMs?: number
-  providerRequestSentAtMs?: number
-  providerFirstByteAtMs?: number
-  providerFirstTextAtMs?: number
   firstTextDeltaAtMs?: number
   coreForwardStartedAtMs?: number
-  awaitingAnswerProvider: boolean
+  providerObservations: ProviderObservation[]
   breakdownLogged: boolean
 }
 
@@ -32,7 +37,7 @@ type TtftGlobal = typeof globalThis & {
 
 const traces = new AsyncLocalStorage<TtftTrace>()
 const globalState = globalThis as TtftGlobal
-const roundMs = (value: number | undefined) => value === undefined ? undefined : Math.max(0, Math.round(value))
+const roundMs = (value: number | undefined) => value === undefined ? undefined : Math.round(value)
 const duration = (start: number | undefined, end: number | undefined) => (
   start === undefined || end === undefined ? undefined : roundMs(end - start)
 )
@@ -56,6 +61,34 @@ const providerKindForUrl = (url: string): ProviderKind | null => {
   if (/api\.openai\.com\/v1\/responses/i.test(url)) return 'openai'
   if (/generativelanguage\.googleapis\.com|googleapis\.com\/.*generativelanguage/i.test(url)) return 'gemini'
   return null
+}
+
+const requestBodyObject = (input: RequestInfo | URL, init?: RequestInit) => {
+  const body = typeof init?.body === 'string'
+    ? init.body
+    : input instanceof Request && typeof input.body === 'string'
+      ? input.body
+      : undefined
+  return body ? safeJson(body) : null
+}
+
+const isFinalAnswerProviderRequest = (
+  provider: ProviderKind,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  trace: TtftTrace,
+) => {
+  if (trace.turnClaimedAtMs === undefined) return false
+
+  // Gemini planning/verification in this runtime is deterministic when Gemini is
+  // the active provider, so post-claim Gemini calls belong to answer/tool rounds.
+  if (provider === 'gemini') return true
+
+  // OpenAI planning uses the same Responses endpoint as final synthesis. The
+  // final answer request is distinguishable by safety_identifier, which the
+  // planner/verification request deliberately does not send.
+  const body = requestBodyObject(input, init)
+  return Boolean(body && typeof body.safety_identifier === 'string' && body.safety_identifier)
 }
 
 const parseSseFrames = (buffer: string) => {
@@ -102,8 +135,11 @@ const hasVisibleProviderText = (payload: Record<string, unknown>, provider: Prov
   })
 }
 
-const observeProviderBody = (response: Response, trace: TtftTrace, provider: ProviderKind) => {
-  if (!response.body || trace.providerFirstTextAtMs !== undefined) return
+const observeProviderBody = (
+  response: Response,
+  observation: ProviderObservation,
+) => {
+  if (!response.body) return
   let clone: Response
   try { clone = response.clone() }
   catch { return }
@@ -116,8 +152,8 @@ const observeProviderBody = (response: Response, trace: TtftTrace, provider: Pro
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        if (value?.byteLength && trace.providerFirstByteAtMs === undefined) {
-          trace.providerFirstByteAtMs = performance.now()
+        if (value?.byteLength && observation.firstByteAtMs === undefined) {
+          observation.firstByteAtMs = performance.now()
         }
         if (!value?.byteLength) continue
         buffer += decoder.decode(value, { stream: true })
@@ -125,8 +161,8 @@ const observeProviderBody = (response: Response, trace: TtftTrace, provider: Pro
         buffer = parsed.remainder
         for (const frame of parsed.frames) {
           const payload = jsonFromSseFrame(frame)
-          if (payload && hasVisibleProviderText(payload, provider)) {
-            trace.providerFirstTextAtMs = performance.now()
+          if (payload && hasVisibleProviderText(payload, observation.provider)) {
+            observation.firstTextAtMs = performance.now()
             await reader.cancel().catch(() => undefined)
             return
           }
@@ -138,22 +174,37 @@ const observeProviderBody = (response: Response, trace: TtftTrace, provider: Pro
   })()
 }
 
+const selectedProviderObservation = (trace: TtftTrace) => {
+  const beforeDelta = trace.providerObservations.filter(item => (
+    trace.firstTextDeltaAtMs === undefined || item.sentAtMs <= trace.firstTextDeltaAtMs
+  ))
+  const withText = beforeDelta.filter(item => (
+    item.firstTextAtMs !== undefined
+    && (trace.firstTextDeltaAtMs === undefined || item.firstTextAtMs <= trace.firstTextDeltaAtMs + 250)
+  ))
+  return withText[withText.length - 1] || beforeDelta[beforeDelta.length - 1]
+}
+
 const logBreakdown = (trace: TtftTrace) => {
   if (trace.breakdownLogged || trace.firstTextDeltaAtMs === undefined) return
   trace.breakdownLogged = true
+  const provider = selectedProviderObservation(trace)
   console.info('ASSISTANT_TTFT_BREAKDOWN', JSON.stringify({
     traceId: trace.traceId,
     messageId: trace.messageId || undefined,
+    provider: provider?.provider,
+    providerRoundCount: trace.providerObservations.length,
     requestToAuthMs: duration(trace.requestReceivedAtMs, trace.authDoneAtMs),
     authToWorkspaceMs: duration(trace.authDoneAtMs, trace.workspaceDoneAtMs),
     workspaceToPromptMs: duration(trace.workspaceDoneAtMs, trace.promptDoneAtMs),
     promptToTurnClaimMs: duration(trace.promptDoneAtMs, trace.turnClaimedAtMs),
     turnClaimToReasoningReadyMs: duration(trace.turnClaimedAtMs, trace.reasoningReadyAtMs),
-    reasoningReadyToProviderRequestMs: duration(trace.reasoningReadyAtMs, trace.providerRequestSentAtMs),
-    providerRequestToFirstByteMs: duration(trace.providerRequestSentAtMs, trace.providerFirstByteAtMs),
-    providerFirstByteToFirstTextMs: duration(trace.providerFirstByteAtMs, trace.providerFirstTextAtMs),
-    providerRequestToFirstTextMs: duration(trace.providerRequestSentAtMs, trace.providerFirstTextAtMs),
-    providerFirstTextToCoreDeltaMs: duration(trace.providerFirstTextAtMs, trace.firstTextDeltaAtMs),
+    reasoningReadyToProviderRequestMs: duration(trace.reasoningReadyAtMs, provider?.sentAtMs),
+    providerRequestToHeadersMs: duration(provider?.sentAtMs, provider?.headersAtMs),
+    providerRequestToFirstByteMs: duration(provider?.sentAtMs, provider?.firstByteAtMs),
+    providerFirstByteToFirstTextMs: duration(provider?.firstByteAtMs, provider?.firstTextAtMs),
+    providerRequestToFirstTextMs: duration(provider?.sentAtMs, provider?.firstTextAtMs),
+    providerFirstTextToCoreDeltaMs: duration(provider?.firstTextAtMs, trace.firstTextDeltaAtMs),
     requestToFirstTextDeltaMs: duration(trace.requestReceivedAtMs, trace.firstTextDeltaAtMs),
   }))
 }
@@ -166,13 +217,9 @@ const inspectCoreSse = (trace: TtftTrace, text: string) => {
     if (!payload) continue
     const eventType = eventName || String(payload.type || '')
     if (eventType === 'status') {
-      const stage = String(payload.stage || '')
       const label = String(payload.label || '')
       if (trace.reasoningReadyAtMs === undefined && /Plan hazır:/iu.test(label)) {
         trace.reasoningReadyAtMs = performance.now()
-      }
-      if (stage === 'synthesizing' && /kanıtlar.*sentez|sentezleniyor/iu.test(label)) {
-        trace.awaitingAnswerProvider = true
       }
     }
     if (eventType === 'text_delta' && String(payload.delta || '')) {
@@ -243,8 +290,10 @@ const installFetchTelemetry = () => {
     }
 
     const provider = providerKindForUrl(url)
-    const isAnswerProvider = Boolean(provider && trace.awaitingAnswerProvider && trace.providerRequestSentAtMs === undefined)
-    if (isAnswerProvider) trace.providerRequestSentAtMs = performance.now()
+    const observation = provider && isFinalAnswerProviderRequest(provider, input, nextInit, trace)
+      ? { provider, sentAtMs: performance.now() } as ProviderObservation
+      : null
+    if (observation) trace.providerObservations.push(observation)
 
     const response = await originalFetch(input, nextInit)
     const completedAt = performance.now()
@@ -261,7 +310,10 @@ const installFetchTelemetry = () => {
       trace.messageId ||= messageIdFromBody(rawBody)
     }
 
-    if (isAnswerProvider && provider) observeProviderBody(response, trace, provider)
+    if (observation) {
+      observation.headersAtMs = completedAt
+      observeProviderBody(response, observation)
+    }
     return response
   }
 }
@@ -274,7 +326,7 @@ export async function serve(handler: Handler, options: ServeInit = {}) {
       traceId: request.headers.get('x-jetwork-ttft-trace') || crypto.randomUUID(),
       messageId: request.headers.get('x-jetwork-message-id') || '',
       requestReceivedAtMs: performance.now(),
-      awaitingAnswerProvider: false,
+      providerObservations: [],
       breakdownLogged: false,
     }
 
