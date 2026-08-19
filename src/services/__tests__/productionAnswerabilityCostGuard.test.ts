@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const providerSource = readFileSync(
+const providerBaseSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
+  'utf8',
+)
+const providerWrapperSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
   'utf8',
 )
@@ -12,10 +16,10 @@ const semanticSource = readFileSync(
 
 describe('production answerability + cost guard wiring', () => {
   it('deterministically completes the exact catalog lookup after an empty message detail', () => {
-    expect(providerSource).toContain('findEmptyMessageDetailNeedingCatalogCheck')
-    expect(providerSource).toContain('cost_guard_exact_identifier_catalog_dispatch')
-    expect(providerSource).toContain("name: 'search_knowledge_catalog'")
-    expect(providerSource).toContain("objectTypes: ['message']")
+    expect(providerBaseSource).toContain('findEmptyMessageDetailNeedingCatalogCheck')
+    expect(providerBaseSource).toContain('cost_guard_exact_identifier_catalog_dispatch')
+    expect(providerBaseSource).toContain("name: 'search_knowledge_catalog'")
+    expect(providerBaseSource).toContain("objectTypes: ['message']")
   })
 
   it('does not force provider web on every primary-agent request', () => {
@@ -24,9 +28,12 @@ describe('production answerability + cost guard wiring', () => {
     expect(semanticSource).not.toContain("webMode: userProvidedRequirements ? 'none' : 'if_internal_insufficient'")
   })
 
-  it('buffers grounded Gemini technical answers so unsupported custom-id segments can be removed before final grounding', () => {
-    expect(providerSource).toContain('sanitizeNovelCustomIdentifierClaims')
-    expect(providerSource).toContain('shouldBufferForAnswerabilityGuard')
-    expect(providerSource).toContain('grounding_preflight_custom_identifier_segments_removed')
+  it('keeps custom-id answerability protection while emitting safe Gemini segments incrementally', () => {
+    expect(providerBaseSource).toContain('sanitizeNovelCustomIdentifierClaims')
+    expect(providerBaseSource).toContain('shouldBufferForAnswerabilityGuard')
+    expect(providerWrapperSource).toContain('createStreamingProviderAnswerabilityGuard')
+    expect(providerWrapperSource).toContain('requestBaseWithStreamingAnswerability')
+    expect(providerWrapperSource).toContain('onText: delta => guard.push(delta)')
+    expect(providerWrapperSource).toContain('answerability_streaming_guard_used')
   })
 })
