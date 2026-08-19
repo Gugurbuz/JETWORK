@@ -87,7 +87,7 @@ export const normalizeDeterministicGeminiWebResult = (
   const seen = new Set<string>()
 
   for (const step of stepsOf(payload)) {
-    if (step.type === 'google_search_result' && Array.isArray(step.result)) {
+    if ((step.type === 'google_search_result' || step.type === 'google_search_call') && Array.isArray(step.result)) {
       for (const raw of step.result as Array<unknown>) {
         if (!raw || typeof raw !== 'object') continue
         const item = raw as Record<string, unknown>
