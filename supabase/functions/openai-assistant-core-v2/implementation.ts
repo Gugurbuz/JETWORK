@@ -987,10 +987,11 @@ serve(async req => {
               && plan.knowledgeRequired
               && !(geminiNativeWebPlanned && knowledgePreflightAttempted && sources.filter(source => source.sourceType !== 'web').length === 0)
             const providerWebEnabled = !mustSynthesize && plan.webMode !== 'none'
+            const hasExactCustomIdentifierInRequest = /\b(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)\b/u.test(message.toLocaleUpperCase('en-US'))
             const canLiveStreamProviderText = activeProvider === 'gemini'
-              && geminiNativeWebPlanned
               && plan.enterpriseGroundingRequired !== true
               && plan.intent !== 'sap_diagnosis'
+              && !hasExactCustomIdentifierInRequest
               && !artifactMutationRequested
               && !spreadsheetSyncRequested
               && !spreadsheetMutationRequested
