@@ -1,9 +1,25 @@
+import { useMessageStore } from '../store/useMessageStore';
+
 type BrowserTtftGlobal = typeof globalThis & {
   __jetworkBrowserTtftInstalled?: boolean;
 };
 
 type AssistantRequestBody = {
+  workspaceId?: unknown;
   messageId?: unknown;
+};
+
+type BrowserObservation = {
+  workspaceId: string;
+  messageId: string;
+  aiMessageId?: string;
+  aiPlaceholderCreatedAtMs?: number;
+  requestStartedAtMs: number;
+  requestStartedEpochMs: number;
+  responseHeadersAtMs?: number;
+  firstTextDeltaAtMs?: number;
+  browserRenderAtMs?: number;
+  emitted: boolean;
 };
 
 const isAssistantRuntimeRequest = (input: RequestInfo | URL): boolean => {
@@ -15,13 +31,12 @@ const isAssistantRuntimeRequest = (input: RequestInfo | URL): boolean => {
   return /\/functions\/v1\/openai-assistant-v2(?:\?|$)/i.test(url);
 };
 
-const messageIdFromInit = (init?: RequestInit): string => {
-  if (typeof init?.body !== 'string') return '';
+const assistantRequestFromInit = (init?: RequestInit): AssistantRequestBody => {
+  if (typeof init?.body !== 'string') return {};
   try {
-    const body = JSON.parse(init.body) as AssistantRequestBody;
-    return String(body?.messageId || '').trim().slice(0, 240);
+    return JSON.parse(init.body) as AssistantRequestBody;
   } catch {
-    return '';
+    return {};
   }
 };
 
@@ -55,19 +70,76 @@ const parseFirstTextDelta = (buffer: string): { found: boolean; remainder: strin
   return { found: false, remainder: buffer.slice(cursor) };
 };
 
-const emitBrowserTtft = (payload: Record<string, unknown>) => {
+const emitBrowserTtft = (observation: BrowserObservation) => {
+  if (
+    observation.emitted
+    || observation.responseHeadersAtMs === undefined
+    || observation.firstTextDeltaAtMs === undefined
+    || observation.browserRenderAtMs === undefined
+  ) return;
+
+  observation.emitted = true;
+  const browserRenderEpochMs = observation.requestStartedEpochMs
+    + (observation.browserRenderAtMs - observation.requestStartedAtMs);
+  const payload = {
+    workspaceId: observation.workspaceId || undefined,
+    messageId: observation.messageId || undefined,
+    aiMessageId: observation.aiMessageId || undefined,
+    userTurnToRequestMs: observation.aiPlaceholderCreatedAtMs === undefined
+      ? undefined
+      : Math.max(0, Math.round(observation.requestStartedEpochMs - observation.aiPlaceholderCreatedAtMs)),
+    requestToResponseHeadersMs: Math.max(0, Math.round(observation.responseHeadersAtMs - observation.requestStartedAtMs)),
+    responseHeadersToFirstTextDeltaMs: Math.max(0, Math.round(observation.firstTextDeltaAtMs - observation.responseHeadersAtMs)),
+    requestToFirstTextDeltaMs: Math.max(0, Math.round(observation.firstTextDeltaAtMs - observation.requestStartedAtMs)),
+    firstTextDeltaToBrowserRenderMs: Math.max(0, Math.round(observation.browserRenderAtMs - observation.firstTextDeltaAtMs)),
+    requestToBrowserRenderMs: Math.max(0, Math.round(observation.browserRenderAtMs - observation.requestStartedAtMs)),
+    userTurnToBrowserRenderMs: observation.aiPlaceholderCreatedAtMs === undefined
+      ? undefined
+      : Math.max(0, Math.round(browserRenderEpochMs - observation.aiPlaceholderCreatedAtMs)),
+  };
   console.info('ASSISTANT_BROWSER_TTFT', JSON.stringify(payload));
   window.dispatchEvent(new CustomEvent('jetwork:assistant-ttft', { detail: payload }));
 };
 
-const observeFirstTextDelta = (
-  response: Response,
-  input: {
-    messageId: string;
-    requestStartedAtMs: number;
-    responseHeadersAtMs: number;
-  },
-) => {
+const findPendingAssistantMessage = (workspaceId: string) => {
+  const messages = useMessageStore.getState().messagesByWorkspace[workspaceId] || [];
+  return [...messages]
+    .reverse()
+    .find(message => message.role === 'model' && message.isTyping && !(message.text || '').trim());
+};
+
+const observeBrowserRender = (observation: BrowserObservation) => {
+  if (!observation.workspaceId || !observation.aiMessageId) return;
+  let finished = false;
+  let unsubscribe = () => {};
+  const timeout = window.setTimeout(() => {
+    if (finished) return;
+    finished = true;
+    unsubscribe();
+  }, 150_000);
+
+  const check = () => {
+    if (finished) return;
+    const messages = useMessageStore.getState().messagesByWorkspace[observation.workspaceId] || [];
+    const target = messages.find(message => message.id === observation.aiMessageId);
+    if (!target || !(target.text || '').trim()) return;
+
+    finished = true;
+    unsubscribe();
+    window.clearTimeout(timeout);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        observation.browserRenderAtMs = performance.now();
+        emitBrowserTtft(observation);
+      });
+    });
+  };
+
+  unsubscribe = useMessageStore.subscribe(check);
+  check();
+};
+
+const observeFirstTextDelta = (response: Response, observation: BrowserObservation) => {
   if (!response.body || !/text\/event-stream/i.test(response.headers.get('content-type') || '')) return;
   let clone: Response;
   try {
@@ -91,21 +163,9 @@ const observeFirstTextDelta = (
         buffer = parsed.remainder;
         if (!parsed.found) continue;
 
-        const firstTextReceivedAtMs = performance.now();
+        observation.firstTextDeltaAtMs = performance.now();
         await reader.cancel().catch(() => undefined);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const nextPaintAtMs = performance.now();
-            emitBrowserTtft({
-              messageId: input.messageId || undefined,
-              requestToResponseHeadersMs: Math.max(0, Math.round(input.responseHeadersAtMs - input.requestStartedAtMs)),
-              responseHeadersToFirstTextDeltaMs: Math.max(0, Math.round(firstTextReceivedAtMs - input.responseHeadersAtMs)),
-              requestToFirstTextDeltaMs: Math.max(0, Math.round(firstTextReceivedAtMs - input.requestStartedAtMs)),
-              firstTextDeltaToNextPaintMs: Math.max(0, Math.round(nextPaintAtMs - firstTextReceivedAtMs)),
-              requestToNextPaintMs: Math.max(0, Math.round(nextPaintAtMs - input.requestStartedAtMs)),
-            });
-          });
-        });
+        emitBrowserTtft(observation);
         return;
       }
     } catch {
@@ -124,11 +184,24 @@ export const installAssistantTtftBrowserTelemetry = () => {
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (!isAssistantRuntimeRequest(input)) return originalFetch(input, init);
 
-    const requestStartedAtMs = performance.now();
-    const messageId = messageIdFromInit(init);
+    const requestBody = assistantRequestFromInit(init);
+    const workspaceId = String(requestBody.workspaceId || '').trim().slice(0, 200);
+    const messageId = String(requestBody.messageId || '').trim().slice(0, 240);
+    const pendingAssistant = workspaceId ? findPendingAssistantMessage(workspaceId) : undefined;
+    const observation: BrowserObservation = {
+      workspaceId,
+      messageId,
+      aiMessageId: pendingAssistant?.id,
+      aiPlaceholderCreatedAtMs: pendingAssistant?.createdAt,
+      requestStartedAtMs: performance.now(),
+      requestStartedEpochMs: Date.now(),
+      emitted: false,
+    };
+
+    observeBrowserRender(observation);
     const response = await originalFetch(input, init);
-    const responseHeadersAtMs = performance.now();
-    observeFirstTextDelta(response, { messageId, requestStartedAtMs, responseHeadersAtMs });
+    observation.responseHeadersAtMs = performance.now();
+    observeFirstTextDelta(response, observation);
     return response;
   };
 };
