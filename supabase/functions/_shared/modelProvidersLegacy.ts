@@ -151,11 +151,18 @@ const parseToolOutput = (value: unknown): unknown => {
 const toGeminiContents = (items: Array<Record<string, unknown>>) => {
   const contents: Array<Record<string, unknown>> = []
   const callNames = new Map<string, string>()
+  const providerFunctionCallIds = new Set<string>()
   for (const item of items) {
     const type = String(item.type || '')
     const role = String(item.role || '')
     const geminiContent = item._geminiContent
-    if (type === 'function_call') callNames.set(String(item.call_id || ''), String(item.name || ''))
+    if (type === 'function_call') {
+      const callId = String(item.call_id || '')
+      callNames.set(callId, String(item.name || ''))
+      if ((geminiContent && typeof geminiContent === 'object') || item._geminiSkipContent === true) {
+        providerFunctionCallIds.add(callId)
+      }
+    }
     if (item._geminiSkipContent === true) continue
     if (geminiContent && typeof geminiContent === 'object') {
       contents.push(geminiContent as Record<string, unknown>)
@@ -172,22 +179,21 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
       continue
     }
     if (type === 'function_call') {
-      const callId = String(item.call_id || crypto.randomUUID())
-      const name = String(item.name || '')
-      callNames.set(callId, name)
-      let args: Record<string, unknown> = {}
-      try { args = JSON.parse(String(item.arguments || '{}')) } catch { args = {} }
-      contents.push({
-        role: 'model',
-        parts: [{
-          functionCall: { id: callId, name, args },
-        }],
-      })
+      // Internal/deterministic function calls were not emitted by Gemini and therefore
+      // cannot carry a valid Gemini thought signature. Never replay them as functionCall history.
       continue
     }
     if (type === 'function_call_output') {
       const callId = String(item.call_id || '')
       const name = callNames.get(callId) || 'knowledge_tool'
+      if (!providerFunctionCallIds.has(callId)) {
+        const rawOutput = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
+        contents.push({
+          role: 'user',
+          parts: [{ text: `[JETWORK_TOOL_EVIDENCE name=${name}]\n${rawOutput.slice(0, 14_000)}\n[END_JETWORK_TOOL_EVIDENCE]` }],
+        })
+        continue
+      }
       contents.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { output: parseToolOutput(item.output) } } }] })
     }
   }
