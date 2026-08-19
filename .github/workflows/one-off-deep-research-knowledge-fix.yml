@@ -1,0 +1,32 @@
+name: one-off-deep-research-knowledge-fix
+on:
+  push:
+    branches: [agent/fix-deep-research-provider-routing]
+    paths: [.github/workflows/one-off-deep-research-knowledge-fix.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-deep-research-provider-routing
+      - name: Patch semantic knowledge inheritance
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('supabase/functions/_shared/semanticOrchestrator.ts')
+          text = p.read_text()
+          old = """  const routed = routeReasoningRequest(deepResearchTarget ? `${deepResearchTarget}\\n${currentMessage}` : currentMessage)\n  const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)\n  const route = userProvidedRequirements\n    ? {\n        ...routed,\n        intent: 'analysis' as const,\n        knowledgeRequired: false,\n        webMode: 'none' as const,\n        verificationRequired: false,\n        creativeMode: false,\n      }\n    : routed"""
+          new = """  const routed = routeReasoningRequest(deepResearchTarget ? `${deepResearchTarget}\\n${currentMessage}` : currentMessage)\n  const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)\n  const deepResearchNeedsKnowledge = Boolean(deepResearchTarget && extractTechnicalEntities(deepResearchTarget).length)\n  const route = userProvidedRequirements\n    ? {\n        ...routed,\n        intent: 'analysis' as const,\n        knowledgeRequired: false,\n        webMode: 'none' as const,\n        verificationRequired: false,\n        creativeMode: false,\n      }\n    : deepResearchNeedsKnowledge\n      ? { ...routed, knowledgeRequired: true }\n      : routed"""
+          if old not in text:
+              raise SystemExit('semantic route block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/one-off-deep-research-knowledge-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/_shared/semanticOrchestrator.ts .github/workflows/one-off-deep-research-knowledge-fix.yml
+          git commit -m 'fix: preserve knowledge scope for deep research follow-ups'
+          git push origin HEAD:agent/fix-deep-research-provider-routing
