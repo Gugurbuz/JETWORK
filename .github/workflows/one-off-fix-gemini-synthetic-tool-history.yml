@@ -1,0 +1,53 @@
+name: one-off-fix-gemini-synthetic-tool-history
+
+on:
+  push:
+    branches:
+      - agent/fix-gemini-synthetic-tool-history
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-gemini-synthetic-tool-history
+          fetch-depth: 0
+      - name: Patch synthetic Gemini tool history handling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          provider = Path('supabase/functions/_shared/modelProvidersLegacy.ts')
+          text = provider.read_text()
+          old = """const toGeminiContents = (items: Array<Record<string, unknown>>) => {\n  const contents: Array<Record<string, unknown>> = []\n  const callNames = new Map<string, string>()\n  for (const item of items) {\n    const type = String(item.type || '')\n    const role = String(item.role || '')\n    const geminiContent = item._geminiContent\n    if (type === 'function_call') callNames.set(String(item.call_id || ''), String(item.name || ''))\n"""
+          new = """const toGeminiContents = (items: Array<Record<string, unknown>>) => {\n  const contents: Array<Record<string, unknown>> = []\n  const callNames = new Map<string, string>()\n  const providerFunctionCallIds = new Set<string>()\n  for (const item of items) {\n    const type = String(item.type || '')\n    const role = String(item.role || '')\n    const geminiContent = item._geminiContent\n    if (type === 'function_call') {\n      const callId = String(item.call_id || '')\n      callNames.set(callId, String(item.name || ''))\n      if ((geminiContent && typeof geminiContent === 'object') || item._geminiSkipContent === true) {\n        providerFunctionCallIds.add(callId)\n      }\n    }\n"""
+          if old not in text:
+              raise SystemExit('provider header pattern not found')
+          text = text.replace(old, new, 1)
+
+          old2 = """    if (type === 'function_call') {\n      const callId = String(item.call_id || crypto.randomUUID())\n      const name = String(item.name || '')\n      callNames.set(callId, name)\n      let args: Record<string, unknown> = {}\n      try { args = JSON.parse(String(item.arguments || '{}')) } catch { args = {} }\n      contents.push({\n        role: 'model',\n        parts: [{\n          functionCall: { id: callId, name, args },\n        }],\n      })\n      continue\n    }\n    if (type === 'function_call_output') {\n      const callId = String(item.call_id || '')\n      const name = callNames.get(callId) || 'knowledge_tool'\n      contents.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { output: parseToolOutput(item.output) } } }] })\n    }\n"""
+          new2 = """    if (type === 'function_call') {\n      // Internal/deterministic function calls were not emitted by Gemini and therefore\n      // cannot carry a valid Gemini thought signature. Never replay them as functionCall history.\n      continue\n    }\n    if (type === 'function_call_output') {\n      const callId = String(item.call_id || '')\n      const name = callNames.get(callId) || 'knowledge_tool'\n      if (!providerFunctionCallIds.has(callId)) {\n        const rawOutput = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')\n        contents.push({\n          role: 'user',\n          parts: [{ text: `[JETWORK_TOOL_EVIDENCE name=${name}]\\n${rawOutput.slice(0, 14_000)}\\n[END_JETWORK_TOOL_EVIDENCE]` }],\n        })\n        continue\n      }\n      contents.push({ role: 'user', parts: [{ functionResponse: { id: callId, name, response: { output: parseToolOutput(item.output) } } }] })\n    }\n"""
+          if old2 not in text:
+              raise SystemExit('provider synthetic function history pattern not found')
+          provider.write_text(text.replace(old2, new2, 1))
+
+          test = Path('src/services/__tests__/trueLiveStreamingContract.test.ts')
+          t = test.read_text()
+          needle = """    expect(providerSource).toContain('_geminiContent: candidateContent')\n    expect(providerSource).toContain('for await (const chunk of stream')\n"""
+          repl = """    expect(providerSource).toContain('_geminiContent: candidateContent')\n    expect(providerSource).toContain('providerFunctionCallIds')\n    expect(providerSource).toContain("item._geminiSkipContent === true")\n    expect(providerSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')\n    expect(providerSource).toContain('!providerFunctionCallIds.has(callId)')\n    expect(providerSource).toContain('for await (const chunk of stream')\n"""
+          if needle not in t:
+              raise SystemExit('test insertion pattern not found')
+          test.write_text(t.replace(needle, repl, 1))
+          PY
+
+          rm .github/workflows/one-off-fix-gemini-synthetic-tool-history.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/_shared/modelProvidersLegacy.ts src/services/__tests__/trueLiveStreamingContract.test.ts .github/workflows/one-off-fix-gemini-synthetic-tool-history.yml
+          git commit -m "fix: keep synthetic Gemini tool history signature-safe"
+          git push origin HEAD:agent/fix-gemini-synthetic-tool-history
