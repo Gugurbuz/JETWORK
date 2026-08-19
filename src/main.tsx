@@ -5,6 +5,7 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { WorkspaceRouteBridge } from './components/WorkspaceRouteBridge';
 import { installAssistantTransportRecovery } from './services/assistantTransportRecovery';
+import { installAssistantTtftBrowserTelemetry } from './services/assistantTtftBrowserTelemetry';
 import './index.css';
 import './ai-native.css';
 import './mobile-workspace-nav.css';
@@ -12,6 +13,7 @@ import './assistant-runtime-ui.css';
 import './assistant-work-indicator.css';
 
 installAssistantTransportRecovery();
+installAssistantTtftBrowserTelemetry();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
