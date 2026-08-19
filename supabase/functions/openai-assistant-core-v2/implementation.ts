@@ -830,7 +830,7 @@ serve(async req => {
         })
         const plan = planned.plan
         const geminiNativeWebPlanned = configuredProvider === 'gemini'
-          && String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)
+          && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))
         let knowledgePreflightAttempted = false
         let geminiWebSearchQueriesUsed: string[] = []
         usage = addUsage(usage, planned.usage); reasoningFallbackUsed ||= modelReasoningUsesOpenAi && planned.plannerFallback
@@ -845,7 +845,7 @@ serve(async req => {
           sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
         }
 
-        if (plan.webMode === 'required') {
+        if (plan.webMode === 'required' && !geminiNativeWebPlanned) {
           emitStatus('searching_web', 'Güncel web kaynakları araştırılıyor...')
           await collectWeb([plan.goal, ...plan.evidenceQueries].slice(0, 3).join('\n'), plan, 'preflight')
           emitStatus('searching_web', `${sources.filter(source => source.sourceType === 'web').length} web kaynağı toplandı`)
