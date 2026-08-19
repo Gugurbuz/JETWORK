@@ -183,7 +183,11 @@ const responseHasVisibleText = (response: NormalizedModelResponse): boolean => (
 )
 
 export const responseHasProviderWebEvidence = (response: NormalizedModelResponse): boolean => (
-  Boolean(response.webSources?.length) || Boolean(response.webSearchQueries?.length)
+  Boolean(response.webSources?.length)
+)
+
+export const responseHasProviderWebExecution = (response: NormalizedModelResponse): boolean => (
+  responseHasProviderWebEvidence(response) || Boolean(response.webSearchQueries?.length)
 )
 
 const mergeNumericUsage = (...values: Array<Record<string, number> | undefined>): Record<string, number> => {
@@ -455,22 +459,27 @@ export async function requestGeminiResponse(input: {
       ...input,
       model: requestedModel,
       instructions: requiredWebInstructions,
-      items: researchTarget ? [{ role: 'user', content: researchTarget }] : sanitizeItems(input.items),
+      items: [
+        ...buildNoToolRecoveryItems(input.items),
+        ...(researchTarget ? [{ role: 'user', content: `[JETWORK_DEEP_RESEARCH_TARGET]\n${researchTarget}\n[END_JETWORK_DEEP_RESEARCH_TARGET]` }] : []),
+      ],
       tools: [],
       allowTools: true,
       onText: delta => { requiredWebText += delta },
     })
     assertExplicitGeminiModelPreserved(requestedModel, requiredWebResponse.model)
     const webEvidenceObserved = responseHasProviderWebEvidence(requiredWebResponse)
+    const webExecutionObserved = responseHasProviderWebExecution(requiredWebResponse)
     const requiredWebAnswerability = shouldBufferForAnswerabilityGuard(plan)
       ? sanitizeNovelCustomIdentifierClaims(requiredWebText, answerabilityRequestText(plan))
       : { text: requiredWebText, removedSegments: 0, removedIdentifiers: [] as string[] }
     const requiredWebUsage = usageWithGeminiEstimatedCost(String(requiredWebResponse.model || requestedModel), requiredWebResponse.usage, {
       primary_llm_agent_calls: 1,
       gemini_native_web_required_retry: 1,
-      gemini_native_web_required_executed: webEvidenceObserved ? 1 : 0,
+      gemini_native_web_required_executed: webExecutionObserved ? 1 : 0,
       ...(requiredWebResponse.webSources?.length ? { gemini_native_web_required_source_count: requiredWebResponse.webSources.length } : {}),
       ...(!webEvidenceObserved ? { gemini_native_web_required_miss: 1 } : {}),
+      ...(webExecutionObserved && !webEvidenceObserved ? { gemini_native_web_required_no_citable_sources: 1 } : {}),
       ...(requiredWebAnswerability.text !== requiredWebText ? {
         grounding_preflight_custom_identifier_segments_removed: requiredWebAnswerability.removedSegments,
         grounding_preflight_custom_identifiers_removed: requiredWebAnswerability.removedIdentifiers.length,
@@ -485,7 +494,9 @@ export async function requestGeminiResponse(input: {
       }
     }
 
-    const deterministicWebMiss = 'Deep Research için Google Search çağrısını doğrulayamadım; web araştırmasını tamamlanmış saymıyorum. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'
+    const deterministicWebMiss = webExecutionObserved
+      ? 'Deep Research için Google Search çalıştı ancak doğrulanabilir web kaynağı dönmedi. Web araştırmasını kaynaklı olarak tamamlanmış saymıyorum; kurumsal veya teknik ayrıntıları uydurmuyorum.'
+      : 'Deep Research için Google Search çağrısını doğrulayamadım; web araştırmasını tamamlanmış saymıyorum. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'
     input.onText(deterministicWebMiss)
     return {
       id: `jetwork-required-web-miss:${crypto.randomUUID()}`,

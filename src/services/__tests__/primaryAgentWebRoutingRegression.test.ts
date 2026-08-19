@@ -62,7 +62,10 @@ describe('primary agent web routing regression', () => {
     expect(source).toContain("const requireProviderWebEvidence = plan?.intent === 'research' && providerWebEnabled")
     expect(source).toContain('gemini_native_web_required_retry')
     expect(source).toContain('gemini_native_web_required_miss')
+    expect(source).toContain('gemini_native_web_required_no_citable_sources')
     expect(source).toContain('responseHasProviderWebEvidence(requiredWebResponse)')
+    expect(source).toContain('responseHasProviderWebExecution(requiredWebResponse)')
+    expect(source).toContain('...buildNoToolRecoveryItems(input.items)')
   })
 
   it('does not call the OpenAI web preflight after Auto has routed the active model to Gemini', () => {
