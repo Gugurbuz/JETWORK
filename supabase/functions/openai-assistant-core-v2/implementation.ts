@@ -53,6 +53,7 @@ const ALLOWED_MODELS = new Set([AUTO_MODEL, ...OPENAI_MODELS, ...GEMINI_MODELS])
 const MAX_HISTORY_CHARACTERS = 36_000
 const MAX_CHAT_ATTACHMENTS = 3
 const MAX_CHAT_ATTACHMENT_CHARACTERS = 60_000
+const STREAM_HEARTBEAT_MS = 5_000
 
 const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maximum: number) => {
   const parsed = Number(Deno.env.get(name))
@@ -641,6 +642,11 @@ serve(async req => {
       let turnCompleted = false
       const runController = new AbortController()
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
+      const streamHeartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': jetwork-heartbeat\n\n'))
+        } catch { /* downstream disconnected; run cleanup owns interval */ }
+      }, STREAM_HEARTBEAT_MS)
 
       const emitStatus = (stage: string, label: string) => {
         trace.push({ stage, label, at: new Date().toISOString() })
@@ -1226,6 +1232,7 @@ serve(async req => {
           controller.enqueue(encoder.encode('data: [DONE]\n\n')); controller.close()
         } catch { /* caller disconnected */ }
       } finally {
+        clearInterval(streamHeartbeat)
         clearTimeout(runTimeout)
       }
     }})
