@@ -1,3 +1,4 @@
+# second push intentionally triggers this branch-scoped one-shot patch workflow
 name: patch-deterministic-deep-research
 
 on:
