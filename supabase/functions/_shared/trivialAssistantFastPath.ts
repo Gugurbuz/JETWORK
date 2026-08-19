@@ -1,7 +1,7 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v6-universal-short-turn'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v7-clarification-handshake'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -38,6 +38,7 @@ const normalizeConversationText = (value: string) => value
   .trim()
 
 const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going|thanks|thank you|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
+const LOW_RISK_CLARIFICATION_HANDSHAKE_PATTERN = /^(?:bir )?(?:talebim|istegim|sorum) var(?: proje mi support(?: konusu)? mu oldugunu)?(?: birlikte)?(?: netlestirelim| degerlendirelim)?$/i
 
 const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
@@ -69,6 +70,8 @@ const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['eyvallah', 'Rica ederim!'],
 ])
 
+const CLARIFICATION_HANDSHAKE_RESPONSE = 'Tabii. Talebi anlat; mevcut durum, beklenen sonuç ve etkilenen sistem/ekip varsa ekle, birlikte proje mi support mu netleştirelim.'
+
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 
 export interface TrivialAssistantFastPathInput {
@@ -95,9 +98,11 @@ export const executionModelForTrivialFastPathModel = (model: string): string => 
     : model
 )
 
-export const deterministicTrivialResponseForMessage = (message: string): string | null => (
-  DETERMINISTIC_TRIVIAL_RESPONSES.get(normalizeConversationText(message)) || null
-)
+export const deterministicTrivialResponseForMessage = (message: string): string | null => {
+  const normalized = normalizeConversationText(message)
+  if (LOW_RISK_CLARIFICATION_HANDSHAKE_PATTERN.test(normalized)) return CLARIFICATION_HANDSHAKE_RESPONSE
+  return DETERMINISTIC_TRIVIAL_RESPONSES.get(normalized) || null
+}
 
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
   const model = cleanString(input.model, 80)
@@ -107,11 +112,15 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
   const normalized = normalizeConversationText(input.message)
   if (!normalized) return false
 
-  // Exact trivial turns are latency-sensitive and context-free by definition.
-  // Stale attachment state must not force an exact greeting through semantic orchestration.
-  // Ambiguous short text, typos and possible user tasks deliberately stay out of
-  // this lane so the semantic orchestrator can understand intent before answering.
+  // Exact trivial turns and low-risk clarification handshakes are latency-sensitive
+  // and context-free by definition. The clarification lane is intentionally narrow:
+  // it only matches messages that announce a request/question without supplying the
+  // substantive details needed for analysis. Once details exist, semantic/core routing
+  // remains authoritative.
+  // Stale attachment state must not force these exact context-free turns through
+  // semantic orchestration.
   return TRIVIAL_CONVERSATION_PATTERN.test(normalized)
+    || LOW_RISK_CLARIFICATION_HANDSHAKE_PATTERN.test(normalized)
 }
 
 const extractOpenAiText = (payload: Record<string, unknown>): string => {
