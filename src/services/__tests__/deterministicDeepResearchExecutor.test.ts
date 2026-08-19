@@ -59,14 +59,15 @@ describe('deterministic Gemini Deep Research executor', () => {
     expect(result.usage?.gemini_grounding_tool_calls).toBe(1)
   })
 
-  it('routes research web turns through executor before the no-tool final synthesis', () => {
+  it('routes research web turns through executor before the guarded no-tool final synthesis', () => {
     expect(providerSource).toContain("const providerWebRequested = input.allowProviderWeb ?? input.allowTools")
     expect(providerSource).toContain("plan?.intent === 'research' && providerWebRequested")
     expect(providerSource).toContain('runDeterministicGeminiWebResearch({')
     expect(providerSource.indexOf('runDeterministicGeminiWebResearch({'))
-      .toBeLessThan(providerSource.indexOf('const finalResponse = await baseRequestGeminiResponse({'))
+      .toBeLessThan(providerSource.indexOf('const finalResponse = await requestBaseWithStreamingAnswerability({'))
     expect(providerSource).toContain('allowProviderWeb: false')
     expect(providerSource).toContain('allowTools: false')
     expect(providerSource).toContain('deterministic_deep_research_used')
+    expect(providerSource).toContain('answerability_streaming_guard_used')
   })
 })
