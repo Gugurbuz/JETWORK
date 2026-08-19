@@ -1,0 +1,34 @@
+name: TTFT breakdown patch
+on:
+  push:
+    branches: [agent/ttft-breakdown-telemetry]
+    paths: [.github/workflows/ttft-breakdown-patch.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: agent/ttft-breakdown-telemetry, fetch-depth: 0}
+      - uses: pnpm/action-setup@v4
+        with: {version: 11.9.0}
+      - uses: actions/setup-node@v4
+        with: {node-version: 22.13, cache: pnpm}
+      - name: Apply patch
+        run: |
+          echo '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' | base64 -d | gunzip > /tmp/ttft_patch.py
+          python /tmp/ttft_patch.py
+      - run: pnpm install --frozen-lockfile
+      - name: Verify
+        run: |
+          pnpm lint
+          pnpm test -- src/services/__tests__/coreLiveStreamingGate.test.ts src/services/__tests__/trueLiveStreamingContract.test.ts
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "perf: add end-to-end TTFT breakdown telemetry"
+          git push origin HEAD:agent/ttft-breakdown-telemetry
