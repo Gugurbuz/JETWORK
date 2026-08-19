@@ -225,6 +225,7 @@ const buildPrimaryAgentPlan = (input: {
     : ''
   const routed = routeReasoningRequest(deepResearchTarget ? `${deepResearchTarget}\n${currentMessage}` : currentMessage)
   const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)
+  const deepResearchNeedsKnowledge = Boolean(deepResearchTarget && extractTechnicalEntities(deepResearchTarget).length)
   const route = userProvidedRequirements
     ? {
         ...routed,
@@ -234,7 +235,9 @@ const buildPrimaryAgentPlan = (input: {
         verificationRequired: false,
         creativeMode: false,
       }
-    : routed
+    : deepResearchNeedsKnowledge
+      ? { ...routed, knowledgeRequired: true }
+      : routed
   const state = buildConversationState({
     currentMessage,
     conversation: input.conversation,
