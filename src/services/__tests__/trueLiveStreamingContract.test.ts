@@ -39,10 +39,11 @@ const basePlan = () => ({
 })
 
 describe('true live assistant streaming contract', () => {
-  it('uses the Gemini streaming API and preserves signatures for injected tool calls', () => {
+  it('uses the Gemini streaming API without fabricating signatures for synthetic tool calls', () => {
     expect(providerSource).toContain('generateContentStream')
-    expect(providerSource).toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
-    expect(providerSource).toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
+    expect(providerSource).not.toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
+    expect(providerSource).not.toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
+    expect(providerSource).toContain('_geminiContent: candidateContent')
     expect(providerSource).toContain('for await (const chunk of stream')
   })
 
