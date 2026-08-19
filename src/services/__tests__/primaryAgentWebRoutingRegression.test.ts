@@ -39,6 +39,8 @@ describe('primary agent web routing regression', () => {
       conversation: [
         { role: 'user', content: 'CHECK_ZTKS hangi mesajları üretiyor?' },
         { role: 'assistant', content: 'Bu yanıtta doğrulanması gereken ayrıntı için yeterli kanıt bulunamadı.' },
+        { role: 'user', content: 'Bu yanıtı daha derin araştır. Gerektiğinde bilgi bankasını ve web kaynaklarını kullan; bulguları kaynaklarla karşılaştırıp doğrula.' },
+        { role: 'assistant', content: 'Önceki derin araştır denemesi tamamlanamadı.' },
       ],
       priorExecution: { intent: 'analysis' },
     })
@@ -49,6 +51,18 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER)
     expect(result.plan.knowledgeRequired).toBe(true)
     expect(result.plan.webMode).toBe('none')
+  })
+
+  it('requires observable Gemini web evidence before accepting a Deep Research answer', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      'utf8',
+    )
+
+    expect(source).toContain("const requireProviderWebEvidence = plan?.intent === 'research' && providerWebEnabled")
+    expect(source).toContain('gemini_native_web_required_retry')
+    expect(source).toContain('gemini_native_web_required_miss')
+    expect(source).toContain('responseHasProviderWebEvidence(requiredWebResponse)')
   })
 
   it('does not call the OpenAI web preflight after Auto has routed the active model to Gemini', () => {
