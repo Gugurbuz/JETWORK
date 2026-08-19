@@ -24,12 +24,14 @@ describe('deterministic Gemini Deep Research executor', () => {
     expect(request.background).toBe(false)
   })
 
-  it('normalizes executed search, citable sources, notes and grounding telemetry', () => {
+  it('normalizes inline search results, citable sources, notes and grounding telemetry', () => {
     const result = normalizeDeterministicGeminiWebResult({
       steps: [
-        { type: 'google_search_call', arguments: { query: 'CHECK_ZTKS SAP' }, id: 'search_1' },
         {
-          type: 'google_search_result', call_id: 'search_1', result: [{
+          type: 'google_search_call',
+          arguments: { query: 'CHECK_ZTKS SAP' },
+          id: 'search_1',
+          result: [{
             title: 'Example source',
             url: 'https://example.com/check-ztks',
             snippet: 'Public context.',
@@ -57,11 +59,12 @@ describe('deterministic Gemini Deep Research executor', () => {
     expect(result.usage?.gemini_grounding_tool_calls).toBe(1)
   })
 
-  it('routes only research web turns through executor before final synthesis', () => {
-    expect(providerSource).toContain("plan?.intent === 'research' && input.allowProviderWeb === true")
+  it('routes research web turns through executor before the no-tool final synthesis', () => {
+    expect(providerSource).toContain("const providerWebRequested = input.allowProviderWeb ?? input.allowTools")
+    expect(providerSource).toContain("plan?.intent === 'research' && providerWebRequested")
     expect(providerSource).toContain('runDeterministicGeminiWebResearch({')
     expect(providerSource.indexOf('runDeterministicGeminiWebResearch({'))
-      .toBeLessThan(providerSource.indexOf('baseRequestGeminiResponse({'))
+      .toBeLessThan(providerSource.indexOf('const finalResponse = await baseRequestGeminiResponse({'))
     expect(providerSource).toContain('allowProviderWeb: false')
     expect(providerSource).toContain('allowTools: false')
     expect(providerSource).toContain('deterministic_deep_research_used')
