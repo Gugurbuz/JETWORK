@@ -122,6 +122,39 @@ const shouldUseStreamingAnswerabilityGuard = (plan: ReturnType<typeof extractSem
   Boolean(plan?.knowledgeRequired) && plan?.enterpriseGroundingRequired !== true
 )
 
+const requestTimedGeminiBase = async (input: {
+  apiKey: string
+  model: string
+  instructions: string
+  items: Array<Record<string, unknown>>
+  tools: ReadonlyArray<Record<string, unknown>>
+  allowTools: boolean
+  allowProviderWeb?: boolean
+  maxOutputTokens: number
+  onText: (text: string) => void
+  signal?: AbortSignal
+}): Promise<NormalizedModelResponse> => {
+  const startedAt = performance.now()
+  let firstTextAt: number | null = null
+  const response = await baseRequestGeminiResponse({
+    ...input,
+    onText: delta => {
+      if (firstTextAt == null && delta) firstTextAt = performance.now()
+      input.onText(delta)
+    },
+  })
+  const completedAt = performance.now()
+  return {
+    ...response,
+    usage: mergeNumericUsage(response.usage, {
+      gemini_provider_total_ms: Math.max(0, Math.round(completedAt - startedAt)),
+      ...(firstTextAt == null ? {} : {
+        gemini_provider_first_text_ms: Math.max(0, Math.round(firstTextAt - startedAt)),
+      }),
+    }),
+  }
+}
+
 const requestBaseWithStreamingAnswerability = async (input: {
   apiKey: string
   model: string
@@ -134,16 +167,16 @@ const requestBaseWithStreamingAnswerability = async (input: {
   onText: (text: string) => void
   signal?: AbortSignal
 }, plan = extractSemanticPlanFromItems(input.items)): Promise<NormalizedModelResponse> => {
-  if (!plan || !shouldUseStreamingAnswerabilityGuard(plan)) return baseRequestGeminiResponse(input)
+  if (!plan || !shouldUseStreamingAnswerabilityGuard(plan)) return requestTimedGeminiBase(input)
 
   const providerPlan = providerLocalStreamingPlan(input.items, plan)
-  if (!providerPlan.changed) return baseRequestGeminiResponse(input)
+  if (!providerPlan.changed) return requestTimedGeminiBase(input)
 
   const guard = createStreamingProviderAnswerabilityGuard({
     requestText: answerabilityRequestText(plan),
     onText: input.onText,
   })
-  const response = await baseRequestGeminiResponse({
+  const response = await requestTimedGeminiBase({
     ...input,
     items: providerPlan.items,
     onText: delta => guard.push(delta),
