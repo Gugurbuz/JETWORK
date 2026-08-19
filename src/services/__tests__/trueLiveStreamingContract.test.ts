@@ -44,6 +44,10 @@ describe('true live assistant streaming contract', () => {
     expect(providerSource).not.toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
     expect(providerSource).not.toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
     expect(providerSource).toContain('_geminiContent: candidateContent')
+    expect(providerSource).toContain('providerFunctionCallIds')
+    expect(providerSource).toContain("item._geminiSkipContent === true")
+    expect(providerSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')
+    expect(providerSource).toContain('!providerFunctionCallIds.has(callId)')
     expect(providerSource).toContain('for await (const chunk of stream')
   })
 
