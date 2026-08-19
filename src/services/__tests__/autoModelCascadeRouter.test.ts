@@ -13,32 +13,44 @@ describe('Auto model cascade core router', () => {
     expect(routerSource).toContain("forwardedBody = { ...body, model: decision.routedModel }")
   })
 
-  it('routes Auto from Lite to Flash and only then to Pro', () => {
+  it('starts Auto at Lite and escalates in order', () => {
     expect(routerSource).toContain("const LITE_MODEL = 'gemini-3.5-flash-lite'")
     expect(routerSource).toContain("const FLASH_MODEL = 'gemini-3.5-flash'")
     expect(routerSource).toContain("const PRO_MODEL = 'gemini-3.1-pro-preview'")
-    expect(routerSource).toContain("allowed: ['USE_LITE', 'ESCALATE']")
+    expect(routerSource).toContain("'USE_LITE', 'ESCALATE_COMPLEX', 'ESCALATE_CONTEXT', 'ESCALATE_ORCHESTRATION'")
     expect(routerSource).toContain("allowed: ['USE_FLASH', 'ESCALATE_PRO']")
   })
 
-  it('does not escalate merely because enterprise evidence is missing', () => {
-    expect(routerSource).toContain('Missing enterprise evidence is NOT a reason to escalate')
-    expect(routerSource).toContain('Missing enterprise evidence is NOT a reason to choose Pro')
+  it('vetoes model self-escalation when deterministic request signals do not support it', () => {
+    expect(routerSource).toContain("reasons: ['exact_identifier_lite_guard']")
+    expect(routerSource).toContain('lite_escalation_vetoed_by_policy')
+    expect(routerSource).toContain('pro_escalation_vetoed_by_policy')
+    expect(routerSource).toContain("flashDecision === 'ESCALATE_PRO' && profile.allowPro")
   })
 
-  it('uses deterministic floors only for genuinely heavier requests', () => {
-    expect(routerSource).toContain("reasons.push('attachment_context')")
-    expect(routerSource).toContain("reasons.push('multi_step_complexity')")
-    expect(routerSource).toContain("reasons.push('artifact_orchestration')")
-    expect(routerSource).not.toContain("reasons.push('missing_evidence')")
+  it('keeps short exact enterprise identifier lookups on Lite', () => {
+    expect(routerSource).toContain('exactIdentifier')
+    expect(routerSource).toContain('message.length <= 320')
+    expect(routerSource).toContain('words <= 24')
+    expect(routerSource).toContain('allowFlash: false')
+    expect(routerSource).toContain('allowPro: false')
+    expect(routerSource).toContain('A knowledge lookup that may return zero records is still a Lite-capable task.')
   })
 
-  it('adds classifier provider cost and route attribution back to turn telemetry', () => {
+  it('uses conservative fallbacks so malformed classifier output does not increase cost', () => {
+    expect(routerSource).toContain("fallback: 'USE_LITE'")
+    expect(routerSource).toContain("fallback: 'USE_FLASH'")
+    expect(routerSource).toContain('lite_classifier_error_keep_lite')
+    expect(routerSource).toContain('flash_classifier_error_keep_flash')
+  })
+
+  it('adds classifier provider cost and route attribution back to turn telemetry with retry', () => {
     expect(routerSource).toContain('estimated_cost_usd: item.estimatedCostUsd')
     expect(routerSource).toContain('primary_llm_router_calls: 1')
     expect(routerSource).toContain('auto_model_cascade_started: 1')
     expect(routerSource).toContain('autoModelCascade:')
-    expect(routerSource).toContain('routedModel: input.decision.routedModel')
+    expect(routerSource).toContain('AUTO_CASCADE_TELEMETRY_PERSISTED')
+    expect(routerSource).toContain('[0, 100, 300, 800, 1_500]')
   })
 
   it('forwards to an immutable base core function instead of recursing into itself', () => {
