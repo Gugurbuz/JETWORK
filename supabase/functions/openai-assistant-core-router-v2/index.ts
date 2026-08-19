@@ -14,7 +14,7 @@ const LITE_MODEL = 'gemini-3.5-flash-lite'
 const FLASH_MODEL = 'gemini-3.5-flash'
 const PRO_MODEL = 'gemini-3.1-pro-preview'
 const BASE_CORE_SLUG = 'openai-assistant-core-v2-base'
-const ROUTER_VERSION = 'auto-cascade-v1'
+const ROUTER_VERSION = 'auto-cascade-v2'
 const MAX_ROUTER_CONTEXT_MESSAGES = 6
 const MAX_ROUTER_CONTEXT_CHARS = 3_000
 const MAX_ROUTER_MESSAGE_CHARS = 2_500
@@ -28,6 +28,13 @@ type ClassifierUsage = {
   reasoningTokens: number
   totalTokens: number
   estimatedCostUsd: number
+}
+
+type ComplexityProfile = {
+  floor: 'lite' | 'flash'
+  allowFlash: boolean
+  allowPro: boolean
+  reasons: string[]
 }
 
 type AutoRouteDecision = {
@@ -108,32 +115,69 @@ const classifierText = (response: any) => {
     .trim()
 }
 
-const tierRank = (tier: Tier) => tier === 'lite' ? 0 : tier === 'flash' ? 1 : 2
-const maxTier = (left: Tier, right: Tier): Tier => tierRank(left) >= tierRank(right) ? left : right
-
-const deterministicFloorFor = (message: string, attachments: any[]): { tier: Tier; reasons: string[] } => {
+const analyzeComplexity = (message: string, attachments: any[]): ComplexityProfile => {
   const normalized = message.toLocaleLowerCase('tr-TR')
   const words = normalized.split(/\s+/).filter(Boolean).length
   const attachmentCharacters = attachments.reduce((sum, item) => sum + String(item?.content || '').length, 0)
-  const multiStep = /\b(?:derin|detaylı|detayli|kapsamlı|kapsamli|mimari|refactor|root cause|kök neden|kok neden|uçtan uca|uctan uca|alternatifler|karşılaştır|karsilastir)\b/iu.test(message)
+  const questionCount = (message.match(/[?？]/g) || []).length
+  const exactIdentifier = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/u.test(message.toUpperCase())
+  const heavyMarker = /\b(?:derin|detaylı|detayli|kapsamlı|kapsamli|mimari|architecture|refactor|root cause|kök neden|kok neden|uçtan uca|uctan uca|alternatifler|karşılaştır|karsilastir|trade[- ]?off|performans analizi)\b/iu.test(message)
+  const orchestrationMarker = /\b(?:birden fazla|ardından|sonra da|adım adım|tool|araç|entegrasyon|deploy|migration|migrate|pipeline|workflow)\b/iu.test(message)
   const artifact = /\b(?:xlsx|excel|spreadsheet|pptx|powerpoint|sunum|docx|word|pdf|görsel|gorsel|image)\b/iu.test(message)
     && /\b(?:oluştur|olustur|hazırla|hazirla|üret|uret|düzenle|duzenle|değiştir|degistir|analiz et|incele)\b/iu.test(message)
 
+  if (
+    exactIdentifier
+    && attachments.length === 0
+    && message.length <= 320
+    && words <= 24
+    && !heavyMarker
+    && !artifact
+    && !orchestrationMarker
+  ) {
+    return {
+      floor: 'lite',
+      allowFlash: false,
+      allowPro: false,
+      reasons: ['exact_identifier_lite_guard'],
+    }
+  }
+
+  const allowFlash = Boolean(
+    attachments.length
+    || attachmentCharacters > 0
+    || message.length > 650
+    || words > 70
+    || questionCount > 1
+    || heavyMarker
+    || orchestrationMarker
+    || artifact
+  )
+  const floor: 'lite' | 'flash' = (
+    attachments.length > 1
+    || attachmentCharacters > 20_000
+    || message.length > 2_500
+    || artifact
+    || (heavyMarker && words > 24)
+  ) ? 'flash' : 'lite'
+
+  const allowPro = Boolean(
+    message.length > 4_000
+    || attachmentCharacters > 40_000
+    || (attachments.length > 1 && heavyMarker)
+    || (heavyMarker && orchestrationMarker && words > 100)
+    || (questionCount >= 4 && words > 140)
+  )
+
   const reasons: string[] = []
-  let tier: Tier = 'lite'
-  if (attachments.length > 1 || attachmentCharacters > 20_000) {
-    tier = 'flash'
-    reasons.push('attachment_context')
-  }
-  if (message.length > 2_500 || (multiStep && words > 24)) {
-    tier = 'flash'
-    reasons.push('multi_step_complexity')
-  }
-  if (artifact) {
-    tier = 'flash'
-    reasons.push('artifact_orchestration')
-  }
-  return { tier, reasons }
+  if (attachments.length) reasons.push('attachment_context')
+  if (message.length > 650 || words > 70 || questionCount > 1) reasons.push('request_complexity')
+  if (heavyMarker) reasons.push('complex_reasoning_signal')
+  if (orchestrationMarker) reasons.push('tool_orchestration_signal')
+  if (artifact) reasons.push('artifact_orchestration')
+  if (allowPro) reasons.push('pro_complexity_gate_open')
+
+  return { floor, allowFlash, allowPro, reasons }
 }
 
 const loadCompactContext = async (
@@ -177,6 +221,7 @@ const classify = async (input: {
   systemInstruction: string
   prompt: string
   allowed: string[]
+  fallback: string
 }) => {
   const ai = new GoogleGenAI({ apiKey: input.apiKey })
   const response = await ai.models.generateContent({
@@ -188,8 +233,8 @@ const classify = async (input: {
       maxOutputTokens: 24,
     },
   } as any)
-  const text = classifierText(response).toUpperCase()
-  const decision = input.allowed.find(value => text.includes(value)) || input.allowed[input.allowed.length - 1]
+  const text = classifierText(response).toUpperCase().trim()
+  const decision = input.allowed.find(value => text === value || text.startsWith(`${value}\n`)) || input.fallback
   return {
     decision,
     usage: classifierUsageFrom(input.model, response?.usageMetadata as Record<string, unknown> | undefined),
@@ -202,55 +247,60 @@ const routeAuto = async (input: {
   context: string
   attachments: any[]
 }) : Promise<AutoRouteDecision> => {
-  const floor = deterministicFloorFor(input.message, input.attachments)
+  const profile = analyzeComplexity(input.message, input.attachments)
   const commonPrompt = [
     `Current user request:\n${cleanString(input.message, MAX_ROUTER_MESSAGE_CHARS)}`,
     input.context ? `Recent conversation context (continuity only, not evidence):\n${input.context}` : '',
     input.attachments.length
       ? `Attachments: ${input.attachments.slice(0, 3).map(item => `${cleanString(item?.name, 120)} (${cleanString(item?.mimeType, 80)})`).join(', ')}`
       : '',
-    `Deterministic minimum tier: ${floor.tier.toUpperCase()}`,
+    `JetWork deterministic profile: floor=${profile.floor.toUpperCase()}, allowFlash=${profile.allowFlash}, allowPro=${profile.allowPro}`,
   ].filter(Boolean).join('\n\n')
 
   const usage: ClassifierUsage[] = []
   const classifierModels: string[] = []
   const classifierDecisions: string[] = []
-  const reasons = [...floor.reasons]
+  const reasons = [...profile.reasons]
 
-  let liteDecision = 'ESCALATE'
+  let liteDecision = 'USE_LITE'
   try {
     const lite = await classify({
       apiKey: input.geminiApiKey,
       model: LITE_MODEL,
       systemInstruction: [
-        'You are JetWork Auto routing gate. Decide whether Gemini Flash-Lite is sufficient to handle the request reliably with the normal JetWork tools and grounding guards.',
-        'Output exactly USE_LITE or ESCALATE.',
+        'You are JetWork Auto routing gate.',
+        'Output exactly one token: USE_LITE, ESCALATE_COMPLEX, ESCALATE_CONTEXT, or ESCALATE_ORCHESTRATION.',
         'Choose USE_LITE for routine Q&A, short technical explanations, exact enterprise identifier lookup, summarization, and single-step tool use.',
-        'Choose ESCALATE for genuinely multi-step reasoning, complex debugging, conflicting constraints, long/complex document work, or difficult tool orchestration.',
-        'Missing enterprise evidence is NOT a reason to escalate: Lite can use knowledge tools or honestly report that evidence is absent.',
-        'Do not answer the user. Do not provide reasoning.',
+        'Choose an escalation token only when the current request itself materially requires more reasoning/context/orchestration capacity.',
+        'Missing enterprise evidence is NOT a reason to escalate. A knowledge lookup that may return zero records is still a Lite-capable task.',
+        'Do not answer the user and do not provide reasoning.',
       ].join(' '),
       prompt: commonPrompt,
-      allowed: ['USE_LITE', 'ESCALATE'],
+      allowed: ['USE_LITE', 'ESCALATE_COMPLEX', 'ESCALATE_CONTEXT', 'ESCALATE_ORCHESTRATION'],
+      fallback: 'USE_LITE',
     })
     liteDecision = lite.decision
     usage.push(lite.usage)
     classifierModels.push(LITE_MODEL)
     classifierDecisions.push(lite.decision)
   } catch (error) {
-    reasons.push('lite_classifier_error')
+    reasons.push('lite_classifier_error_keep_lite')
     console.warn('AUTO_CASCADE_LITE_CLASSIFIER_FAILED', String(error).slice(0, 500))
   }
 
-  const needsFlash = liteDecision !== 'USE_LITE' || tierRank(floor.tier) >= tierRank('flash')
-  if (!needsFlash) {
+  const liteRequestedEscalation = liteDecision !== 'USE_LITE'
+  const flashRequiredByFloor = profile.floor === 'flash'
+  const escalationApproved = liteRequestedEscalation && profile.allowFlash
+  if (liteRequestedEscalation && !profile.allowFlash) reasons.push('lite_escalation_vetoed_by_policy')
+
+  if (!flashRequiredByFloor && !escalationApproved) {
     return {
       routedModel: LITE_MODEL,
       tier: 'lite',
       classifierModels,
       classifierDecisions,
       reasons,
-      deterministicFloor: floor.tier,
+      deterministicFloor: profile.floor,
       usage,
     }
   }
@@ -261,27 +311,27 @@ const routeAuto = async (input: {
       apiKey: input.geminiApiKey,
       model: FLASH_MODEL,
       systemInstruction: [
-        'You are the second JetWork Auto routing gate. The Lite gate escalated the task.',
-        'Decide whether Gemini Flash is sufficient or the task truly requires Gemini Pro.',
+        'You are the second JetWork Auto routing gate.',
         'Output exactly USE_FLASH or ESCALATE_PRO.',
         'Prefer USE_FLASH for normal multi-step analysis, moderate debugging, comparison, document synthesis, and tool orchestration.',
-        'Use ESCALATE_PRO only for unusually difficult architecture/reasoning, deeply ambiguous or conflicting evidence, or very complex multi-constraint synthesis.',
+        'Choose ESCALATE_PRO only for unusually difficult multi-constraint reasoning that would materially benefit from Pro.',
         'Missing enterprise evidence is NOT a reason to choose Pro.',
-        'Do not answer the user. Do not provide reasoning.',
+        'Do not answer the user and do not provide reasoning.',
       ].join(' '),
       prompt: commonPrompt,
       allowed: ['USE_FLASH', 'ESCALATE_PRO'],
+      fallback: 'USE_FLASH',
     })
     flashDecision = flash.decision
     usage.push(flash.usage)
     classifierModels.push(FLASH_MODEL)
     classifierDecisions.push(flash.decision)
   } catch (error) {
-    reasons.push('flash_classifier_error')
+    reasons.push('flash_classifier_error_keep_flash')
     console.warn('AUTO_CASCADE_FLASH_CLASSIFIER_FAILED', String(error).slice(0, 500))
   }
 
-  if (flashDecision === 'ESCALATE_PRO') {
+  if (flashDecision === 'ESCALATE_PRO' && profile.allowPro) {
     reasons.push('flash_requested_pro')
     return {
       routedModel: PRO_MODEL,
@@ -289,18 +339,19 @@ const routeAuto = async (input: {
       classifierModels,
       classifierDecisions,
       reasons,
-      deterministicFloor: floor.tier,
+      deterministicFloor: profile.floor,
       usage,
     }
   }
+  if (flashDecision === 'ESCALATE_PRO' && !profile.allowPro) reasons.push('pro_escalation_vetoed_by_policy')
 
   return {
     routedModel: FLASH_MODEL,
-    tier: maxTier('flash', floor.tier),
+    tier: 'flash',
     classifierModels,
     classifierDecisions,
     reasons,
-    deterministicFloor: floor.tier,
+    deterministicFloor: profile.floor,
     usage,
   }
 }
@@ -327,6 +378,8 @@ const classifierUsageTotals = (decision: AutoRouteDecision) => {
   })
 }
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 const persistCascadeTelemetry = async (input: {
   supabaseUrl: string
   serviceRoleKey: string
@@ -335,21 +388,34 @@ const persistCascadeTelemetry = async (input: {
   decision: AutoRouteDecision
 }) => {
   const admin = createClient(input.supabaseUrl, input.serviceRoleKey, { auth: { persistSession: false } })
-  const { data: turn } = await admin
-    .from('assistant_turns')
-    .select('id,usage')
-    .eq('workspace_id', input.workspaceId)
-    .eq('message_id', input.messageId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (!turn?.id) return
+
+  let turn: any = null
+  for (const delayMs of [0, 100, 300, 800, 1_500]) {
+    if (delayMs) await sleep(delayMs)
+    const { data } = await admin
+      .from('assistant_turns')
+      .select('id,usage')
+      .eq('workspace_id', input.workspaceId)
+      .eq('message_id', input.messageId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (data?.id) {
+      turn = data
+      break
+    }
+  }
+  if (!turn?.id) {
+    console.warn('AUTO_CASCADE_TELEMETRY_TURN_NOT_FOUND', input.messageId)
+    return
+  }
 
   const mergedUsage = addUsage(
     numericUsage(turn.usage),
     classifierUsageTotals(input.decision),
   )
-  await admin.from('assistant_turns').update({ usage: mergedUsage }).eq('id', turn.id)
+  const { error: usageError } = await admin.from('assistant_turns').update({ usage: mergedUsage }).eq('id', turn.id)
+  if (usageError) console.warn('AUTO_CASCADE_USAGE_UPDATE_FAILED', usageError.message)
 
   const { data: run } = await admin
     .from('assistant_reasoning_runs')
@@ -362,7 +428,7 @@ const persistCascadeTelemetry = async (input: {
     const current = run.evidence_summary && typeof run.evidence_summary === 'object' && !Array.isArray(run.evidence_summary)
       ? run.evidence_summary as Record<string, unknown>
       : {}
-    await admin.from('assistant_reasoning_runs').update({
+    const { error: runError } = await admin.from('assistant_reasoning_runs').update({
       evidence_summary: {
         ...current,
         autoModelCascade: {
@@ -378,7 +444,13 @@ const persistCascadeTelemetry = async (input: {
       },
       updated_at: new Date().toISOString(),
     }).eq('id', run.id)
+    if (runError) console.warn('AUTO_CASCADE_REASONING_UPDATE_FAILED', runError.message)
   }
+  console.info('AUTO_CASCADE_TELEMETRY_PERSISTED', JSON.stringify({
+    messageId: input.messageId,
+    turnId: turn.id,
+    routedModel: input.decision.routedModel,
+  }))
 }
 
 const streamUpstream = (
@@ -483,7 +555,7 @@ serve(async req => {
       },
       body: JSON.stringify(forwardedBody),
     })
-  } catch (error) {
+  } catch {
     return jsonResponse({ error: 'Assistant core could not be reached.', code: 'AUTO_ROUTER_CORE_UNREACHABLE' }, 502)
   }
 
