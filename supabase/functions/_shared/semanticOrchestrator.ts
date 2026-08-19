@@ -79,6 +79,7 @@ const REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|
 const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
 const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct)$/i
 const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|more|rest|continue|next)\b/i
+const DEEP_RESEARCH_FOLLOW_UP_PATTERN = /(?:bu yaniti|bu cevabi).*(?:daha derin|web|arastir)|(?:daha derin arastir|web uzerinde de arastir)/i
 const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari)\b/i
 const STRUCTURED_REQUIREMENT_NUMBER_PATTERN = /^\s*\d+(?:\.\d+){1,}\s+/gmu
 const STRUCTURED_REQUIREMENT_LANGUAGE_PATTERN = /\b(?:gereksinim[a-z]*|is kurali|servis[a-z]* guncellen[a-z]*|guncellenmelidir|olacaktir|donmelidir|yapilmalidir|mevcutta|proje ile|senaryo)\b/gu
@@ -98,6 +99,15 @@ const priorUserEntities = (conversation: SemanticContextMessage[]) => {
     if (entities.length) return entities
   }
   return []
+}
+
+const priorUserRequest = (conversation: SemanticContextMessage[]) => {
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    if (conversation[index].role !== 'user') continue
+    const content = cleanText(conversation[index].content, 1_200)
+    if (content) return content
+  }
+  return ''
 }
 
 const requestedEvidenceFor = (message: string) => {
@@ -169,14 +179,18 @@ const buildConversationState = (input: {
     && ELLIPTICAL_PATTERN.test(normalize(input.currentMessage))
   const operationContinuation = Boolean(input.priorExecution?.activeOperation?.complete === false)
     && CONTINUATION_PATTERN.test(normalize(input.currentMessage))
-  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation)
+  const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(input.currentMessage))
+  const deepResearchTarget = deepResearchFollowUp ? priorUserRequest(input.conversation) : ''
+  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation || deepResearchTarget)
   const activeEntities = unique([
     ...currentEntities,
     ...(continuation ? priorEntities : []),
   ], 10)
-  const resolvedRequest = continuation && activeEntities.length
-    ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
-    : cleanText(input.currentMessage, 900)
+  const resolvedRequest = deepResearchTarget
+    ? `${deepResearchTarget}\nAraştırma talebi: ${cleanText(input.currentMessage, 700)}`
+    : continuation && activeEntities.length
+      ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
+      : cleanText(input.currentMessage, 900)
   const retainedContext = input.conversation
     .slice(-4)
     .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
@@ -206,7 +220,10 @@ const buildPrimaryAgentPlan = (input: {
   priorExecution?: PriorExecutionContext
 }): ReasoningPlan => {
   const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()
-  const routed = routeReasoningRequest(currentMessage)
+  const deepResearchTarget = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(currentMessage))
+    ? priorUserRequest(input.conversation)
+    : ''
+  const routed = routeReasoningRequest(deepResearchTarget ? `${deepResearchTarget}\n${currentMessage}` : currentMessage)
   const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)
   const route = userProvidedRequirements
     ? {

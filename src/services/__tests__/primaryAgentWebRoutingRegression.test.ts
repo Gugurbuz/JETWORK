@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   buildSemanticExecutionPlan,
@@ -29,4 +30,33 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER)
     expect(result.plan.webMode).toBe('none')
   })
+  it('binds deep research follow-up to the prior user request and keeps Gemini native web', async () => {
+    const result = await buildSemanticExecutionPlan({
+      provider: 'gemini',
+      model: 'gemini-3.5-flash',
+      message: 'Bu yanıtı daha derin araştır. Gerektiğinde bilgi bankasını ve web kaynaklarını kullan; bulguları kaynaklarla karşılaştırıp doğrula.',
+      conversation: [
+        { role: 'user', content: 'CHECK_ZTKS hangi mesajları üretiyor?' },
+        { role: 'assistant', content: 'Bu yanıtta doğrulanması gereken ayrıntı için yeterli kanıt bulunamadı.' },
+      ],
+      priorExecution: { intent: 'analysis' },
+    })
+
+    expect(result.plan.conversationState?.continuation).toBe(true)
+    expect(result.plan.goal).toContain('CHECK_ZTKS hangi mesajları üretiyor?')
+    expect(result.plan.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER)
+    expect(result.plan.knowledgeRequired).toBe(true)
+    expect(result.plan.webMode).toBe('none')
+  })
+
+  it('does not call the OpenAI web preflight after Auto has routed the active model to Gemini', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
+      'utf8',
+    )
+
+    expect(source).toContain("configuredProvider === 'gemini'\n          && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))")
+    expect(source).toContain("if (plan.webMode === 'required' && !geminiNativeWebPlanned)")
+  })
+
 })
