@@ -182,6 +182,14 @@ const responseHasVisibleText = (response: NormalizedModelResponse): boolean => (
   })
 )
 
+export const responseHasProviderWebEvidence = (response: NormalizedModelResponse): boolean => (
+  Boolean(response.webSources?.length)
+)
+
+export const responseHasProviderWebExecution = (response: NormalizedModelResponse): boolean => (
+  responseHasProviderWebEvidence(response) || Boolean(response.webSearchQueries?.length)
+)
+
 const mergeNumericUsage = (...values: Array<Record<string, number> | undefined>): Record<string, number> => {
   const merged: Record<string, number> = {}
   for (const value of values) {
@@ -387,7 +395,8 @@ export async function requestGeminiResponse(input: {
     !forceNoToolSynthesis && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
 
-  const bufferForAnswerability = shouldBufferForAnswerabilityGuard(plan)
+  const requireProviderWebEvidence = plan?.intent === 'research' && providerWebEnabled
+  const bufferForAnswerability = shouldBufferForAnswerabilityGuard(plan) || requireProviderWebEvidence
   let firstProviderText = ''
   const firstResponse = await legacyRequestGeminiResponse({
     ...input,
@@ -410,7 +419,11 @@ export async function requestGeminiResponse(input: {
   const answerability = bufferForAnswerability
     ? sanitizeNovelCustomIdentifierClaims(firstProviderText, answerabilityRequestText(plan))
     : { text: firstProviderText, removedSegments: 0, removedIdentifiers: [] as string[] }
-  if (bufferForAnswerability && firstProviderText) input.onText(answerability.text)
+  if (
+    bufferForAnswerability
+    && firstProviderText
+    && (!requireProviderWebEvidence || responseHasProviderWebEvidence(firstResponse))
+  ) input.onText(answerability.text)
 
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
@@ -427,6 +440,78 @@ export async function requestGeminiResponse(input: {
       grounding_preflight_custom_identifiers_removed: answerability.removedIdentifiers.length,
     } : {}),
   })
+
+  if (
+    requireProviderWebEvidence
+    && !responseHasFunctionCall(firstResponse)
+    && !responseHasProviderWebEvidence(firstResponse)
+  ) {
+    const researchTarget = answerabilityRequestText(plan).slice(0, 2_000)
+    const requiredWebInstructions = [
+      geminiInstructions,
+      '[JETWORK REQUIRED WEB RESEARCH - MANDATORY EXECUTION]',
+      'Bu bir Deep Research turudur. Nihai yanıt üretmeden önce Google Search aracını gerçekten kullan. Yalnız model bilgisinden cevap verme.',
+      'Google Search çalıştıysa grounding kaynaklarını ve arama sorgularını response metadata içinde koru. Arama sonucunda güvenilir kaynak yoksa bunu açıkça belirt.',
+      researchTarget ? `Araştırma hedefi: ${researchTarget}` : '',
+    ].filter(Boolean).join('\n\n')
+    let requiredWebText = ''
+    const requiredWebResponse = await legacyRequestGeminiResponse({
+      ...input,
+      model: requestedModel,
+      instructions: requiredWebInstructions,
+      items: [
+        ...buildNoToolRecoveryItems(input.items),
+        ...(researchTarget ? [{ role: 'user', content: `[JETWORK_DEEP_RESEARCH_TARGET]\n${researchTarget}\n[END_JETWORK_DEEP_RESEARCH_TARGET]` }] : []),
+      ],
+      tools: [],
+      allowTools: true,
+      onText: delta => { requiredWebText += delta },
+    })
+    assertExplicitGeminiModelPreserved(requestedModel, requiredWebResponse.model)
+    const webEvidenceObserved = responseHasProviderWebEvidence(requiredWebResponse)
+    const webExecutionObserved = responseHasProviderWebExecution(requiredWebResponse)
+    const requiredWebAnswerability = shouldBufferForAnswerabilityGuard(plan)
+      ? sanitizeNovelCustomIdentifierClaims(requiredWebText, answerabilityRequestText(plan))
+      : { text: requiredWebText, removedSegments: 0, removedIdentifiers: [] as string[] }
+    const requiredWebUsage = usageWithGeminiEstimatedCost(String(requiredWebResponse.model || requestedModel), requiredWebResponse.usage, {
+      primary_llm_agent_calls: 1,
+      gemini_native_web_required_retry: 1,
+      gemini_native_web_required_executed: webExecutionObserved ? 1 : 0,
+      ...(requiredWebResponse.webSources?.length ? { gemini_native_web_required_source_count: requiredWebResponse.webSources.length } : {}),
+      ...(!webEvidenceObserved ? { gemini_native_web_required_miss: 1 } : {}),
+      ...(webExecutionObserved && !webEvidenceObserved ? { gemini_native_web_required_no_citable_sources: 1 } : {}),
+      ...(requiredWebAnswerability.text !== requiredWebText ? {
+        grounding_preflight_custom_identifier_segments_removed: requiredWebAnswerability.removedSegments,
+        grounding_preflight_custom_identifiers_removed: requiredWebAnswerability.removedIdentifiers.length,
+      } : {}),
+    })
+
+    if (webEvidenceObserved) {
+      if (requiredWebText) input.onText(requiredWebAnswerability.text)
+      return {
+        ...requiredWebResponse,
+        usage: mergeNumericUsage(firstUsage, requiredWebUsage),
+      }
+    }
+
+    const deterministicWebMiss = webExecutionObserved
+      ? 'Deep Research için Google Search çalıştı ancak doğrulanabilir web kaynağı dönmedi. Web araştırmasını kaynaklı olarak tamamlanmış saymıyorum; kurumsal veya teknik ayrıntıları uydurmuyorum.'
+      : 'Deep Research için Google Search çağrısını doğrulayamadım; web araştırmasını tamamlanmış saymıyorum. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'
+    input.onText(deterministicWebMiss)
+    return {
+      id: `jetwork-required-web-miss:${crypto.randomUUID()}`,
+      status: 'completed',
+      model: String(requiredWebResponse.model || requestedModel),
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: deterministicWebMiss }],
+      }],
+      webSources: [],
+      webSearchQueries: [],
+      usage: mergeNumericUsage(firstUsage, requiredWebUsage),
+    }
+  }
 
   if (responseHasFunctionCall(firstResponse) || responseHasVisibleText(firstResponse)) {
     return { ...firstResponse, usage: firstUsage }

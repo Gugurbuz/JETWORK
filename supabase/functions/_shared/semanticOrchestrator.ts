@@ -105,7 +105,8 @@ const priorUserRequest = (conversation: SemanticContextMessage[]) => {
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     if (conversation[index].role !== 'user') continue
     const content = cleanText(conversation[index].content, 1_200)
-    if (content) return content
+    if (!content || DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(content))) continue
+    return content
   }
   return ''
 }
