@@ -1,0 +1,73 @@
+name: one-off-deep-research-provider-fix
+on:
+  push:
+    branches: [agent/fix-deep-research-provider-routing]
+    paths: [.github/workflows/one-off-deep-research-provider-fix.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-deep-research-provider-routing
+      - name: Apply focused patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          core = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          text = core.read_text()
+          old = """        const geminiNativeWebPlanned = configuredProvider === 'gemini'\n          && String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER)"""
+          new = """        const geminiNativeWebPlanned = configuredProvider === 'gemini'\n          && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))"""
+          if old not in text:
+              raise SystemExit('core native-web selector target not found')
+          text = text.replace(old, new, 1)
+          old2 = """        if (plan.webMode === 'required') {\n          emitStatus('searching_web', 'Güncel web kaynakları araştırılıyor...')\n          await collectWeb([plan.goal, ...plan.evidenceQueries].slice(0, 3).join('\\n'), plan, 'preflight')\n          emitStatus('searching_web', `${sources.filter(source => source.sourceType === 'web').length} web kaynağı toplandı`)\n          sendEvent(controller, encoder, 'sources', { type: 'sources', sources })\n        }"""
+          new2 = """        if (plan.webMode === 'required' && !geminiNativeWebPlanned) {\n          emitStatus('searching_web', 'Güncel web kaynakları araştırılıyor...')\n          await collectWeb([plan.goal, ...plan.evidenceQueries].slice(0, 3).join('\\n'), plan, 'preflight')\n          emitStatus('searching_web', `${sources.filter(source => source.sourceType === 'web').length} web kaynağı toplandı`)\n          sendEvent(controller, encoder, 'sources', { type: 'sources', sources })\n        }"""
+          if old2 not in text:
+              raise SystemExit('core required-web preflight target not found')
+          core.write_text(text.replace(old2, new2, 1))
+
+          sem = Path('supabase/functions/_shared/semanticOrchestrator.ts')
+          text = sem.read_text()
+          marker = "const CONTINUATION_PATTERN = /\\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|more|rest|continue|next)\\b/i\n"
+          addition = marker + "const DEEP_RESEARCH_FOLLOW_UP_PATTERN = /(?:bu yaniti|bu cevabi).*(?:daha derin|web|arastir)|(?:daha derin arastir|web uzerinde de arastir)/i\n"
+          if marker not in text:
+              raise SystemExit('semantic continuation marker not found')
+          text = text.replace(marker, addition, 1)
+
+          helper_marker = """const priorUserEntities = (conversation: SemanticContextMessage[]) => {\n  for (let index = conversation.length - 1; index >= 0; index -= 1) {\n    if (conversation[index].role !== 'user') continue\n    const entities = extractTechnicalEntities(conversation[index].content)\n    if (entities.length) return entities\n  }\n  return []\n}\n"""
+          helper_add = helper_marker + """\nconst priorUserRequest = (conversation: SemanticContextMessage[]) => {\n  for (let index = conversation.length - 1; index >= 0; index -= 1) {\n    if (conversation[index].role !== 'user') continue\n    const content = cleanText(conversation[index].content, 1_200)\n    if (content) return content\n  }\n  return ''\n}\n"""
+          if helper_marker not in text:
+              raise SystemExit('semantic prior-user helper target not found')
+          text = text.replace(helper_marker, helper_add, 1)
+
+          old_state = """  const operationContinuation = Boolean(input.priorExecution?.activeOperation?.complete === false)\n    && CONTINUATION_PATTERN.test(normalize(input.currentMessage))\n  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation)\n  const activeEntities = unique([\n    ...currentEntities,\n    ...(continuation ? priorEntities : []),\n  ], 10)\n  const resolvedRequest = continuation && activeEntities.length\n    ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`\n    : cleanText(input.currentMessage, 900)"""
+          new_state = """  const operationContinuation = Boolean(input.priorExecution?.activeOperation?.complete === false)\n    && CONTINUATION_PATTERN.test(normalize(input.currentMessage))\n  const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(input.currentMessage))\n  const deepResearchTarget = deepResearchFollowUp ? priorUserRequest(input.conversation) : ''\n  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation || deepResearchTarget)\n  const activeEntities = unique([\n    ...currentEntities,\n    ...(continuation ? priorEntities : []),\n  ], 10)\n  const resolvedRequest = deepResearchTarget\n    ? `${deepResearchTarget}\\nAraştırma talebi: ${cleanText(input.currentMessage, 700)}`\n    : continuation && activeEntities.length\n      ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`\n      : cleanText(input.currentMessage, 900)"""
+          if old_state not in text:
+              raise SystemExit('semantic state target not found')
+          text = text.replace(old_state, new_state, 1)
+
+          old_route = """  const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()\n  const routed = routeReasoningRequest(currentMessage)\n  const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)"""
+          new_route = """  const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()\n  const deepResearchTarget = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(currentMessage))\n    ? priorUserRequest(input.conversation)\n    : ''\n  const routed = routeReasoningRequest(deepResearchTarget ? `${deepResearchTarget}\\n${currentMessage}` : currentMessage)\n  const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)"""
+          if old_route not in text:
+              raise SystemExit('semantic route target not found')
+          sem.write_text(text.replace(old_route, new_route, 1))
+
+          test = Path('src/services/__tests__/primaryAgentWebRoutingRegression.test.ts')
+          text = test.read_text()
+          text = text.replace("import { describe, expect, it } from 'vitest'\n", "import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n", 1)
+          insert = """\n  it('binds deep research follow-up to the prior user request and keeps Gemini native web', async () => {\n    const result = await buildSemanticExecutionPlan({\n      provider: 'gemini',\n      model: 'gemini-3.5-flash',\n      message: 'Bu yanıtı daha derin araştır. Gerektiğinde bilgi bankasını ve web kaynaklarını kullan; bulguları kaynaklarla karşılaştırıp doğrula.',\n      conversation: [\n        { role: 'user', content: 'CHECK_ZTKS hangi mesajları üretiyor?' },\n        { role: 'assistant', content: 'Bu yanıtta doğrulanması gereken ayrıntı için yeterli kanıt bulunamadı.' },\n      ],\n      priorExecution: { intent: 'analysis' },\n    })\n\n    expect(result.plan.conversationState?.continuation).toBe(true)\n    expect(result.plan.goal).toContain('CHECK_ZTKS hangi mesajları üretiyor?')\n    expect(result.plan.goal).toContain(PROVIDER_WEB_CAPABILITY_MARKER)\n    expect(result.plan.knowledgeRequired).toBe(true)\n    expect(result.plan.webMode).toBe('none')\n  })\n\n  it('does not call the OpenAI web preflight after Auto has routed the active model to Gemini', () => {\n    const source = readFileSync(\n      new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),\n      'utf8',\n    )\n\n    expect(source).toContain(\"configuredProvider === 'gemini'\\n          && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))\")\n    expect(source).toContain(\"if (plan.webMode === 'required' && !geminiNativeWebPlanned)\")\n  })\n"""
+          end = "\n})\n"
+          if not text.endswith(end):
+              raise SystemExit('test file ending not found')
+          test.write_text(text[:-len(end)] + insert + end)
+          PY
+          rm .github/workflows/one-off-deep-research-provider-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/openai-assistant-core-v2/implementation.ts supabase/functions/_shared/semanticOrchestrator.ts src/services/__tests__/primaryAgentWebRoutingRegression.test.ts .github/workflows/one-off-deep-research-provider-fix.yml
+          git commit -m 'fix: route deep research through active provider'
+          git push origin HEAD:agent/fix-deep-research-provider-routing
