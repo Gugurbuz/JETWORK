@@ -19,7 +19,7 @@ describe('conversation scope inventory static wiring', () => {
   });
 
   it('compacts assistant history for both Gemini and OpenAI provider paths', () => {
-    const providers = readFileSync(new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url), 'utf8');
+    const providers = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url), 'utf8');
     const guard = readFileSync(new URL('../../../supabase/functions/_shared/geminiCostGuard.ts', import.meta.url), 'utf8');
     expect(providers).toContain('compactAssistantConversationMemory');
     expect(providers).toContain('cleanProviderItemsForOpenAi');
