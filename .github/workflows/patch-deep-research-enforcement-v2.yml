@@ -1,0 +1,72 @@
+name: patch-deep-research-enforcement-v2
+
+on:
+  push:
+    branches:
+      - agent/patch-deep-research-enforcement
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-deep-research-enforcement
+          fetch-depth: 0
+      - name: Tighten Deep Research evidence enforcement
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str):
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}')
+              path.write_text(text.replace(old, new, 1))
+
+          providers = Path('supabase/functions/_shared/modelProviders.ts')
+          replace_once(
+              providers,
+              """export const responseHasProviderWebEvidence = (response: NormalizedModelResponse): boolean => (\n  Boolean(response.webSources?.length) || Boolean(response.webSearchQueries?.length)\n)\n""",
+              """export const responseHasProviderWebEvidence = (response: NormalizedModelResponse): boolean => (\n  Boolean(response.webSources?.length)\n)\n\nexport const responseHasProviderWebExecution = (response: NormalizedModelResponse): boolean => (\n  responseHasProviderWebEvidence(response) || Boolean(response.webSearchQueries?.length)\n)\n""",
+          )
+          replace_once(
+              providers,
+              """      items: researchTarget ? [{ role: 'user', content: researchTarget }] : sanitizeItems(input.items),\n      tools: [],\n""",
+              """      items: [\n        ...buildNoToolRecoveryItems(input.items),\n        ...(researchTarget ? [{ role: 'user', content: `[JETWORK_DEEP_RESEARCH_TARGET]\\n${researchTarget}\\n[END_JETWORK_DEEP_RESEARCH_TARGET]` }] : []),\n      ],\n      tools: [],\n""",
+          )
+          replace_once(
+              providers,
+              """    const webEvidenceObserved = responseHasProviderWebEvidence(requiredWebResponse)\n    const requiredWebAnswerability = shouldBufferForAnswerabilityGuard(plan)\n""",
+              """    const webEvidenceObserved = responseHasProviderWebEvidence(requiredWebResponse)\n    const webExecutionObserved = responseHasProviderWebExecution(requiredWebResponse)\n    const requiredWebAnswerability = shouldBufferForAnswerabilityGuard(plan)\n""",
+          )
+          replace_once(
+              providers,
+              """      gemini_native_web_required_retry: 1,\n      gemini_native_web_required_executed: webEvidenceObserved ? 1 : 0,\n      ...(requiredWebResponse.webSources?.length ? { gemini_native_web_required_source_count: requiredWebResponse.webSources.length } : {}),\n      ...(!webEvidenceObserved ? { gemini_native_web_required_miss: 1 } : {}),\n""",
+              """      gemini_native_web_required_retry: 1,\n      gemini_native_web_required_executed: webExecutionObserved ? 1 : 0,\n      ...(requiredWebResponse.webSources?.length ? { gemini_native_web_required_source_count: requiredWebResponse.webSources.length } : {}),\n      ...(!webEvidenceObserved ? { gemini_native_web_required_miss: 1 } : {}),\n      ...(webExecutionObserved && !webEvidenceObserved ? { gemini_native_web_required_no_citable_sources: 1 } : {}),\n""",
+          )
+          replace_once(
+              providers,
+              """    const deterministicWebMiss = 'Deep Research için Google Search çağrısını doğrulayamadım; web araştırmasını tamamlanmış saymıyorum. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'\n""",
+              """    const deterministicWebMiss = webExecutionObserved\n      ? 'Deep Research için Google Search çalıştı ancak doğrulanabilir web kaynağı dönmedi. Web araştırmasını kaynaklı olarak tamamlanmış saymıyorum; kurumsal veya teknik ayrıntıları uydurmuyorum.'\n      : 'Deep Research için Google Search çağrısını doğrulayamadım; web araştırmasını tamamlanmış saymıyorum. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'\n""",
+          )
+
+          test = Path('src/services/__tests__/primaryAgentWebRoutingRegression.test.ts')
+          text = test.read_text()
+          old = """    expect(source).toContain('gemini_native_web_required_retry')\n    expect(source).toContain('gemini_native_web_required_miss')\n    expect(source).toContain('responseHasProviderWebEvidence(requiredWebResponse)')\n"""
+          new = """    expect(source).toContain('gemini_native_web_required_retry')\n    expect(source).toContain('gemini_native_web_required_miss')\n    expect(source).toContain('gemini_native_web_required_no_citable_sources')\n    expect(source).toContain('responseHasProviderWebEvidence(requiredWebResponse)')\n    expect(source).toContain('responseHasProviderWebExecution(requiredWebResponse)')\n    expect(source).toContain('...buildNoToolRecoveryItems(input.items)')\n"""
+          if text.count(old) != 1:
+              raise SystemExit('test expectation block not found exactly once')
+          test.write_text(text.replace(old, new, 1))
+          PY
+
+          git config user.name "JetWork Agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add supabase/functions/_shared/modelProviders.ts src/services/__tests__/primaryAgentWebRoutingRegression.test.ts
+          git commit -m "tighten deep research web evidence contract"
+          git push origin HEAD:agent/fix-deep-research-enforcement
