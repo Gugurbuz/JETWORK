@@ -73,7 +73,8 @@ export async function requestGeminiResponse(input: {
   signal?: AbortSignal
 }): Promise<NormalizedModelResponse> {
   const plan = extractSemanticPlanFromItems(input.items)
-  const deterministicDeepResearch = plan?.intent === 'research' && input.allowProviderWeb === true
+  const providerWebRequested = input.allowProviderWeb ?? input.allowTools
+  const deterministicDeepResearch = plan?.intent === 'research' && providerWebRequested
 
   if (!deterministicDeepResearch) return baseRequestGeminiResponse(input)
 
