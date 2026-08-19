@@ -11,7 +11,6 @@ export const GEMINI_MODELS = new Set([
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
-const INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'
 const GEMINI_RETRY_DELAYS_MS = [350] as const
 const GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 45_000
 const GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000
@@ -182,7 +181,6 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
         role: 'model',
         parts: [{
           functionCall: { id: callId, name, args },
-          thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE,
         }],
       })
       continue
