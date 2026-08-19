@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const providerSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
   'utf8',
 )
 
