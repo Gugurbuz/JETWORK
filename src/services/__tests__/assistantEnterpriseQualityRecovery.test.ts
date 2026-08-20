@@ -48,11 +48,14 @@ describe('Assistant enterprise quality recovery contracts', () => {
 
   it('preserves verified identifiers while removing unsupported acronym expansions from streamed exact-detail answers', () => {
     const providers = read('../../../supabase/functions/_shared/modelProvidersExactQuality.ts');
+    const guard = read('../../../supabase/functions/_shared/acronymEvidenceGuard.ts');
 
-    expect(providers).toContain('sanitizeUnsupportedAcronymExpansions');
-    expect(providers).toContain('if (evidenceLower.includes(String(full).toLocaleLowerCase');
-    expect(providers).toContain('return acronym');
+    expect(providers).toContain("from './acronymEvidenceGuard.ts'");
+    expect(providers).toContain('sanitizeUnsupportedAcronymExpansions(chunk, input.evidence)');
     expect(providers).toContain('quality_exact_detail_stream_guard');
     expect(providers).toContain('quality_unsupported_acronym_expansions_removed');
+    expect(guard).toContain('supportedByEvidence');
+    expect(guard).toContain('normalizeForEvidence');
+    expect(guard).toContain('**${acronym}**');
   });
 });
