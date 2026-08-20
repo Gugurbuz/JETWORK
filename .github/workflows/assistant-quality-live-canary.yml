@@ -19,13 +19,18 @@ jobs:
       - name: Call production quality canary
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 480 \
+          HTTP_STATUS=$(curl --silent --show-error --max-time 480 \
+            -w '%{http_code}' \
             'https://bpbbvjigostgrssnduhk.supabase.co/functions/v1/assistant-quality-live-canary' \
-            -o canary.json
+            -o canary.json)
+          echo "HTTP status: ${HTTP_STATUS}"
+          cat canary.json || true
+          echo
           python - <<'PY'
           import json
           from pathlib import Path
-          data=json.loads(Path('canary.json').read_text())
+          raw=Path('canary.json').read_text()
+          data=json.loads(raw)
           print(json.dumps(data, ensure_ascii=False, indent=2)[:60000])
           assert data.get('ok') is True, data
           turns=data.get('turns') or []
@@ -34,6 +39,7 @@ jobs:
           PY
 
       - name: Upload canary result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: assistant-quality-live-canary
