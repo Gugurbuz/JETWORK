@@ -1,5 +1,10 @@
 import { serve as telemetryServe } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/ttftTelemetryServer.ts?jetwork-core-preflight-final=4'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import {
+  createJetWorkPresentationDeltaBoundary,
+  extractJetWorkPresentationMetadata,
+  stripJetWorkPresentationMetadata,
+} from './presentationMetadataBoundaryQuality.ts'
 
 const downstreamFetch = globalThis.fetch.bind(globalThis)
 const ENGINE_VERSION = 'reasoning-engine-v2'
@@ -113,6 +118,101 @@ const conversationFrom = (store: RequestStore, row: PreflightRow) => ({
   revision: Number(row.conversation_revision || 0),
 })
 
+const sanitizeCompletionRequest = (init?: RequestInit): RequestInit | undefined => {
+  if (!init || typeof init.body !== 'string') return init
+  try {
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    if (typeof payload.p_response_text !== 'string') return init
+    const extracted = extractJetWorkPresentationMetadata(payload.p_response_text)
+    if (extracted.strippedBlocks <= 0) return init
+    payload.p_response_text = extracted.visibleText
+    const usage = payload.p_usage && typeof payload.p_usage === 'object' && !Array.isArray(payload.p_usage)
+      ? payload.p_usage as Record<string, unknown>
+      : {}
+    const previous = Number(usage.presentation_metadata_stripped || 0)
+    payload.p_usage = {
+      ...usage,
+      presentation_metadata_stripped: (Number.isFinite(previous) ? previous : 0) + extracted.strippedBlocks,
+    }
+    return { ...init, body: JSON.stringify(payload) }
+  } catch {
+    return init
+  }
+}
+
+const nextSseFrame = (buffer: string): { frame: string; rest: string } | null => {
+  const match = /\r?\n\r?\n/u.exec(buffer)
+  if (!match || match.index === undefined) return null
+  return {
+    frame: buffer.slice(0, match.index),
+    rest: buffer.slice(match.index + match[0].length),
+  }
+}
+
+const sanitizeTextDeltaFrame = (
+  frame: string,
+  boundary: ReturnType<typeof createJetWorkPresentationDeltaBoundary>,
+): string => {
+  const lines = frame.split(/\r?\n/u)
+  let eventName = ''
+  const dataLines: string[] = []
+  for (const line of lines) {
+    if (line.startsWith('event:')) eventName = line.slice(6).trim()
+    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+  }
+  if (!dataLines.length) return frame
+  const data = dataLines.join('\n')
+  if (data === '[DONE]') return frame
+
+  let payload: Record<string, unknown>
+  try { payload = JSON.parse(data) as Record<string, unknown> } catch { return frame }
+  const eventType = String(eventName || payload.type || '')
+  if (eventType !== 'text_delta') return frame
+
+  const result = boundary.push(String(payload.delta || ''))
+  if (!result.delta) return ''
+  payload.delta = result.delta
+  return `event: ${eventName || 'text_delta'}\ndata: ${JSON.stringify(payload)}`
+}
+
+const sanitizeAssistantSseResponse = (response: Response): Response => {
+  const contentType = response.headers.get('content-type') || ''
+  if (!response.body || !contentType.toLocaleLowerCase('en-US').includes('text/event-stream')) return response
+
+  const boundary = createJetWorkPresentationDeltaBoundary()
+  let sseBuffer = ''
+  const transformed = response.body
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(new TransformStream<string, string>({
+      transform(chunk, controller) {
+        sseBuffer += chunk
+        while (true) {
+          const next = nextSseFrame(sseBuffer)
+          if (!next) break
+          sseBuffer = next.rest
+          const sanitized = sanitizeTextDeltaFrame(next.frame, boundary)
+          if (sanitized) controller.enqueue(`${sanitized}\n\n`)
+        }
+      },
+      flush(controller) {
+        if (sseBuffer) {
+          const sanitized = sanitizeTextDeltaFrame(sseBuffer, boundary)
+          if (sanitized) controller.enqueue(sanitized)
+          sseBuffer = ''
+        }
+        const tail = boundary.finish()
+        if (tail.delta) {
+          controller.enqueue(`event: text_delta\ndata: ${JSON.stringify({ type: 'text_delta', delta: tail.delta })}\n\n`)
+        }
+      },
+    }))
+    .pipeThrough(new TextEncoderStream())
+
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  return new Response(transformed, { status: response.status, statusText: response.statusText, headers })
+}
+
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const store = stores.getStore()
   if (!store?.active) return downstreamFetch(input, init)
@@ -151,7 +251,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (row) return responseJson([{
       outcome: row.outcome,
       turn_id: row.turn_id,
-      response_text: row.response_text,
+      response_text: row.response_text ? stripJetWorkPresentationMetadata(row.response_text) : row.response_text,
       source_refs: Array.isArray(row.source_refs) ? row.source_refs : [],
       usage: row.usage && typeof row.usage === 'object' ? row.usage : {},
       response_model: row.response_model,
@@ -159,14 +259,19 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     }])
   }
 
+  if (method === 'POST' && /\/rest\/v1\/rpc\/complete_assistant_turn$/u.test(path)) {
+    return downstreamFetch(input, sanitizeCompletionRequest(init))
+  }
+
   return downstreamFetch(input, init)
 }
 
 export async function serve(handler: any, options: any = {}) {
   return telemetryServe(async (request: Request, connInfo: any) => {
-    if (request.method !== 'POST') return handler(request, connInfo)
+    const runAndSanitize = async () => sanitizeAssistantSseResponse(await handler(request, connInfo))
+    if (request.method !== 'POST') return runAndSanitize()
     let body: Record<string, any> | null = null
-    try { body = await request.clone().json() as Record<string, any> } catch { return handler(request, connInfo) }
+    try { body = await request.clone().json() as Record<string, any> } catch { return runAndSanitize() }
 
     const authorization = request.headers.get('Authorization') || ''
     const supabaseUrl = String(Deno.env.get('SUPABASE_URL') || '').replace(/\/$/u, '')
@@ -176,7 +281,7 @@ export async function serve(handler: any, options: any = {}) {
     const message = cleanString(body?.message, 32_000)
     const requestedModel = cleanString(body?.model, 80)
     if (!authorization || !supabaseUrl || !anonKey || !workspaceId || !messageId || !requestedModel || requestedModel === 'auto') {
-      return handler(request, connInfo)
+      return runAndSanitize()
     }
 
     const chatAttachments: Array<{ name: string; mimeType: string; content: string }> = []
@@ -205,6 +310,7 @@ export async function serve(handler: any, options: any = {}) {
       requestedModel,
       requestHash,
     }
-    return stores.run(store, () => handler(request, connInfo))
+    const response = await stores.run(store, () => handler(request, connInfo))
+    return sanitizeAssistantSseResponse(response)
   }, options)
 }
