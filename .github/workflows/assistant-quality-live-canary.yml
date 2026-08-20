@@ -1,0 +1,38 @@
+name: Assistant Quality Live Canary
+
+on:
+  push:
+    branches:
+      - fix/assistant-quality-regression-20260820
+    paths:
+      - .github/workflows/assistant-quality-live-canary.yml
+  workflow_dispatch:
+
+jobs:
+  live-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call production quality canary
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 480 \
+            'https://bpbbvjigostgrssnduhk.supabase.co/functions/v1/assistant-quality-live-canary' \
+            -o canary.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('canary.json').read_text())
+          print(json.dumps(data, ensure_ascii=False, indent=2)[:40000])
+          assert data.get('ok') is True, data
+          turns=data.get('turns') or []
+          assert len(turns) >= 5, turns
+          assert all(t.get('status') == 200 for t in turns), turns
+          PY
+
+      - name: Upload canary result
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-quality-live-canary
+          path: canary.json
+          retention-days: 3
