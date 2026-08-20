@@ -79,7 +79,7 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain('maxOutputTokens: 160');
     expect(helperSource).toContain('thinkingConfig: {');
     expect(helperSource).toContain("? 'minimal'");
-    expect(helperSource).toContain('Exact trivial turns are latency-sensitive');
+    expect(helperSource).toContain('Exact trivial turns and low-risk clarification handshakes are latency-sensitive');
   });
 
   it('keeps provider isolation for explicit model selection while allowing auto to choose a low-cost provider', () => {
