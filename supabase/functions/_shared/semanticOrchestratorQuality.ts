@@ -1,5 +1,6 @@
 import * as original from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/a9c7d6f7eb9f670e8c6333b96eed5388a98c1ced/supabase/functions/_shared/semanticOrchestrator.ts?quality-recovery=2'
 import type { ReasoningPlan } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/a9c7d6f7eb9f670e8c6333b96eed5388a98c1ced/supabase/functions/_shared/reasoningEngine.ts?quality-recovery=2'
+import { detectTechnicalReferenceMessageLookup } from './methodMessageRoutingQuality.ts'
 
 export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/a9c7d6f7eb9f670e8c6333b96eed5388a98c1ced/supabase/functions/_shared/semanticOrchestrator.ts?quality-recovery=2'
 
@@ -29,7 +30,9 @@ const qualityPatchPlan = (plan: ReasoningPlan, input: {
   const technicalFollowUp = TECHNICAL_FOLLOW_UP.test(message) && (priorEntities.length > 0 || Boolean(verifiedMessage))
   const sourceCodeRequested = EXPLICIT_SOURCE_CODE_REQUEST.test(message)
   const costKnowledge = COST_TERM.test(message) && COST_EVIDENCE_INTENT.test(message)
-  const enterpriseQuestion = exactEntities.length > 0 || ENTERPRISE_SURFACE.test(message) || technicalFollowUp || costKnowledge
+  const methodMessageReference = detectTechnicalReferenceMessageLookup(message)
+  const methodMessageLookup = Boolean(methodMessageReference)
+  const enterpriseQuestion = exactEntities.length > 0 || ENTERPRISE_SURFACE.test(message) || technicalFollowUp || costKnowledge || methodMessageLookup
 
   if (!enterpriseQuestion) return plan
 
@@ -39,6 +42,7 @@ const qualityPatchPlan = (plan: ReasoningPlan, input: {
     ...(technicalFollowUp ? priorEntities : []),
     ...(technicalFollowUp && verifiedEntity ? [verifiedEntity] : []),
     ...(costKnowledge ? ['ZCRM_COST'] : []),
+    ...(methodMessageLookup ? [methodMessageReference] : []),
   ], 10)
   const verifiedFactRefs = unique([
     ...(plan.conversationState?.verifiedFactRefs || []),
@@ -64,40 +68,53 @@ const qualityPatchPlan = (plan: ReasoningPlan, input: {
     verifiedFactRefs,
   }
 
-  const exactMessageLookup = Boolean(exactMessage) && !costKnowledge
+  const exactMessageLookup = Boolean(exactMessage) && !costKnowledge && !methodMessageLookup
   const verifiedMessageFollowUp = technicalFollowUp && Boolean(verifiedMessage) && !sourceCodeRequested
   const boundedExactEvidence = exactMessageLookup || verifiedMessageFollowUp
+  const oneCallVerifiedEvidence = boundedExactEvidence || methodMessageLookup
 
   const patched: ReasoningPlan = {
     ...plan,
-    intent: boundedExactEvidence ? 'analysis' : (exactEntities.length || technicalFollowUp ? 'sap_diagnosis' : 'analysis'),
-    complexity: boundedExactEvidence ? 'medium' : (plan.complexity === 'low' ? 'medium' : plan.complexity),
+    intent: boundedExactEvidence ? 'analysis' : (exactEntities.length || technicalFollowUp || methodMessageLookup ? 'sap_diagnosis' : 'analysis'),
+    complexity: oneCallVerifiedEvidence ? 'medium' : (plan.complexity === 'low' ? 'medium' : plan.complexity),
     executionMode: 'knowledge',
     knowledgeRequired: true,
     enterpriseGroundingRequired: true,
-    // Exact message Q&A already has an authoritative detail capability. Keep the
-    // agent on a one-call bounded evidence path rather than opening a search loop.
-    verificationRequired: boundedExactEvidence ? false : true,
+    verificationRequired: oneCallVerifiedEvidence ? false : true,
     webMode: 'none',
     promptProfile: 'knowledge',
     conversationState: state,
-    evidenceQueries: verifiedMessageFollowUp
-      ? [verifiedMessage]
-      : (activeEntities.length ? activeEntities : [message]),
+    evidenceQueries: methodMessageLookup
+      ? [methodMessageReference]
+      : verifiedMessageFollowUp
+        ? [verifiedMessage]
+        : (activeEntities.length ? activeEntities : [message]),
+    // Method→message is a relation lookup, never a broad catalog enumeration.
+    enumerationTarget: methodMessageLookup ? undefined : plan.enumerationTarget,
     steps: [{
-      id: boundedExactEvidence ? 'exact-enterprise-detail' : 'enterprise-evidence-first',
-      label: boundedExactEvidence
-        ? 'Doğrulanmış kurumsal mesaj kaydını exact detail ile oku'
-        : 'Kurumsal bilgi bankasındaki doğrulanmış kaydı önce kullan',
+      id: methodMessageLookup
+        ? 'technical-reference-messages'
+        : boundedExactEvidence
+          ? 'exact-enterprise-detail'
+          : 'enterprise-evidence-first',
+      label: methodMessageLookup
+        ? 'Teknik referansa bağlı doğrulanmış mesajları getir'
+        : boundedExactEvidence
+          ? 'Doğrulanmış kurumsal mesaj kaydını exact detail ile oku'
+          : 'Kurumsal bilgi bankasındaki doğrulanmış kaydı önce kullan',
       toolHint: 'knowledge',
-      successCriteria: boundedExactEvidence
-        ? 'İlk ve tek knowledge çağrısında get_message_detail kullan. Kaynakta bulunmayan açılım, etiket, teknik nesne veya iş kuralı üretme; ZTKS gibi identifier ve kısaltmaları kaynakta açık açılım yoksa aynen bırak.'
-        : 'Kullanıcıdan kaynakta bulunabilecek teknik bilgiyi istemeden exact/detail kurumsal kanıtla yanıtla. Kaynakta olmayan acronym açılımı veya identifier üretme.',
+      successCriteria: methodMessageLookup
+        ? `İlk ve tek knowledge çağrısında get_messages_by_technical_reference(technicalReference="${methodMessageReference}") kullan. Dönen citation-ready message kayıtlarının tamamını ve yalnız onları listele; genel katalog taraması yapma.`
+        : boundedExactEvidence
+          ? 'İlk ve tek knowledge çağrısında get_message_detail kullan. Kaynakta bulunmayan açılım, etiket, teknik nesne veya iş kuralı üretme; ZTKS gibi identifier ve kısaltmaları kaynakta açık açılım yoksa aynen bırak.'
+          : 'Kullanıcıdan kaynakta bulunabilecek teknik bilgiyi istemeden exact/detail kurumsal kanıtla yanıtla. Kaynakta olmayan acronym açılımı veya identifier üretme.',
     }],
-    orchestratorVersion: `${String(plan.orchestratorVersion || original.SEMANTIC_ORCHESTRATOR_VERSION)}-quality-recovery-v2`,
+    orchestratorVersion: `${String(plan.orchestratorVersion || original.SEMANTIC_ORCHESTRATOR_VERSION)}-quality-recovery-v2-method-message-v1`,
   }
 
-  if (costKnowledge) {
+  if (methodMessageLookup) {
+    patched.goal = `${methodMessageReference} teknik referansını açıkça içeren doğrulanmış message kayıtlarını get_messages_by_technical_reference ile tek çağrıda getir. Yalnız dönen mesaj kodlarını ve mesaj metinlerini ver. Genel 227 kayıt kataloğunu listeleme, prefix tahmini yapma, semantic search açma ve kaynakta olmayan mesaj ekleme.`
+  } else if (costKnowledge) {
     patched.goal = 'ZCRM_COST mesajlarını kurumsal bilgi kataloğundan eksiksiz listele. Yalnız katalogda doğrulanmış kod ve mesaj metinlerini ver; kullanıcı istemedikçe skill arama, genel SAP açıklaması veya ek varsayım üretme.'
     patched.enumerationTarget = {
       tool: 'list_knowledge_catalog',
@@ -131,6 +148,7 @@ export async function buildSemanticExecutionPlan(
     usage: {
       ...(result.usage || {}),
       quality_recovery_semantic_policy: 2,
+      quality_method_message_routing: detectTechnicalReferenceMessageLookup(input.message) ? 1 : 0,
     },
   }
 }
