@@ -1,5 +1,6 @@
-export const QUALITY_ROUTER_VERSION = 'assistant-quality-router-v1'
+export const QUALITY_ROUTER_VERSION = 'assistant-quality-router-v2-source-aware-list'
 
+const MAX_TRUSTED_IDENTIFIERS = 96
 const TECHNICAL_ENTITY_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]+)*|CHECK_[A-Z0-9_]+|NINJA_[A-Z0-9_]+|[A-Z][A-Z0-9_]{2,}-\d{2,4})\b/gu
 const EXACT_MESSAGE_PATTERN = /\b(?:Z[A-Z0-9_]+)-\d{2,4}\b/gu
 const SHORT_CONTINUATION_PATTERN = /^(?:teknik(?:\s+olarak)?\s+(?:acikla|açıkla)|detaylandir|detaylandır|detayli\s+acikla|detaylı\s+açıkla|nasil\s+yani|nasıl\s+yani|bunu\s+acikla|bunu\s+açıkla|peki|neden|niye|nasil|nasıl|devam|kodu\s+ne|kodunu\s+acikla|kodunu\s+açıkla|hangi\s+kosulda|hangi\s+koşulda)(?:\b|$)/iu
@@ -15,8 +16,8 @@ export const normalizeQualityText = (value: string) => String(value || '')
   .replace(/\s+/g, ' ')
   .trim()
 
-export const extractQualityTechnicalEntities = (value: string): string[] => (
-  [...new Set([...String(value || '').toLocaleUpperCase('en-US').matchAll(TECHNICAL_ENTITY_PATTERN)].map(match => match[0]))].slice(0, 24)
+export const extractQualityTechnicalEntities = (value: string, limit = MAX_TRUSTED_IDENTIFIERS): string[] => (
+  [...new Set([...String(value || '').toLocaleUpperCase('en-US').matchAll(TECHNICAL_ENTITY_PATTERN)].map(match => match[0]))].slice(0, Math.max(1, Math.min(limit, MAX_TRUSTED_IDENTIFIERS)))
 )
 
 export const extractExactMessageCodes = (value: string): string[] => (
@@ -67,8 +68,8 @@ export const buildTrustedContinuationMessage = (input: {
 }) => {
   const priorEntities = [...new Set(input.priorEntities || [])].slice(0, 10)
   const verifiedFactRefs = [...new Set(input.verifiedFactRefs || [])].slice(0, 10)
-  const trustedIdentifiers = [...new Set(input.trustedIdentifiers || [])].slice(0, 24)
-  const trustedTitles = [...new Set(input.trustedTitles || [])].slice(0, 8)
+  const trustedIdentifiers = [...new Set(input.trustedIdentifiers || [])].slice(0, MAX_TRUSTED_IDENTIFIERS)
+  const trustedTitles = [...new Set(input.trustedTitles || [])].slice(0, 12)
   const needsContinuationContext = isShortTechnicalContinuation(input.originalMessage)
     && (priorEntities.length || verifiedFactRefs.length || trustedIdentifiers.length)
   const needsExactEvidenceContext = Boolean(extractQualityTechnicalEntities(input.originalMessage).length && trustedIdentifiers.length)
