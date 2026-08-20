@@ -12,7 +12,7 @@ const streamHeaders = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  'X-JetWork-Quality-Recovery': 'v1',
+  'X-JetWork-Quality-Recovery': 'v1.1',
 };
 const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
   status,
@@ -23,10 +23,12 @@ const ENTERPRISE_EXACT = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/iu;
 const ENTERPRISE_DOMAIN = /\b(?:SAP|CRM|C4C|IS[- ]?U|FICA|ABAP|JIRA|ENERJISA)\b/iu;
 const COST_EVIDENCE = /\bcost\b/iu;
 const COST_INTENT = /(?:hata|mesaj|uyarı|uyari|alınacak|alinacak|alınan|alinan|alırken|alirken|neler|nelerdir|liste)/iu;
+const TECHNICAL_FOLLOW_UP = /^(?:teknik(?: olarak)? aç(?:ıkla|ar mısın)|teknik(?: olarak)? detaylandır|detaylandır|biraz daha detay|bunu aç|açıkla|nasıl yani|peki(?: bunun)?|hangi koşulda|koşulu ne|kodu ne|tam kod(?:u)? ver)\b/iu;
 
 const shouldPreferFlash = (message: string) => (
   ENTERPRISE_EXACT.test(message)
   || ENTERPRISE_DOMAIN.test(message)
+  || TECHNICAL_FOLLOW_UP.test(message)
   || (COST_EVIDENCE.test(message) && COST_INTENT.test(message))
 );
 
@@ -67,7 +69,7 @@ Deno.serve(async (req: Request) => {
       Authorization: authorization,
       apikey: anonKey,
       'Content-Type': req.headers.get('Content-Type') || 'application/json',
-      'x-client-info': qualityModelOverride ? 'jetwork-quality-recovery/v1-flash' : 'jetwork-quality-recovery/v1',
+      'x-client-info': qualityModelOverride ? 'jetwork-quality-recovery/v1.1-flash' : 'jetwork-quality-recovery/v1.1',
     },
     body: upstreamBody,
   });
