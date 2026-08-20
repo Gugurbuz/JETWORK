@@ -18,6 +18,15 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(
   { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
 )
 
+const ingestionErrorMessage = (error: unknown) => {
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return 'Unexpected ingestion error'
+}
+
 const sha256 = async (value: Uint8Array) => {
   const digest = await crypto.subtle.digest('SHA-256', value)
   return [...new Uint8Array(digest)]
@@ -453,7 +462,7 @@ serve(async (req) => {
       warnings: parsed.warnings,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unexpected ingestion error'
+    const message = ingestionErrorMessage(error)
     console.error('Knowledge ingestion failed:', error)
     if (jobId) {
       await adminClient

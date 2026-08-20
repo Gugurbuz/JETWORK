@@ -1,6 +1,9 @@
 import { supabase } from '../supabase';
 import type { AttachmentIngestion, KnowledgeItem, MessageAttachment } from '../types';
-import { toKnowledgeOperationError } from './knowledgeUploadErrors';
+import {
+  toKnowledgeFunctionOperationError,
+  toKnowledgeOperationError,
+} from './knowledgeUploadErrors';
 
 const KNOWLEDGE_BUCKET = 'knowledge-sources';
 
@@ -205,7 +208,7 @@ export async function ingestKnowledgeFile(
         mimeType,
       },
     });
-    if (error) throw toKnowledgeOperationError(error, 'Bilgi kaynağı işlenirken');
+    if (error) throw await toKnowledgeFunctionOperationError(error, 'Bilgi kaynağı işlenirken');
     if (!data?.sourceId) throw new Error(data?.error || 'Bilgi kaynağı işlenemedi.');
     const result = data as KnowledgeIngestionResult;
     await onStatus?.({
