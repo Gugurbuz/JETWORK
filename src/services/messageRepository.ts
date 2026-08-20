@@ -74,10 +74,9 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     response_model: hidesPrivateRuntimeTelemetry ? null : message.responseModel,
     fallback_used: hidesPrivateRuntimeTelemetry ? false : message.fallbackUsed,
   };
-  const payload = Object.fromEntries(
+  return Object.fromEntries(
     Object.entries(candidates).filter(([, value]) => value !== undefined),
   );
-  return payload;
 }
 
 export async function saveUserMessage(
@@ -95,14 +94,19 @@ export async function saveUserMessage(
     message.attachments = originalAttachments;
   }
 
+  // The assistant runtime needs the user message row before it can claim the turn, so this
+  // write remains on the critical path. The workspace freshness touch does not: awaiting a
+  // second PostgREST round-trip here directly inflates send -> runtime-start TTFT.
   const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, message, ownerId));
   if (error) throw error;
 
-  const { error: workspaceError } = await supabase
+  void supabase
     .from('workspaces')
     .update({ last_updated: nowIso() })
-    .eq('id', workspaceId);
-  if (workspaceError) throw workspaceError;
+    .eq('id', workspaceId)
+    .then(({ error: workspaceError }) => {
+      if (workspaceError) console.warn('Workspace freshness touch failed after message save:', workspaceError);
+    });
 }
 
 export async function saveAiMessage(
