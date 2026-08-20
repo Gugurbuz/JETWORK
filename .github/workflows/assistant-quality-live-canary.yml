@@ -6,6 +6,9 @@ on:
       - fix/assistant-quality-regression-20260820
     paths:
       - .github/workflows/assistant-quality-live-canary.yml
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -23,7 +26,7 @@ jobs:
           import json
           from pathlib import Path
           data=json.loads(Path('canary.json').read_text())
-          print(json.dumps(data, ensure_ascii=False, indent=2)[:40000])
+          print(json.dumps(data, ensure_ascii=False, indent=2)[:60000])
           assert data.get('ok') is True, data
           turns=data.get('turns') or []
           assert len(turns) >= 5, turns
