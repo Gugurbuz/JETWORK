@@ -380,7 +380,11 @@ serve(async (req) => {
     if (jobError || !job) throw jobError || new Error('Ingestion job could not be created.')
     jobId = job.id
 
-    const { data: fileData, error: downloadError } = await client.storage
+    // The catalog row is created after the file is parsed, so the authenticated
+    // Storage SELECT policy cannot authorize this new object yet. Ownership,
+    // path and knowledge-space access were validated above; read the upload
+    // through the server-only client to avoid that pre-catalog RLS deadlock.
+    const { data: fileData, error: downloadError } = await adminClient.storage
       .from('knowledge-sources')
       .download(storagePath)
     if (downloadError || !fileData) {
