@@ -1,5 +1,6 @@
 import * as original from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProviders.ts?exact-quality-base=3'
 import { extractSemanticPlanFromItems } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/geminiCostGuard.ts?exact-quality-plan=3'
+import { sanitizeUnsupportedAcronymExpansions } from './acronymEvidenceGuard.ts'
 
 export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProviders.ts?exact-quality-base=3'
 
@@ -15,17 +16,6 @@ const isBoundedExactDetailPlan = (items: Array<Record<string, unknown>>) => {
     && plan.enterpriseGroundingRequired === true
     && plan.steps?.some(step => step.id === 'exact-enterprise-detail')
   )
-}
-
-const sanitizeUnsupportedAcronymExpansions = (text: string, evidence: string) => {
-  const evidenceLower = evidence.toLocaleLowerCase('tr-TR')
-  let removed = 0
-  const sanitized = text.replace(/\b([A-ZÇĞİÖŞÜ][A-Z0-9ÇĞİÖŞÜ_/-]{2,})\s*\(([^)\n]{2,120})\)/gu, (full, acronym: string) => {
-    if (evidenceLower.includes(String(full).toLocaleLowerCase('tr-TR'))) return full
-    removed += 1
-    return acronym
-  })
-  return { text: sanitized, removed }
 }
 
 const createSentenceGuard = (input: { evidence: string; onText: (text: string) => void }) => {
@@ -102,16 +92,16 @@ export async function requestGeminiResponse(
   guard.finish()
 
   const raw = responseText(response)
-  const sanitizedComplete = sanitizeUnsupportedAcronymExpansions(raw, evidence).text
-  const rewritten = sanitizedComplete && sanitizedComplete !== raw
-    ? rewriteResponseText(response, sanitizedComplete)
+  const sanitizedComplete = sanitizeUnsupportedAcronymExpansions(raw, evidence)
+  const rewritten = sanitizedComplete.text && sanitizedComplete.text !== raw
+    ? rewriteResponseText(response, sanitizedComplete.text)
     : response
 
   return {
     ...rewritten,
     usage: mergeUsage(rewritten.usage, {
       quality_exact_detail_stream_guard: 1,
-      quality_unsupported_acronym_expansions_removed: guard.removed(),
+      quality_unsupported_acronym_expansions_removed: Math.max(guard.removed(), sanitizedComplete.removed),
     }),
   }
 }
