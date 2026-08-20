@@ -7,6 +7,7 @@ import {
   extractQualityTechnicalEntities,
   isShortTechnicalContinuation,
   looksLikeEnterpriseKnowledgeList,
+  normalizeQualityText,
   qualityModelForRequest,
 } from '../_shared/liveQualityRouting.ts'
 
@@ -32,7 +33,7 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.strin
 })
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
-const unique = (values: string[], limit = 24) => [...new Set(values.map(value => cleanString(value, 320)).filter(Boolean))].slice(0, limit)
+const unique = (values: string[], limit = 96) => [...new Set(values.map(value => cleanString(value, 320)).filter(Boolean))].slice(0, limit)
 const safeLikeToken = (value: string) => value.replace(/[%_,()]/g, '').slice(0, 120)
 
 const priorUserEntities = async (client: any, workspaceId: string, messageId: string) => {
@@ -59,7 +60,7 @@ const verifiedFacts = async (client: any, workspaceId: string) => {
   const records = Array.isArray(data) ? data : []
   return {
     refs: unique(records.map((row: any) => String(row.canonical_key || '')), 10),
-    titles: unique(records.map((row: any) => String(row.title || '')), 8),
+    titles: unique(records.map((row: any) => String(row.title || '')), 12),
   }
 }
 
@@ -127,16 +128,44 @@ const publishedKnowledgeContext = async (input: {
 
   const texts = [...versions.values()].map(row => [row.title, row.summary, row.content].filter(Boolean).join('\n'))
   return {
-    identifiers: unique(texts.flatMap(extractQualityTechnicalEntities), 24),
-    titles: unique([...versions.values()].map(row => String(row.title || '')), 8),
+    identifiers: unique(texts.flatMap(text => extractQualityTechnicalEntities(text, 96)), 96),
+    titles: unique([...versions.values()].map(row => String(row.title || '')), 12),
   }
+}
+
+const knowledgeListPrefixFor = (message: string): string | null => {
+  if (!looksLikeEnterpriseKnowledgeList(message)) return null
+  const normalized = normalizeQualityText(message)
+  if (normalized.includes('cost') && /\b(?:hata|hatalar|mesaj|mesajlar)\b/u.test(normalized)) return 'message:zcrm_cost-'
+  return null
+}
+
+const publishedListIdentifiers = async (input: {
+  serviceClient: any
+  spaceIds: string[]
+  canonicalPrefix: string
+}) => {
+  if (!input.spaceIds.length || !input.canonicalPrefix) return [] as string[]
+  const { data, error } = await input.serviceClient
+    .from('knowledge_objects_v2')
+    .select('canonical_key')
+    .in('knowledge_space_id', input.spaceIds)
+    .eq('publication_status', 'published')
+    .ilike('canonical_key', `${input.canonicalPrefix}%`)
+    .order('canonical_key', { ascending: true })
+    .limit(96)
+  if (error) return [] as string[]
+  return unique((data || []).map((row: any) => {
+    const canonical = String(row.canonical_key || '')
+    return canonical.replace(/^message:/iu, '').toLocaleUpperCase('en-US')
+  }), 96)
 }
 
 const enterpriseListHintFor = (message: string) => {
   if (!looksLikeEnterpriseKnowledgeList(message)) return null
-  const normalized = message.toLocaleLowerCase('tr-TR')
-  if (normalized.includes('cost') && /hata|mesaj/u.test(normalized)) {
-    return 'Bu talep CRM bilgi bankasındaki ZCRM_COST mesaj/hata kataloğunu listeleme talebidir. Modül netleştirmesi istemeden list_knowledge_catalog veya eşdeğer kurumsal knowledge capability kullan.'
+  const normalized = normalizeQualityText(message)
+  if (normalized.includes('cost') && /\b(?:hata|hatalar|mesaj|mesajlar)\b/u.test(normalized)) {
+    return 'Bu talep CRM bilgi bankasındaki ZCRM_COST mesaj/hata kataloğunu listeleme talebidir. Modül netleştirmesi istemeden list_knowledge_catalog veya eşdeğer kurumsal knowledge capability kullan. Liste sonucundaki published ZCRM_COST kodları doğrulanmış katalog identifierlarıdır.'
   }
   return 'Bu talep kurumsal teknik bilgi bankasında listeleme/arama talebidir. Kullanıcıdan kaynakta bulunabilecek teknik bağlamı yeniden istemeden knowledge capability kullan.'
 }
@@ -181,6 +210,7 @@ Deno.serve(async (req: Request) => {
   const currentEntities = extractQualityTechnicalEntities(originalMessage)
   const exactMessageCodes = extractExactMessageCodes(originalMessage)
   const listHint = enterpriseListHintFor(originalMessage)
+  const listPrefix = knowledgeListPrefixFor(originalMessage)
 
   let priorEntities: string[] = []
   let verifiedFactRefs: string[] = []
@@ -198,22 +228,29 @@ Deno.serve(async (req: Request) => {
   const trustedSeedEntities = unique([
     ...currentEntities,
     ...priorEntities,
-    ...verifiedFactRefs.flatMap(extractQualityTechnicalEntities),
-  ], 16)
+    ...verifiedFactRefs.flatMap(ref => extractQualityTechnicalEntities(ref, 16)),
+  ], 24)
 
   let trustedIdentifiers: string[] = []
   let trustedTitles: string[] = [...verifiedTitles]
-  if (serviceRoleKey && (trustedSeedEntities.length || exactMessageCodes.length)) {
+  if (serviceRoleKey && (trustedSeedEntities.length || exactMessageCodes.length || listPrefix)) {
     const serviceClient = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
     const spaceIds = await allowedKnowledgeSpaceIds(serviceClient, workspace.project_id ? String(workspace.project_id) : null)
-    const trusted = await publishedKnowledgeContext({
-      serviceClient,
-      spaceIds,
-      technicalEntities: trustedSeedEntities,
-      exactMessageCodes,
-    }).catch(() => ({ identifiers: [] as string[], titles: [] as string[] }))
-    trustedIdentifiers = trusted.identifiers
-    trustedTitles = unique([...trustedTitles, ...trusted.titles], 8)
+    const [trusted, listIdentifiers] = await Promise.all([
+      (trustedSeedEntities.length || exactMessageCodes.length)
+        ? publishedKnowledgeContext({
+            serviceClient,
+            spaceIds,
+            technicalEntities: trustedSeedEntities,
+            exactMessageCodes,
+          }).catch(() => ({ identifiers: [] as string[], titles: [] as string[] }))
+        : Promise.resolve({ identifiers: [] as string[], titles: [] as string[] }),
+      listPrefix
+        ? publishedListIdentifiers({ serviceClient, spaceIds, canonicalPrefix: listPrefix }).catch(() => [] as string[])
+        : Promise.resolve([] as string[]),
+    ])
+    trustedIdentifiers = unique([...trusted.identifiers, ...listIdentifiers], 96)
+    trustedTitles = unique([...trustedTitles, ...trusted.titles], 12)
   }
 
   const forwardedMessage = buildTrustedContinuationMessage({
@@ -235,6 +272,7 @@ Deno.serve(async (req: Request) => {
     forwardedMessage !== originalMessage ? 'context' : '',
     forwardedModel !== requestedModel ? 'model-floor' : '',
     listHint ? 'knowledge-list' : '',
+    listPrefix && trustedIdentifiers.length ? 'source-aware-list' : '',
   ].filter(Boolean).join(',') || 'passthrough'
 
   console.info('ASSISTANT_QUALITY_ROUTE', JSON.stringify({
@@ -248,6 +286,7 @@ Deno.serve(async (req: Request) => {
     priorEntities,
     verifiedFactCount: verifiedFactRefs.length,
     trustedIdentifierCount: trustedIdentifiers.length,
+    listPrefix,
   }))
 
   const upstream = await fetch(`${supabaseUrl}/functions/v1/openai-assistant-semantic-v2`, {
