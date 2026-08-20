@@ -1,0 +1,77 @@
+name: Assistant TTFT Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/openai-assistant-*/**'
+      - 'supabase/functions/_shared/**'
+      - 'src/services/assistantRuntimeClient.ts'
+      - 'src/hooks/useMessages.ts'
+      - 'scripts/run-assistant-ttft-benchmark.ts'
+      - '.github/workflows/assistant-ttft-benchmark.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assistant-ttft-benchmark-production
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+      ASSISTANT_TTFT_ENDPOINT: openai-assistant-v2
+      ASSISTANT_TTFT_OUTPUT: evaluation/results/assistant-ttft-benchmark.json
+
+    steps:
+      - name: Require benchmark credentials
+        run: |
+          test -n "$E2E_USERNAME" || (echo "E2E_USERNAME is not configured" && exit 1)
+          test -n "$E2E_PASSWORD" || (echo "E2E_PASSWORD is not configured" && exit 1)
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run production TTFT benchmark
+        run: pnpm exec tsx scripts/run-assistant-ttft-benchmark.ts
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if test -f evaluation/results/assistant-ttft-benchmark.json; then
+            echo '## Assistant TTFT Benchmark' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat evaluation/results/assistant-ttft-benchmark.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-ttft-benchmark
+          path: evaluation/results/assistant-ttft-benchmark.json
+          if-no-files-found: warn
