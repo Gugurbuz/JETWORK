@@ -6,7 +6,7 @@ const originalMigration = readFileSync(
   'utf8',
 );
 const ambiguityFixMigration = readFileSync(
-  new URL('../../../supabase/migrations/20260820092250_fix_knowledge_ingest_object_version_ambiguity.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260820093228_fix_knowledge_ingest_chunk_index_ambiguity.sql', import.meta.url),
   'utf8',
 );
 const edgeFunction = readFileSync(
@@ -17,16 +17,20 @@ const edgeFunction = readFileSync(
 const functionPattern = /create or replace function public\.ingest_knowledge_catalog_v2\([\s\S]*?\n\$\$;/;
 
 describe('knowledge catalog ingestion database regression', () => {
-  it('renames only the colliding PL/pgSQL variable in the replacement function', () => {
+  it('renames only the colliding PL/pgSQL variables in the replacement function', () => {
     const originalDefinition = originalMigration.match(functionPattern)?.[0];
     const fixedDefinition = ambiguityFixMigration.match(functionPattern)?.[0];
 
     expect(originalDefinition).toBeTruthy();
     expect(fixedDefinition).toBeTruthy();
-    expect(fixedDefinition?.replaceAll('v_object_version_id', 'object_version_id'))
+    expect(fixedDefinition
+      ?.replaceAll('v_object_version_id', 'object_version_id')
+      .replaceAll('v_chunk_index', 'chunk_index'))
       .toBe(originalDefinition);
     expect(fixedDefinition).toContain('v_object_version_id uuid;');
+    expect(fixedDefinition).toContain('v_chunk_index integer;');
     expect(fixedDefinition).not.toMatch(/\n\s*object_version_id uuid;/);
+    expect(fixedDefinition).not.toMatch(/\n\s*chunk_index integer;/);
   });
 
   it('keeps database column and conflict-target names unchanged', () => {
