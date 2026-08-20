@@ -2,6 +2,16 @@ name: Assistant TTFT Benchmark
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/openai-assistant-*/**'
+      - 'supabase/functions/_shared/**'
+      - 'src/services/assistantRuntimeClient.ts'
+      - 'src/hooks/useMessages.ts'
+      - 'scripts/run-assistant-ttft-benchmark.ts'
+      - '.github/workflows/assistant-ttft-benchmark.yml'
   push:
     branches:
       - main
@@ -17,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: assistant-ttft-benchmark-production
+  group: assistant-ttft-benchmark-production-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
