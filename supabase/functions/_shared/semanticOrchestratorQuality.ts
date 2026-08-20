@@ -5,8 +5,8 @@ export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/a9c7d6f7eb9f67
 
 const TECHNICAL_IDENTIFIER = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/giu
 const TECHNICAL_FOLLOW_UP = /^(?:teknik(?: olarak)? aç(?:ıkla|ar mısın)|teknik(?: olarak)? detaylandır|detaylandır|biraz daha detay|bunu aç|açıkla|nasıl yani|peki(?: bunun)?|neden|nasıl|hangi koşulda|koşulu ne|kodu ne|tam kod(?:u)? ver)\b/iu
-const COST_KNOWLEDGE_QUERY = /\bcost\b/iu
-  && /(?:hata|mesaj|uyarı|uyari|alınacak|alinacak|alınan|alinan|alırken|alirken|neler|nelerdir|liste)/iu
+const COST_TERM = /\bcost\b/iu
+const COST_EVIDENCE_INTENT = /(?:hata|mesaj|uyarı|uyari|alınacak|alinacak|alınan|alinan|alırken|alirken|neler|nelerdir|liste)/iu
 const ENTERPRISE_SURFACE = /(?:\bSAP\b|\bCRM\b|\bC4C\b|\bIS[- ]?U\b|\bFICA\b|\bABAP\b|\bJIRA\b|\bENERJISA\b|\bZ[A-Z0-9_]{2,}\b|\bCHECK_[A-Z0-9_]+\b|\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b)/iu
 
 const unique = (values: string[], limit = 12) => [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))].slice(0, limit)
@@ -20,7 +20,7 @@ const qualityPatchPlan = (plan: ReasoningPlan, input: {
   const exactEntities = currentEntities(message)
   const priorEntities = unique(input.priorExecution?.activeEntities || [], 10)
   const technicalFollowUp = TECHNICAL_FOLLOW_UP.test(message) && priorEntities.length > 0
-  const costKnowledge = COST_KNOWLEDGE_QUERY.test(message)
+  const costKnowledge = COST_TERM.test(message) && COST_EVIDENCE_INTENT.test(message)
   const enterpriseQuestion = exactEntities.length > 0 || ENTERPRISE_SURFACE.test(message) || technicalFollowUp || costKnowledge
 
   if (!enterpriseQuestion) return plan
@@ -88,10 +88,6 @@ const qualityPatchPlan = (plan: ReasoningPlan, input: {
 
   return patched
 }
-
-export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: original.AssistantProvider): ReasoningPlan => (
-  original.applyAgentLoopPolicy(inputPlan, provider)
-)
 
 export const normalizeCachedSemanticPlan = (input: Parameters<typeof original.normalizeCachedSemanticPlan>[0]): ReasoningPlan | null => {
   const plan = original.normalizeCachedSemanticPlan(input)
