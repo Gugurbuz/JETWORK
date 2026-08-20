@@ -1,31 +1,12 @@
-import * as original from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProviders.ts?exact-quality-base=2'
-import { requestGeminiResponse as baseRequestGeminiResponse } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProvidersBase.ts?exact-quality-base=2'
-import { extractSemanticPlanFromItems } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/geminiCostGuard.ts?exact-quality-plan=2'
+import * as original from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProviders.ts?exact-quality-base=3'
+import { extractSemanticPlanFromItems } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/geminiCostGuard.ts?exact-quality-plan=3'
 
-export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProviders.ts?exact-quality-base=2'
+export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/modelProviders.ts?exact-quality-base=3'
 
-const mergeUsage = (base?: Record<string, number>, extra: Record<string, number> = {}) => ({ ...(base || {}), ...extra })
 const INLINE_EVIDENCE = /\[UNTRUSTED_EVIDENCE\]([\s\S]*?)\[END_UNTRUSTED_EVIDENCE\]/i
-
-const hasCompletedMessageDetailEvidence = (items: Array<Record<string, unknown>>) => {
-  const detailCallIds = new Set<string>()
-  for (const item of items) {
-    if (String(item.type || '') === 'function_call' && String(item.name || '') === 'get_message_detail') {
-      const id = String(item.call_id || '')
-      if (id) detailCallIds.add(id)
-    }
-  }
-  if (!detailCallIds.size) return false
-  return items.some(item => {
-    if (String(item.type || '') !== 'function_call_output') return false
-    if (!detailCallIds.has(String(item.call_id || ''))) return false
-    const output = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
-    return Boolean(output && output.length > 40 && !/"resultCount"\s*:\s*0/.test(output))
-  })
-}
+const mergeUsage = (base?: Record<string, number>, extra: Record<string, number> = {}) => ({ ...(base || {}), ...extra })
 
 const inlineEvidence = (instructions: string) => String(instructions.match(INLINE_EVIDENCE)?.[1] || '').trim()
-
 const isBoundedExactDetailPlan = (items: Array<Record<string, unknown>>) => {
   const plan = extractSemanticPlanFromItems(items)
   return Boolean(
@@ -35,18 +16,6 @@ const isBoundedExactDetailPlan = (items: Array<Record<string, unknown>>) => {
     && plan.steps?.some(step => step.id === 'exact-enterprise-detail')
   )
 }
-
-const visibleText = (response: Awaited<ReturnType<typeof baseRequestGeminiResponse>>) => (
-  (response.output || [])
-    .filter(item => String(item.type || '') === 'message')
-    .flatMap(item => Array.isArray(item.content) ? item.content : [])
-    .map(part => part && typeof part === 'object' && typeof (part as Record<string, unknown>).text === 'string'
-      ? String((part as Record<string, unknown>).text)
-      : '')
-    .filter(Boolean)
-    .join('\n')
-    .trim()
-)
 
 const sanitizeUnsupportedAcronymExpansions = (text: string, evidence: string) => {
   const evidenceLower = evidence.toLocaleLowerCase('tr-TR')
@@ -59,19 +28,62 @@ const sanitizeUnsupportedAcronymExpansions = (text: string, evidence: string) =>
   return { text: sanitized, removed }
 }
 
-const rewriteVisibleText = (
-  response: Awaited<ReturnType<typeof baseRequestGeminiResponse>>,
+const createSentenceGuard = (input: { evidence: string; onText: (text: string) => void }) => {
+  let pending = ''
+  let emitted = ''
+  let removed = 0
+  const flush = (force = false) => {
+    if (!pending) return
+    let cutoff = force ? pending.length : 0
+    if (!force) {
+      const matches = [...pending.matchAll(/(?:\r?\n|[.!?;:](?:\s+|$))/gu)]
+      const last = matches.at(-1)
+      if (last) cutoff = Number(last.index || 0) + last[0].length
+      if (!cutoff && pending.length > 600) cutoff = Math.max(0, pending.length - 180)
+    }
+    if (!cutoff) return
+    const chunk = pending.slice(0, cutoff)
+    pending = pending.slice(cutoff)
+    const sanitized = sanitizeUnsupportedAcronymExpansions(chunk, input.evidence)
+    removed += sanitized.removed
+    emitted += sanitized.text
+    input.onText(sanitized.text)
+  }
+  return {
+    push(delta: string) { pending += delta; flush(false) },
+    finish() { flush(true) },
+    text() { return emitted },
+    removed() { return removed },
+  }
+}
+
+const responseText = (response: Awaited<ReturnType<typeof original.requestGeminiResponse>>) => (
+  (response.output || [])
+    .filter(item => String(item.type || '') === 'message')
+    .flatMap(item => Array.isArray(item.content) ? item.content : [])
+    .map(part => part && typeof part === 'object' && typeof (part as Record<string, unknown>).text === 'string'
+      ? String((part as Record<string, unknown>).text)
+      : '')
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+)
+
+const rewriteResponseText = (
+  response: Awaited<ReturnType<typeof original.requestGeminiResponse>>,
   text: string,
 ) => {
   let replaced = false
   const output = (response.output || []).map(item => {
     if (replaced || String(item.type || '') !== 'message' || !Array.isArray(item.content)) return item
-    const content = item.content.map(part => {
-      if (replaced || !part || typeof part !== 'object' || typeof (part as Record<string, unknown>).text !== 'string') return part
-      replaced = true
-      return { ...(part as Record<string, unknown>), text }
-    })
-    return { ...item, content }
+    return {
+      ...item,
+      content: item.content.map(part => {
+        if (replaced || !part || typeof part !== 'object' || typeof (part as Record<string, unknown>).text !== 'string') return part
+        replaced = true
+        return { ...(part as Record<string, unknown>), text }
+      }),
+    }
   })
   return { ...response, output }
 }
@@ -79,34 +91,27 @@ const rewriteVisibleText = (
 export async function requestGeminiResponse(
   input: Parameters<typeof original.requestGeminiResponse>[0],
 ): Promise<Awaited<ReturnType<typeof original.requestGeminiResponse>>> {
-  const exactPlan = isBoundedExactDetailPlan(input.items)
-  const evidence = inlineEvidence(input.instructions)
-  const verifiedEvidenceAvailable = hasCompletedMessageDetailEvidence(input.items) || evidence.length > 120
-  if (!exactPlan || !verifiedEvidenceAvailable) return original.requestGeminiResponse(input)
+  if (!isBoundedExactDetailPlan(input.items)) return original.requestGeminiResponse(input)
 
-  // Exact corporate detail is already resolved by core preflight. Buffer this one
-  // synthesis call so unsupported acronym expansions can be removed before any
-  // user-visible text is emitted. Other turns preserve normal live streaming.
-  let streamed = ''
-  const response = await baseRequestGeminiResponse({
+  const evidence = inlineEvidence(input.instructions)
+  const guard = createSentenceGuard({ evidence, onText: input.onText })
+  const response = await original.requestGeminiResponse({
     ...input,
-    tools: [],
-    allowTools: false,
-    allowProviderWeb: false,
-    onText: delta => { streamed += delta },
+    onText: delta => guard.push(delta),
   })
-  const rawText = visibleText(response) || streamed
-  const sanitized = sanitizeUnsupportedAcronymExpansions(rawText, evidence)
-  if (sanitized.text) input.onText(sanitized.text)
-  const rewritten = sanitized.text && sanitized.text !== rawText
-    ? rewriteVisibleText(response, sanitized.text)
+  guard.finish()
+
+  const raw = responseText(response)
+  const sanitizedComplete = sanitizeUnsupportedAcronymExpansions(raw, evidence).text
+  const rewritten = sanitizedComplete && sanitizedComplete !== raw
+    ? rewriteResponseText(response, sanitizedComplete)
     : response
+
   return {
     ...rewritten,
     usage: mergeUsage(rewritten.usage, {
-      quality_exact_detail_single_synthesis: 1,
-      quality_redundant_tool_round_avoided: 1,
-      quality_unsupported_acronym_expansions_removed: sanitized.removed,
+      quality_exact_detail_stream_guard: 1,
+      quality_unsupported_acronym_expansions_removed: guard.removed(),
     }),
   }
 }
