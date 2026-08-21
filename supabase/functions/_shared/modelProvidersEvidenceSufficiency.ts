@@ -23,6 +23,42 @@ const callsById = (items: Array<Record<string, unknown>>) => {
   return calls
 }
 
+const recordList = (payload: any): any[] => {
+  if (Array.isArray(payload?.records)) return payload.records
+  if (Array.isArray(payload?.records?.items)) return payload.records.items
+  return []
+}
+
+const pendingDocumentVerification = (items: Array<Record<string, unknown>>) => {
+  const calls = callsById(items)
+  const fetched = new Set<string>()
+  let latestSingleCandidate: string | null = null
+
+  for (const item of items || []) {
+    if (String(item?.type || '') === 'function_call') {
+      const name = String(item.name || '')
+      const args = parse(item.arguments) || {}
+      if (name === 'get_document_content') {
+        const key = String(args?.canonicalKey || '').trim()
+        if (key) fetched.add(key)
+      }
+      continue
+    }
+
+    if (String(item?.type || '') !== 'function_call_output') continue
+    const call = calls.get(String(item.call_id || '')) || { name: '', args: {} }
+    if (call.name !== 'search_document') continue
+    const payload: any = parse(item.output)
+    const keys = [...new Set(recordList(payload)
+      .map((record: any) => String(record?.canonicalKey || '').trim())
+      .filter(Boolean))]
+    latestSingleCandidate = keys.length === 1 ? keys[0] : null
+  }
+
+  if (!latestSingleCandidate || fetched.has(latestSingleCandidate)) return null
+  return latestSingleCandidate
+}
+
 type SufficiencyState = {
   messageCount: number
   mode: 'none' | 'preview' | 'complete_pending' | 'authoritative'
@@ -58,11 +94,7 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
 
     if (!verifiedSearch && !authoritativeExact) continue
 
-    const records = Array.isArray(payload?.records)
-      ? payload.records
-      : Array.isArray(payload?.records?.items)
-        ? payload.records.items
-        : []
+    const records = recordList(payload)
 
     for (const record of records) {
       if (String(record?.objectType || '') !== 'message') continue
@@ -128,40 +160,56 @@ const restrictKnowledgeTools = (
   return mode === 'complete_pending' && name === 'list_knowledge_catalog'
 })
 
+const syntheticToolCall = (
+  input: any,
+  name: string,
+  args: Record<string, unknown>,
+  usage: Record<string, number>,
+): NormalizedModelResponse => ({
+  id: `jetwork-synthetic-tool:${crypto.randomUUID()}`,
+  status: 'completed',
+  model: String(input.model || 'gemini-3.5-flash'),
+  output: [{
+    type: 'function_call',
+    name,
+    call_id: `synthetic:${crypto.randomUUID()}`,
+    arguments: JSON.stringify(args),
+  }],
+  usage,
+} as NormalizedModelResponse)
+
 const syntheticCompleteEnumeration = (input: any, state: SufficiencyState): NormalizedModelResponse | null => {
   if (state.mode !== 'complete_pending' || !state.familyPrefix) return null
-  const callId = `evidence-complete:${crypto.randomUUID()}`
-  return {
-    id: `jetwork-evidence-complete:${crypto.randomUUID()}`,
-    status: 'completed',
-    model: String(input.model || 'gemini-3.5-flash'),
-    output: [{
-      type: 'function_call',
-      name: 'list_knowledge_catalog',
-      call_id: callId,
-      arguments: JSON.stringify({
-        objectType: state.familyObjectType === 'mixed' ? 'message' : (state.familyObjectType || 'message'),
-        prefix: state.familyPrefix,
-        cursor: null,
-        limit: 25,
-        responseMode: 'complete',
-      }),
-    }],
-    usage: {
-      evidence_sufficiency_gate: 1,
-      evidence_sufficiency_mode_complete_pending: 1,
-      evidence_sufficiency_message_records: state.messageCount,
-      evidence_sufficiency_family_total: state.familyTotal || 0,
-      deterministic_complete_cardinality_dispatch: 1,
-      deterministic_provider_calls_avoided: 1,
-    },
-  } as NormalizedModelResponse
+  return syntheticToolCall(input, 'list_knowledge_catalog', {
+    objectType: state.familyObjectType === 'mixed' ? 'message' : (state.familyObjectType || 'message'),
+    prefix: state.familyPrefix,
+    cursor: null,
+    limit: 25,
+    responseMode: 'complete',
+  }, {
+    evidence_sufficiency_gate: 1,
+    evidence_sufficiency_mode_complete_pending: 1,
+    evidence_sufficiency_message_records: state.messageCount,
+    evidence_sufficiency_family_total: state.familyTotal || 0,
+    deterministic_complete_cardinality_dispatch: 1,
+    deterministic_provider_calls_avoided: 1,
+  })
 }
 
 export async function requestGeminiResponse(input: any): Promise<NormalizedModelResponse> {
-  const state = evidenceState(input.items || [])
   const baseInstructions = `${input.instructions}${CARDINALITY_CONTRACT}`
 
+  if (input.allowTools) {
+    const documentKey = pendingDocumentVerification(input.items || [])
+    if (documentKey) {
+      return syntheticToolCall(input, 'get_document_content', { canonicalKey: documentKey }, {
+        deterministic_document_verification_dispatch: 1,
+        deterministic_provider_calls_avoided: 1,
+      })
+    }
+  }
+
+  const state = evidenceState(input.items || [])
   if (!input.allowTools || state.messageCount < 2 || state.mode === 'none') {
     return guardedRequest({ ...input, instructions: baseInstructions })
   }
