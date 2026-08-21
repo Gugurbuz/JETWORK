@@ -45,19 +45,75 @@ const renderCompleteMessageList = (input: any, rows: any[]): NormalizedModelResp
   }
 }
 
+const toolNames = (items: Array<Record<string, unknown>>) => {
+  const names = new Map<string, string>()
+  for (const item of items || []) {
+    if (String(item?.type || '') === 'function_call') names.set(String(item.call_id || ''), String(item.name || ''))
+  }
+  return names
+}
+
+const recordArray = (payload: any): any[] => {
+  if (Array.isArray(payload?.records)) return payload.records
+  if (Array.isArray(payload?.records?.items)) return payload.records.items
+  return []
+}
+
 const documentEvidence = (items: Array<Record<string, unknown>>) => {
-  const toolNames = new Map<string, string>()
+  const names = toolNames(items)
+  const verifiedKeys = new Set<string>()
+  const exactOutputs: string[] = []
+  const searchPayloads: any[] = []
+
   for (const item of items || []) {
-    if (String(item?.type || '') === 'function_call') toolNames.set(String(item.call_id || ''), String(item.name || ''))
+    if (String(item?.type || '') !== 'function_call_output') continue
+    const name = names.get(String(item.call_id || '')) || ''
+    const payload: any = parse(item.output)
+    if (name === 'get_document_content') {
+      for (const record of recordArray(payload)) {
+        const key = String(record?.canonicalKey || payload?.canonicalKey || '').trim()
+        if (key) verifiedKeys.add(key)
+      }
+      if (payload?.canonicalKey) verifiedKeys.add(String(payload.canonicalKey))
+      exactOutputs.push(String(item.output || ''))
+    } else if (name === 'search_document') {
+      searchPayloads.push(payload)
+    }
   }
-  const documents: string[] = []
-  for (const item of items || []) {
-    if (
-      String(item?.type || '') === 'function_call_output' &&
-      toolNames.get(String(item.call_id || '')) === 'get_document_content'
-    ) documents.push(String(item.output || ''))
+
+  if (!exactOutputs.length) return ''
+
+  const relevantChunks: any[] = []
+  for (const payload of searchPayloads) {
+    for (const record of recordArray(payload)) {
+      const key = String(record?.canonicalKey || '').trim()
+      if (!key || !verifiedKeys.has(key)) continue
+      const excerpt = String(record?.evidenceExcerpt || record?.content || record?.summary || '').trim()
+      if (!excerpt) continue
+      relevantChunks.push({
+        canonicalKey: key,
+        title: String(record?.title || ''),
+        chunkIndex: record?.chunkIndex ?? null,
+        evidenceExcerpt: excerpt.slice(0, 5_000),
+      })
+    }
   }
-  return documents.join('\n\n').slice(0, 12_000)
+
+  const uniqueChunks: any[] = []
+  const seen = new Set<string>()
+  for (const chunk of relevantChunks) {
+    const dedupeKey = `${chunk.canonicalKey}|${chunk.chunkIndex}|${chunk.evidenceExcerpt}`
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+    uniqueChunks.push(chunk)
+    if (uniqueChunks.length >= 5) break
+  }
+
+  const chunkBlock = uniqueChunks.length
+    ? `[VERIFIED_RELEVANT_DOCUMENT_CHUNKS]\n${JSON.stringify(uniqueChunks)}\n[END_VERIFIED_RELEVANT_DOCUMENT_CHUNKS]\n\n`
+    : ''
+  const exactBlock = exactOutputs.join('\n\n').slice(0, 12_000)
+  return `${chunkBlock}[VERIFIED_EXACT_DOCUMENT]\n${exactBlock}\n[END_VERIFIED_EXACT_DOCUMENT]`.slice(0, 22_000)
 }
 
 const conversationItems = (items: Array<Record<string, unknown>>) => (items || [])
@@ -80,10 +136,10 @@ const conversationItems = (items: Array<Record<string, unknown>>) => (items || [
 async function synthesizeFullDocument(input: any, document: string) {
   return rawRequest({
     ...input,
-    instructions: `${input.instructions}\n\n[JETWORK FULL DOCUMENT SYNTHESIS]\nAşağıdaki seçilmiş ve doğrulanmış tam doküman kanıtını doğrudan kullan. Kullanıcı bir sürecin nasıl yapıldığını soruyorsa, dokümanda bulunan ana işlem sırasını başlangıçtan işlemin tamamlanması/kaydedilmesine kadar atlamadan anlat. Kanıtta olmayan ayrıntı üretme.`,
+    instructions: `${input.instructions}\n\n[JETWORK VERIFIED DOCUMENT SYNTHESIS]\nThe exact document fetch verifies the canonical document identity. VERIFIED_RELEVANT_DOCUMENT_CHUNKS are search excerpts from that same verified canonical document and are authoritative literal document evidence for the user's specific question. Prefer those relevant chunks for the requested detail; use VERIFIED_EXACT_DOCUMENT for surrounding context. Do not claim a requested fact is absent when it appears literally in a verified relevant chunk. Do not invent details absent from both.`,
     items: [
       ...conversationItems(input.items),
-      { role: 'user', content: `[JETWORK_FULL_DOCUMENT_EVIDENCE]\n${document}\n[END_JETWORK_FULL_DOCUMENT_EVIDENCE]` },
+      { role: 'user', content: `[JETWORK_VERIFIED_DOCUMENT_EVIDENCE]\n${document}\n[END_JETWORK_VERIFIED_DOCUMENT_EVIDENCE]` },
     ],
     tools: [],
     allowTools: false,
