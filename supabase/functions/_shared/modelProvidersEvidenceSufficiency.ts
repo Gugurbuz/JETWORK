@@ -31,6 +31,13 @@ type SufficiencyState = {
   familyObjectType?: string
 }
 
+const exactCallExplicitlyRequestedMessages = (call: { name: string; args: any }) => {
+  if (call.name === 'get_message_detail') return true
+  if (call.name !== 'get_objects_by_technical_reference') return false
+  const requested = Array.isArray(call.args?.objectTypes) ? call.args.objectTypes.map(String) : []
+  return requested.includes('message')
+}
+
 const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState => {
   const calls = callsById(items)
   const seen = new Set<string>()
@@ -46,11 +53,8 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
 
     const verifiedSearch = call.name === 'search_knowledge_catalog'
       && String(payload?.securityNotice || '').includes('VERIFIED_KNOWLEDGE_DATA')
-    const authoritativeExact = [
-      'get_objects_by_technical_reference',
-      'get_message_detail',
-      'list_knowledge_catalog',
-    ].includes(call.name)
+    const authoritativeExact = call.name === 'list_knowledge_catalog'
+      || exactCallExplicitlyRequestedMessages(call)
 
     if (!verifiedSearch && !authoritativeExact) continue
 
@@ -72,7 +76,7 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
       continue
     }
 
-    if (['get_objects_by_technical_reference', 'get_message_detail'].includes(call.name) && records.length) {
+    if (exactCallExplicitlyRequestedMessages(call) && records.some((record: any) => String(record?.objectType || '') === 'message')) {
       mode = 'authoritative'
       continue
     }
@@ -136,7 +140,7 @@ const syntheticCompleteEnumeration = (input: any, state: SufficiencyState): Norm
       name: 'list_knowledge_catalog',
       call_id: callId,
       arguments: JSON.stringify({
-        objectType: state.familyObjectType || 'message',
+        objectType: state.familyObjectType === 'mixed' ? 'message' : (state.familyObjectType || 'message'),
         prefix: state.familyPrefix,
         cursor: null,
         limit: 25,
@@ -162,9 +166,6 @@ export async function requestGeminiResponse(input: any): Promise<NormalizedModel
     return guardedRequest({ ...input, instructions: baseInstructions })
   }
 
-  // The primary model already made the semantic decision by setting
-  // resultMode="complete". Deterministically executing that declared decision is
-  // orchestration, not semantic classification, and avoids another LLM round.
   const completeDispatch = syntheticCompleteEnumeration(input, state)
   if (completeDispatch) return completeDispatch
 
