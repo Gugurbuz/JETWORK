@@ -9,6 +9,8 @@ const parse = (value: unknown) => {
   try { return typeof value === 'string' ? JSON.parse(value) : value } catch { return null }
 }
 
+const CARDINALITY_CONTRACT = `\n\n[JETWORK PRIMARY INVENTORY CARDINALITY]\nFor structured technical catalog questions, you decide cardinality explicitly in search_knowledge_catalog.resultMode. If the user asks an open-ended inventory question such as which errors/messages/records exist, with no explicit bound, choose resultMode="complete". Choose resultMode="preview" only when the user explicitly asks for a few/examples/representative/sample/short subset or otherwise gives a bounded amount. Keep that semantic choice stable within the same turn. A later search in the same turn must not change preview to complete unless the user's request itself requires completeness.`
+
 const callsById = (items: Array<Record<string, unknown>>) => {
   const calls = new Map<string, { name: string; args: any }>()
   for (const item of items || []) {
@@ -154,7 +156,11 @@ const syntheticCompleteEnumeration = (input: any, state: SufficiencyState): Norm
 
 export async function requestGeminiResponse(input: any): Promise<NormalizedModelResponse> {
   const state = evidenceState(input.items || [])
-  if (!input.allowTools || state.messageCount < 2 || state.mode === 'none') return guardedRequest(input)
+  const baseInstructions = `${input.instructions}${CARDINALITY_CONTRACT}`
+
+  if (!input.allowTools || state.messageCount < 2 || state.mode === 'none') {
+    return guardedRequest({ ...input, instructions: baseInstructions })
+  }
 
   // The primary model already made the semantic decision by setting
   // resultMode="complete". Deterministically executing that declared decision is
@@ -165,7 +171,7 @@ export async function requestGeminiResponse(input: any): Promise<NormalizedModel
   const reducedTools = restrictKnowledgeTools(input.tools || [], state.mode)
   const response = await guardedRequest({
     ...input,
-    instructions: `${input.instructions}\n\n[JETWORK EVIDENCE SUFFICIENCY]\nVerified message evidence is sufficient for the cardinality already chosen by the primary model. Research is finished for this turn. Do not call additional knowledge discovery tools. Answer only from the verified evidence already present.`,
+    instructions: `${baseInstructions}\n\n[JETWORK EVIDENCE SUFFICIENCY]\nVerified message evidence is sufficient for the cardinality already chosen by the primary model. Research is finished for this turn. Do not call additional knowledge discovery tools. Answer only from the verified evidence already present.`,
     tools: reducedTools,
     allowTools: reducedTools.length > 0,
   })
