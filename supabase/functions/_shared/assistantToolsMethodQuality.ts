@@ -1,42 +1,48 @@
-import * as original from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/assistantTools.ts?method-message-quality-base=1'
+import * as original from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/assistantTools.ts?technical-reference-quality-base=2'
 import { contentReferencesTechnicalReference } from './methodMessageRoutingQuality.ts'
 
-export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/assistantTools.ts?method-message-quality-base=1'
+export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/1c6b0f056c82f1ff5af7971e652ee3a57aaab80b/supabase/functions/_shared/assistantTools.ts?technical-reference-quality-base=2'
 
-const TECHNICAL_REFERENCE_MESSAGES_TOOL = {
+const TARGET_OBJECT_TYPES = ['class','method','function','message','table','document','business_rule','interface','system','component','service','api','database','queue','job','screen','decision','requirement','unknown'] as const
+
+const TECHNICAL_REFERENCE_OBJECTS_TOOL = {
   type: 'function',
-  name: 'get_messages_by_technical_reference',
-  description: 'Get citation-ready published message records whose authoritative content explicitly references one technical CHECK_* reference. Use for questions such as “CHECK_ZTKS hangi mesajları üretiyor?”.',
+  name: 'get_objects_by_technical_reference',
+  description: 'Get citation-ready published knowledge objects whose authoritative content explicitly references one technical identifier. Use for relation questions such as which messages, tables, functions, classes, or methods are connected to an identifier. This is generic and must not depend on a specific identifier name or prefix.',
   strict: true,
   parameters: {
     type: 'object',
     properties: {
-      technicalReference: { type: 'string', minLength: 6, maxLength: 120 },
+      technicalReference: { type: 'string', minLength: 3, maxLength: 160 },
+      objectTypes: {
+        type: ['array', 'null'],
+        items: { type: 'string', enum: TARGET_OBJECT_TYPES },
+      },
     },
-    required: ['technicalReference'],
+    required: ['technicalReference', 'objectTypes'],
     additionalProperties: false,
   },
 } as const
 
 export const ASSISTANT_KNOWLEDGE_TOOLS = [
   ...original.ASSISTANT_KNOWLEDGE_TOOLS,
-  TECHNICAL_REFERENCE_MESSAGES_TOOL,
+  TECHNICAL_REFERENCE_OBJECTS_TOOL,
 ] as const
 
-const cleanReference = (value: unknown) => {
-  const ref = String(value || '').trim().toLocaleUpperCase('en-US')
-  return /^CHECK_[A-Z0-9_]+$/u.test(ref) ? ref : ''
-}
-
+const cleanReference = (value: unknown) => String(value || '').trim().toLocaleUpperCase('en-US').slice(0, 160)
 const safeText = (value: unknown, max = 8_000) => String(value || '').slice(0, max)
 
-async function getMessagesByTechnicalReference(
+async function getObjectsByTechnicalReference(
   client: any,
   workspaceId: string,
   technicalReference: string,
+  requestedTypes: unknown,
 ): Promise<original.AssistantToolExecution> {
   const ref = cleanReference(technicalReference)
-  if (!ref) throw new Error('technicalReference must be a CHECK_* identifier.')
+  if (!ref) throw new Error('technicalReference is required.')
+  const objectTypes = Array.isArray(requestedTypes)
+    ? [...new Set(requestedTypes.map(value => String(value || '').trim()).filter(value => (TARGET_OBJECT_TYPES as readonly string[]).includes(value)))]
+    : null
 
   const { data: workspace, error: workspaceError } = await client
     .from('workspaces')
@@ -64,7 +70,7 @@ async function getMessagesByTechnicalReference(
     .select('id,object_id,title,summary,content,metadata')
     .eq('is_current', true)
     .or(`summary.ilike.%${ref}%,content.ilike.%${ref}%`)
-    .limit(80)
+    .limit(120)
   if (versionError) throw versionError
 
   const candidateVersions = (versions || []).filter((version: Record<string, unknown>) => (
@@ -73,13 +79,14 @@ async function getMessagesByTechnicalReference(
   const objectIds = [...new Set(candidateVersions.map((version: Record<string, unknown>) => String(version.object_id || '')).filter(Boolean))]
   if (!objectIds.length) return { output: JSON.stringify({ technicalReference: ref, records: [] }), sources: [], summary: { technicalReference: ref, recordCount: 0, citationReady: true } }
 
-  const { data: objects, error: objectError } = await client
+  let objectsQuery = client
     .from('knowledge_objects_v2')
     .select('id,knowledge_space_id,canonical_key,object_type,name,publication_status,published_version_id,primary_source_id')
     .in('id', objectIds)
-    .eq('object_type', 'message')
     .eq('publication_status', 'published')
     .in('knowledge_space_id', spaceIds)
+  if (objectTypes?.length) objectsQuery = objectsQuery.in('object_type', objectTypes)
+  const { data: objects, error: objectError } = await objectsQuery
   if (objectError) throw objectError
 
   const versionByObjectId = new Map(candidateVersions.map((version: Record<string, unknown>) => [String(version.object_id), version]))
@@ -99,7 +106,6 @@ async function getMessagesByTechnicalReference(
     for (const source of sources || []) sourceNameById.set(String(source.id), String(source.name || 'Kurumsal bilgi kaynağı'))
   }
 
-  // A project-scoped published object overrides the same global canonical key.
   const ranked = [...eligible].sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
     const leftSpace = spaceById.get(String(left.knowledge_space_id)) as Record<string, unknown> | undefined
     const rightSpace = spaceById.get(String(right.knowledge_space_id)) as Record<string, unknown> | undefined
@@ -121,7 +127,8 @@ async function getMessagesByTechnicalReference(
     const space = spaceById.get(String(object.knowledge_space_id)) as Record<string, unknown> | undefined
     return {
       canonicalKey: String(object.canonical_key || ''),
-      messageCode: String(object.name || '').toLocaleUpperCase('en-US'),
+      objectType: String(object.object_type || ''),
+      name: String(object.name || ''),
       title: safeText(version.title, 500),
       summary: safeText(version.summary, 1_200),
       content: safeText(version.content, 8_000),
@@ -136,20 +143,22 @@ async function getMessagesByTechnicalReference(
       sourceId: sourceId || undefined,
       sourceName: sourceNameById.get(sourceId) || 'Kurumsal bilgi kaynağı',
       canonicalKey: String(object.canonical_key || ''),
-      objectType: 'message',
+      objectType: String(object.object_type || ''),
       title: safeText(version.title, 500),
     }
   })
 
   return {
     output: JSON.stringify({
-      securityNotice: 'VERIFIED_KNOWLEDGE_DATA. These records are current published exact message objects whose authoritative text explicitly contains the requested technical reference.',
+      securityNotice: 'VERIFIED_KNOWLEDGE_DATA. Records are current published objects whose authoritative text explicitly contains the requested technical reference.',
       technicalReference: ref,
+      requestedObjectTypes: objectTypes,
       records,
     }),
     sources: citationSources,
     summary: {
       technicalReference: ref,
+      requestedObjectTypes: objectTypes,
       recordCount: records.length,
       citationReady: true,
       deterministicTechnicalReferenceLookup: true,
@@ -163,9 +172,9 @@ export async function executeAssistantTool(
   toolName: string,
   rawArguments: unknown,
 ): Promise<original.AssistantToolExecution> {
-  if (toolName !== 'get_messages_by_technical_reference') {
+  if (toolName !== 'get_objects_by_technical_reference') {
     return original.executeAssistantTool(client, workspaceId, toolName, rawArguments)
   }
   const args = rawArguments && typeof rawArguments === 'object' ? rawArguments as Record<string, unknown> : {}
-  return getMessagesByTechnicalReference(client, workspaceId, String(args.technicalReference || ''))
+  return getObjectsByTechnicalReference(client, workspaceId, String(args.technicalReference || ''), args.objectTypes)
 }
