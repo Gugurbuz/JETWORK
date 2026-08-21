@@ -39,6 +39,19 @@ describe('primary-agent semantic freedom', () => {
     expect(trivialSource).toContain('=> false')
   })
 
+  it('bypasses the legacy reasoning classifier after the semantic plan is attached', () => {
+    const source = readFileSync(
+      new URL('../../../supabase/functions/_shared/reasoningEnginePrimary.ts', import.meta.url),
+      'utf8',
+    )
+
+    expect(source).toContain('primary_agent_reasoning_router_bypassed')
+    expect(source).toContain('attachedPlan(message) || fallbackPlan(message)')
+    expect(source).not.toContain('ENTERPRISE_SURFACE_PATTERN')
+    expect(source).not.toContain('BARE_TOPIC_QUESTION_PATTERN')
+    expect(source).not.toContain('routeLegacyReasoningRequest')
+  })
+
   it('keeps tool semantics in tool descriptions instead of a pre-router', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/assistantToolsPrimary.ts', import.meta.url),
