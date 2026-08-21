@@ -45,12 +45,13 @@ async function enrichMessageFamilies(
 ): Promise<AssistantToolExecution> {
   const payload: any = parse(result.output)
   const records = Array.isArray(payload?.records) ? payload.records : []
-  if (!records.length) return result
+  const verifiedSources = Array.isArray(result.sources) ? result.sources : []
+  if (!records.length && !verifiedSources.length) return result
 
   const familyKeys = new Map<string, { prefix: string; objectType: string }>()
-  for (const record of records) {
-    if (String(record?.objectType || '') !== 'message') continue
-    const prefix = familyPrefix(record?.canonicalKey)
+  for (const candidate of [...records, ...verifiedSources]) {
+    if (String(candidate?.objectType || '') !== 'message') continue
+    const prefix = familyPrefix(candidate?.canonicalKey)
     if (!prefix) continue
     familyKeys.set(`message|${prefix.toLowerCase()}`, { prefix, objectType: 'message' })
   }
