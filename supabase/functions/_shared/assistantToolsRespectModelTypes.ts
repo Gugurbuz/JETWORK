@@ -1,12 +1,30 @@
 import {
-  ASSISTANT_KNOWLEDGE_TOOLS,
+  ASSISTANT_KNOWLEDGE_TOOLS as BASE_ASSISTANT_KNOWLEDGE_TOOLS,
   executeAssistantTool as productionExecuteAssistantTool,
   type AssistantToolExecution,
 } from './assistantToolsEvidenceBoundaryV2.ts'
 import { executeAssistantTool as technicalBaseExecuteAssistantTool } from './assistantToolsTechnicalReferenceQuality.ts'
 
 export * from './assistantToolsEvidenceBoundaryV2.ts'
-export { ASSISTANT_KNOWLEDGE_TOOLS }
+
+const LIST_TOOL_DESCRIPTION = 'Enumerate published knowledge objects by object type and/or name/canonical prefix. Choose responseMode="preview" when the user wants examples, some representative records, or a bounded selection. Choose responseMode="complete" only when the user asks for all/every/complete/count/exhaustive results or when a complete bounded set is explicitly required. Preview mode returns only one bounded page; complete mode aggregates the authoritative family within the safe tool budget.'
+
+export const ASSISTANT_KNOWLEDGE_TOOLS = BASE_ASSISTANT_KNOWLEDGE_TOOLS.map((tool: any) => {
+  if (String(tool?.name || '') !== 'list_knowledge_catalog') return tool
+  return {
+    ...tool,
+    description: LIST_TOOL_DESCRIPTION,
+    parameters: {
+      ...tool.parameters,
+      properties: {
+        ...(tool.parameters?.properties || {}),
+        responseMode: { type: 'string', enum: ['preview', 'complete'] },
+      },
+      required: [...new Set([...(tool.parameters?.required || []), 'responseMode'])],
+      additionalProperties: false,
+    },
+  }
+}) as typeof BASE_ASSISTANT_KNOWLEDGE_TOOLS
 
 const parse = (value: unknown) => {
   try { return typeof value === 'string' ? JSON.parse(value) : value } catch { return null }
@@ -120,8 +138,6 @@ async function verifiedTypedSearch(
   workspaceId: string,
   args: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
-  // Preserve the primary model's explicit objectTypes instead of broadening to
-  // the full catalog. Candidates are exact-verified before becoming citation-ready.
   const discovery = await technicalBaseExecuteAssistantTool(client, workspaceId, 'search_knowledge_catalog', args)
   const payload: any = parse(discovery.output)
   const candidates = Array.isArray(payload?.records) ? payload.records : []
@@ -222,6 +238,38 @@ async function verifiedTypedSearch(
   }
 }
 
+async function executeCatalogList(
+  client: any,
+  workspaceId: string,
+  args: Record<string, unknown>,
+): Promise<AssistantToolExecution> {
+  const responseMode = String(args.responseMode || 'complete') === 'preview' ? 'preview' : 'complete'
+  const forwarded = { ...args }
+  delete forwarded.responseMode
+
+  if (responseMode === 'preview') {
+    const result = await technicalBaseExecuteAssistantTool(client, workspaceId, 'list_knowledge_catalog', forwarded)
+    return {
+      ...result,
+      summary: {
+        ...(result.summary || {}),
+        responseMode: 'preview',
+        primaryModelCardinalityRespected: 1,
+      },
+    }
+  }
+
+  const result = await productionExecuteAssistantTool(client, workspaceId, 'list_knowledge_catalog', forwarded)
+  return {
+    ...result,
+    summary: {
+      ...(result.summary || {}),
+      responseMode: 'complete',
+      primaryModelCardinalityRespected: 1,
+    },
+  }
+}
+
 export async function executeAssistantTool(
   client: any,
   workspaceId: string,
@@ -231,8 +279,7 @@ export async function executeAssistantTool(
   const args = rawArguments && typeof rawArguments === 'object'
     ? rawArguments as Record<string, unknown>
     : {}
-  if (toolName === 'search_knowledge_catalog') {
-    return verifiedTypedSearch(client, workspaceId, args)
-  }
+  if (toolName === 'search_knowledge_catalog') return verifiedTypedSearch(client, workspaceId, args)
+  if (toolName === 'list_knowledge_catalog') return executeCatalogList(client, workspaceId, args)
   return productionExecuteAssistantTool(client, workspaceId, toolName, rawArguments)
 }
