@@ -7,23 +7,42 @@ import { executeAssistantTool as technicalBaseExecuteAssistantTool } from './ass
 
 export * from './assistantToolsEvidenceBoundaryV2.ts'
 
-const LIST_TOOL_DESCRIPTION = 'Enumerate published knowledge objects by object type and/or name/canonical prefix. Choose responseMode="preview" when the user wants examples, some representative records, or a bounded selection. Choose responseMode="complete" only when the user asks for all/every/complete/count/exhaustive results or when a complete bounded set is explicitly required. Preview mode returns only one bounded page; complete mode aggregates the authoritative family within the safe tool budget.'
+const SEARCH_TOOL_DESCRIPTION = 'Search the published structured knowledge catalog. Choose resultMode="preview" when the user wants examples, representative records, or a bounded answer. Choose resultMode="complete" when the user asks an unbounded inventory question whose natural answer is the full matching set, asks for all/every/complete/count/exhaustive results, or otherwise requires completeness. This mode is the primary model\'s semantic cardinality decision: the executor must not infer it from keywords. Search remains discovery; a complete family may still require list_knowledge_catalog.'
+const LIST_TOOL_DESCRIPTION = 'Enumerate published knowledge objects by object type and/or name/canonical prefix. Choose responseMode="preview" when the user wants examples, some representative records, or a bounded selection. Choose responseMode="complete" when the user asks for all/every/complete/count/exhaustive results or when an unbounded inventory answer must be complete. Preview mode returns one bounded page; complete mode aggregates the authoritative family within the safe tool budget.'
 
 export const ASSISTANT_KNOWLEDGE_TOOLS = BASE_ASSISTANT_KNOWLEDGE_TOOLS.map((tool: any) => {
-  if (String(tool?.name || '') !== 'list_knowledge_catalog') return tool
-  return {
-    ...tool,
-    description: LIST_TOOL_DESCRIPTION,
-    parameters: {
-      ...tool.parameters,
-      properties: {
-        ...(tool.parameters?.properties || {}),
-        responseMode: { type: 'string', enum: ['preview', 'complete'] },
+  const name = String(tool?.name || '')
+  if (name === 'search_knowledge_catalog') {
+    return {
+      ...tool,
+      description: SEARCH_TOOL_DESCRIPTION,
+      parameters: {
+        ...tool.parameters,
+        properties: {
+          ...(tool.parameters?.properties || {}),
+          resultMode: { type: 'string', enum: ['preview', 'complete'] },
+        },
+        required: [...new Set([...(tool.parameters?.required || []), 'resultMode'])],
+        additionalProperties: false,
       },
-      required: [...new Set([...(tool.parameters?.required || []), 'responseMode'])],
-      additionalProperties: false,
-    },
+    }
   }
+  if (name === 'list_knowledge_catalog') {
+    return {
+      ...tool,
+      description: LIST_TOOL_DESCRIPTION,
+      parameters: {
+        ...tool.parameters,
+        properties: {
+          ...(tool.parameters?.properties || {}),
+          responseMode: { type: 'string', enum: ['preview', 'complete'] },
+        },
+        required: [...new Set([...(tool.parameters?.required || []), 'responseMode'])],
+        additionalProperties: false,
+      },
+    }
+  }
+  return tool
 }) as typeof BASE_ASSISTANT_KNOWLEDGE_TOOLS
 
 const parse = (value: unknown) => {
@@ -71,6 +90,7 @@ async function exactFallbackPreview(
   workspaceId: string,
   args: Record<string, unknown>,
   discovery: AssistantToolExecution,
+  resultMode: 'preview' | 'complete',
 ): Promise<AssistantToolExecution | null> {
   const query = String(args.query || '').trim()
   if (!query) return null
@@ -109,17 +129,21 @@ async function exactFallbackPreview(
     output: JSON.stringify({
       securityNotice: 'VERIFIED_KNOWLEDGE_DATA.',
       tool: 'search_knowledge_catalog',
+      resultMode,
       records: preview,
       catalogFamilies: family ? [family] : [],
       familyPreview: family ? preview : [],
       familyPreviewNotice: family
-        ? 'These are verified representative records from a larger exact catalog family. Use them directly for examples. Enumerate the family only if the user requests all/count/exhaustive output.'
+        ? resultMode === 'complete'
+          ? 'Verified family preview found for a larger catalog family. The primary model requested complete cardinality; continue with list_knowledge_catalog to enumerate the authoritative family.'
+          : 'Verified representative records from a larger catalog family. The primary model requested preview cardinality; these records may be used directly without exhaustive enumeration.'
         : undefined,
       recoveredFromTypedSearchZeroHit: true,
     }),
     sources: uniqueSources([...(exact.sources || []), ...previewSources]),
     summary: {
       ...(discovery.summary || {}),
+      resultMode,
       resultCount: preview.length,
       candidateSourceCount: preview.length,
       citationReady: true,
@@ -128,6 +152,7 @@ async function exactFallbackPreview(
       catalogFamilyPreviewRecords: family ? preview.length : 0,
       catalogFamilyTotalCount: family ? totalCount : undefined,
       primaryModelObjectTypesRespected: 1,
+      primaryModelSearchCardinalityRespected: 1,
       recoveredFromTypedSearchZeroHit: 1,
     },
   }
@@ -136,13 +161,19 @@ async function exactFallbackPreview(
 async function verifiedTypedSearch(
   client: any,
   workspaceId: string,
-  args: Record<string, unknown>,
+  rawArgs: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
+  const resultMode = String(rawArgs.resultMode || 'preview') === 'complete' ? 'complete' : 'preview'
+  const args = { ...rawArgs }
+  delete args.resultMode
   const discovery = await technicalBaseExecuteAssistantTool(client, workspaceId, 'search_knowledge_catalog', args)
   const payload: any = parse(discovery.output)
   const candidates = Array.isArray(payload?.records) ? payload.records : []
   if (!candidates.length) {
-    return await exactFallbackPreview(client, workspaceId, args, discovery) || discovery
+    return await exactFallbackPreview(client, workspaceId, args, discovery, resultMode) || {
+      ...discovery,
+      summary: { ...(discovery.summary || {}), resultMode, primaryModelSearchCardinalityRespected: 1 },
+    }
   }
 
   const verified: any[] = []
@@ -173,7 +204,10 @@ async function verifiedTypedSearch(
     sources.push(sourceFor(record))
   }
   if (!verified.length) {
-    return await exactFallbackPreview(client, workspaceId, args, discovery) || discovery
+    return await exactFallbackPreview(client, workspaceId, args, discovery, resultMode) || {
+      ...discovery,
+      summary: { ...(discovery.summary || {}), resultMode, primaryModelSearchCardinalityRespected: 1 },
+    }
   }
 
   const families: any[] = []
@@ -218,22 +252,27 @@ async function verifiedTypedSearch(
     output: JSON.stringify({
       securityNotice: 'VERIFIED_KNOWLEDGE_DATA.',
       tool: 'search_knowledge_catalog',
+      resultMode,
       records: verified,
       catalogFamilies: families,
       familyPreview,
       familyPreviewNotice: families.length
-        ? 'Verified familyPreview records may be used directly as representative examples. Enumerate the family only if the user requests all/count/exhaustive output.'
+        ? resultMode === 'complete'
+          ? 'The primary model requested complete cardinality. Use list_knowledge_catalog if the family is larger than the verified preview.'
+          : 'The primary model requested preview cardinality. Verified familyPreview records may be used directly without exhaustive enumeration.'
         : undefined,
     }),
     sources: uniqueSources([...sources, ...familyPreviewSources]),
     summary: {
       ...(discovery.summary || {}),
+      resultMode,
       objectTypes: Array.isArray(args.objectTypes) ? args.objectTypes : null,
       citationReady: true,
       verifiedPublishedSourceCount: verified.length,
       catalogFamilyCount: families.length,
       catalogFamilyPreviewRecords: familyPreview.length,
       primaryModelObjectTypesRespected: 1,
+      primaryModelSearchCardinalityRespected: 1,
     },
   }
 }
