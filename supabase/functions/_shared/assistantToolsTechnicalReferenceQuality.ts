@@ -35,7 +35,7 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$
 export const contentReferencesTechnicalReference = (content: string, technicalReference: string): boolean => {
   const ref = cleanReference(technicalReference)
   if (!ref) return false
-  const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|[^A-Z0-9_/-])`, 'u')
+  const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|->|[^A-Z0-9_/-])`, 'u')
   return pattern.test(String(content || '').toLocaleUpperCase('en-US'))
 }
 
