@@ -13,7 +13,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   if (name === 'search_knowledge_catalog') {
     return {
       ...tool,
-      description: 'Search the published structured knowledge catalog for technical or catalog evidence such as messages/errors, classes, methods, functions, tables, components, services, identifiers and bounded object families. Prefer this tool over search_document when the user asks which technical records/errors/messages/objects exist or are related. Pass the objectTypes that the primary model actually wants; do not broaden them merely for recall. This is discovery, not exhaustive enumeration. If verified results/familyPreview already answer a request for examples, answer from them instead of doing more research.',
+      description: 'Search the published structured knowledge catalog for technical or catalog evidence such as messages/errors, classes, methods, functions, tables, components, services, identifiers and bounded object families. Prefer this tool over search_document when the user asks which technical records/errors/messages/objects exist or are related. Set resultMode="preview" for examples/representative/bounded answers. Set resultMode="complete" when the natural answer must cover the full matching inventory. The semantic cardinality decision belongs to the primary model; the executor only enforces it.',
     }
   }
 
@@ -27,7 +27,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   if (name === 'list_knowledge_catalog') {
     return {
       ...tool,
-      description: 'Enumerate a published catalog family or bounded object set. This tool is for COMPLETE/EXHAUSTIVE expansion: use it when the user asks for the whole set, all matching records, a complete inventory, or an otherwise unbounded inventory question whose natural answer is the full matching set. Do NOT use it merely to provide a few examples, representative samples, or a short answer when verified search/familyPreview evidence already contains enough records. For a representative answer, answer from verified preview evidence without enumerating the full family.',
+      description: 'Enumerate a published catalog family or bounded object set after structured discovery identifies the family. Set responseMode="preview" only for a bounded page. Set responseMode="complete" when the primary model previously chose complete cardinality or the requested answer must include the authoritative whole set. Do not replace a sufficient verified preview with exhaustive enumeration when resultMode was preview.',
     }
   }
 
