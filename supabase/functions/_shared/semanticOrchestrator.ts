@@ -78,9 +78,11 @@ const TECHNICAL_ENTITY_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]+)*|CHECK_
 const REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
 const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
 const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct)$/i
-const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|more|rest|continue|next)\b/i
+const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|hepsi|hepsini|tumu|tumunu|tamami|bunlar|onlar|more|rest|continue|next|all)\b/i
 const DEEP_RESEARCH_FOLLOW_UP_PATTERN = /(?:bu yaniti|bu cevabi).*(?:daha derin|web|arastir)|(?:daha derin arastir|web uzerinde de arastir)/i
-const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari)\b/i
+const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari|hepsi|hepsini|tumu|tumunu|tamami|digerleri|bunlar|onlar|devam|devamini|kalan|gerisi|all|the rest)\b/i
+const CASUAL_CHAT_PATTERN = /^(?:selam|merhaba|hey|nasilsin|naber|ne haber|nasil gidiyor|iyi misin|gunaydin|iyi geceler|tesekkur|tesekkurler|sag ol|saol|eyvallah)(?:\b|$)/i
+const INFORMATION_SEEKING_PATTERN = /\b(?:ne|nedir|neler|hangi|hangileri|neden|niye|nasil|kim|nerede|ne zaman|kac|listele|liste|goster|acikla|anlat|bul|bak|kontrol|incele|analiz|hata|kod|kural|surec|method|metot|fonksiyon|servis|urun|musteri|satis|teklif|sozlesme|maliyet|hesaplama|what|which|why|how|who|where|when|list|show|explain|find|check|analyze|error|code|rule|process|method|function|service|product|customer|sales|offer|contract|cost|calculation)\b/i
 const STRUCTURED_REQUIREMENT_NUMBER_PATTERN = /^\s*\d+(?:\.\d+){1,}\s+/gmu
 const STRUCTURED_REQUIREMENT_LANGUAGE_PATTERN = /\b(?:gereksinim[a-z]*|is kurali|servis[a-z]* guncellen[a-z]*|guncellenmelidir|olacaktir|donmelidir|yapilmalidir|mevcutta|proje ile|senaryo)\b/gu
 
@@ -105,7 +107,9 @@ const priorUserRequest = (conversation: SemanticContextMessage[]) => {
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     if (conversation[index].role !== 'user') continue
     const content = cleanText(conversation[index].content, 1_200)
-    if (!content || DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(content))) continue
+    const normalized = normalize(content)
+    if (!content || DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalized)) continue
+    if (ELLIPTICAL_PATTERN.test(normalized) || CONFIRMATION_PATTERN.test(normalized)) continue
     return content
   }
   return ''
@@ -176,22 +180,32 @@ const buildConversationState = (input: {
     ...(input.priorExecution?.verifiedFactRefs || []),
     ...priorUserEntities(input.conversation),
   ], 10)
+  const priorExecutionRequest = cleanText(input.priorExecution?.resolvedRequest, 1_200)
+  const priorRequest = priorExecutionRequest && !ELLIPTICAL_PATTERN.test(normalize(priorExecutionRequest))
+    ? priorExecutionRequest
+    : priorUserRequest(input.conversation)
   const shortFollowUp = normalize(input.currentMessage).split(' ').filter(Boolean).length <= 6
     && ELLIPTICAL_PATTERN.test(normalize(input.currentMessage))
   const operationContinuation = Boolean(input.priorExecution?.activeOperation?.complete === false)
     && CONTINUATION_PATTERN.test(normalize(input.currentMessage))
   const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(input.currentMessage))
   const deepResearchTarget = deepResearchFollowUp ? priorUserRequest(input.conversation) : ''
-  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation || deepResearchTarget)
+  const continuation = Boolean(
+    (shortFollowUp && Boolean(priorRequest || priorEntities.length))
+      || operationContinuation
+      || deepResearchTarget,
+  )
   const activeEntities = unique([
     ...currentEntities,
     ...(continuation ? priorEntities : []),
   ], 10)
   const resolvedRequest = deepResearchTarget
     ? `${deepResearchTarget}\nAraştırma talebi: ${cleanText(input.currentMessage, 700)}`
-    : continuation && activeEntities.length
-      ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
-      : cleanText(input.currentMessage, 900)
+    : continuation && priorRequest
+      ? `${priorRequest}\nTakip talebi: ${cleanText(input.currentMessage, 700)}`
+      : continuation && activeEntities.length
+        ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
+        : cleanText(input.currentMessage, 900)
   const retainedContext = input.conversation
     .slice(-4)
     .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
@@ -199,7 +213,7 @@ const buildConversationState = (input: {
 
   return {
     continuation,
-    topic: activeEntities[0] || cleanText(input.currentMessage, 300),
+    topic: activeEntities[0] || (continuation && priorRequest ? priorRequest : cleanText(input.currentMessage, 300)),
     userMove: userMoveFor(input.currentMessage, continuation),
     operationMove: operationContinuation ? 'continue' : 'none',
     priorIntent: priorIntent === 'simple_answer' ? 'none' : priorIntent,
@@ -215,6 +229,23 @@ const buildConversationState = (input: {
   }
 }
 
+const shouldDiscoverKnowledge = (input: {
+  currentMessage: string
+  route: ReturnType<typeof routeReasoningRequest>
+  state: ConversationSemanticState
+  userProvidedRequirements: boolean
+  priorExecution?: PriorExecutionContext
+}) => {
+  if (input.userProvidedRequirements || input.route.knowledgeRequired) return false
+  if (input.state.continuation && input.priorExecution?.knowledgeUsed === true) return false
+  const current = normalize(input.currentMessage)
+  if (!input.state.continuation && CASUAL_CHAT_PATTERN.test(current)) return false
+  if (['sap_diagnosis', 'analysis'].includes(input.route.intent)) return true
+  if (input.state.continuation && ELLIPTICAL_PATTERN.test(current)) return true
+  const resolved = normalize(input.state.resolvedRequest || input.currentMessage)
+  return INFORMATION_SEEKING_PATTERN.test(resolved)
+}
+
 const buildPrimaryAgentPlan = (input: {
   message: string
   conversation: SemanticContextMessage[]
@@ -226,6 +257,11 @@ const buildPrimaryAgentPlan = (input: {
     : ''
   const routed = routeReasoningRequest(deepResearchTarget ? `${deepResearchTarget}\n${currentMessage}` : currentMessage)
   const userProvidedRequirements = looksLikeUserProvidedRequirements(currentMessage)
+  const state = buildConversationState({
+    currentMessage,
+    conversation: input.conversation,
+    priorExecution: input.priorExecution,
+  })
   const deepResearchNeedsKnowledge = Boolean(deepResearchTarget && extractTechnicalEntities(deepResearchTarget).length)
   const route = userProvidedRequirements
     ? {
@@ -239,34 +275,51 @@ const buildPrimaryAgentPlan = (input: {
     : deepResearchNeedsKnowledge
       ? { ...routed, knowledgeRequired: true }
       : routed
-  const state = buildConversationState({
+  const knowledgeDiscoveryRequired = shouldDiscoverKnowledge({
     currentMessage,
-    conversation: input.conversation,
+    route,
+    state,
+    userProvidedRequirements,
     priorExecution: input.priorExecution,
   })
-  const executionMode = executionModeFor(route.intent)
+  const knowledgeRequired = userProvidedRequirements ? false : Boolean(route.knowledgeRequired || knowledgeDiscoveryRequired)
+  const executionMode = knowledgeDiscoveryRequired ? 'knowledge' : executionModeFor(route.intent)
+  const baseGoal = state.resolvedRequest || currentMessage
+  const goal = knowledgeDiscoveryRequired
+    ? [
+        baseGoal,
+        '[JETWORK_KNOWLEDGE_DISCOVERY] Bu talep için JetWork Global + proje bilgi bankasında ilgili kaynak varsa kullan. Bu keşif zorunlu grounding değildir: arama boş veya yetersiz dönerse bilgi bankasında kesinlikle kayıt yok sonucuna varma; yalnız bu aramada doğrulanmış ilgili kaynak bulunamadığını belirt ve doğrulanmamış kurum özeli uydurmadan normal reasoning ile devam et.',
+      ].join('\n')
+    : baseGoal
+  const evidenceQueries = knowledgeDiscoveryRequired
+    ? unique([state.resolvedRequest || '', currentMessage], 2)
+    : []
   return {
     intent: route.intent,
     complexity: route.complexity,
     executionMode,
-    goal: state.resolvedRequest || currentMessage,
-    // The user's supplied requirement/specification text is itself the primary
-    // evidence for analysis. Otherwise respect the deterministic router instead
-    // of forcing every primary-agent turn into knowledge + public web mode.
-    knowledgeRequired: userProvidedRequirements ? false : route.knowledgeRequired,
+    goal,
+    // Knowledge discovery and authoritative enterprise grounding are separate.
+    // Discovery is cheap and opportunistic; enterpriseGroundingRequired remains
+    // false unless a narrower downstream policy explicitly requires it.
+    knowledgeRequired,
     enterpriseGroundingRequired: false,
     webMode: userProvidedRequirements ? 'none' : route.webMode,
     verificationRequired: false,
     creativeMode: route.creativeMode,
-    evidenceQueries: [],
-    promptProfile: promptProfileFor(route.intent, executionMode),
+    evidenceQueries,
+    promptProfile: knowledgeDiscoveryRequired ? 'knowledge' : promptProfileFor(route.intent, executionMode),
     steps: [{
       id: 'primary-agent-loop',
-      label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
-      toolHint: 'synthesis',
+      label: knowledgeDiscoveryRequired
+        ? 'Kurumsal kaynak keşfi yap ve kullanıcı talebini yanıtla'
+        : 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
+      toolHint: knowledgeDiscoveryRequired ? 'knowledge' : 'synthesis',
       successCriteria: userProvidedRequirements
         ? 'Kullanıcının verdiği gereksinimler doğrudan analiz edilir; yalnız gerçekten eksik dış fact için capability kullanılır.'
-        : 'Tool seçimi planner tarafından zorlanmaz; primary LLM ihtiyaç halinde knowledge/web capability kullanır.',
+        : knowledgeDiscoveryRequired
+          ? 'İlgili kurumsal kaynak varsa kullanılır; boş arama sonucu kurumda bilgi yok şeklinde yorumlanmaz ve cevap gereksiz yere bloke edilmez.'
+          : 'Tool seçimi planner tarafından zorlanmaz; primary LLM ihtiyaç halinde knowledge/web capability kullanır.',
     }],
     conversationState: state,
     orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
@@ -297,7 +350,7 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
     return {
       ...inputPlan,
       goal,
-      evidenceQueries: [],
+      evidenceQueries: [...(inputPlan.evidenceQueries || [])],
       verificationRequired: false,
       enterpriseGroundingRequired: false,
       // Gemini keeps provider lock by encoding public web as a native capability
@@ -305,11 +358,15 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
       webMode: providerNativeWeb ? 'none' : inputPlan.webMode,
       steps: [{
         id: 'primary-agent-loop',
-        label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
-        toolHint: 'synthesis',
-        successCriteria: inputPlan.knowledgeRequired || inputPlan.webMode !== 'none'
-          ? 'Kaynak ve web kullanımı primary LLM kararına bağlıdır; boş kaynak sonucu cevap vermeyi engellemez.'
-          : 'Kullanıcının verdiği bilgi doğrudan analiz edilir; gereksiz kaynak araması yapılmaz.',
+        label: inputPlan.evidenceQueries?.length
+          ? 'Kurumsal kaynak keşfi yap ve kullanıcı talebini yanıtla'
+          : 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
+        toolHint: inputPlan.evidenceQueries?.length ? 'knowledge' : 'synthesis',
+        successCriteria: inputPlan.evidenceQueries?.length
+          ? 'İlgili kaynak varsa kullan; boş retrieval sonucunu kurumda bilgi yok kanıtı sayma.'
+          : inputPlan.knowledgeRequired || inputPlan.webMode !== 'none'
+            ? 'Kaynak ve web kullanımı primary LLM kararına bağlıdır; boş kaynak sonucu cevap vermeyi engellemez.'
+            : 'Kullanıcının verdiği bilgi doğrudan analiz edilir; gereksiz kaynak araması yapılmaz.',
       }],
       orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
     }
