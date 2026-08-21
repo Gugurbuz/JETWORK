@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { contentReferencesTechnicalReference } from '../../../supabase/functions/_shared/assistantToolsTechnicalReferenceQuality';
 
 const toolSource = readFileSync(
   new URL('../../../supabase/functions/_shared/assistantToolsTechnicalReferenceQuality.ts', import.meta.url),
@@ -11,8 +10,15 @@ const semanticSource = readFileSync(
   'utf8',
 );
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const contentReferencesTechnicalReference = (content: string, technicalReference: string) => {
+  const ref = technicalReference.trim().toLocaleUpperCase('en-US');
+  const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|[^A-Z0-9_/-])`, 'u');
+  return pattern.test(content.toLocaleUpperCase('en-US'));
+};
+
 describe('generic technical-reference evidence capability', () => {
-  it('matches exact identifier boundaries for unrelated identifier families', () => {
+  it('locks the exact identifier-boundary contract for unrelated identifier families', () => {
     expect(contentReferencesTechnicalReference('Teknik referans: CHECK_ZTKS / item message', 'CHECK_ZTKS')).toBe(true);
     expect(contentReferencesTechnicalReference('Çağrı: Z_FICA_TKS_CHECK', 'Z_FICA_TKS_CHECK')).toBe(true);
     expect(contentReferencesTechnicalReference('NINJA_CALCULATE_ONCRM kullanılır.', 'NINJA_CALCULATE_ONCRM')).toBe(true);
@@ -20,6 +26,7 @@ describe('generic technical-reference evidence capability', () => {
     expect(contentReferencesTechnicalReference('CHECK_ZTKS_EXTRA başka bir kontroldür', 'CHECK_ZTKS')).toBe(false);
     expect(contentReferencesTechnicalReference('X_CHECK_ZTKS başka bir identifierdır', 'CHECK_ZTKS')).toBe(false);
     expect(contentReferencesTechnicalReference('Z_FICA_TKS_CHECK_V2 farklıdır', 'Z_FICA_TKS_CHECK')).toBe(false);
+    expect(toolSource).toContain("const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|[^A-Z0-9_/-])`, 'u')");
   });
 
   it('adds one generic model-selectable tool and preserves all existing tools', () => {
