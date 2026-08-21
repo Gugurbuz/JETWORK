@@ -20,7 +20,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   if (name === 'search_document') {
     return {
       ...tool,
-      description: 'Search narrative/prose knowledge such as business-process instructions, policies, training material, procedural documentation and business rules when the answer depends on document text. Do NOT use this as the primary tool for technical message/error inventories, class/method/function/table catalogs, or identifier-family enumeration; use search_knowledge_catalog / exact technical-reference tools for those. Read the selected document before citing document content.',
+      description: 'Search narrative/prose knowledge such as business-process instructions, policies, training material, procedural documentation and business rules when the answer depends on document text. Preserve the user’s answer-bearing qualifiers in the search query: do not drop constraints such as duration/time, status, channel, direction, before/after, role, condition, or requested outcome. For example, if the user asks how long something is valid, search for the subject together with validity/duration/time rather than only the subject name. Do NOT use this as the primary tool for technical message/error inventories, class/method/function/table catalogs, or identifier-family enumeration; use search_knowledge_catalog / exact technical-reference tools for those. Read the selected document before citing document content.',
     }
   }
 
