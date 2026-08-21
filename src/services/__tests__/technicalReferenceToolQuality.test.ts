@@ -13,7 +13,7 @@ const semanticSource = readFileSync(
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const contentReferencesTechnicalReference = (content: string, technicalReference: string) => {
   const ref = technicalReference.trim().toLocaleUpperCase('en-US');
-  const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|[^A-Z0-9_/-])`, 'u');
+  const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|->|[^A-Z0-9_/-])`, 'u');
   return pattern.test(content.toLocaleUpperCase('en-US'));
 };
 
@@ -26,7 +26,8 @@ describe('generic technical-reference evidence capability', () => {
     expect(contentReferencesTechnicalReference('CHECK_ZTKS_EXTRA başka bir kontroldür', 'CHECK_ZTKS')).toBe(false);
     expect(contentReferencesTechnicalReference('X_CHECK_ZTKS başka bir identifierdır', 'CHECK_ZTKS')).toBe(false);
     expect(contentReferencesTechnicalReference('Z_FICA_TKS_CHECK_V2 farklıdır', 'Z_FICA_TKS_CHECK')).toBe(false);
-    expect(toolSource).toContain("const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|[^A-Z0-9_/-])`, 'u')");
+    expect(contentReferencesTechnicalReference('ZCRM_COST-000', 'ZCRM_COST')).toBe(false);
+    expect(toolSource).toContain("const pattern = new RegExp(`(^|[^A-Z0-9_/-])${escapeRegex(ref)}(?=$|->|[^A-Z0-9_/-])`, 'u')");
   });
 
   it('adds one generic model-selectable tool and preserves all existing tools', () => {
