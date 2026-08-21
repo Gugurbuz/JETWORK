@@ -1,11 +1,73 @@
 import {
   ASSISTANT_KNOWLEDGE_TOOLS as baseTools,
-  executeAssistantTool,
+  executeAssistantTool as baseExecuteAssistantTool,
   type AssistantToolExecution,
 } from './assistantToolsRespectModelTypes.ts'
 
 export * from './assistantToolsRespectModelTypes.ts'
-export { executeAssistantTool }
+
+const parse = (value: unknown) => {
+  try { return typeof value === 'string' ? JSON.parse(value) : value } catch { return null }
+}
+
+const previewTechnicalReferenceResult = (
+  result: AssistantToolExecution,
+  rawArguments: unknown,
+): AssistantToolExecution => {
+  const args = rawArguments && typeof rawArguments === 'object' ? rawArguments as Record<string, unknown> : {}
+  if (String(args.resultMode || '') !== 'preview') return result
+
+  const payload: any = parse(result.output)
+  const records = Array.isArray(payload?.records)
+    ? payload.records
+    : Array.isArray(payload?.records?.items)
+      ? payload.records.items
+      : []
+  if (records.length <= 5) return result
+
+  const selected = records.slice(0, 5)
+  const selectedKeys = new Set(selected.map((record: any) => String(record?.canonicalKey || '')).filter(Boolean))
+  const sources = (result.sources || []).filter((source: any) => (
+    !source?.canonicalKey || selectedKeys.has(String(source.canonicalKey))
+  ))
+  const totalCount = Number(payload?.totalCount || result.summary?.totalCount || records.length) || records.length
+  const exactFamilyEnumeration = payload?.exactFamilyEnumeration === true || result.summary?.exactFamilyEnumeration === true
+
+  return {
+    ...result,
+    output: JSON.stringify({
+      ...payload,
+      records: selected,
+      resultMode: 'preview',
+      returnedCount: selected.length,
+      totalCount,
+      complete: false,
+      exactFamilyEnumeration,
+    }),
+    sources,
+    summary: {
+      ...(result.summary || {}),
+      resultCount: selected.length,
+      recordCount: selected.length,
+      returnedCount: selected.length,
+      totalCount,
+      complete: false,
+      resultMode: 'preview',
+      primaryModelCardinalityRespected: 1,
+    },
+  }
+}
+
+export async function executeAssistantTool(
+  client: any,
+  workspaceId: string,
+  toolName: string,
+  rawArguments: unknown,
+): Promise<AssistantToolExecution> {
+  const result = await baseExecuteAssistantTool(client, workspaceId, toolName, rawArguments)
+  if (toolName !== 'get_objects_by_technical_reference') return result
+  return previewTechnicalReferenceResult(result, rawArguments)
+}
 
 export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   const name = String(tool?.name || '')
@@ -13,7 +75,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   if (name === 'get_objects_by_technical_reference') {
     return {
       ...tool,
-      description: 'Authoritative relation/identity lookup for a NAMED technical identifier. When the user supplies a concrete class/method/function/message/table/technical name, use this FIRST for questions about its relations, identity, implementation/source availability, emitted messages, called functions, usage, or related technical objects. Set verificationMode="implementation" when the requested answer depends on source code/implementation details such as ABAP body, SELECTs, MESSAGE statements, parameters/types, or algorithm. Set verificationMode="relation" for bounded relation/identity questions such as which messages/functions/tables are related. For implementation requests, the runtime will verify the resolved canonical object with get_abap_source before answering. Do not substitute broad catalog/document discovery for this exact-identifier path.',
+      description: 'Authoritative relation/identity lookup for a NAMED technical identifier. When the user supplies a concrete class/method/function/message/table/technical name, use this FIRST for questions about its relations, identity, implementation/source availability, emitted messages, called functions, usage, or related technical objects. Set verificationMode="implementation" when the requested answer depends on source code/implementation details such as ABAP body, SELECTs, MESSAGE statements, parameters/types, or algorithm. Set verificationMode="relation" for relation/identity questions. Also choose resultMode explicitly: resultMode="preview" when the user asks for a few/examples/representative/bounded subset; resultMode="complete" when they ask for the whole related set or do not bound an inventory. The executor enforces this primary-model cardinality, including when a technical reference resolves to a large message family. For implementation requests, the runtime verifies the resolved canonical object with get_abap_source before answering.',
       parameters: {
         ...tool.parameters,
         properties: {
@@ -21,10 +83,15 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
           verificationMode: {
             type: 'string',
             enum: ['relation', 'implementation'],
-            description: 'Primary-model semantic decision: relation for bounded identity/relationship lookup; implementation when source-code evidence is required.',
+            description: 'Primary-model semantic decision: relation for identity/relationship lookup; implementation when source-code evidence is required.',
+          },
+          resultMode: {
+            type: 'string',
+            enum: ['preview', 'complete'],
+            description: 'Primary-model cardinality decision: preview only for explicitly bounded/few/example requests; complete for the full related inventory.',
           },
         },
-        required: [...new Set([...(tool.parameters?.required || []), 'verificationMode'])],
+        required: [...new Set([...(tool.parameters?.required || []), 'verificationMode', 'resultMode'])],
         additionalProperties: false,
       },
     }
