@@ -25,6 +25,8 @@ type SufficiencyState = {
   messageCount: number
   mode: 'none' | 'preview' | 'complete_pending' | 'authoritative'
   familyTotal?: number
+  familyPrefix?: string
+  familyObjectType?: string
 }
 
 const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState => {
@@ -32,6 +34,8 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
   const seen = new Set<string>()
   let mode: SufficiencyState['mode'] = 'none'
   let familyTotal: number | undefined
+  let familyPrefix: string | undefined
+  let familyObjectType: string | undefined
 
   for (const item of items || []) {
     if (String(item?.type || '') !== 'function_call_output') continue
@@ -76,9 +80,16 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
         ? 'complete'
         : 'preview'
       const families = Array.isArray(payload?.catalogFamilies) ? payload.catalogFamilies : []
-      const largestFamily = families.reduce((max: number, family: any) => Math.max(max, Number(family?.totalCount || 0)), 0)
-      familyTotal = largestFamily || familyTotal
-      mode = requestedMode === 'complete' && largestFamily > seen.size
+      const largestFamily = families.reduce((best: any, family: any) => (
+        Number(family?.totalCount || 0) > Number(best?.totalCount || 0) ? family : best
+      ), null)
+      const largestCount = Number(largestFamily?.totalCount || 0)
+      if (largestCount > 0) {
+        familyTotal = largestCount
+        familyPrefix = String(largestFamily?.prefix || '').trim() || familyPrefix
+        familyObjectType = String(largestFamily?.objectType || 'message').trim() || familyObjectType
+      }
+      mode = requestedMode === 'complete' && largestCount > seen.size
         ? 'complete_pending'
         : requestedMode === 'complete'
           ? 'authoritative'
@@ -86,7 +97,7 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
     }
   }
 
-  return { messageCount: seen.size, mode, familyTotal }
+  return { messageCount: seen.size, mode, familyTotal, familyPrefix, familyObjectType }
 }
 
 const KNOWLEDGE_DISCOVERY_TOOLS = new Set([
@@ -111,18 +122,50 @@ const restrictKnowledgeTools = (
   return mode === 'complete_pending' && name === 'list_knowledge_catalog'
 })
 
+const syntheticCompleteEnumeration = (input: any, state: SufficiencyState): NormalizedModelResponse | null => {
+  if (state.mode !== 'complete_pending' || !state.familyPrefix) return null
+  const callId = `evidence-complete:${crypto.randomUUID()}`
+  return {
+    id: `jetwork-evidence-complete:${crypto.randomUUID()}`,
+    status: 'completed',
+    model: String(input.model || 'gemini-3.5-flash'),
+    output: [{
+      type: 'function_call',
+      name: 'list_knowledge_catalog',
+      call_id: callId,
+      arguments: JSON.stringify({
+        objectType: state.familyObjectType || 'message',
+        prefix: state.familyPrefix,
+        cursor: null,
+        limit: 25,
+        responseMode: 'complete',
+      }),
+    }],
+    usage: {
+      evidence_sufficiency_gate: 1,
+      evidence_sufficiency_mode_complete_pending: 1,
+      evidence_sufficiency_message_records: state.messageCount,
+      evidence_sufficiency_family_total: state.familyTotal || 0,
+      deterministic_complete_cardinality_dispatch: 1,
+      deterministic_provider_calls_avoided: 1,
+    },
+  } as NormalizedModelResponse
+}
+
 export async function requestGeminiResponse(input: any): Promise<NormalizedModelResponse> {
   const state = evidenceState(input.items || [])
   if (!input.allowTools || state.messageCount < 2 || state.mode === 'none') return guardedRequest(input)
 
-  const reducedTools = restrictKnowledgeTools(input.tools || [], state.mode)
-  const modeInstruction = state.mode === 'complete_pending'
-    ? `\n\n[JETWORK EVIDENCE SUFFICIENCY]\nYou already chose resultMode="complete" for the structured catalog search. The verified preview belongs to a larger family${state.familyTotal ? ` of ${state.familyTotal} records` : ''}. Research may continue only with list_knowledge_catalog. Call that tool to obtain the authoritative complete family before finalizing. Do not switch back to document or semantic discovery.`
-    : `\n\n[JETWORK EVIDENCE SUFFICIENCY]\nVerified message evidence is sufficient for the cardinality you already chose. Research is finished for this turn. Do not call additional knowledge discovery tools. Answer only from the verified evidence already present.`
+  // The primary model already made the semantic decision by setting
+  // resultMode="complete". Deterministically executing that declared decision is
+  // orchestration, not semantic classification, and avoids another LLM round.
+  const completeDispatch = syntheticCompleteEnumeration(input, state)
+  if (completeDispatch) return completeDispatch
 
+  const reducedTools = restrictKnowledgeTools(input.tools || [], state.mode)
   const response = await guardedRequest({
     ...input,
-    instructions: `${input.instructions}${modeInstruction}`,
+    instructions: `${input.instructions}\n\n[JETWORK EVIDENCE SUFFICIENCY]\nVerified message evidence is sufficient for the cardinality already chosen by the primary model. Research is finished for this turn. Do not call additional knowledge discovery tools. Answer only from the verified evidence already present.`,
     tools: reducedTools,
     allowTools: reducedTools.length > 0,
   })
@@ -134,7 +177,7 @@ export async function requestGeminiResponse(input: any): Promise<NormalizedModel
       evidence_sufficiency_gate: 1,
       evidence_sufficiency_message_records: state.messageCount,
       evidence_sufficiency_mode_preview: state.mode === 'preview' ? 1 : 0,
-      evidence_sufficiency_mode_complete_pending: state.mode === 'complete_pending' ? 1 : 0,
+      evidence_sufficiency_mode_complete_pending: 0,
       evidence_sufficiency_mode_authoritative: state.mode === 'authoritative' ? 1 : 0,
       evidence_sufficiency_family_total: state.familyTotal || 0,
       evidence_sufficiency_discovery_tools_removed: Math.max(0, (input.tools || []).length - reducedTools.length),
