@@ -13,7 +13,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   if (name === 'search_knowledge_catalog') {
     return {
       ...tool,
-      description: 'Search the published structured knowledge catalog for technical or catalog evidence such as messages/errors, classes, methods, functions, tables, components, services, identifiers and bounded object families. Prefer this tool over search_document when the user asks which technical records/errors/messages/objects exist or are related. Set resultMode="preview" for examples/representative/bounded answers. Set resultMode="complete" when the natural answer must cover the full matching inventory. The semantic cardinality decision belongs to the primary model; the executor only enforces it.',
+      description: 'Search the published structured knowledge catalog for technical/catalog evidence such as messages/errors, classes, methods, functions, tables, components, services, identifiers and object families. Prefer this over search_document for technical inventories. Cardinality rule for the PRIMARY MODEL: choose resultMode="complete" for open-ended inventory questions such as “hangi/neler hata mesajları var?”, “hangi mesajları üretiyor?”, “what errors/messages exist?”, or other requests whose answer is naturally the matching set. Choose resultMode="preview" ONLY when the user explicitly asks for a few/examples/representative/sample/short subset or otherwise clearly bounds the amount. Once preview is chosen and verified familyPreview is sufficient, do not later change the same turn to complete unless the user explicitly requested completeness. The executor never infers cardinality from keywords; it only enforces this model-selected field.',
     }
   }
 
@@ -27,7 +27,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = baseTools.map((tool: any) => {
   if (name === 'list_knowledge_catalog') {
     return {
       ...tool,
-      description: 'Enumerate a published catalog family or bounded object set after structured discovery identifies the family. Set responseMode="preview" only for a bounded page. Set responseMode="complete" when the primary model previously chose complete cardinality or the requested answer must include the authoritative whole set. Do not replace a sufficient verified preview with exhaustive enumeration when resultMode was preview.',
+      description: 'Enumerate a published catalog family or bounded object set after structured discovery identifies the family. Use responseMode="complete" when the primary model chose complete cardinality for the inventory. Use responseMode="preview" only when the user explicitly requested a bounded subset. If the same turn already has sufficient verified preview evidence and resultMode was preview, do not paginate or enumerate more records.',
     }
   }
 
