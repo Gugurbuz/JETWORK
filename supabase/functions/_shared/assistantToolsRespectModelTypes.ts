@@ -27,18 +27,107 @@ const uniqueSources = (sources: any[]) => {
   })
 }
 
+const compactPreviewRecord = (item: any, family?: any) => ({
+  scope: item?.scope,
+  canonicalKey: item?.canonicalKey,
+  objectType: item?.objectType,
+  name: item?.name,
+  title: item?.title,
+  summary: item?.summary,
+  sourceId: item?.sourceId,
+  sourceName: item?.sourceName,
+  citationReady: true,
+  ...(family ? { catalogFamily: family } : {}),
+})
+
+const sourceFor = (record: any) => ({
+  sourceId: record?.sourceId,
+  sourceName: record?.sourceName || 'Kurumsal bilgi kaynağı',
+  canonicalKey: record?.canonicalKey,
+  objectType: record?.objectType,
+  title: record?.title || record?.name,
+})
+
+async function exactFallbackPreview(
+  client: any,
+  workspaceId: string,
+  args: Record<string, unknown>,
+  discovery: AssistantToolExecution,
+): Promise<AssistantToolExecution | null> {
+  const query = String(args.query || '').trim()
+  if (!query) return null
+  const requestedTypes = Array.isArray(args.objectTypes) ? args.objectTypes : null
+  if (!requestedTypes?.length) return null
+
+  const exact = await productionExecuteAssistantTool(client, workspaceId, 'get_objects_by_technical_reference', {
+    technicalReference: query,
+    objectTypes: requestedTypes,
+  })
+  const exactPayload: any = parse(exact.output)
+  const recordContainer = exactPayload?.records
+  const exactItems = Array.isArray(recordContainer)
+    ? recordContainer
+    : Array.isArray(recordContainer?.items)
+      ? recordContainer.items
+      : []
+  if (!exactItems.length) return null
+
+  const totalCount = Number(recordContainer?.totalCount || exact.summary?.totalCount || exactItems.length)
+  const familyLike = Boolean(exact.summary?.exactFamilyEnumeration || recordContainer?.totalCount)
+  const family = familyLike
+    ? {
+      prefix: query.toUpperCase(),
+      objectType: requestedTypes.length === 1 ? String(requestedTypes[0]) : 'mixed',
+      totalCount,
+      previewCount: Math.min(8, exactItems.length),
+      complete: totalCount <= Math.min(8, exactItems.length),
+    }
+    : null
+  const preview = exactItems.slice(0, 8).map((item: any) => compactPreviewRecord(item, family))
+  const previewSources = preview.map(sourceFor)
+
+  return {
+    ...discovery,
+    output: JSON.stringify({
+      securityNotice: 'VERIFIED_KNOWLEDGE_DATA.',
+      tool: 'search_knowledge_catalog',
+      records: preview,
+      catalogFamilies: family ? [family] : [],
+      familyPreview: family ? preview : [],
+      familyPreviewNotice: family
+        ? 'These are verified representative records from a larger exact catalog family. Use them directly for examples. Enumerate the family only if the user requests all/count/exhaustive output.'
+        : undefined,
+      recoveredFromTypedSearchZeroHit: true,
+    }),
+    sources: uniqueSources([...(exact.sources || []), ...previewSources]),
+    summary: {
+      ...(discovery.summary || {}),
+      resultCount: preview.length,
+      candidateSourceCount: preview.length,
+      citationReady: true,
+      verifiedPublishedSourceCount: preview.length,
+      catalogFamilyCount: family ? 1 : 0,
+      catalogFamilyPreviewRecords: family ? preview.length : 0,
+      catalogFamilyTotalCount: family ? totalCount : undefined,
+      primaryModelObjectTypesRespected: 1,
+      recoveredFromTypedSearchZeroHit: 1,
+    },
+  }
+}
+
 async function verifiedTypedSearch(
   client: any,
   workspaceId: string,
   args: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
-  // The lower-level search implementation honors objectTypes. The production
-  // relation wrapper currently replaces them with null; this adapter preserves
-  // the primary model's explicit tool choice and then exact-verifies candidates.
+  // Preserve the primary model's explicit objectTypes instead of broadening to
+  // the full catalog. Candidates are exact-verified before becoming citation-ready.
   const discovery = await technicalBaseExecuteAssistantTool(client, workspaceId, 'search_knowledge_catalog', args)
   const payload: any = parse(discovery.output)
   const candidates = Array.isArray(payload?.records) ? payload.records : []
-  if (!candidates.length) return discovery
+  if (!candidates.length) {
+    return await exactFallbackPreview(client, workspaceId, args, discovery) || discovery
+  }
 
   const verified: any[] = []
   const sources: any[] = []
@@ -65,15 +154,11 @@ async function verifiedTypedSearch(
       citationReady: true,
     }
     verified.push(record)
-    sources.push({
-      sourceId: record.sourceId,
-      sourceName: record.sourceName,
-      canonicalKey: record.canonicalKey,
-      objectType: record.objectType,
-      title: record.title,
-    })
+    sources.push(sourceFor(record))
   }
-  if (!verified.length) return discovery
+  if (!verified.length) {
+    return await exactFallbackPreview(client, workspaceId, args, discovery) || discovery
+  }
 
   const families: any[] = []
   const familyPreview: any[] = []
@@ -85,11 +170,11 @@ async function verifiedTypedSearch(
     if (prefix) familyKeys.set(`message|${prefix.toLowerCase()}`, { prefix, objectType: 'message' })
   }
 
-  for (const family of [...familyKeys.values()].slice(0, 2)) {
+  for (const familyKey of [...familyKeys.values()].slice(0, 2)) {
     const { data, error } = await client.rpc('list_knowledge_catalog_v2', {
       p_workspace_id: workspaceId,
-      p_object_type: family.objectType,
-      p_prefix: family.prefix,
+      p_object_type: familyKey.objectType,
+      p_prefix: familyKey.prefix,
       p_cursor: null,
       p_limit: 8,
     })
@@ -98,34 +183,17 @@ async function verifiedTypedSearch(
     const totalCount = Number((data as any).totalCount || items.length)
     if (totalCount <= 1 || !items.length) continue
     const metadata = {
-      prefix: family.prefix,
-      objectType: family.objectType,
+      prefix: familyKey.prefix,
+      objectType: familyKey.objectType,
       totalCount,
       previewCount: items.length,
       complete: items.length >= totalCount,
     }
     families.push(metadata)
     for (const item of items) {
-      const preview = {
-        scope: item?.scope,
-        canonicalKey: item?.canonicalKey,
-        objectType: item?.objectType,
-        name: item?.name,
-        title: item?.title,
-        summary: item?.summary,
-        sourceId: item?.sourceId,
-        sourceName: item?.sourceName,
-        citationReady: true,
-        catalogFamily: metadata,
-      }
+      const preview = compactPreviewRecord(item, metadata)
       familyPreview.push(preview)
-      familyPreviewSources.push({
-        sourceId: preview.sourceId,
-        sourceName: preview.sourceName || 'Kurumsal bilgi kaynağı',
-        canonicalKey: preview.canonicalKey,
-        objectType: preview.objectType,
-        title: preview.title || preview.name,
-      })
+      familyPreviewSources.push(sourceFor(preview))
     }
   }
 
