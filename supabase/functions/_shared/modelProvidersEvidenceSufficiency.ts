@@ -9,7 +9,7 @@ const parse = (value: unknown) => {
   try { return typeof value === 'string' ? JSON.parse(value) : value } catch { return null }
 }
 
-const CARDINALITY_CONTRACT = `\n\n[JETWORK PRIMARY INVENTORY CARDINALITY]\nFor structured technical catalog questions, you decide cardinality explicitly in search_knowledge_catalog.resultMode. If the user asks an open-ended inventory question such as which errors/messages/records exist, with no explicit bound, choose resultMode="complete". Choose resultMode="preview" only when the user explicitly asks for a few/examples/representative/sample/short subset or otherwise gives a bounded amount. Keep that semantic choice stable within the same turn. A later search in the same turn must not change preview to complete unless the user's request itself requires completeness.`
+const CARDINALITY_CONTRACT = `\n\n[JETWORK PRIMARY INVENTORY CARDINALITY]\nFor structured technical catalog questions, you decide cardinality explicitly in search_knowledge_catalog.resultMode. If the user asks an open-ended inventory question such as which errors/messages/records exist, with no explicit bound, choose resultMode="complete". Choose resultMode="preview" only when the user explicitly asks for a few/examples/representative/sample/short subset or otherwise gives a bounded amount. Keep that semantic choice stable within the same turn. A later search in the same turn must not change the chosen cardinality.`
 
 const callsById = (items: Array<Record<string, unknown>>) => {
   const calls = new Map<string, { name: string; args: any }>()
@@ -27,6 +27,48 @@ const recordList = (payload: any): any[] => {
   if (Array.isArray(payload?.records)) return payload.records
   if (Array.isArray(payload?.records?.items)) return payload.records.items
   return []
+}
+
+const normalizeIdentifier = (value: unknown) => String(value || '')
+  .toLocaleLowerCase('en-US')
+  .replace(/[^a-z0-9]+/g, '')
+
+const canonicalLeaf = (key: unknown) => {
+  const body = String(key || '').split(':').slice(1).join(':')
+  return body.split('/').pop() || body
+}
+
+const pendingImplementationVerification = (items: Array<Record<string, unknown>>) => {
+  const calls = callsById(items)
+  const fetched = new Set<string>()
+  for (const call of calls.values()) {
+    if (call.name === 'get_abap_source') {
+      const key = String(call.args?.canonicalKey || '').trim()
+      if (key) fetched.add(key)
+    }
+  }
+
+  for (const item of items || []) {
+    if (String(item?.type || '') !== 'function_call_output') continue
+    const call = calls.get(String(item.call_id || ''))
+    if (!call || call.name !== 'get_objects_by_technical_reference') continue
+    if (String(call.args?.verificationMode || '') !== 'implementation') continue
+
+    const payload: any = parse(item.output)
+    const records = recordList(payload).filter((record: any) => (
+      ['method', 'function', 'class'].includes(String(record?.objectType || ''))
+      && String(record?.canonicalKey || '').trim()
+    ))
+    if (!records.length) continue
+
+    const target = normalizeIdentifier(call.args?.technicalReference)
+    const exact = records.find((record: any) => normalizeIdentifier(canonicalLeaf(record?.canonicalKey)) === target)
+      || records.find((record: any) => normalizeIdentifier(record?.name) === target)
+      || records[0]
+    const key = String(exact?.canonicalKey || '').trim()
+    if (key && !fetched.has(key)) return key
+  }
+  return null
 }
 
 const pendingDocumentVerification = (items: Array<Record<string, unknown>>) => {
@@ -57,6 +99,40 @@ const pendingDocumentVerification = (items: Array<Record<string, unknown>>) => {
 
   if (!latestSingleCandidate || fetched.has(latestSingleCandidate)) return null
   return latestSingleCandidate
+}
+
+const firstSearchCardinality = (items: Array<Record<string, unknown>>) => {
+  for (const item of items || []) {
+    if (String(item?.type || '') !== 'function_call' || String(item?.name || '') !== 'search_knowledge_catalog') continue
+    const args: any = parse(item.arguments) || {}
+    const mode = String(args?.resultMode || '')
+    if (mode === 'preview' || mode === 'complete') return mode
+  }
+  return null
+}
+
+const enforceSearchCardinality = (
+  response: NormalizedModelResponse,
+  lockedMode: string | null,
+): NormalizedModelResponse => {
+  if (!lockedMode) return response
+  let rewrites = 0
+  const output = (response.output || []).map((item: any) => {
+    if (item?.type !== 'function_call' || item?.name !== 'search_knowledge_catalog') return item
+    const args: any = parse(item.arguments) || {}
+    if (String(args?.resultMode || '') === lockedMode) return item
+    rewrites += 1
+    return { ...item, arguments: JSON.stringify({ ...args, resultMode: lockedMode }) }
+  })
+  if (!rewrites) return response
+  return {
+    ...response,
+    output,
+    usage: {
+      ...(response.usage || {}),
+      deterministic_cardinality_mode_lock: rewrites,
+    },
+  }
 }
 
 type SufficiencyState = {
@@ -95,7 +171,6 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
     if (!verifiedSearch && !authoritativeExact) continue
 
     const records = recordList(payload)
-
     for (const record of records) {
       if (String(record?.objectType || '') !== 'message') continue
       const key = String(record?.canonicalKey || record?.title || record?.name || '').trim()
@@ -139,16 +214,8 @@ const evidenceState = (items: Array<Record<string, unknown>>): SufficiencyState 
 }
 
 const KNOWLEDGE_DISCOVERY_TOOLS = new Set([
-  'search_knowledge_catalog',
-  'search_document',
-  'get_document_content',
-  'get_abap_source',
-  'get_message_detail',
-  'get_knowledge_object',
-  'get_related_objects',
-  'get_objects_by_technical_reference',
-  'list_class_inventory',
-  'list_knowledge_catalog',
+  'search_knowledge_catalog','search_document','get_document_content','get_abap_source','get_message_detail',
+  'get_knowledge_object','get_related_objects','get_objects_by_technical_reference','list_class_inventory','list_knowledge_catalog',
 ])
 
 const restrictKnowledgeTools = (
@@ -169,12 +236,7 @@ const syntheticToolCall = (
   id: `jetwork-synthetic-tool:${crypto.randomUUID()}`,
   status: 'completed',
   model: String(input.model || 'gemini-3.5-flash'),
-  output: [{
-    type: 'function_call',
-    name,
-    call_id: `synthetic:${crypto.randomUUID()}`,
-    arguments: JSON.stringify(args),
-  }],
+  output: [{ type: 'function_call', name, call_id: `synthetic:${crypto.randomUUID()}`, arguments: JSON.stringify(args) }],
   usage,
 } as NormalizedModelResponse)
 
@@ -200,6 +262,13 @@ export async function requestGeminiResponse(input: any): Promise<NormalizedModel
   const baseInstructions = `${input.instructions}${CARDINALITY_CONTRACT}`
 
   if (input.allowTools) {
+    const implementationKey = pendingImplementationVerification(input.items || [])
+    if (implementationKey) {
+      return syntheticToolCall(input, 'get_abap_source', { canonicalKey: implementationKey }, {
+        deterministic_implementation_verification_dispatch: 1,
+        deterministic_provider_calls_avoided: 1,
+      })
+    }
     const documentKey = pendingDocumentVerification(input.items || [])
     if (documentKey) {
       return syntheticToolCall(input, 'get_document_content', { canonicalKey: documentKey }, {
@@ -210,8 +279,10 @@ export async function requestGeminiResponse(input: any): Promise<NormalizedModel
   }
 
   const state = evidenceState(input.items || [])
+  const lockedMode = firstSearchCardinality(input.items || [])
   if (!input.allowTools || state.messageCount < 2 || state.mode === 'none') {
-    return guardedRequest({ ...input, instructions: baseInstructions })
+    const response = await guardedRequest({ ...input, instructions: baseInstructions })
+    return enforceSearchCardinality(response, lockedMode)
   }
 
   const completeDispatch = syntheticCompleteEnumeration(input, state)
@@ -225,10 +296,11 @@ export async function requestGeminiResponse(input: any): Promise<NormalizedModel
     allowTools: reducedTools.length > 0,
   })
 
+  const locked = enforceSearchCardinality(response, lockedMode)
   return {
-    ...response,
+    ...locked,
     usage: {
-      ...(response.usage || {}),
+      ...(locked.usage || {}),
       evidence_sufficiency_gate: 1,
       evidence_sufficiency_message_records: state.messageCount,
       evidence_sufficiency_mode_preview: state.mode === 'preview' ? 1 : 0,
