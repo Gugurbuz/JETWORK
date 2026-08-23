@@ -31,8 +31,25 @@ const normalizeEnumerationText = (value: string) => value
 
 const ENUMERATION_INTENT_PATTERN = /\b(?:hangi|hangileri|neler|nelerdir|liste|listele|listeleyin|tum|tumu|tumunu|hepsi|hepsini|kac|adet|var|all|list|show|enumerate|how many)\b/iu
 const ENUMERATION_OBJECT_PATTERN = /\b(?:metot\w*|metod\w*|method\w*|fonksiyon\w*|function\w*|class\w*|klas\w*|sinif\w*|object\w*|nesne\w*|mesaj\w*|message\w*)\b/iu
+const METHOD_TARGET_PATTERN = /\b(?:metot\w*|metod\w*|method\w*)\b/iu
+const FUNCTION_TARGET_PATTERN = /\b(?:fonksiyon\w*|function\w*)\b/iu
+const MESSAGE_TARGET_PATTERN = /\b(?:mesaj\w*|message\w*)\b/iu
+const CLASS_TARGET_PATTERN = /\b(?:class\w*|klas\w*|sinif\w*)\b/iu
 
-async function latestUserRequestsEnumeration(client: any, workspaceId: string) {
+type EnumerationContext = {
+  requested: boolean
+  targetObjectType: 'method' | 'function' | 'message' | 'class' | null
+}
+
+const enumerationTargetObjectType = (text: string): EnumerationContext['targetObjectType'] => {
+  if (METHOD_TARGET_PATTERN.test(text)) return 'method'
+  if (FUNCTION_TARGET_PATTERN.test(text)) return 'function'
+  if (MESSAGE_TARGET_PATTERN.test(text)) return 'message'
+  if (CLASS_TARGET_PATTERN.test(text)) return 'class'
+  return null
+}
+
+async function latestUserEnumerationContext(client: any, workspaceId: string): Promise<EnumerationContext> {
   const { data, error } = await client
     .from('messages')
     .select('text')
@@ -43,10 +60,35 @@ async function latestUserRequestsEnumeration(client: any, workspaceId: string) {
     .maybeSingle()
   if (error) {
     console.warn('TECHNICAL_REFERENCE_ENUMERATION_INTENT_LOOKUP_FAILED', String(error.message || error).slice(0, 300))
-    return false
+    return { requested: false, targetObjectType: null }
   }
   const text = normalizeEnumerationText(clean(data?.text, 4_000))
-  return Boolean(text && ENUMERATION_INTENT_PATTERN.test(text) && ENUMERATION_OBJECT_PATTERN.test(text))
+  const requested = Boolean(text && ENUMERATION_INTENT_PATTERN.test(text) && ENUMERATION_OBJECT_PATTERN.test(text))
+  return {
+    requested,
+    targetObjectType: requested ? enumerationTargetObjectType(text) : null,
+  }
+}
+
+const recordMatchesEnumerationScope = (
+  record: Record<string, any>,
+  enumeration: EnumerationContext,
+  technicalReference: string,
+) => {
+  if (!enumeration.requested || !enumeration.targetObjectType) return true
+  const objectType = clean(record.objectType, 80).toLocaleLowerCase('en-US')
+  if (objectType !== enumeration.targetObjectType) return false
+
+  // A class-method inventory is an ownership query, not a broad cross-reference
+  // query. Keep only methods whose canonical path is scoped to that exact class;
+  // methods from UNSCOPED_CLASS or another class can mention the class in source
+  // text but must not inflate the inventory count.
+  if (enumeration.targetObjectType === 'method' && /^Z[A-Z0-9_]+$/u.test(technicalReference)) {
+    const expectedPrefix = `method:${technicalReference.toLocaleLowerCase('en-US')}/`
+    return clean(record.canonicalKey, 500).toLocaleLowerCase('en-US').startsWith(expectedPrefix)
+  }
+
+  return true
 }
 
 const TECHNICAL_REFERENCE_TOOL = {
@@ -87,12 +129,13 @@ async function getObjectsByTechnicalReference(
   const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(Math.trunc(limitValue), 20)) : 12
   if (!technicalReference) throw new Error('technicalReference is required')
 
-  const exhaustiveEnumeration = await latestUserRequestsEnumeration(client, workspaceId)
+  const enumeration = await latestUserEnumerationContext(client, workspaceId)
+  const exhaustiveEnumeration = enumeration.requested
   const collectedRecords: Record<string, any>[] = []
   const seenRecords = new Set<string>()
   let pageOffset = 0
   let pageCount = 0
-  let totalCount = 0
+  let rawCandidateTotalCount = 0
   let directMatchCount = 0
   let crossReferenceCount = 0
   let relationNeighborCount = 0
@@ -125,7 +168,7 @@ async function getObjectsByTechnicalReference(
         JSON.stringify(record.relations || []),
       ].filter(Boolean).join('\n')
       return contentReferencesTechnicalReference(searchable, technicalReference)
-    })
+    }).filter((record: Record<string, any>) => recordMatchesEnumerationScope(record, enumeration, technicalReference))
 
     for (const record of pageRecords) {
       const key = clean(record.canonicalKey || record.name || JSON.stringify(record), 500)
@@ -136,7 +179,7 @@ async function getObjectsByTechnicalReference(
     }
 
     pageCount += 1
-    totalCount = Number(payload.totalCount || totalCount || rawRecords.length)
+    rawCandidateTotalCount = Number(payload.totalCount || rawCandidateTotalCount || rawRecords.length)
     directMatchCount = Number(payload.directMatchCount || directMatchCount)
     crossReferenceCount = Number(payload.crossReferenceCount || crossReferenceCount)
     relationNeighborCount = Number(payload.relationNeighborCount || relationNeighborCount)
@@ -177,6 +220,7 @@ async function getObjectsByTechnicalReference(
     }))
 
   const truncated = Boolean(nextCursor && (pageCount >= MAX_ENUMERATION_PAGES || records.length >= MAX_ENUMERATION_RECORDS))
+  const totalCount = exhaustiveEnumeration && !truncated ? records.length : rawCandidateTotalCount
 
   return {
     output: JSON.stringify({
@@ -185,9 +229,11 @@ async function getObjectsByTechnicalReference(
       records,
       pagination: {
         exhaustiveRequested: exhaustiveEnumeration,
+        targetObjectType: enumeration.targetObjectType,
         pageSize: limit,
         pagesFetched: pageCount,
         totalCount,
+        rawCandidateTotalCount,
         returnedCount: records.length,
         nextCursor: truncated ? nextCursor : null,
         truncated,
@@ -199,8 +245,10 @@ async function getObjectsByTechnicalReference(
       technicalReference,
       resultCount: records.length,
       totalCount,
+      rawCandidateTotalCount,
       pagesFetched: pageCount,
       exhaustiveEnumeration,
+      enumerationTargetObjectType: enumeration.targetObjectType,
       paginationTruncated: truncated,
       continuationAvailable: truncated,
       nextCursor: truncated ? nextCursor : null,
