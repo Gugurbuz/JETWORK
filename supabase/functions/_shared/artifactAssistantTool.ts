@@ -3,7 +3,14 @@ import {
   isArtifactExecutionTool,
   type ActionAttachmentRef,
 } from './artifactExecutionTools.ts'
-import type { AssistantToolExecution } from './assistantTools.ts'
+import type { AssistantGeneratedFileRef } from './executionTools.ts'
+
+export interface ArtifactAssistantToolExecution {
+  output: string
+  sources: []
+  summary: Record<string, unknown>
+  artifacts?: AssistantGeneratedFileRef[]
+}
 
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const ASSISTANT_FILES_BUCKET = 'assistant-files'
@@ -50,12 +57,19 @@ async function loadWorkspaceActionAttachments(client: any, workspaceId: string) 
   return [...byId.values()].slice(0, 20)
 }
 
+const artifactExecutorSlug = (request: { operation?: string; config?: Record<string, unknown> }) => (
+  request.operation === 'document_create'
+  && clean(request.config?.format, 10).toLocaleLowerCase('en-US') === 'docx'
+    ? 'docx-execute'
+    : 'artifact-execute'
+)
+
 export async function executeArtifactAssistantTool(
   client: any,
   workspaceId: string,
   toolName: string,
   args: Record<string, unknown>,
-): Promise<AssistantToolExecution> {
+): Promise<ArtifactAssistantToolExecution> {
   if (!isArtifactExecutionTool(toolName)) throw new Error(`Unknown artifact execution tool: ${toolName}`)
   const attachments = await loadWorkspaceActionAttachments(client, workspaceId)
   const requiresExistingFile = ['inspect_file_attachment', 'transform_pdf_file', 'edit_office_file'].includes(toolName)
@@ -68,7 +82,8 @@ export async function executeArtifactAssistantTool(
     workspaceId,
     attachments,
     invoke: async request => {
-      const { data, error } = await client.functions.invoke('artifact-execute', { body: request })
+      const functionSlug = artifactExecutorSlug(request)
+      const { data, error } = await client.functions.invoke(functionSlug, { body: request })
       if (error) {
         let detail = ''
         try {
@@ -76,9 +91,9 @@ export async function executeArtifactAssistantTool(
           const payload = context && typeof context.json === 'function' ? await context.json() : null
           detail = clean(payload?.error || payload?.message, 2_000)
         } catch { /* best effort */ }
-        throw new Error(detail || clean((error as any)?.message, 2_000) || 'Artifact worker çağrısı başarısız oldu.')
+        throw new Error(detail || clean((error as any)?.message, 2_000) || `${functionSlug} çağrısı başarısız oldu.`)
       }
-      if (!data || typeof data !== 'object') throw new Error('Artifact worker boş veya geçersiz sonuç döndürdü.')
+      if (!data || typeof data !== 'object') throw new Error(`${functionSlug} boş veya geçersiz sonuç döndürdü.`)
       const result = data as Record<string, unknown>
       if (result.error) throw new Error(clean(result.error, 2_000))
       return result

@@ -13,11 +13,15 @@ const migrationSource = readFileSync(
   new URL('../../../supabase/migrations/20260823164641_optimize_exact_reference_runtime_v4.sql', import.meta.url),
   'utf8',
 );
+const paginatedMigrationSource = readFileSync(
+  new URL('../../../supabase/migrations/20260823205300_paginate_technical_reference_lookup_v5.sql', import.meta.url),
+  'utf8',
+);
 
 describe('exact technical reference runtime latency path', () => {
-  it('uses one database RPC instead of a multi-roundtrip object/version/source scan', () => {
-    expect(technicalToolSource).toContain("client.rpc('lookup_knowledge_technical_reference_v4'");
-    expect(technicalToolSource).toContain('singleRpcLookup: true');
+  it('uses one database RPC per page instead of a multi-roundtrip object/version/source scan', () => {
+    expect(technicalToolSource).toContain("client.rpc('lookup_knowledge_technical_reference_v5'");
+    expect(technicalToolSource).toContain('singleRpcLookup: pageCount === 1');
     expect(technicalToolSource).not.toContain("client.from('knowledge_object_versions_v2')");
     expect(technicalToolSource).not.toContain("client.from('knowledge_objects_v2')");
   });
@@ -37,11 +41,11 @@ describe('exact technical reference runtime latency path', () => {
   });
 
   it('does not duplicate the runtime knowledge lookup in Auto preflight', () => {
-    expect(bridgeSource).not.toContain("client.rpc('lookup_knowledge_technical_reference_v4'");
+    expect(bridgeSource).not.toContain("client.rpc('lookup_knowledge_technical_reference_v5'");
     expect(bridgeSource).not.toContain('inspectEvidence');
     expect(bridgeSource).toContain("EvidenceState = 'deferred'");
     expect(bridgeSource).toContain('evidence_deferred_to_runtime');
-    expect(bridgeSource).toContain("ROUTER_VERSION = 'primary-bridge-runtime-evidence-v5'");
+    expect(bridgeSource).toContain("ROUTER_VERSION = 'primary-bridge-runtime-evidence-v6'");
   });
 
   it('focuses source refs only after the completed answer reveals actually used identifiers', () => {
@@ -63,11 +67,11 @@ describe('exact technical reference runtime latency path', () => {
   });
 
   it('keeps the lookup RLS-preserving and indexes exact-reference content candidates', () => {
-    expect(migrationSource).toContain('security invoker');
-    expect(migrationSource).toContain("search_document @@ plainto_tsquery('simple', p.ref)");
-    expect(migrationSource).toContain("upper(regexp_replace(o.canonical_key, '^.*[:/]', '')) = p.ref");
-    expect(migrationSource).toContain('revoke all on function public.lookup_knowledge_technical_reference_v4');
-    expect(migrationSource).toContain('grant execute on function public.lookup_knowledge_technical_reference_v4');
+    expect(paginatedMigrationSource).toContain('security invoker');
+    expect(paginatedMigrationSource).toContain("search_document @@ plainto_tsquery('simple', p.ref)");
+    expect(paginatedMigrationSource).toContain("upper(regexp_replace(o.canonical_key, '^.*[:/]', '')) = p.ref");
+    expect(paginatedMigrationSource).toContain('revoke all on function public.lookup_knowledge_technical_reference_v5');
+    expect(paginatedMigrationSource).toContain('grant execute on function public.lookup_knowledge_technical_reference_v5');
   });
 
   it('gives published synthetic graph endpoints structural provenance versions', () => {

@@ -27,6 +27,24 @@ import { isActionableExecutionAttachment } from './assistantFileRepository';
 const DEFAULT_TIMEOUT_MS = 150_000;
 const MAX_CHAT_ATTACHMENTS = 3;
 const MAX_CHAT_ATTACHMENT_CHARACTERS = 60_000;
+const TOOL_OUTPUT_MIME_BY_EXTENSION: Record<string, string> = {
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  csv: 'text/csv',
+  tsv: 'text/tab-separated-values',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  json: 'application/json',
+};
+const TOOL_OUTPUT_MIMES = new Set(Object.values(TOOL_OUTPUT_MIME_BY_EXTENSION));
 
 const runtimeEnv = (): Record<string, string | undefined> => ({
   ...(typeof process !== 'undefined' ? process.env : {}),
@@ -149,16 +167,19 @@ function asToolOutputAttachments(value: unknown): MessageAttachment[] {
       const candidate = item as Record<string, unknown>;
       const attachmentId = String(candidate.attachmentId || '').trim();
       const name = String(candidate.name || '').trim();
-      const mimeType = String(candidate.mimeType || '').trim();
+      const rawMimeType = String(candidate.mimeType || '').trim().toLocaleLowerCase('en-US');
       const storageBucket = String(candidate.storageBucket || '').trim();
       const storagePath = String(candidate.storagePath || '').trim();
       if (!attachmentId || !name || !storagePath || storageBucket !== 'assistant-files') return null;
-      if (!/\.xlsx$/i.test(name) && mimeType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return null;
       if (!storagePath.includes('/outputs/')) return null;
+      const extension = name.split('.').pop()?.toLocaleLowerCase('en-US') || '';
+      const inferredMimeType = TOOL_OUTPUT_MIME_BY_EXTENSION[extension];
+      if (!inferredMimeType && !TOOL_OUTPUT_MIMES.has(rawMimeType)) return null;
+      const mimeType = rawMimeType || inferredMimeType;
       return {
         attachmentId,
         name,
-        mimeType: mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        mimeType,
         purpose: 'tool_output',
         storageBucket,
         storagePath,
@@ -750,100 +771,79 @@ export async function streamAssistantResponse(input: {
         const canFallback = normalizerError instanceof AssistantRuntimeHttpError
           && (normalizerError.status === 404 || normalizerError.status === 503);
         if (!canFallback) throw normalizerError;
-        // Rolling-deploy safety: preserve the previous strict local validator only
-        // if the new normalizer endpoint is temporarily unavailable.
-        console.warn('Artifact Runtime v2 normalizer unavailable; using strict local fallback:', normalizerError);
-        await transitionArtifactTask(artifactTask?.id, 'persisting').catch(() => undefined);
+        console.warn('Artifact Runtime v2 unavailable; using local contract validation:', normalizerError);
+        const fallbackDraft = parseAssistantPresentationMetadata(normalizedRawText).visibleText;
+        const validation = validateEnerjisaDocumentContract(fallbackDraft);
+        if (!validation.valid) throw normalizerError;
       }
 
-      const persistenceLabel = effectiveDocumentRequestMode === 'revise'
-        ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
-        : 'BA Analiz dokümanı kaydediliyor...';
-      rememberExecutionLabel(persistenceLabel);
-      input.onStatus?.('answering', persistenceLabel);
-      const persisted = await persistAssistantDocument({
-        workspaceId: input.workspaceId,
-        messageId: input.messageId,
-        rawText: normalizedRawText,
-        provider,
-        model,
-      });
-      await transitionArtifactTask(artifactTask?.id, 'completed', {
+      await transitionArtifactTask(artifactTask?.id, 'persisting', {
         artifactPayload,
-        documentVersionNumber: persisted.versionNumber,
         errorMessage: null,
-      }).catch(error => console.warn('Artifact task completion could not be persisted:', error));
-
-      const displayText = effectiveDocumentRequestMode === 'revise'
-        ? (
-          persisted.versionNumber
-            ? `BA Analiz dokümanı güncellendi ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
-            : "BA Analiz dokümanı güncellendi ve Canvas'a kaydedildi."
-        )
-        : (
-          persisted.versionNumber
-            ? `BA Analiz dokümanı oluşturuldu ve Canvas'a v${persisted.versionNumber} olarak kaydedildi.`
-            : "BA Analiz dokümanı oluşturuldu ve Canvas'a kaydedildi."
-        );
-      input.onText?.(displayText);
-      const documentExecutionSummary = executionLabels.length
-        ? executionLabels.map(label => `• ${label}`).join('\n')
-        : executionSummary;
-      return {
-        text: displayText,
-        sources,
-        conversationId,
-        model,
-        provider,
-        fallbackUsed,
-        usage,
-        workSummary: documentExecutionSummary || presentation.workSummary,
-        questions: presentation.questions,
-        actionSummary: presentation.actionSummary || (
-          effectiveDocumentRequestMode === 'revise'
-            ? `Enerjisa analiz dokümanını güncelledim${persisted.versionNumber ? ` ve v${persisted.versionNumber} olarak kaydettim` : ''}.`
-            : `Enerjisa analiz dokümanını oluşturdum${persisted.versionNumber ? ` ve v${persisted.versionNumber} olarak kaydettim` : ''}.`
-        ),
-        documentCreated: true,
-        documentVersionNumber: persisted.versionNumber,
-      };
+      });
+      rememberExecutionLabel(effectiveDocumentRequestMode === 'revise'
+        ? 'BA Analiz dokümanı yeni sürüm olarak kaydediliyor...'
+        : 'BA Analiz dokümanı kaydediliyor...');
+      input.onStatus?.('answering', documentStageLabel(effectiveDocumentRequestMode, 'answering'));
+      try {
+        const persisted = await persistAssistantDocument({
+          workspaceId: input.workspaceId,
+          messageId: input.messageId,
+          rawText: normalizedRawText,
+          provider,
+          model,
+        });
+        await transitionArtifactTask(artifactTask?.id, 'completed', {
+          artifactPayload,
+          documentVersionNumber: persisted.versionNumber,
+          errorMessage: null,
+        });
+        const documentText = effectiveDocumentRequestMode === 'revise'
+          ? `BA Analiz dokümanı güncellendi ve Canvas'a v${persisted.versionNumber || 1} olarak kaydedildi.`
+          : `BA Analiz dokümanı oluşturuldu ve Canvas'a v${persisted.versionNumber || 1} olarak kaydedildi.`;
+        input.onText?.(documentText);
+        return {
+          text: documentText,
+          sources,
+          attachments,
+          conversationId,
+          model,
+          provider,
+          fallbackUsed,
+          usage,
+          workSummary: executionLabels.length
+            ? executionLabels.map(label => `• ${label}`).join('\n')
+            : executionSummary,
+          actionSummary: effectiveDocumentRequestMode === 'revise'
+            ? `Enerjisa analiz dokümanını güncelledim ve v${persisted.versionNumber || 1} olarak kaydettim.`
+            : `Enerjisa analiz dokümanını oluşturdum ve v${persisted.versionNumber || 1} olarak kaydettim.`,
+          documentCreated: true,
+          documentVersionNumber: persisted.versionNumber,
+        };
+      } catch (persistError) {
+        await transitionArtifactTask(artifactTask?.id, 'failed', {
+          artifactPayload,
+          errorMessage: persistError instanceof Error ? persistError.message : 'Doküman kaydedilemedi.',
+        }).catch(() => undefined);
+        throw persistError;
+      }
     }
 
-    if (shouldOpenAwaitingArtifactTask({
-      questions: presentation.questions,
-      text: presentation.visibleText || fullText,
-      actionSummary: presentation.actionSummary,
-    })) {
-      const mode: Exclude<AssistantDocumentRequestMode, 'none'> = useDocumentStore.getState().documentContent?.businessAnalysis?.content?.trim()
-        ? 'revise'
-        : 'create';
-      await ensureArtifactTask({
-        workspaceId: input.workspaceId,
-        requestMessageId: input.messageId,
-        requestText: input.message,
-        mode,
-        status: 'awaiting_input',
-      }).catch(error => console.warn('Awaiting artifact task could not be persisted:', error));
-    }
-
+    const finalText = presentation.visibleText;
+    input.onText?.(finalText);
     return {
-      text: presentation.visibleText,
+      text: finalText,
       sources,
+      attachments,
       conversationId,
       model,
       provider,
       fallbackUsed,
       usage,
-      attachments,
       workSummary: runtimeWorkSummary || presentation.workSummary,
       questions: presentation.questions,
       actionSummary: presentation.actionSummary,
     };
-  } catch (error) {
-    await transitionArtifactTask(artifactTask?.id, 'failed', {
-      errorMessage: error instanceof Error ? error.message.slice(0, 2000) : String(error).slice(0, 2000),
-    }).catch(() => undefined);
-    throw error;
   } finally {
     clearTimeout(timeout);
     input.signal?.removeEventListener('abort', abortFromParent);
