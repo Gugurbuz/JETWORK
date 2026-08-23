@@ -15,12 +15,20 @@ describe('post-retrieval evidence cascade', () => {
     expect(providerWrapperSource).toContain('messageIdentifiers.length > 1');
   });
 
+  it('finalizes complete relation evidence without reopening the same tool loop', () => {
+    expect(providerWrapperSource).toContain('finalizeFromEvidence: true');
+    expect(providerWrapperSource).toContain('input.allowTools && !contract.finalizeFromEvidence');
+    expect(providerWrapperSource).toContain('auto_runtime_evidence_finalized_without_more_tools = 1');
+    expect(providerWrapperSource).toContain('do not call additional tools just to reconfirm the same identifiers');
+  });
+
   it('validates evidence coverage after Flash and only then escalates to Pro', () => {
     expect(providerWrapperSource).toContain("const PRO_MODEL = 'gemini-3.1-pro-preview'");
     expect(providerWrapperSource).toContain('firstCoverage < expectedCount');
     expect(providerWrapperSource).toContain('effectiveModel === FLASH_MODEL');
     expect(providerWrapperSource).toContain('auto_runtime_flash_coverage_failed: 1');
     expect(providerWrapperSource).toContain('auto_runtime_escalated_pro: 1');
+    expect(providerWrapperSource).toContain('callModel(PRO_MODEL, false)');
   });
 
   it('does not use answer-text failure phrases as the escalation signal', () => {
@@ -30,10 +38,12 @@ describe('post-retrieval evidence cascade', () => {
     expect(providerWrapperSource).toContain('expectedIdentifiers');
   });
 
-  it('drops stale prior turn state for self-contained exact-identifier requests', () => {
+  it('drops stale state for self-contained identifiers and bounds contextual follow-ups to the latest technical anchor', () => {
     expect(providerWrapperSource).toContain('hygienicProviderItems');
     expect(providerWrapperSource).toContain('technicalIdentifiers(latestUserText)');
     expect(providerWrapperSource).toContain('return items.slice(index)');
+    expect(providerWrapperSource).toContain('for (let previous = index - 1; previous >= 0; previous -= 1)');
+    expect(providerWrapperSource).toContain('return items.slice(previous)');
     expect(providerWrapperSource).toContain('currentTurnItems');
   });
 });
