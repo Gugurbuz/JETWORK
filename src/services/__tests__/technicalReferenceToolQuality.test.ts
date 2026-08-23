@@ -6,7 +6,7 @@ const toolSource = readFileSync(
   'utf8',
 );
 const migrationSource = readFileSync(
-  new URL('../../../supabase/migrations/20260823164641_optimize_exact_reference_runtime_v4.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260823205300_paginate_technical_reference_lookup_v5.sql', import.meta.url),
   'utf8',
 );
 const semanticSource = readFileSync(
@@ -19,6 +19,20 @@ const contentReferencesTechnicalReference = (content: string, technicalReference
   const ref = technicalReference.trim().toLocaleUpperCase('en-US');
   const pattern = new RegExp(`(^|[^A-Z0-9_-]|/)${escapeRegex(ref)}(?=$|->|[^A-Z0-9_-]|/)`, 'u');
   return pattern.test(content.toLocaleUpperCase('en-US'));
+};
+
+const normalizeEnumerationText = (value: string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[!?.,;:]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+const enumerationIntent = (value: string) => {
+  const text = normalizeEnumerationText(value);
+  return /\b(?:hangi|hangileri|neler|nelerdir|liste|listele|listeleyin|tum|tumu|tumunu|hepsi|hepsini|kac|adet|var|all|list|show|enumerate|how many)\b/iu.test(text)
+    && /\b(?:metot\w*|metod\w*|method\w*|fonksiyon\w*|function\w*|class\w*|klas\w*|sinif\w*|object\w*|nesne\w*|mesaj\w*|message\w*)\b/iu.test(text);
 };
 
 describe('generic technical-reference evidence capability', () => {
@@ -35,14 +49,36 @@ describe('generic technical-reference evidence capability', () => {
     expect(toolSource).toContain("const pattern = new RegExp(`(^|[^A-Z0-9_-]|/)${escapeRegex(ref)}(?=$|->|[^A-Z0-9_-]|/)`, 'u')");
   });
 
+  it('treats limit as page size and automatically exhausts technical-reference inventory requests', () => {
+    expect(enumerationIntent('hangi metotlar var bu klasta')).toBe(true);
+    expect(enumerationIntent('bu class içindeki tüm methodları listele')).toBe(true);
+    expect(enumerationIntent('ZCL_ORDER_SAVE_QUOTATIONS nedir')).toBe(false);
+    expect(toolSource).toContain('MAX_ENUMERATION_RECORDS = 100');
+    expect(toolSource).toContain('latestUserRequestsEnumeration');
+    expect(toolSource).toContain("client.rpc('lookup_knowledge_technical_reference_v5'");
+    expect(toolSource).toContain('p_offset: pageOffset');
+    expect(toolSource).toContain('automaticEnumerationPagination: exhaustiveEnumeration');
+    expect(toolSource).toContain('continuationAvailable: truncated');
+    expect(migrationSource).toContain("'totalCount'");
+    expect(migrationSource).toContain("'nextCursor'");
+    expect(migrationSource).toContain('limit (select lim from params)');
+    expect(migrationSource).toContain('offset (select off from params)');
+  });
+
+  it('keeps normal exact technical-reference lookups bounded to one page', () => {
+    expect(toolSource).toContain('if (!exhaustiveEnumeration || !nextCursor) break');
+    expect(toolSource).toContain('singleRpcLookup: pageCount === 1');
+    expect(toolSource).toContain("limit: { type: ['integer','null'], minimum: 1, maximum: 20");
+  });
+
   it('adds one generic model-selectable tool and keeps publication filtering in the RLS-preserving RPC', () => {
     expect(toolSource).toContain("name: 'get_objects_by_technical_reference'");
     expect(toolSource).toContain('...original.ASSISTANT_KNOWLEDGE_TOOLS');
     expect(toolSource).toContain('technicalReference');
     expect(toolSource).toContain('objectTypes');
-    expect(toolSource).toContain("client.rpc('lookup_knowledge_technical_reference_v4'");
     expect(migrationSource).toContain("o.publication_status = 'published'");
     expect(migrationSource).toContain('o.published_version_id');
+    expect(migrationSource).toContain('security invoker');
     expect(toolSource).toContain('deterministicTechnicalReferenceLookup: true');
     expect(toolSource).toContain('return original.executeAssistantTool(client, workspaceId, toolName, rawArguments)');
   });
