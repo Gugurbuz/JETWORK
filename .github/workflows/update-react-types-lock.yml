@@ -1,0 +1,46 @@
+name: Generate React type lock
+
+on:
+  push:
+    branches:
+      - agent/sidebar-key-types
+
+permissions:
+  contents: write
+
+jobs:
+  update-lock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/sidebar-key-types
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Add direct React type dependencies
+        run: pnpm add -D @types/react@19.2.17 @types/react-dom@19.2.3
+
+      - name: Commit lockfile update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "fix: declare React type dependencies"
+          git push origin HEAD:agent/sidebar-key-types
