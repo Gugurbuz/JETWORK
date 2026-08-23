@@ -141,6 +141,19 @@ async function routeAuto(input:{apiKey:string;message:string;context:string;atta
 const numericUsage = (value:unknown) => { const out:Record<string,number>={}; if(!value||typeof value!=='object'||Array.isArray(value))return out; for(const[k,v]of Object.entries(value as Record<string,unknown>)){const n=Number(v);if(Number.isFinite(n))out[k]=n}return out }
 const addUsage = (...values:Array<Record<string,number>|undefined>) => { const out:Record<string,number>={}; for(const value of values)for(const[k,n]of Object.entries(value||{}))if(Number.isFinite(n))out[k]=(out[k]||0)+n; return out }
 const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))
+
+async function alignAutoConversationModel(input:{supabaseUrl:string;serviceRoleKey:string;workspaceId:string;routedModel:RoutedModel}) {
+  if(!input.workspaceId||!input.serviceRoleKey)return
+  const admin=createClient(input.supabaseUrl,input.serviceRoleKey,{auth:{persistSession:false}})
+  const { error } = await admin
+    .from('assistant_conversations')
+    .update({model:input.routedModel})
+    .eq('workspace_id',input.workspaceId)
+    .eq('status','active')
+    .neq('model',input.routedModel)
+  if(error)throw error
+}
+
 async function persistRouteTelemetry(input:{supabaseUrl:string;serviceRoleKey:string;workspaceId:string;messageId:string;route:RouteDecision}) {
   if(!input.workspaceId||!input.messageId)return
   const admin=createClient(input.supabaseUrl,input.serviceRoleKey,{auth:{persistSession:false}})
@@ -194,6 +207,10 @@ Deno.serve(async(req:Request)=>{
     try{route=await routeAuto({apiKey:geminiApiKey,message,context,attachments:Array.isArray(body.chatAttachments)?body.chatAttachments.slice(0,3):[],evidence})}
     catch(error){console.warn('PRIMARY_BRIDGE_AUTO_ROUTER_FAILED_KEEP_FLASH',String(error).slice(0,500));route={routedModel:FLASH_MODEL,decision:'USE_FLASH',usage:{inputTokens:0,outputTokens:0,reasoningTokens:0,totalTokens:0,estimatedCostUsd:0},evidenceState:evidence.state,reasons:['router_error_flash_fallback']}}
     forwardedBody={...body,model:route.routedModel,autoRouted:true}
+    if(serviceRoleKey){
+      try{await alignAutoConversationModel({supabaseUrl,serviceRoleKey,workspaceId,routedModel:route.routedModel})}
+      catch(error){console.warn('PRIMARY_BRIDGE_AUTO_CONVERSATION_ALIGN_FAILED',String(error).slice(0,500))}
+    }
     console.info('PRIMARY_BRIDGE_EVIDENCE_ROUTE',JSON.stringify({version:ROUTER_VERSION,messageId,workspaceId,routedModel:route.routedModel,decision:route.decision,evidenceState:route.evidenceState,reasons:route.reasons}))
   }
   let upstream:Response
