@@ -30,6 +30,11 @@ describe('post-retrieval evidence cascade', () => {
     expect(providerWrapperSource).toContain("!['function_call', 'function_call_output'].includes");
   });
 
+  it('keeps single-relation follow-ups concise instead of replaying prior enumerations', () => {
+    expect(providerWrapperSource).toContain('answer that relation directly in at most two short sentences');
+    expect(providerWrapperSource).toContain('do not repeat earlier enumerations, parameter lists, conditions');
+  });
+
   it('validates evidence coverage after Flash and only then escalates to Pro with the same evidence packet', () => {
     expect(providerWrapperSource).toContain("const PRO_MODEL = 'gemini-3.1-pro-preview'");
     expect(providerWrapperSource).toContain('firstCoverage < expectedCount');
