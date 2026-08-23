@@ -5,11 +5,71 @@ import {
 
 export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/58f99ff6c8c130859bf4cf705d4d0add2eb28cd0/supabase/functions/_shared/modelProviders.ts?authoritative-terminal-base=1'
 
+const LITE_MODEL = 'gemini-3.5-flash-lite'
+const FLASH_MODEL = 'gemini-3.5-flash'
+const PRO_MODEL = 'gemini-3.1-pro-preview'
+const TECHNICAL_IDENTIFIER = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/gu
+const EXPLICIT_CONTEXT_DEPENDENCY = /(?:az önce|az once|önceki|onceki|yukarıdaki|yukaridaki|bahsettiğin|bahsettigin|dediğin|dedigin|aynı|ayni|ikinci|üçüncü|ucuncu|devam|peki)/iu
+const MESSAGE_ENUMERATION_INTENT = /(?:hangi\s+mesaj|mesaj(?:ları|lari)?\s+(?:üret|uret)|messages?|emits?|produces?)/iu
+const FUNCTION_RELATION_INTENT = /(?:hangi\s+fonksiyon|fonksiyon(?:u|ları|lari)?\s+çağır|fonksiyon(?:u|ları|lari)?\s+cagir|calls?\s+(?:which|what)?\s*function)/iu
+const GENERIC_RELATION_INTENT = /(?:hangi\s+(?:metot|method|tablo|servis)|çağır|cagir|calls?|kullan|uses?|ilişki|iliski|bağlı|bagli|depends?)/iu
+
 const clean = (value: unknown, max = 20_000) => String(value ?? '').trim().slice(0, max)
 
-const latestAuthoritativePayload = (items: Array<Record<string, unknown>>) => {
+const itemText = (item: Record<string, unknown>): string => {
+  if (typeof item.content === 'string') return item.content
+  if (Array.isArray(item.content)) {
+    return item.content.map(part => {
+      if (typeof part === 'string') return part
+      if (part && typeof part === 'object') {
+        const record = part as Record<string, unknown>
+        return clean(record.text ?? record.content, 20_000)
+      }
+      return ''
+    }).filter(Boolean).join('\n')
+  }
+  return ''
+}
+
+const latestUserIndex = (items: Array<Record<string, unknown>>) => {
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]
+    if (items[index]?.role === 'user') return index
+  }
+  return -1
+}
+
+const currentTurnItems = (items: Array<Record<string, unknown>>) => {
+  const index = latestUserIndex(items)
+  return index >= 0 ? items.slice(index) : items
+}
+
+const technicalIdentifiers = (text: string) => [
+  ...new Set([...text.toLocaleUpperCase('en-US').matchAll(TECHNICAL_IDENTIFIER)].map(match => match[0])),
+]
+
+const hygienicProviderItems = (items: Array<Record<string, unknown>>) => {
+  const index = latestUserIndex(items)
+  if (index <= 0) return items
+  const latestUserText = itemText(items[index])
+  const anchors = technicalIdentifiers(latestUserText)
+  if (!anchors.length || EXPLICIT_CONTEXT_DEPENDENCY.test(latestUserText)) return items
+  return items.slice(index)
+}
+
+const parseToolPayloads = (items: Array<Record<string, unknown>>) => items.flatMap(item => {
+  if (item?.type !== 'function_call_output') return []
+  try {
+    const payload = JSON.parse(String(item.output || ''))
+    return payload && typeof payload === 'object' ? [payload as Record<string, any>] : []
+  } catch {
+    return []
+  }
+})
+
+const latestAuthoritativePayload = (items: Array<Record<string, unknown>>) => {
+  const turnItems = currentTurnItems(items)
+  for (let index = turnItems.length - 1; index >= 0; index -= 1) {
+    const item = turnItems[index]
     if (item?.type !== 'function_call_output') continue
     try {
       const payload = JSON.parse(String(item.output || ''))
@@ -24,6 +84,121 @@ const latestAuthoritativePayload = (items: Array<Record<string, unknown>>) => {
   }
   return null
 }
+
+const recordIdentifier = (record: Record<string, any>) => {
+  const explicitName = clean(record.name, 180)
+  if (explicitName) return explicitName.toLocaleUpperCase('en-US')
+  const canonicalKey = clean(record.canonicalKey ?? record.canonical_key, 240)
+  if (canonicalKey.includes(':')) {
+    return canonicalKey.slice(canonicalKey.indexOf(':') + 1).toLocaleUpperCase('en-US')
+  }
+  const title = clean(record.title, 240)
+  const titleIdentifier = technicalIdentifiers(title)[0]
+  return titleIdentifier || ''
+}
+
+type EvidenceContract = {
+  expectedIdentifiers: string[]
+  needsFlash: boolean
+  conflict: boolean
+  evidenceRecordCount: number
+}
+
+const buildEvidenceContract = (items: Array<Record<string, unknown>>): EvidenceContract => {
+  const turnItems = currentTurnItems(items)
+  const index = latestUserIndex(turnItems)
+  const userText = index >= 0 ? itemText(turnItems[index]) : ''
+  const payloads = parseToolPayloads(turnItems)
+  const records = payloads.flatMap(payload => Array.isArray(payload.records) ? payload.records : [])
+  const uniqueRecords = [...new Map(records.map((record: Record<string, any>) => [
+    `${clean(record.canonicalKey ?? record.canonical_key, 240)}|${clean(record.objectType ?? record.object_type, 80)}|${recordIdentifier(record)}`,
+    record,
+  ])).values()]
+  const messageIdentifiers = [...new Set(uniqueRecords
+    .filter((record: Record<string, any>) => clean(record.objectType ?? record.object_type, 80) === 'message')
+    .map(recordIdentifier)
+    .filter(Boolean))]
+  const functionIdentifiers = [...new Set(uniqueRecords
+    .filter((record: Record<string, any>) => clean(record.objectType ?? record.object_type, 80) === 'function')
+    .map(recordIdentifier)
+    .filter(Boolean))]
+  const allIdentifiers = [...new Set(uniqueRecords.map(recordIdentifier).filter(Boolean))]
+  const conflict = payloads.some(payload => (
+    payload.state === 'conflict'
+    || payload.conflict === true
+    || Number(payload.conflicts || 0) > 0
+    || (Array.isArray(payload.conflicts) && payload.conflicts.length > 0)
+  ))
+
+  if (MESSAGE_ENUMERATION_INTENT.test(userText) && messageIdentifiers.length > 0) {
+    return {
+      expectedIdentifiers: messageIdentifiers,
+      needsFlash: messageIdentifiers.length > 1,
+      conflict,
+      evidenceRecordCount: uniqueRecords.length,
+    }
+  }
+  if (FUNCTION_RELATION_INTENT.test(userText) && functionIdentifiers.length > 0) {
+    return {
+      expectedIdentifiers: functionIdentifiers,
+      needsFlash: functionIdentifiers.length > 1,
+      conflict,
+      evidenceRecordCount: uniqueRecords.length,
+    }
+  }
+  if (GENERIC_RELATION_INTENT.test(userText) && allIdentifiers.length > 1) {
+    return {
+      expectedIdentifiers: allIdentifiers,
+      needsFlash: true,
+      conflict,
+      evidenceRecordCount: uniqueRecords.length,
+    }
+  }
+  return {
+    expectedIdentifiers: [],
+    needsFlash: false,
+    conflict,
+    evidenceRecordCount: uniqueRecords.length,
+  }
+}
+
+const evidenceInstruction = (contract: EvidenceContract) => {
+  if (!contract.expectedIdentifiers.length) return ''
+  return [
+    'STRUCTURED_EVIDENCE_COVERAGE_CONTRACT:',
+    `Verified tool evidence relevant to the current request contains these canonical identifiers: ${contract.expectedIdentifiers.join(', ')}.`,
+    'When the user asks for an enumeration or relation covered by these records, include every relevant verified identifier.',
+    'Do not claim that enterprise evidence is missing when these verified records are present.',
+    'Do not add identifiers that are not supported by the tool evidence.',
+  ].join(' ')
+}
+
+const responseText = (response: NormalizedModelResponse) => (response.output || []).flatMap((item: any) => {
+  if (!Array.isArray(item?.content)) return []
+  return item.content.flatMap((part: any) => typeof part?.text === 'string' ? [part.text] : [])
+}).join('').trim()
+
+const hasFunctionCalls = (response: NormalizedModelResponse) => (response.output || []).some((item: any) => item?.type === 'function_call')
+
+const coverageCount = (text: string, expectedIdentifiers: string[]) => {
+  const normalized = text.toLocaleUpperCase('en-US')
+  return expectedIdentifiers.filter(identifier => normalized.includes(identifier.toLocaleUpperCase('en-US'))).length
+}
+
+const addUsage = (...values: Array<Record<string, number> | undefined>) => {
+  const merged: Record<string, number> = {}
+  for (const value of values) {
+    for (const [key, amount] of Object.entries(value || {})) {
+      if (typeof amount === 'number' && Number.isFinite(amount)) merged[key] = (merged[key] || 0) + amount
+    }
+  }
+  return merged
+}
+
+const withUsage = (response: NormalizedModelResponse, ...usageValues: Array<Record<string, number> | undefined>): NormalizedModelResponse => ({
+  ...response,
+  usage: addUsage(response.usage as Record<string, number> | undefined, ...usageValues),
+})
 
 const focusedLiteralExcerpt = (literalSource: string, messageName: string) => {
   const match = /^([A-Z][A-Z0-9_]*)-(\d{2,4})$/u.exec(messageName.toUpperCase())
@@ -116,11 +291,78 @@ export async function requestGeminiResponse(input: {
   onText: (text: string) => void
   signal?: AbortSignal
 }): Promise<NormalizedModelResponse> {
-  const payload = latestAuthoritativePayload(input.items)
+  const providerItems = hygienicProviderItems(input.items)
+  const payload = latestAuthoritativePayload(providerItems)
   const directAnswer = payload ? directAuthoritativeAnswer(payload) : null
   if (directAnswer) {
     input.onText(directAnswer)
     return terminalResponse(input.model, directAnswer)
   }
-  return baseRequestGeminiResponse(input)
+
+  const contract = buildEvidenceContract(providerItems)
+  let effectiveModel = input.model
+  const runtimeUsage: Record<string, number> = {}
+
+  if (contract.conflict && input.model !== PRO_MODEL) {
+    effectiveModel = PRO_MODEL
+    runtimeUsage.auto_runtime_escalated_pro = 1
+    runtimeUsage.auto_runtime_evidence_conflict = 1
+  } else if (input.model === LITE_MODEL && contract.needsFlash) {
+    effectiveModel = FLASH_MODEL
+    runtimeUsage.auto_runtime_escalated_flash = 1
+    runtimeUsage.auto_runtime_evidence_multi_record = 1
+  }
+
+  const contractInstruction = evidenceInstruction(contract)
+  const instructions = [input.instructions, contractInstruction].filter(Boolean).join('\n\n')
+
+  const callModel = async (model: string) => {
+    let capturedText = ''
+    const response = await baseRequestGeminiResponse({
+      ...input,
+      model,
+      instructions,
+      items: providerItems,
+      onText: delta => {
+        capturedText += delta
+      },
+    })
+    return { response, text: capturedText || responseText(response) }
+  }
+
+  const first = await callModel(effectiveModel)
+  if (hasFunctionCalls(first.response)) {
+    return withUsage(first.response, runtimeUsage)
+  }
+
+  const expectedCount = contract.expectedIdentifiers.length
+  const firstCoverage = coverageCount(first.text, contract.expectedIdentifiers)
+  runtimeUsage.auto_runtime_evidence_expected_count = expectedCount
+  runtimeUsage.auto_runtime_evidence_coverage_count = firstCoverage
+
+  if (
+    expectedCount > 1
+    && firstCoverage < expectedCount
+    && effectiveModel === FLASH_MODEL
+  ) {
+    const pro = await callModel(PRO_MODEL)
+    const proCoverage = coverageCount(pro.text, contract.expectedIdentifiers)
+    input.onText(pro.text)
+    return {
+      ...pro.response,
+      usage: addUsage(
+        first.response.usage as Record<string, number> | undefined,
+        pro.response.usage as Record<string, number> | undefined,
+        runtimeUsage,
+        {
+          auto_runtime_escalated_pro: 1,
+          auto_runtime_flash_coverage_failed: 1,
+          auto_runtime_evidence_coverage_count: proCoverage,
+        },
+      ),
+    }
+  }
+
+  input.onText(first.text)
+  return withUsage(first.response, runtimeUsage)
 }
