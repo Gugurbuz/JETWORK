@@ -27,9 +27,11 @@ describe('exact technical reference runtime latency path', () => {
     expect(technicalToolSource).toContain("(?=$|->|[^A-Z0-9_-]|/)");
   });
 
-  it('keeps direct and relation-neighbor sources available until final-answer focus', () => {
+  it('keeps direct, relation-neighbor, and every requested source type available until final-answer focus', () => {
     expect(technicalToolSource).toContain("matchMode === 'direct'");
     expect(technicalToolSource).toContain("matchMode === 'relation'");
+    expect(technicalToolSource).toContain('const requestedTypeSet = new Set(requestedTypes)');
+    expect(technicalToolSource).toContain('requestedTypeSet.has(objectType)');
     expect(technicalToolSource).toContain('sourceCandidateCount: sources.length');
     expect(technicalToolSource).toContain('ordering is only a hint and is not treated as authoritative');
   });
