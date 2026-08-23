@@ -19,7 +19,7 @@ describe('knowledge ingestion Storage access', () => {
 
   it('does not depend on the pre-catalog authenticated Storage read policy', () => {
     expect(source).toMatch(
-      /const \{ data: fileData, error: downloadError \} = await adminClient\.storage\s+\.from\('knowledge-sources'\)\s+\.download\(storagePath\)/,
+      /const \{ data: fileData, error: downloadError \} = await adminClient\.storage\s*\.from\('knowledge-sources'\)\s*\.download\(storagePath\)/,
     )
     expect(source).not.toMatch(
       /const \{ data: fileData, error: downloadError \} = await client\.storage/,

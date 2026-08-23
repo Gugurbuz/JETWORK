@@ -3,6 +3,10 @@ import {
   KNOWLEDGE_PARSER_VERSION,
   parseKnowledgeSource,
 } from '../../../supabase/functions/_shared/knowledgeParser';
+import {
+  KNOWLEDGE_COMPILER_VERSION,
+  compileKnowledgeSource,
+} from '../../../supabase/functions/_shared/knowledgeSemanticCompiler';
 
 describe('knowledge catalog parser', () => {
   it('extracts scoped ABAP methods and only active dependencies', () => {
@@ -20,25 +24,12 @@ describe('knowledge catalog parser', () => {
     expect(KNOWLEDGE_PARSER_VERSION).toMatch(/^jetwork-kb-parser\//);
     expect(parsed.documentType).toBe('abap_method_archive');
     expect(parsed.objects).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        canonicalKey: 'method:zcl_crm_ninja_tools/calculate',
-        objectType: 'method',
-      }),
+      expect.objectContaining({ canonicalKey: 'method:zcl_crm_ninja_tools/calculate', objectType: 'method' }),
     ]));
     expect(parsed.relations).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        sourceCanonicalKey: 'method:zcl_crm_ninja_tools/calculate',
-        relationType: 'CALLS',
-        targetCanonicalKey: 'function:z_active_function',
-      }),
-      expect.objectContaining({
-        relationType: 'EMITS_MESSAGE',
-        targetCanonicalKey: 'message:zcrm_cost-015',
-      }),
-      expect.objectContaining({
-        relationType: 'READS',
-        targetCanonicalKey: 'table:zcrm_table',
-      }),
+      expect.objectContaining({ sourceCanonicalKey: 'method:zcl_crm_ninja_tools/calculate', relationType: 'CALLS', targetCanonicalKey: 'function:z_active_function' }),
+      expect.objectContaining({ relationType: 'EMITS_MESSAGE', targetCanonicalKey: 'message:zcrm_cost-015' }),
+      expect.objectContaining({ relationType: 'READS', targetCanonicalKey: 'table:zcrm_table' }),
     ]));
     expect(parsed.relations).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ targetCanonicalKey: 'function:commented_function' }),
@@ -85,10 +76,7 @@ Kayıt benzersiz olmalıdır.
 
     expect(parsed.documentType).toBe('function_inventory');
     expect(parsed.objects).toEqual([
-      expect.objectContaining({
-        canonicalKey: 'function:z_fica_tks_check',
-        name: 'Z_FICA_TKS_CHECK',
-      }),
+      expect.objectContaining({ canonicalKey: 'function:z_fica_tks_check', name: 'Z_FICA_TKS_CHECK' }),
     ]);
     expect(parsed.relations).toContainEqual(expect.objectContaining({
       sourceCanonicalKey: 'method:zcl_order_save_quotations/check_ztks',
@@ -97,10 +85,30 @@ Kayıt benzersiz olmalıdır.
     }));
   });
 
+  it('materializes every relation endpoint so the compiled graph has no dangling nodes', async () => {
+    const deterministic = parseKnowledgeSource('functions.md', `
+# CRM Function Module Envanteri
+
+| Function Module | Tür | Çalışma | Kullanım | Çağıran sınıf / metot | Function Group | Kaynak |
+|---|---|---|---:|---|---|---|
+| \`Z_FICA_TKS_CHECK\` | Müşteri geliştirmesi | RFC | 1 | \`ZCL_ORDER_SAVE_QUOTATIONS->CHECK_ZTKS\` | Bekleniyor | Bekleniyor |
+`);
+    const compiled = await compileKnowledgeSource('functions.md', 'same source', deterministic);
+    const keys = new Set(compiled.objects.map(object => object.canonicalKey));
+
+    expect(KNOWLEDGE_COMPILER_VERSION).toMatch(/^jetwork-knowledge-compiler\//);
+    expect(keys.has('method:zcl_order_save_quotations/check_ztks')).toBe(true);
+    expect(keys.has('function:z_fica_tks_check')).toBe(true);
+    expect(compiled.compileStats.materializedEndpoints).toBe(1);
+    for (const relation of compiled.relations) {
+      expect(keys.has(relation.sourceCanonicalKey)).toBe(true);
+      expect(keys.has(relation.targetCanonicalKey)).toBe(true);
+    }
+  });
+
   it('is deterministic for the same source', () => {
     const input = '# Genel Not\n\nKurumsal bilgi.';
-    expect(parseKnowledgeSource('notes.md', input))
-      .toEqual(parseKnowledgeSource('notes.md', input));
+    expect(parseKnowledgeSource('notes.md', input)).toEqual(parseKnowledgeSource('notes.md', input));
   });
 
   it('extracts architecture entities, relations and semantic chunks from a generic system document', () => {
@@ -128,15 +136,8 @@ openai-assistant-core-v2 uses Supabase Postgres
       expect.objectContaining({ objectType: 'database', name: 'Supabase Postgres' }),
     ]));
     expect(parsed.relations).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        relationType: 'CONNECTS_TO',
-        sourceCanonicalKey: 'screen:frontend-ui',
-        targetCanonicalKey: 'service:assistant-gateway',
-      }),
-      expect.objectContaining({
-        relationType: 'WRITES',
-        targetCanonicalKey: 'database:knowledge_chunks_v2',
-      }),
+      expect.objectContaining({ relationType: 'CONNECTS_TO', sourceCanonicalKey: 'screen:frontend-ui', targetCanonicalKey: 'service:assistant-gateway' }),
+      expect.objectContaining({ relationType: 'WRITES', targetCanonicalKey: 'database:knowledge_chunks_v2' }),
     ]));
     const document = parsed.objects.find(object => object.canonicalKey === 'document:jetwork-mimari');
     expect(document?.chunks?.length).toBeGreaterThan(1);
