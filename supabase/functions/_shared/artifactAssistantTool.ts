@@ -50,6 +50,13 @@ async function loadWorkspaceActionAttachments(client: any, workspaceId: string) 
   return [...byId.values()].slice(0, 20)
 }
 
+const artifactExecutorSlug = (request: { operation?: string; config?: Record<string, unknown> }) => (
+  request.operation === 'document_create'
+  && clean(request.config?.format, 10).toLocaleLowerCase('en-US') === 'docx'
+    ? 'docx-execute'
+    : 'artifact-execute'
+)
+
 export async function executeArtifactAssistantTool(
   client: any,
   workspaceId: string,
@@ -68,7 +75,8 @@ export async function executeArtifactAssistantTool(
     workspaceId,
     attachments,
     invoke: async request => {
-      const { data, error } = await client.functions.invoke('artifact-execute', { body: request })
+      const functionSlug = artifactExecutorSlug(request)
+      const { data, error } = await client.functions.invoke(functionSlug, { body: request })
       if (error) {
         let detail = ''
         try {
@@ -76,9 +84,9 @@ export async function executeArtifactAssistantTool(
           const payload = context && typeof context.json === 'function' ? await context.json() : null
           detail = clean(payload?.error || payload?.message, 2_000)
         } catch { /* best effort */ }
-        throw new Error(detail || clean((error as any)?.message, 2_000) || 'Artifact worker çağrısı başarısız oldu.')
+        throw new Error(detail || clean((error as any)?.message, 2_000) || `${functionSlug} çağrısı başarısız oldu.`)
       }
-      if (!data || typeof data !== 'object') throw new Error('Artifact worker boş veya geçersiz sonuç döndürdü.')
+      if (!data || typeof data !== 'object') throw new Error(`${functionSlug} boş veya geçersiz sonuç döndürdü.`)
       const result = data as Record<string, unknown>
       if (result.error) throw new Error(clean(result.error, 2_000))
       return result
