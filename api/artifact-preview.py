@@ -93,6 +93,7 @@ def _cell_value(value):
 
 def _xlsx_preview(raw):
     workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=False)
+    sheet_count = len(workbook.sheetnames)
     sheets = []
     try:
         for worksheet in workbook.worksheets[:MAX_SHEETS]:
@@ -114,7 +115,7 @@ def _xlsx_preview(raw):
             })
     finally:
         workbook.close()
-    return {"kind": "spreadsheet", "sheets": sheets, "truncated": len(workbook.sheetnames) > MAX_SHEETS}
+    return {"kind": "spreadsheet", "sheets": sheets, "truncated": sheet_count > MAX_SHEETS}
 
 
 def _shape_text(shape):
@@ -134,7 +135,10 @@ def _shape_text(shape):
 def _pptx_preview(raw):
     presentation = Presentation(io.BytesIO(raw))
     slides = []
-    for index, slide in enumerate(presentation.slides[:MAX_SLIDES], start=1):
+    total_slides = len(presentation.slides)
+    for index, slide in enumerate(presentation.slides, start=1):
+        if index > MAX_SLIDES:
+            break
         blocks = []
         for shape in slide.shapes:
             text = _shape_text(shape)
@@ -160,7 +164,7 @@ def _pptx_preview(raw):
         "slides": slides,
         "slideWidth": int(presentation.slide_width or 0),
         "slideHeight": int(presentation.slide_height or 0),
-        "truncated": len(presentation.slides) > MAX_SLIDES,
+        "truncated": total_slides > MAX_SLIDES,
     }
 
 
