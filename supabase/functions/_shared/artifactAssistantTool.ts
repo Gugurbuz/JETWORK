@@ -3,7 +3,14 @@ import {
   isArtifactExecutionTool,
   type ActionAttachmentRef,
 } from './artifactExecutionTools.ts'
-import type { AssistantToolExecution } from './assistantTools.ts'
+import type { AssistantGeneratedFileRef } from './executionTools.ts'
+
+export interface ArtifactAssistantToolExecution {
+  output: string
+  sources: []
+  summary: Record<string, unknown>
+  artifacts?: AssistantGeneratedFileRef[]
+}
 
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const ASSISTANT_FILES_BUCKET = 'assistant-files'
@@ -62,7 +69,7 @@ export async function executeArtifactAssistantTool(
   workspaceId: string,
   toolName: string,
   args: Record<string, unknown>,
-): Promise<AssistantToolExecution> {
+): Promise<ArtifactAssistantToolExecution> {
   if (!isArtifactExecutionTool(toolName)) throw new Error(`Unknown artifact execution tool: ${toolName}`)
   const attachments = await loadWorkspaceActionAttachments(client, workspaceId)
   const requiresExistingFile = ['inspect_file_attachment', 'transform_pdf_file', 'edit_office_file'].includes(toolName)
