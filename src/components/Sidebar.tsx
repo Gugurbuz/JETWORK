@@ -697,27 +697,32 @@ export function Sidebar(props: SidebarProps) {
               <MessageSquarePlus size={18} />
               <span>Yeni sohbet</span>
             </button>
-            <button type="button" onClick={openSearch} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
-              <Search size={18} />
-              <span>Ara</span>
-            </button>
-            {searchOpen && (
-              <div className="relative px-2 pb-1 pt-1">
-                <Search size={14} className="absolute left-5 top-3.5 text-theme-text-muted" />
+            {searchOpen ? (
+              <div className="relative flex w-full items-center rounded-xl bg-theme-bg ring-1 ring-theme-border/60 transition focus-within:ring-theme-text-muted/40">
+                <Search size={18} className="pointer-events-none absolute left-3 text-theme-text-muted" />
                 <input
                   ref={searchInputRef}
                   value={query}
                   onChange={event => setQuery(event.target.value)}
+                  onBlur={() => {
+                    if (!query.trim()) setSearchOpen(false);
+                  }}
                   onKeyDown={event => {
                     if (event.key === 'Escape') {
                       setSearchOpen(false);
                       setQuery('');
                     }
                   }}
+                  aria-label="Sohbet veya proje ara"
                   placeholder="Sohbet veya proje ara"
-                  className="w-full rounded-xl bg-theme-bg py-2 pl-9 pr-3 text-xs text-theme-text outline-none ring-1 ring-theme-border/60 transition focus:ring-theme-text-muted/40"
+                  className="w-full rounded-xl bg-transparent py-2 pl-10 pr-3 text-sm text-theme-text outline-none placeholder:text-theme-text-muted"
                 />
               </div>
+            ) : (
+              <button type="button" onClick={openSearch} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
+                <Search size={18} />
+                <span>Ara</span>
+              </button>
             )}
           </div>
 
