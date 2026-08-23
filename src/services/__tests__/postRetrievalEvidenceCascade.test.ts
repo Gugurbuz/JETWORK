@@ -35,6 +35,16 @@ describe('post-retrieval evidence cascade', () => {
     expect(providerWrapperSource).toContain("!['function_call', 'function_call_output'].includes");
   });
 
+  it('enforces a generic single-function relation response boundary', () => {
+    expect(providerWrapperSource).toContain('shouldFocusSingleRelation');
+    expect(providerWrapperSource).toContain('contract.expectedIdentifiers.length !== 1');
+    expect(providerWrapperSource).toContain('FUNCTION_RELATION_INTENT.test(latestUserText)');
+    expect(providerWrapperSource).toContain('focusSingleRelationText');
+    expect(providerWrapperSource).toContain('sentences.find(sentence => sentence.toLocaleUpperCase');
+    expect(providerWrapperSource).toContain('withResponseText');
+    expect(providerWrapperSource).toContain('focusedFirstText');
+  });
+
   it('keeps single-relation follow-ups concise instead of replaying prior enumerations', () => {
     expect(providerWrapperSource).toContain('answer that relation directly in at most two short sentences');
     expect(providerWrapperSource).toContain('do not repeat earlier enumerations, parameter lists, conditions');

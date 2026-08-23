@@ -257,6 +257,45 @@ const coverageCount = (text: string, expectedIdentifiers: string[]) => {
   return expectedIdentifiers.filter(identifier => normalized.includes(identifier.toLocaleUpperCase('en-US'))).length
 }
 
+const shouldFocusSingleRelation = (
+  items: Array<Record<string, unknown>>,
+  contract: EvidenceContract,
+) => {
+  if (contract.expectedIdentifiers.length !== 1) return false
+  const index = latestUserIndex(items)
+  const latestUserText = index >= 0 ? itemText(items[index]) : ''
+  return FUNCTION_RELATION_INTENT.test(latestUserText)
+}
+
+const focusSingleRelationText = (
+  text: string,
+  items: Array<Record<string, unknown>>,
+  contract: EvidenceContract,
+) => {
+  if (!shouldFocusSingleRelation(items, contract)) return text
+  const anchor = contract.expectedIdentifiers[0].toLocaleUpperCase('en-US')
+  const sentences = text
+    .replace(/\s*\n+\s*/gu, ' ')
+    .match(/[^.!?]+[.!?]+|[^.!?]+$/gu)
+    ?.map(sentence => sentence.trim())
+    .filter(Boolean) || []
+  const focused = sentences.find(sentence => sentence.toLocaleUpperCase('en-US').includes(anchor))
+  return clean(focused || text, 420)
+}
+
+const withResponseText = (
+  response: NormalizedModelResponse,
+  text: string,
+): NormalizedModelResponse => ({
+  ...response,
+  output: (response.output || []).map((item: any) => item?.type === 'message'
+    ? {
+      ...item,
+      content: [{ type: 'output_text', text, annotations: [] }],
+    }
+    : item),
+})
+
 const addUsage = (...values: Array<Record<string, number> | undefined>) => {
   const merged: Record<string, number> = {}
   for (const value of values) {
@@ -428,9 +467,10 @@ export async function requestGeminiResponse(input: {
   ) {
     const pro = await callModel(PRO_MODEL, false, finalizationItems)
     const proCoverage = coverageCount(pro.text, contract.expectedIdentifiers)
-    input.onText(pro.text)
+    const focusedProText = focusSingleRelationText(pro.text, providerItems, contract)
+    input.onText(focusedProText)
     return {
-      ...pro.response,
+      ...withResponseText(pro.response, focusedProText),
       usage: addUsage(
         first.response.usage as Record<string, number> | undefined,
         pro.response.usage as Record<string, number> | undefined,
@@ -444,6 +484,7 @@ export async function requestGeminiResponse(input: {
     }
   }
 
-  input.onText(first.text)
-  return withUsage(first.response, runtimeUsage)
+  const focusedFirstText = focusSingleRelationText(first.text, providerItems, contract)
+  input.onText(focusedFirstText)
+  return withUsage(withResponseText(first.response, focusedFirstText), runtimeUsage)
 }
