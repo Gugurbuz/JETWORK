@@ -1,0 +1,85 @@
+name: AI Quality Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Quality suite slug
+        required: false
+        default: smoke
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/openai-assistant/**'
+      - 'supabase/functions/openai-assistant-v2/**'
+      - 'supabase/functions/_shared/**'
+      - 'supabase/functions/ai-quality-runner/**'
+      - 'src/services/assistantRuntimeClient.ts'
+      - 'src/components/QualityLabPage.tsx'
+      - 'scripts/run-ai-quality-gate.ts'
+      - '.github/workflows/ai-quality-gate.yml'
+  schedule:
+    - cron: '15 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-quality-gate-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+      AI_QUALITY_ENDPOINT: openai-assistant-v2
+
+    steps:
+      - name: Require test credentials
+        run: |
+          test -n "$E2E_USERNAME" || (echo "E2E_USERNAME is not configured" && exit 1)
+          test -n "$E2E_PASSWORD" || (echo "E2E_PASSWORD is not configured" && exit 1)
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve suite
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "AI_QUALITY_SUITE=regression" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.suite }}" ]; then
+            echo "AI_QUALITY_SUITE=${{ inputs.suite }}" >> "$GITHUB_ENV"
+          else
+            echo "AI_QUALITY_SUITE=smoke" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run production AI quality suite
+        run: pnpm exec tsx scripts/run-ai-quality-gate.ts
+
+      - name: Publish summary
+        if: always()
+        run: |
+          echo "## JetWork AI Quality Gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "Suite: ${AI_QUALITY_SUITE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Endpoint: ${AI_QUALITY_ENDPOINT}" >> "$GITHUB_STEP_SUMMARY"
