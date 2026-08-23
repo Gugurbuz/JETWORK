@@ -22,13 +22,21 @@ describe('post-retrieval evidence cascade', () => {
     expect(providerWrapperSource).toContain('do not call additional tools just to reconfirm the same identifiers');
   });
 
-  it('validates evidence coverage after Flash and only then escalates to Pro', () => {
+  it('converts tool outputs into explicit verified evidence before no-tool synthesis', () => {
+    expect(providerWrapperSource).toContain('compactVerifiedEvidenceRecords');
+    expect(providerWrapperSource).toContain('evidenceSynthesisItems');
+    expect(providerWrapperSource).toContain('[JETWORK_VERIFIED_KNOWLEDGE_EVIDENCE]');
+    expect(providerWrapperSource).toContain('authoritative enterprise evidence for this synthesis');
+    expect(providerWrapperSource).toContain("!['function_call', 'function_call_output'].includes");
+  });
+
+  it('validates evidence coverage after Flash and only then escalates to Pro with the same evidence packet', () => {
     expect(providerWrapperSource).toContain("const PRO_MODEL = 'gemini-3.1-pro-preview'");
     expect(providerWrapperSource).toContain('firstCoverage < expectedCount');
     expect(providerWrapperSource).toContain('effectiveModel === FLASH_MODEL');
     expect(providerWrapperSource).toContain('auto_runtime_flash_coverage_failed: 1');
     expect(providerWrapperSource).toContain('auto_runtime_escalated_pro: 1');
-    expect(providerWrapperSource).toContain('callModel(PRO_MODEL, false)');
+    expect(providerWrapperSource).toContain('callModel(PRO_MODEL, false, finalizationItems)');
   });
 
   it('does not use answer-text failure phrases as the escalation signal', () => {
