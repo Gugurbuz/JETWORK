@@ -1,6 +1,6 @@
 import { supabase } from '../supabase';
 
-export async function moveWorkspaceToProject(workspaceId: string, projectId: string): Promise<void> {
+export async function setWorkspaceProject(workspaceId: string, projectId: string | null): Promise<void> {
   const { error } = await supabase
     .from('workspaces')
     .update({
@@ -8,9 +8,12 @@ export async function moveWorkspaceToProject(workspaceId: string, projectId: str
       last_updated: new Date().toISOString(),
     })
     .eq('id', workspaceId)
-    .is('project_id', null)
     .select('id')
     .single();
 
   if (error) throw error;
+}
+
+export async function moveWorkspaceToProject(workspaceId: string, projectId: string): Promise<void> {
+  await setWorkspaceProject(workspaceId, projectId);
 }
