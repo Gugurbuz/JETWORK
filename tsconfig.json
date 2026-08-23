@@ -22,7 +22,7 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["vite/client", "react", "react-dom"]
+    "types": ["vite/client"]
   },
   "exclude": ["supabase", "node_modules", "dist"]
 }
