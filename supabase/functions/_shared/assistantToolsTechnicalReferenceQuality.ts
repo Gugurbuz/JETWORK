@@ -20,13 +20,13 @@ const contentReferencesTechnicalReference = (content: string, technicalReference
 const TECHNICAL_REFERENCE_TOOL = {
   type: 'function',
   name: 'get_objects_by_technical_reference',
-  description: 'Resolve an exact enterprise technical identifier across published knowledge objects and their verified source content. Use for methods, functions, classes, message families and other exact technical references before broad semantic search.',
+  description: 'Resolve an exact enterprise technical identifier across published knowledge. Returns the directly matching object plus any published objects whose verified source content references that identifier, including messages, rules, functions and methods. Use this before broad semantic search for exact technical references.',
   strict: true,
   parameters: {
     type: 'object',
     properties: {
       technicalReference: { type: 'string', minLength: 2, maxLength: 160 },
-      objectTypes: { type: ['array','null'], items: { type: 'string', enum: OBJECT_TYPES } },
+      objectTypes: { type: ['array','null'], items: { type: 'string', enum: OBJECT_TYPES }, description: 'Optional preferred types for the directly matching anchor object. Cross-reference evidence is still returned across all object types.' },
       limit: { type: ['integer','null'], minimum: 1, maximum: 20 },
     },
     required: ['technicalReference','objectTypes','limit'],
@@ -79,19 +79,71 @@ async function getObjectsByTechnicalReference(
     return { output: JSON.stringify({ records: [] }), sources: [], summary: { resultCount: 0, deterministicTechnicalReferenceLookup: true } }
   }
 
-  let objectQuery = client
+  // Discover direct anchor candidates in the object catalog and cross-reference
+  // candidates in current object-version content. Do not scan an arbitrary first
+  // N objects: the catalog can grow without changing lookup correctness.
+  let directNameQuery = client
     .from('knowledge_objects_v2')
-    .select('id,canonical_key,object_type,name,title,published_version_id,primary_source_id,knowledge_space_id,metadata')
+    .select('id,canonical_key,object_type,name,published_version_id,primary_source_id,knowledge_space_id,metadata')
     .eq('publication_status', 'published')
     .in('knowledge_space_id', spaceIds)
-    .limit(120)
-  if (requestedTypes.length) objectQuery = objectQuery.in('object_type', requestedTypes)
-  const { data: objects, error: objectError } = await objectQuery
-  if (objectError) throw objectError
+    .ilike('name', `%${technicalReference}%`)
+    .limit(60)
+  let directCanonicalQuery = client
+    .from('knowledge_objects_v2')
+    .select('id,canonical_key,object_type,name,published_version_id,primary_source_id,knowledge_space_id,metadata')
+    .eq('publication_status', 'published')
+    .in('knowledge_space_id', spaceIds)
+    .ilike('canonical_key', `%${technicalReference.toLocaleLowerCase('en-US')}%`)
+    .limit(60)
+  if (requestedTypes.length) {
+    directNameQuery = directNameQuery.in('object_type', requestedTypes)
+    directCanonicalQuery = directCanonicalQuery.in('object_type', requestedTypes)
+  }
 
-  const versionIds = [...new Set((objects || []).map((row: any) => String(row.published_version_id || '')).filter(Boolean))]
-  const sourceIds = [...new Set((objects || []).map((row: any) => String(row.primary_source_id || '')).filter(Boolean))]
-  const [versionResult, sourceResult] = await Promise.all([
+  const [directNameResult, directCanonicalResult, referenceVersionResult] = await Promise.all([
+    directNameQuery,
+    directCanonicalQuery,
+    client.from('knowledge_object_versions_v2')
+      .select('id,object_id,title,summary,content')
+      .in('knowledge_space_id', spaceIds)
+      .eq('is_current', true)
+      .ilike('content', `%${technicalReference}%`)
+      .limit(160),
+  ])
+  if (directNameResult.error) throw directNameResult.error
+  if (directCanonicalResult.error) throw directCanonicalResult.error
+  if (referenceVersionResult.error) throw referenceVersionResult.error
+
+  const directRows = [...new Map([
+    ...(directNameResult.data || []),
+    ...(directCanonicalResult.data || []),
+  ].map((row: any) => [String(row.id), row])).values()]
+  const referenceObjectIds = [...new Set((referenceVersionResult.data || [])
+    .filter((row: any) => contentReferencesTechnicalReference(String(row.content || ''), technicalReference))
+    .map((row: any) => String(row.object_id || ''))
+    .filter(Boolean))]
+
+  const directIds = new Set(directRows.map((row: any) => String(row.id)))
+  const missingReferenceIds = referenceObjectIds.filter(id => !directIds.has(id))
+  const referenceObjectResult = missingReferenceIds.length
+    ? await client.from('knowledge_objects_v2')
+      .select('id,canonical_key,object_type,name,published_version_id,primary_source_id,knowledge_space_id,metadata')
+      .eq('publication_status', 'published')
+      .in('knowledge_space_id', spaceIds)
+      .in('id', missingReferenceIds)
+      .limit(160)
+    : { data: [], error: null }
+  if ((referenceObjectResult as any).error) throw (referenceObjectResult as any).error
+
+  const objects = [...new Map([
+    ...directRows,
+    ...((referenceObjectResult as any).data || []),
+  ].map((row: any) => [String(row.id), row])).values()]
+
+  const versionIds = [...new Set(objects.map((row: any) => String(row.published_version_id || '')).filter(Boolean))]
+  const sourceIds = [...new Set(objects.map((row: any) => String(row.primary_source_id || '')).filter(Boolean))]
+  const [publishedVersionsResult, sourceResult] = await Promise.all([
     versionIds.length
       ? client.from('knowledge_object_versions_v2').select('id,title,summary,content').in('id', versionIds)
       : Promise.resolve({ data: [], error: null }),
@@ -99,23 +151,29 @@ async function getObjectsByTechnicalReference(
       ? client.from('knowledge_sources_v2').select('id,name').in('id', sourceIds)
       : Promise.resolve({ data: [], error: null }),
   ])
-  if ((versionResult as any).error) throw (versionResult as any).error
+  if ((publishedVersionsResult as any).error) throw (publishedVersionsResult as any).error
   if ((sourceResult as any).error) throw (sourceResult as any).error
-  const versions = new Map(((versionResult as any).data || []).map((row: any) => [String(row.id), row]))
+  const versions = new Map(((publishedVersionsResult as any).data || []).map((row: any) => [String(row.id), row]))
   const sourceNames = new Map(((sourceResult as any).data || []).map((row: any) => [String(row.id), String(row.name || 'Kurumsal bilgi kaynağı')]))
 
-  const ranked = (objects || []).flatMap((row: any) => {
+  const ranked = objects.flatMap((row: any) => {
     const version: any = versions.get(String(row.published_version_id || '')) || {}
-    const searchable = [row.canonical_key,row.name,row.title,version.title,version.summary,version.content].filter(Boolean).join('\n')
+    const searchable = [row.canonical_key,row.name,version.title,version.summary,version.content].filter(Boolean).join('\n')
     if (!contentReferencesTechnicalReference(searchable, technicalReference)) return []
-    const exactName = String(row.name || '').toLocaleUpperCase('en-US') === technicalReference
-    const exactCanonical = String(row.canonical_key || '').toLocaleUpperCase('en-US').endsWith(`:${technicalReference}`)
+    const upperName = String(row.name || '').toLocaleUpperCase('en-US')
+    const upperCanonical = String(row.canonical_key || '').toLocaleUpperCase('en-US')
+    const exactName = upperName === technicalReference
+    const exactCanonical = upperCanonical.endsWith(`:${technicalReference}`)
+      || upperCanonical.endsWith(`/${technicalReference}`)
+    const directAnchor = directIds.has(String(row.id)) && (exactName || exactCanonical)
+    const score = directAnchor ? 1 : directIds.has(String(row.id)) ? 0.9 : 0.8
     return [{
-      score: exactName || exactCanonical ? 1 : 0.8,
+      score,
+      matchMode: directAnchor ? 'direct' : 'cross_reference',
       canonicalKey: String(row.canonical_key || ''),
       objectType: String(row.object_type || ''),
       name: String(row.name || ''),
-      title: String(version.title || row.title || row.name || ''),
+      title: String(version.title || row.name || ''),
       summary: clean(version.summary, 1_000),
       evidence: clean(version.content, 3_000),
       sourceId: row.primary_source_id ? String(row.primary_source_id) : undefined,
@@ -140,6 +198,8 @@ async function getObjectsByTechnicalReference(
     summary: {
       technicalReference,
       resultCount: ranked.length,
+      directMatchCount: ranked.filter((row: any) => row.matchMode === 'direct').length,
+      crossReferenceCount: ranked.filter((row: any) => row.matchMode === 'cross_reference').length,
       citationReady: ranked.length > 0,
       deterministicTechnicalReferenceLookup: true,
     },
