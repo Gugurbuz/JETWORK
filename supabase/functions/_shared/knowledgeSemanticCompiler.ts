@@ -24,6 +24,14 @@ const canonicalIdentity = (value: string) => canonicalName(value).replace(/\s+/g
 const canonicalKey = (type: KnowledgeObjectType, name: string) => `${type}:${canonicalIdentity(name)}`.toLocaleLowerCase('en-US')
 const methodKey = (className: string, methodName: string) => `method:${canonicalName(className)}/${canonicalName(methodName)}`.toLocaleLowerCase('en-US')
 const uniq = <T>(items: T[], key: (item: T) => string) => [...new Map(items.map(item => [key(item), item])).values()]
+const edgeEnv = (name: string) => {
+  try {
+    const runtime = globalThis as unknown as { Deno?: { env?: { get?: (key: string) => string | undefined } } }
+    return runtime.Deno?.env?.get?.(name)
+  } catch {
+    return undefined
+  }
+}
 
 interface SemanticEntity {
   type?: string
@@ -135,9 +143,9 @@ function placeholderForCanonicalKey(key: string, evidence: string): ParsedKnowle
 }
 
 async function extractSemanticKnowledge(rawText: string, fileName: string): Promise<SemanticExtraction | null> {
-  const apiKey = Deno.env.get('GEMINI_API_KEY')
+  const apiKey = edgeEnv('GEMINI_API_KEY')
   if (!apiKey) return null
-  const maxChars = Number(Deno.env.get('KNOWLEDGE_SEMANTIC_MAX_CHARS') || 80_000)
+  const maxChars = Number(edgeEnv('KNOWLEDGE_SEMANTIC_MAX_CHARS') || 80_000)
   const source = rawText.slice(0, Number.isFinite(maxChars) ? Math.max(8_000, Math.min(maxChars, 160_000)) : 80_000)
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
     method: 'POST',
