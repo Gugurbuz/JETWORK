@@ -52,8 +52,18 @@ const hygienicProviderItems = (items: Array<Record<string, unknown>>) => {
   if (index <= 0) return items
   const latestUserText = itemText(items[index])
   const anchors = technicalIdentifiers(latestUserText)
-  if (!anchors.length || EXPLICIT_CONTEXT_DEPENDENCY.test(latestUserText)) return items
-  return items.slice(index)
+  const contextDependent = EXPLICIT_CONTEXT_DEPENDENCY.test(latestUserText)
+
+  if (anchors.length && !contextDependent) return items.slice(index)
+
+  if (!anchors.length && contextDependent) {
+    for (let previous = index - 1; previous >= 0; previous -= 1) {
+      if (items[previous]?.role !== 'user') continue
+      if (technicalIdentifiers(itemText(items[previous])).length) return items.slice(previous)
+    }
+  }
+
+  return items
 }
 
 const parseToolPayloads = (items: Array<Record<string, unknown>>) => items.flatMap(item => {
@@ -100,6 +110,7 @@ const recordIdentifier = (record: Record<string, any>) => {
 type EvidenceContract = {
   expectedIdentifiers: string[]
   needsFlash: boolean
+  finalizeFromEvidence: boolean
   conflict: boolean
   evidenceRecordCount: number
 }
@@ -134,6 +145,7 @@ const buildEvidenceContract = (items: Array<Record<string, unknown>>): EvidenceC
     return {
       expectedIdentifiers: messageIdentifiers,
       needsFlash: messageIdentifiers.length > 1,
+      finalizeFromEvidence: true,
       conflict,
       evidenceRecordCount: uniqueRecords.length,
     }
@@ -142,6 +154,7 @@ const buildEvidenceContract = (items: Array<Record<string, unknown>>): EvidenceC
     return {
       expectedIdentifiers: functionIdentifiers,
       needsFlash: functionIdentifiers.length > 1,
+      finalizeFromEvidence: true,
       conflict,
       evidenceRecordCount: uniqueRecords.length,
     }
@@ -150,6 +163,7 @@ const buildEvidenceContract = (items: Array<Record<string, unknown>>): EvidenceC
     return {
       expectedIdentifiers: allIdentifiers,
       needsFlash: true,
+      finalizeFromEvidence: true,
       conflict,
       evidenceRecordCount: uniqueRecords.length,
     }
@@ -157,6 +171,7 @@ const buildEvidenceContract = (items: Array<Record<string, unknown>>): EvidenceC
   return {
     expectedIdentifiers: [],
     needsFlash: false,
+    finalizeFromEvidence: false,
     conflict,
     evidenceRecordCount: uniqueRecords.length,
   }
@@ -167,7 +182,9 @@ const evidenceInstruction = (contract: EvidenceContract) => {
   return [
     'STRUCTURED_EVIDENCE_COVERAGE_CONTRACT:',
     `Verified tool evidence relevant to the current request contains these canonical identifiers: ${contract.expectedIdentifiers.join(', ')}.`,
+    'Answer only the current user request. Do not restate unrelated facts from earlier turns unless they are required to resolve the current relation.',
     'When the user asks for an enumeration or relation covered by these records, include every relevant verified identifier.',
+    'The evidence packet is complete for this requested relation; do not call additional tools just to reconfirm the same identifiers.',
     'Do not claim that enterprise evidence is missing when these verified records are present.',
     'Do not add identifiers that are not supported by the tool evidence.',
   ].join(' ')
@@ -312,17 +329,21 @@ export async function requestGeminiResponse(input: {
     runtimeUsage.auto_runtime_escalated_flash = 1
     runtimeUsage.auto_runtime_evidence_multi_record = 1
   }
+  if (contract.finalizeFromEvidence) {
+    runtimeUsage.auto_runtime_evidence_finalized_without_more_tools = 1
+  }
 
   const contractInstruction = evidenceInstruction(contract)
   const instructions = [input.instructions, contractInstruction].filter(Boolean).join('\n\n')
 
-  const callModel = async (model: string) => {
+  const callModel = async (model: string, allowTools: boolean) => {
     let capturedText = ''
     const response = await baseRequestGeminiResponse({
       ...input,
       model,
       instructions,
       items: providerItems,
+      allowTools,
       onText: delta => {
         capturedText += delta
       },
@@ -330,7 +351,7 @@ export async function requestGeminiResponse(input: {
     return { response, text: capturedText || responseText(response) }
   }
 
-  const first = await callModel(effectiveModel)
+  const first = await callModel(effectiveModel, input.allowTools && !contract.finalizeFromEvidence)
   if (hasFunctionCalls(first.response)) {
     return withUsage(first.response, runtimeUsage)
   }
@@ -345,7 +366,7 @@ export async function requestGeminiResponse(input: {
     && firstCoverage < expectedCount
     && effectiveModel === FLASH_MODEL
   ) {
-    const pro = await callModel(PRO_MODEL)
+    const pro = await callModel(PRO_MODEL, false)
     const proCoverage = coverageCount(pro.text, contract.expectedIdentifiers)
     input.onText(pro.text)
     return {
