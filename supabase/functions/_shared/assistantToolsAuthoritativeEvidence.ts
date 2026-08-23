@@ -18,6 +18,23 @@ const AUTHORITATIVE_FIRST_PASS_TOOLS = new Set([
   'resolve_knowledge_evidence',
 ])
 
+const clean = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max)
+
+const resolutionArguments = (toolName: string, rawArguments: unknown) => {
+  const args = rawArguments && typeof rawArguments === 'object'
+    ? rawArguments as Record<string, unknown>
+    : {}
+  if (toolName === 'resolve_knowledge_evidence') return rawArguments
+
+  const query = clean(
+    args.query
+      ?? args.technicalReference
+      ?? args.messageCode
+      ?? args.canonicalKey,
+  )
+  return query ? { query } : null
+}
+
 export async function executeAssistantTool(
   client: any,
   workspaceId: string,
@@ -25,20 +42,30 @@ export async function executeAssistantTool(
   rawArguments: unknown,
 ): Promise<AssistantToolExecution> {
   if (AUTHORITATIVE_FIRST_PASS_TOOLS.has(toolName)) {
-    const resolved = await evidenceExecuteAssistantTool(
-      client,
-      workspaceId,
-      'resolve_knowledge_evidence',
-      rawArguments,
-    )
-    if (resolved.summary?.authoritativeResolution === true) {
-      return {
-        ...resolved,
-        summary: {
-          ...resolved.summary,
-          terminalAuthoritativeEvidence: true,
-          originalRequestedTool: toolName,
-        },
+    const resolveArgs = resolutionArguments(toolName, rawArguments)
+    if (resolveArgs) {
+      try {
+        const resolved = await evidenceExecuteAssistantTool(
+          client,
+          workspaceId,
+          'resolve_knowledge_evidence',
+          resolveArgs,
+        )
+        if (resolved.summary?.authoritativeResolution === true) {
+          return {
+            ...resolved,
+            summary: {
+              ...resolved.summary,
+              terminalAuthoritativeEvidence: true,
+              originalRequestedTool: toolName,
+            },
+          }
+        }
+      } catch (error) {
+        // Authoritative resolution is an optimization, not a gate. A resolver
+        // miss or malformed legacy record must never prevent the requested
+        // exact/detail tool from running with its native argument contract.
+        console.warn('AUTHORITATIVE_EVIDENCE_PREPASS_FAILED', toolName, String(error).slice(0, 300))
       }
     }
   }
