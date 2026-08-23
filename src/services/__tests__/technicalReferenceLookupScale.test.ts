@@ -6,7 +6,7 @@ const source = readFileSync(
   'utf8',
 )
 const migrationSource = readFileSync(
-  new URL('../../../supabase/migrations/20260823164641_optimize_exact_reference_runtime_v4.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260823205300_paginate_technical_reference_lookup_v5.sql', import.meta.url),
   'utf8',
 )
 
@@ -14,7 +14,7 @@ describe('technical reference lookup scale and cross references', () => {
   it('does not scan an arbitrary first-N object catalog and uses indexed candidate discovery', () => {
     expect(source).not.toContain(".select('id,canonical_key,object_type,name,title")
     expect(source).not.toMatch(/knowledge_objects_v2[\s\S]{0,400}\.limit\(120\)/u)
-    expect(source).toContain("client.rpc('lookup_knowledge_technical_reference_v4'")
+    expect(source).toContain("client.rpc('lookup_knowledge_technical_reference_v5'")
     expect(migrationSource).toContain("search_document @@ plainto_tsquery('simple', p.ref)")
     expect(migrationSource).toContain("v.content ilike ('%' || p.ref || '%')")
   })
