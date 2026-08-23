@@ -231,7 +231,7 @@ const evidenceInstruction = (contract: EvidenceContract) => {
   return [
     'STRUCTURED_EVIDENCE_COVERAGE_CONTRACT:',
     `Verified tool evidence relevant to the current request contains these canonical identifiers: ${contract.expectedIdentifiers.join(', ')}.`,
-    'Answer only the current user request. Do not restate unrelated facts from earlier turns unless they are required to resolve the current relation.',
+    'Answer only the current user request. If it asks for one relation (for example which function, method, table, or service is used), answer that relation directly in at most two short sentences; do not repeat earlier enumerations, parameter lists, conditions, or unrelated implementation details unless explicitly requested.',
     'When the user asks for an enumeration or relation covered by these records, include every relevant verified identifier.',
     'The JETWORK_VERIFIED_KNOWLEDGE_EVIDENCE block is authoritative enterprise evidence for this synthesis. Use its records directly.',
     'The evidence packet is complete for this requested relation; do not call additional tools just to reconfirm the same identifiers.',
