@@ -27,6 +27,7 @@ const ROUTER_VERSION = 'primary-bridge-runtime-evidence-v6'
 const MAX_CONTEXT_MESSAGES = 6
 const MAX_CONTEXT_CHARS = 3_000
 const TECHNICAL_IDENTIFIER = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/gu
+const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
 
 type RoutedModel = typeof LITE_MODEL | typeof FLASH_MODEL | typeof PRO_MODEL
 type EvidenceState = 'deferred'
@@ -44,6 +45,14 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.strin
 const clean = (value: unknown, max: number) => String(value ?? '').trim().slice(0, max)
 const escapeRegex = (value:string) => value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
 const unique = <T>(items:T[]) => [...new Set(items)]
+const normalizeShortText = (value:string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g,'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g,'')
+  .replace(/[!?.,;:]+/g,' ')
+  .replace(/\s+/g,' ')
+  .trim()
 const responseText = (response:any) => typeof response?.text === 'string'
   ? response.text.trim()
   : Array.isArray(response?.candidates?.[0]?.content?.parts)
@@ -243,7 +252,8 @@ Deno.serve(async(req:Request)=>{
   let route:RouteDecision|null=null
   const client=createClient(supabaseUrl,anonKey,{global:{headers:{Authorization:authorization}},auth:{persistSession:false}})
   if(requestedModel===AUTO_MODEL){
-    if(shouldUseTrivialAssistantFastPath({message,model:requestedModel,attachmentCount:attachments.length})){
+    const contextSensitiveAck=CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS.has(normalizeShortText(message))
+    if(!contextSensitiveAck&&shouldUseTrivialAssistantFastPath({message,model:requestedModel,attachmentCount:attachments.length})){
       console.info('PRIMARY_BRIDGE_TRIVIAL_BYPASS',JSON.stringify({version:ROUTER_VERSION,messageId,workspaceId}))
       try{return await forwardTrivialAuto({supabaseUrl,anonKey,authorization,body})}
       catch{return jsonResponse({error:'Asistan servisine bağlanılamadı. Lütfen tekrar deneyin.',code:'TRIVIAL_FAST_PATH_UNREACHABLE'},502)}
