@@ -15,14 +15,14 @@ const streamHeaders = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  'X-JetWork-Primary-Agent-Bridge': 'v3-evidence-aware',
+  'X-JetWork-Primary-Agent-Bridge': 'v4-single-rpc-evidence',
 }
 
 const AUTO_MODEL = 'auto'
 const LITE_MODEL = 'gemini-3.5-flash-lite'
 const FLASH_MODEL = 'gemini-3.5-flash'
 const PRO_MODEL = 'gemini-3.1-pro-preview'
-const ROUTER_VERSION = 'primary-bridge-evidence-v2'
+const ROUTER_VERSION = 'primary-bridge-evidence-v3-single-rpc'
 const MAX_CONTEXT_MESSAGES = 6
 const MAX_CONTEXT_CHARS = 3_000
 const TECHNICAL_IDENTIFIER = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/gu
@@ -77,47 +77,29 @@ const relationIntent = (message:string) => /(?:hangi\s+(?:mesaj|fonksiyon|metot|
 async function inspectEvidence(client:any, workspaceId:string, message:string) {
   const identifiers = unique([...message.toLocaleUpperCase('en-US').matchAll(TECHNICAL_IDENTIFIER)].map(match => match[0])).slice(0,6)
   if (!identifiers.length) return { state:'none' as EvidenceState, identifiers, direct:0, references:0, relations:0, conflicts:0 }
-  const { data: workspace } = await client.from('workspaces').select('project_id').eq('id',workspaceId).maybeSingle()
-  const [globalSpaces,projectSpaces] = await Promise.all([
-    client.from('knowledge_spaces').select('id').eq('scope_type','global'),
-    workspace?.project_id ? client.from('knowledge_spaces').select('id').eq('project_id',String(workspace.project_id)) : Promise.resolve({data:[],error:null}),
-  ])
-  const spaceIds = unique([...(globalSpaces.data || []).map((r:any)=>String(r.id)), ...((projectSpaces as any).data || []).map((r:any)=>String(r.id))].filter(Boolean))
-  if (!spaceIds.length) return { state:'no_evidence' as EvidenceState, identifiers, direct:0, references:0, relations:0, conflicts:0 }
 
-  const directRows:any[] = []
-  const refRows:any[] = []
-  for (const id of identifiers) {
-    const [byName, byCanonical, byContent] = await Promise.all([
-      client.from('knowledge_objects_v2').select('id,canonical_key,object_type,name').eq('publication_status','published').in('knowledge_space_id',spaceIds).ilike('name',`%${id}%`).limit(20),
-      client.from('knowledge_objects_v2').select('id,canonical_key,object_type,name').eq('publication_status','published').in('knowledge_space_id',spaceIds).ilike('canonical_key',`%${id.toLocaleLowerCase('en-US')}%`).limit(20),
-      client.from('knowledge_object_versions_v2').select('id,object_id').in('knowledge_space_id',spaceIds).eq('is_current',true).ilike('content',`%${id}%`).limit(40),
-    ])
-    directRows.push(...(byName.data || []), ...(byCanonical.data || []))
-    refRows.push(...(byContent.data || []))
-  }
-  const direct = [...new Map(directRows.map(row=>[String(row.id),row])).values()]
-  const canonicalKeys = direct.map((row:any)=>String(row.canonical_key)).filter(Boolean)
-  let relations:any[] = []
-  let conflicts:any[] = []
-  if (canonicalKeys.length) {
-    const relationParts = canonicalKeys.flatMap((key:string)=>[`source_canonical_key.eq.${key}`,`target_canonical_key.eq.${key}`]).join(',')
-    const conflictParts = canonicalKeys.flatMap((key:string)=>[`canonical_key.eq.${key}`,`related_canonical_key.eq.${key}`]).join(',')
-    const [rr,cr] = await Promise.all([
-      client.from('knowledge_relations_v2').select('id,relation_type,source_canonical_key,target_canonical_key').in('knowledge_space_id',spaceIds).eq('active',true).or(relationParts).limit(80),
-      client.from('knowledge_review_items_v3').select('id,review_type').in('knowledge_space_id',spaceIds).eq('status','open').in('review_type',['possible_conflict','low_confidence_relation']).or(conflictParts).limit(20),
-    ])
-    relations = rr.data || []
-    conflicts = cr.data || []
-  }
-  const directCount = direct.length
-  const references = unique(refRows.map((row:any)=>String(row.object_id))).length
+  const lookups = await Promise.all(identifiers.map(async technicalReference => {
+    const { data, error } = await client.rpc('lookup_knowledge_technical_reference_v4', {
+      p_workspace_id: workspaceId,
+      p_technical_reference: technicalReference,
+      p_object_types: null,
+      p_limit: 20,
+    })
+    if (error) throw error
+    return data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string,any> : {}
+  }))
+
+  const direct = lookups.reduce((sum,row)=>sum + Math.max(0,Number(row.directMatchCount || 0)),0)
+  const references = lookups.reduce((sum,row)=>sum + Math.max(0,Number(row.crossReferenceCount || 0)) + Math.max(0,Number(row.relationNeighborCount || 0)),0)
+  const relations = lookups.reduce((sum,row)=>sum + Math.max(0,Number(row.relationCount || 0)),0)
+  const conflicts = lookups.reduce((sum,row)=>sum + Math.max(0,Number(row.conflictCount || 0)),0)
+  const citationReady = lookups.some(row=>row.citationReady === true || (Array.isArray(row.records) && row.records.length > 0))
   const asksRelation = relationIntent(message)
   let state:EvidenceState = 'no_evidence'
-  if (conflicts.length) state = 'conflict'
-  else if (directCount > 0 && (!asksRelation || relations.length > 0 || references > 1)) state = 'complete'
-  else if (directCount > 0 || references > 0) state = 'unresolved'
-  return { state, identifiers, direct:directCount, references, relations:relations.length, conflicts:conflicts.length }
+  if (conflicts > 0) state = 'conflict'
+  else if (direct > 0 && (!asksRelation || relations > 0 || references > 1)) state = 'complete'
+  else if (citationReady || direct > 0 || references > 0) state = 'unresolved'
+  return { state, identifiers, direct, references, relations, conflicts }
 }
 
 async function routeAuto(input:{apiKey:string;message:string;context:string;attachments:any[];evidence:Awaited<ReturnType<typeof inspectEvidence>>}):Promise<RouteDecision> {
@@ -126,7 +108,7 @@ async function routeAuto(input:{apiKey:string;message:string;context:string;atta
     `Current user request:\n${clean(input.message,3000)}`,
     input.context ? `Recent conversation context (continuity only, not evidence):\n${input.context}` : '',
     input.attachments.length ? `Attachments: ${input.attachments.slice(0,3).map(item=>`${clean(item?.name,120)} (${clean(item?.mimeType,80)})`).join(', ')}` : '',
-    `Enterprise evidence state: ${input.evidence.state}. Direct objects=${input.evidence.direct}; content references=${input.evidence.references}; graph relations=${input.evidence.relations}; conflicts=${input.evidence.conflicts}.`,
+    `Enterprise evidence state: ${input.evidence.state}. Direct objects=${input.evidence.direct}; content/graph references=${input.evidence.references}; graph relations=${input.evidence.relations}; conflicts=${input.evidence.conflicts}.`,
     input.evidence.identifiers.length ? `Exact technical identifiers: ${input.evidence.identifiers.join(', ')}` : '',
   ].filter(Boolean).join('\n\n')
   const response = await ai.models.generateContent({
@@ -202,10 +184,16 @@ Deno.serve(async(req:Request)=>{
   if(requestedModel===AUTO_MODEL){
     if(!geminiApiKey)return jsonResponse({error:'GEMINI_API_KEY is required for Auto routing.',code:'AUTO_ROUTER_UNAVAILABLE'},503)
     const message=clean(body.message,32000)
-    const [context,evidence]=await Promise.all([loadCompactContext(client,workspaceId,messageId),inspectEvidence(client,workspaceId,message).catch(()=>({state:'none' as EvidenceState,identifiers:[],direct:0,references:0,relations:0,conflicts:0}))])
+    const [context,evidence]=await Promise.all([
+      loadCompactContext(client,workspaceId,messageId),
+      inspectEvidence(client,workspaceId,message).catch(error=>{
+        console.warn('PRIMARY_BRIDGE_EVIDENCE_RPC_FAILED',String(error).slice(0,500))
+        return {state:'none' as EvidenceState,identifiers:[],direct:0,references:0,relations:0,conflicts:0}
+      }),
+    ])
     try{route=await routeAuto({apiKey:geminiApiKey,message,context,attachments:Array.isArray(body.chatAttachments)?body.chatAttachments.slice(0,3):[],evidence})}
     catch(error){console.warn('PRIMARY_BRIDGE_AUTO_ROUTER_FAILED_KEEP_FLASH',String(error).slice(0,500));route={routedModel:FLASH_MODEL,decision:'USE_FLASH',usage:{inputTokens:0,outputTokens:0,reasoningTokens:0,totalTokens:0,estimatedCostUsd:0},evidenceState:evidence.state,reasons:['router_error_flash_fallback']}}
-    forwardedBody={...body,model:route.routedModel}
+    forwardedBody={...body,model:route.routedModel,autoRouted:true}
     console.info('PRIMARY_BRIDGE_EVIDENCE_ROUTE',JSON.stringify({version:ROUTER_VERSION,messageId,workspaceId,routedModel:route.routedModel,decision:route.decision,evidenceState:route.evidenceState,reasons:route.reasons}))
   }
   let upstream:Response
