@@ -15,6 +15,9 @@ declare
   code_match text[];
   normalized_code text;
   literal_code_supported boolean;
+  current_user_text text := '';
+  previous_user_text text := '';
+  literal_source_requested boolean := false;
 begin
   if jsonb_typeof(p_state_items) <> 'array' or jsonb_typeof(p_source_refs) <> 'array' or jsonb_typeof(p_usage) <> 'object' then
     raise exception 'Assistant completion payload is invalid';
@@ -38,6 +41,24 @@ begin
 
   if turn_record.id is null then raise exception 'Assistant turn lock is no longer valid'; end if;
 
+  select coalesce(m.text, '') into current_user_text
+  from public.messages m
+  where m.id = turn_record.message_id and m.workspace_id = turn_record.workspace_id and m.role = 'user'
+  limit 1;
+
+  if coalesce(current_user_text, '') ~* '(abap|source[[:space:]]*code|kaynak[[:space:]]*kod|implementasyon|implementation|kodunu|kodu)' then
+    literal_source_requested := true;
+  elsif coalesce(current_user_text, '') ~ '^\s*[0-9]{2,4}(\s|$)' then
+    select coalesce(m.text, '') into previous_user_text
+    from public.messages m
+    where m.workspace_id = turn_record.workspace_id
+      and m.role = 'user'
+      and m.created_at < coalesce((select created_at from public.messages where id = turn_record.message_id limit 1), now())
+    order by m.created_at desc
+    limit 1;
+    literal_source_requested := coalesce(previous_user_text, '') ~* '(abap|source[[:space:]]*code|kaynak[[:space:]]*kod|implementasyon|implementation|kodunu|kodu)';
+  end if;
+
   select coalesce(
     case
       when r.plan ? 'enterpriseGroundingRequired'
@@ -59,10 +80,7 @@ begin
     select 1
     from jsonb_array_elements(p_source_refs) source_ref
     where coalesce(source_ref ->> 'sourceType', 'knowledge') <> 'web'
-      and coalesce(
-        nullif(trim(source_ref ->> 'canonicalKey'), ''),
-        nullif(trim(source_ref ->> 'sourceId'), '')
-      ) is not null
+      and coalesce(nullif(trim(source_ref ->> 'canonicalKey'), ''), nullif(trim(source_ref ->> 'sourceId'), '')) is not null
   ) into has_verified_enterprise_source;
 
   if enterprise_grounding_required and not has_verified_enterprise_source and not grounding_fail_closed then
@@ -71,9 +89,13 @@ begin
 
   for code_match in
     select m
-    from regexp_matches(coalesce(p_response_text, ''), '```[[:space:]]*abap[[:space:]]+([^`]{20,})```', 'gi') as m
+    from regexp_matches(coalesce(p_response_text, ''), '```([A-Za-z0-9_+.-]*)[[:space:]]+([^`]{20,})```', 'gi') as m
   loop
-    normalized_code := regexp_replace(lower(coalesce(code_match[1], '')), '[[:space:]]+', '', 'g');
+    if not literal_source_requested and lower(coalesce(code_match[1], '')) <> 'abap' then
+      continue;
+    end if;
+
+    normalized_code := regexp_replace(lower(coalesce(code_match[2], '')), '[[:space:]]+', '', 'g');
     if length(normalized_code) < 20 then continue; end if;
 
     select exists (
@@ -81,19 +103,15 @@ begin
       from jsonb_array_elements(p_source_refs) source_ref
       join public.knowledge_objects_v2 o
         on o.publication_status = 'published'
-       and (
-         o.canonical_key = source_ref ->> 'canonicalKey'
-         or o.primary_source_id::text = source_ref ->> 'sourceId'
-       )
+       and (o.canonical_key = source_ref ->> 'canonicalKey' or o.primary_source_id::text = source_ref ->> 'sourceId')
       join public.knowledge_object_versions_v2 v
-        on v.id = o.published_version_id
-       and v.is_current = true
+        on v.id = o.published_version_id and v.is_current = true
       where coalesce(source_ref ->> 'sourceType', 'knowledge') <> 'web'
         and position(normalized_code in regexp_replace(lower(coalesce(v.content, '')), '[[:space:]]+', '', 'g')) > 0
     ) into literal_code_supported;
 
     if not coalesce(literal_code_supported, false) then
-      raise exception 'UNVERIFIED_LITERAL_ABAP_CODE';
+      raise exception 'UNVERIFIED_LITERAL_SOURCE_CODE';
     end if;
   end loop;
 
