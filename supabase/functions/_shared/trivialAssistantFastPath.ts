@@ -1,7 +1,7 @@
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v7-clarification-handshake'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v8-noisy-current-turn'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -20,11 +20,13 @@ export type TrivialFastPathProvider = 'openai' | 'gemini'
 const TRIVIAL_FAST_PATH_INSTRUCTIONS = [
   'Sen JetWork AI asistanısın.',
   'Bu yol kısa, gündelik ve düşük riskli kullanıcı mesajları içindir. Aynı dilde doğal ve kısa yanıt ver.',
+  'Bu akışta önceki sohbet geçmişi yoktur; yalnızca mevcut kullanıcı mesajını bağlam kabul et ve geçmişten konu, teknik kod, niyet veya selamlaşma taşıma.',
   'Çok olası yazım hatası veya kısaltmayı sessizce anlamlandır. Örneğin gündelik bir selamlaşmanın hatalı yazımını teknik terim veya araştırma konusu gibi yorumlama.',
+  'Mevcut mesajdaki anlamsız veya bozuk bir karakter dizisi için klavye testi, teknik konu, önceki soru ya da başka bir kullanıcı amacı uydurma. Anlaşılabilen gündelik kısmı doğal biçimde yanıtla; kalan kısmı anlayamıyorsan bunu nötr ve kısa belirt.',
   'Kullanıcı yalnız bir kişi, takım, kurum, ürün veya konu adı yazdıysa niyet uydurma; tek kısa soruyla neyi merak ettiğini sor.',
   'Kısa bir gündelik emir veya hatırlatma cümlesine doğal karşılık ver; gerçekte planlamadığın, kaydetmediğin veya gelecekte yapamayacağın bir işlemi yaptığını iddia etme.',
   'Kullanıcı istemedikçe önceki teknik/kurumsal konuyu taşıma ve Enerjisa, SAP, CRM, süreç, proje, analiz veya IT talebine yönlendirme yapma.',
-  'Selamlaşma ifadesini başka bir selamlaşma biçimine dönüştürme; örneğin "selam" ifadesine "aleykümselam" deme.',
+  'Selamlaşma biçimini yalnız mevcut mesaj belirler. "Aleykümselam" yalnız kullanıcı mevcut mesajda "selamün aleyküm", "selam aleyküm", "sa" veya açıkça eşdeğerini kullandığında uygundur; "selam", "merhaba", "nasılsın" veya "naber" için bunu kullanma.',
   'Yanıtı en fazla iki kısa cümle tut.',
 ].join('\n')
 
@@ -39,6 +41,9 @@ const normalizeConversationText = (value: string) => value
 
 const TRIVIAL_CONVERSATION_PATTERN = /^(?:selam(?:lar)?|merhaba|selamun aleykum|selam aleykum|sa|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going|thanks|thank you|tesekkur(?:ler)?|tesekkur ederim|sag ol|sagol|eyvallah|tamam|ok|okay)$/i
 const LOW_RISK_CLARIFICATION_HANDSHAKE_PATTERN = /^(?:bir )?(?:talebim|istegim|sorum) var(?: proje mi support(?: konusu)? mu oldugunu)?(?: birlikte)?(?: netlestirelim| degerlendirelim)?$/i
+const NOISY_CONVERSATIONAL_EXTENSION_PATTERN = /^(?:selam(?:lar)?|merhaba|hey|hi|hello|gunaydin|iyi aksamlar|iyi geceler|nasilsin|nasil gidiyor|ne haber|naber|iyi misin|how are you|how s it going)\s+([a-z]+)$/i
+const MIN_NOISY_EXTENSION_LENGTH = 10
+const MAX_NOISY_EXTENSION_LENGTH = 64
 
 const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
   ['selam', 'Selam! Nasıl yardımcı olabilirim?'],
@@ -73,6 +78,14 @@ const DETERMINISTIC_TRIVIAL_RESPONSES = new Map<string, string>([
 const CLARIFICATION_HANDSHAKE_RESPONSE = 'Tabii. Talebi anlat; mevcut durum, beklenen sonuç ve etkilenen sistem/ekip varsa ekle, birlikte proje mi support mu netleştirelim.'
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
+
+const isNoisyConversationalExtension = (normalized: string, attachmentCount: number): boolean => {
+  if (attachmentCount > 0) return false
+  const match = normalized.match(NOISY_CONVERSATIONAL_EXTENSION_PATTERN)
+  if (!match) return false
+  const suffix = match[1] || ''
+  return suffix.length >= MIN_NOISY_EXTENSION_LENGTH && suffix.length <= MAX_NOISY_EXTENSION_LENGTH
+}
 
 export interface TrivialAssistantFastPathInput {
   message: string
@@ -117,10 +130,13 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
   // it only matches messages that announce a request/question without supplying the
   // substantive details needed for analysis. Once details exist, semantic/core routing
   // remains authoritative.
-  // Stale attachment state must not force these exact context-free turns through
-  // semantic orchestration.
+  // A narrow noisy-extension lane also isolates a casual phrase followed by one opaque
+  // alphabetic token. It intentionally rejects attachments, technical identifiers and
+  // multi-word substantive requests, so enterprise/RAG routing remains authoritative.
+  // Stale attachment state must not force exact context-free turns through orchestration.
   return TRIVIAL_CONVERSATION_PATTERN.test(normalized)
     || LOW_RISK_CLARIFICATION_HANDSHAKE_PATTERN.test(normalized)
+    || isNoisyConversationalExtension(normalized, input.attachmentCount)
 }
 
 const extractOpenAiText = (payload: Record<string, unknown>): string => {
