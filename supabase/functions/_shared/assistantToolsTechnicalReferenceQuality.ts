@@ -29,7 +29,7 @@ const TECHNICAL_REFERENCE_TOOL = {
     type: 'object',
     properties: {
       technicalReference: { type: 'string', minLength: 2, maxLength: 160 },
-      objectTypes: { type: ['array','null'], items: { type: 'string', enum: OBJECT_TYPES }, description: 'Optional preferred types for the directly matching anchor object. Cross-reference and graph-neighbor evidence may include other object types when needed to resolve the relation.' },
+      objectTypes: { type: ['array','null'], items: { type: 'string', enum: OBJECT_TYPES }, description: 'Optional preferred answer/object types ordered from most to least relevant. Put the type directly requested by the user first. Evidence may include other types when needed to resolve the relation.' },
       limit: { type: ['integer','null'], minimum: 1, maximum: 20 },
     },
     required: ['technicalReference','objectTypes','limit'],
@@ -52,6 +52,7 @@ async function getObjectsByTechnicalReference(
   const requestedTypes = Array.isArray(args.objectTypes)
     ? args.objectTypes.map(value => clean(value, 40)).filter(value => (OBJECT_TYPES as readonly string[]).includes(value))
     : []
+  const primaryRequestedType = requestedTypes[0] || ''
   const limitValue = Number(args.limit)
   const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(Math.trunc(limitValue), 20)) : 12
   if (!technicalReference) throw new Error('technicalReference is required')
@@ -81,7 +82,13 @@ async function getObjectsByTechnicalReference(
     return contentReferencesTechnicalReference(searchable, technicalReference)
   }).slice(0, limit)
 
-  const sources = records
+  const sourceRecords = primaryRequestedType
+    ? records.filter((record: Record<string, any>) => (
+      String(record.matchMode || '') === 'direct'
+      || clean(record.objectType, 80) === primaryRequestedType
+    ))
+    : records
+  const sources = sourceRecords
     .filter((record: Record<string, any>) => clean(record.sourceName, 300))
     .map((record: Record<string, any>) => ({
       sourceId: clean(record.sourceId, 200) || undefined,
@@ -107,6 +114,8 @@ async function getObjectsByTechnicalReference(
       relationCount: Number(payload.relationCount || 0),
       conflictCount: Number(payload.conflictCount || 0),
       citationReady: records.length > 0,
+      focusedSourceCount: sources.length,
+      primaryRequestedType: primaryRequestedType || null,
       deterministicTechnicalReferenceLookup: true,
       singleRpcLookup: true,
     },
