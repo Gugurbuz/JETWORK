@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   Archive,
   ChevronDown,
@@ -6,10 +7,12 @@ import {
   ChevronRight,
   FileText,
   Folder,
+  FolderInput,
   Loader2,
   LogOut,
   MessageSquarePlus,
   MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -23,15 +26,18 @@ import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { Project, Workspace } from '../types';
 import { cn } from '../lib/utils';
+import { nowIso } from '../lib/mapping';
+import { supabase } from '../supabase';
 import { useDataStore } from '../store/useDataStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { STANDALONE_PROJECT_ID } from '../hooks/useProjects';
-import { moveWorkspaceToProject } from '../services/workspaceScopeRepository';
+import { setWorkspaceProject } from '../services/workspaceScopeRepository';
 import { JetWorkLogo } from './JetWorkLogo';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 type Lifecycle = 'active' | 'archived' | 'trash';
+type ConversationRowSize = 'default' | 'compact';
 
 interface SidebarProps {
   user: { uid: string; name: string; role: string; color?: string } | null;
@@ -51,9 +57,49 @@ interface SidebarProps {
   onOpenSettings: () => void;
 }
 
+interface AnchorBox {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+interface ChatMenuState {
+  workspace: Workspace;
+  projectId: string | null;
+  anchor: AnchorBox;
+}
+
+interface ConversationRowProps {
+  workspace: Workspace;
+  projectId: string | null;
+  currentWorkspaceId: string | null;
+  canManage: boolean;
+  menuOpen: boolean;
+  size?: ConversationRowSize;
+  title?: string;
+  onSelect: () => void;
+  onOpenMenu: (button: HTMLButtonElement) => void;
+}
+
+interface ConversationActionsMenuProps {
+  menu: ChatMenuState;
+  projects: Project[];
+  lifecycle: Lifecycle;
+  pending: boolean;
+  menuRef: React.RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  onRename: () => void;
+  onMove: (projectId: string | null) => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
+}
+
 const PAGE_SIZE = 30;
 const RECENT_CHAT_LIMIT = 7;
 const SIDEBAR_COLLAPSED_KEY = 'jetwork:global-sidebar:collapsed';
+const CHAT_MENU_WIDTH = 224;
 
 const readCollapsedPreference = (): boolean => {
   try {
@@ -68,6 +114,211 @@ const lifecycleLabel: Record<Lifecycle, string> = {
   archived: 'Arşiv',
   trash: 'Çöp',
 };
+
+const conversationSectionLabel: Record<Lifecycle, string> = {
+  active: 'Sohbetler',
+  archived: 'Arşivlenen sohbetler',
+  trash: 'Çöp kutusundaki sohbetler',
+};
+
+function ConversationRow({
+  workspace,
+  projectId,
+  currentWorkspaceId,
+  canManage,
+  menuOpen,
+  size = 'default',
+  title,
+  onSelect,
+  onOpenMenu,
+}: ConversationRowProps) {
+  const compact = size === 'compact';
+  const selected = currentWorkspaceId === workspace.id;
+
+  return (
+    <div
+      className={cn(
+        'group/chat relative flex min-w-0 items-center rounded-xl',
+        (selected || menuOpen) && 'bg-theme-surface-hover',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        title={title || workspace.title}
+        className={cn(
+          'min-w-0 flex-1 truncate text-left transition-colors',
+          compact ? 'rounded-lg px-2 py-1.5 pr-10 text-xs' : 'rounded-xl px-2.5 py-2 pr-11 text-sm',
+          selected || menuOpen
+            ? 'font-medium text-theme-text'
+            : compact
+              ? 'text-theme-text-muted hover:bg-theme-bg/70 hover:text-theme-text'
+              : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
+        )}
+      >
+        {workspace.title}
+      </button>
+
+      {canManage && (
+        <button
+          type="button"
+          data-chat-menu-trigger={workspace.id}
+          data-project-id={projectId || ''}
+          onClick={event => {
+            event.stopPropagation();
+            onOpenMenu(event.currentTarget);
+          }}
+          className={cn(
+            'absolute right-0.5 flex h-9 w-9 items-center justify-center rounded-lg text-theme-text-muted transition-all hover:bg-theme-bg hover:text-theme-text focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-theme-primary/40',
+            menuOpen
+              ? 'opacity-100'
+              : 'opacity-60 md:opacity-0 md:group-hover/chat:opacity-100',
+          )}
+          title="Sohbet seçenekleri"
+          aria-label={`${workspace.title} seçenekleri`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
+          <MoreHorizontal size={15} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ConversationActionsMenu({
+  menu,
+  projects,
+  lifecycle,
+  pending,
+  menuRef,
+  onClose,
+  onRename,
+  onMove,
+  onArchive,
+  onRestore,
+  onDelete,
+}: ConversationActionsMenuProps) {
+  const [view, setView] = React.useState<'root' | 'move'>('root');
+  const viewportWidth = typeof window === 'undefined' ? 1280 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 800 : window.innerHeight;
+  const openToRight = menu.anchor.right + 8 + CHAT_MENU_WIDTH <= viewportWidth - 8;
+  const left = openToRight
+    ? menu.anchor.right + 8
+    : Math.max(8, menu.anchor.left - CHAT_MENU_WIDTH - 8);
+  const top = Math.min(menu.anchor.bottom + 4, Math.max(8, viewportHeight - 320));
+  const moveTargets = projects.filter(project => (
+    !project.deletedAt && !project.archivedAt && project.id !== menu.projectId
+  ));
+
+  const actionClass = 'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-theme-surface-hover disabled:cursor-not-allowed disabled:opacity-50';
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label={`${menu.workspace.title} sohbet seçenekleri`}
+      className="fixed z-[100] w-56 rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-2xl"
+      style={{ left, top, maxHeight: 'min(420px, calc(100vh - 16px))' }}
+    >
+      {view === 'move' ? (
+        <div className="max-h-[min(380px,60vh)] overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => setView('root')}
+            className={cn(actionClass, 'mb-1 font-medium text-theme-text')}
+            disabled={pending}
+          >
+            <ChevronLeft size={14} />
+            Projeye taşı
+          </button>
+          <div className="mb-1 border-t border-theme-border/60" />
+
+          {menu.projectId && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => onMove(null)}
+              className={cn(actionClass, 'text-theme-text-muted hover:text-theme-text')}
+              disabled={pending}
+            >
+              <MessageSquarePlus size={14} />
+              Bağımsız sohbete taşı
+            </button>
+          )}
+
+          {moveTargets.map(project => (
+            <button
+              type="button"
+              role="menuitem"
+              key={project.id}
+              onClick={() => onMove(project.id)}
+              className={cn(actionClass, 'text-theme-text-muted hover:text-theme-text')}
+              disabled={pending}
+            >
+              <Folder size={14} className="shrink-0" />
+              <span className="truncate">{project.name}</span>
+            </button>
+          ))}
+
+          {!menu.projectId && moveTargets.length === 0 && (
+            <div className="px-2.5 py-3 text-xs text-theme-text-muted">Taşınabilecek aktif proje yok.</div>
+          )}
+        </div>
+      ) : (
+        <>
+          {lifecycle === 'active' ? (
+            <>
+              <button type="button" role="menuitem" onClick={onRename} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
+                <Pencil size={14} />
+                Yeniden adlandır
+              </button>
+              <button type="button" role="menuitem" onClick={() => setView('move')} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
+                <FolderInput size={14} />
+                Projeye taşı
+                <ChevronRight size={13} className="ml-auto" />
+              </button>
+              <button type="button" role="menuitem" onClick={onArchive} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
+                <Archive size={14} />
+                Arşivle
+              </button>
+              <div className="my-1 border-t border-theme-border/60" />
+              <button type="button" role="menuitem" onClick={onDelete} className={cn(actionClass, 'text-red-500 hover:bg-red-500/10')} disabled={pending}>
+                <Trash2 size={14} />
+                Sil
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" role="menuitem" onClick={onRestore} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
+                <RotateCcw size={14} />
+                Geri yükle
+              </button>
+              {lifecycle !== 'trash' && (
+                <>
+                  <div className="my-1 border-t border-theme-border/60" />
+                  <button type="button" role="menuitem" onClick={onDelete} className={cn(actionClass, 'text-red-500 hover:bg-red-500/10')} disabled={pending}>
+                    <Trash2 size={14} />
+                    Sil
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {pending && (
+            <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-theme-text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              İşleniyor…
+            </div>
+          )}
+        </>
+      )}
+
+      <button type="button" className="sr-only" onClick={onClose}>Menüyü kapat</button>
+    </div>
+  );
+}
 
 export function Sidebar(props: SidebarProps) {
   const {
@@ -90,7 +341,10 @@ export function Sidebar(props: SidebarProps) {
   const projects = useDataStore(state => state.projects);
   const currentProjectId = useDataStore(state => state.currentProjectId);
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
+  const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
   const setShowNewProjectModal = useUIStore(state => state.setShowNewProjectModal);
+  const setEditingWorkspace = useUIStore(state => state.setEditingWorkspace);
+  const setDeletingWorkspace = useUIStore(state => state.setDeletingWorkspace);
   const mobileOpen = useUIStore(state => state.mobileSidebarOpen);
   const setMobileOpen = useUIStore(state => state.setMobileSidebarOpen);
   const selectedModel = useSettingsStore(state => state.selectedModel);
@@ -105,8 +359,10 @@ export function Sidebar(props: SidebarProps) {
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [showUserMenu, setShowUserMenu] = React.useState(false);
-  const [movingChatId, setMovingChatId] = React.useState<string | null>(null);
+  const [chatMenu, setChatMenu] = React.useState<ChatMenuState | null>(null);
+  const [pendingChatId, setPendingChatId] = React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const chatMenuRef = React.useRef<HTMLDivElement>(null);
 
   const standaloneGroup = React.useMemo(
     () => projects.find(project => project.id === STANDALONE_PROJECT_ID),
@@ -118,7 +374,6 @@ export function Sidebar(props: SidebarProps) {
     [projects],
   );
 
-  // A mobile drawer is always expanded even if the desktop rail is collapsed.
   const compact = collapsed && !mobileOpen;
   const activeProject = React.useMemo(
     () => actualProjects.find(project => project.workspaces.some(workspace => workspace.id === currentWorkspaceId)),
@@ -129,6 +384,39 @@ export function Sidebar(props: SidebarProps) {
       || activeProject?.workspaces.find(workspace => workspace.id === currentWorkspaceId),
     [activeProject, currentWorkspaceId, standaloneWorkspaces],
   );
+
+  const workspaceMatchesLifecycle = React.useCallback((workspace: Workspace) => {
+    if (lifecycle === 'trash') return Boolean(workspace.deletedAt);
+    if (workspace.deletedAt) return false;
+    if (lifecycle === 'archived') return Boolean(workspace.archivedAt);
+    return !workspace.archivedAt;
+  }, [lifecycle]);
+
+  const projectMatchesLifecycle = React.useCallback((project: Project) => {
+    if (lifecycle === 'trash') return Boolean(project.deletedAt);
+    if (project.deletedAt) return false;
+    if (lifecycle === 'archived') return Boolean(project.archivedAt);
+    return !project.archivedAt;
+  }, [lifecycle]);
+
+  const projectMatchesScope = React.useCallback((project: Project) => {
+    const owned = project.ownerId === user?.uid;
+    return (scope === 'owned') === owned;
+  }, [scope, user?.uid]);
+
+  const getVisibleProjectWorkspaces = React.useCallback((project: Project) => {
+    if (lifecycle === 'active') {
+      return project.workspaces.filter(workspace => !workspace.deletedAt && !workspace.archivedAt);
+    }
+    if (lifecycle === 'archived') {
+      if (project.archivedAt && !project.deletedAt) {
+        return project.workspaces.filter(workspace => !workspace.deletedAt);
+      }
+      return project.workspaces.filter(workspace => !workspace.deletedAt && Boolean(workspace.archivedAt));
+    }
+    if (project.deletedAt) return project.workspaces;
+    return project.workspaces.filter(workspace => Boolean(workspace.deletedAt));
+  }, [lifecycle]);
 
   React.useEffect(() => setVisibleCount(PAGE_SIZE), [scope, lifecycle, query]);
 
@@ -147,41 +435,65 @@ export function Sidebar(props: SidebarProps) {
     setLifecycle(activeProject.deletedAt ? 'trash' : activeProject.archivedAt ? 'archived' : 'active');
   }, [activeProject, user?.uid]);
 
-  const projectMatchesScopeAndLifecycle = React.useCallback((project: Project) => {
-    const owned = project.ownerId === user?.uid;
-    if ((scope === 'owned') !== owned) return false;
-    if (lifecycle === 'trash') return Boolean(project.deletedAt);
-    if (project.deletedAt) return false;
-    if (lifecycle === 'archived') return Boolean(project.archivedAt);
-    return !project.archivedAt;
-  }, [lifecycle, scope, user?.uid]);
+  React.useEffect(() => {
+    if (!chatMenu) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (chatMenuRef.current?.contains(target)) return;
+      const trigger = target.closest('[data-chat-menu-trigger]');
+      if (trigger?.getAttribute('data-chat-menu-trigger') === chatMenu.workspace.id) return;
+      setChatMenu(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setChatMenu(null);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [chatMenu]);
 
   const filtered = React.useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('tr-TR');
     return actualProjects.filter(project => {
-      if (!projectMatchesScopeAndLifecycle(project)) return false;
+      if (!projectMatchesScope(project)) return false;
+
+      const projectLifecycleMatch = projectMatchesLifecycle(project);
+      const matchingWorkspaces = getVisibleProjectWorkspaces(project);
+      if (lifecycle === 'active') {
+        if (!projectLifecycleMatch) return false;
+      } else if (!projectLifecycleMatch && matchingWorkspaces.length === 0) {
+        return false;
+      }
+
       if (!normalized) return true;
-      return [project.name, project.description, ...project.workspaces.map(workspace => workspace.title)]
+      return [project.name, project.description, ...matchingWorkspaces.map(workspace => workspace.title)]
         .filter(Boolean)
         .join(' ')
         .toLocaleLowerCase('tr-TR')
         .includes(normalized);
     });
-  }, [actualProjects, projectMatchesScopeAndLifecycle, query]);
+  }, [actualProjects, getVisibleProjectWorkspaces, lifecycle, projectMatchesLifecycle, projectMatchesScope, query]);
 
   const visibleStandalone = React.useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('tr-TR');
     return standaloneWorkspaces
-      .filter(workspace => !workspace.deletedAt && !workspace.archivedAt)
+      .filter(workspaceMatchesLifecycle)
       .filter(workspace => !normalized || workspace.title.toLocaleLowerCase('tr-TR').includes(normalized))
       .sort((a, b) => Number(b.lastUpdated || 0) - Number(a.lastUpdated || 0));
-  }, [query, standaloneWorkspaces]);
+  }, [query, standaloneWorkspaces, workspaceMatchesLifecycle]);
 
   const recentWorkspaces = React.useMemo(() => {
+    if (lifecycle !== 'active') return [];
     const rows: Array<{ workspace: Workspace; project: Project }> = [];
     actualProjects.forEach(project => {
-      const owned = project.ownerId === user?.uid;
-      if ((scope === 'owned') !== owned || project.deletedAt || project.archivedAt) return;
+      if (!projectMatchesScope(project) || project.deletedAt || project.archivedAt) return;
       project.workspaces.forEach(workspace => {
         if (!workspace.deletedAt && !workspace.archivedAt) rows.push({ workspace, project });
       });
@@ -189,28 +501,114 @@ export function Sidebar(props: SidebarProps) {
     return rows
       .sort((a, b) => Number(b.workspace.lastUpdated || 0) - Number(a.workspace.lastUpdated || 0))
       .slice(0, RECENT_CHAT_LIMIT);
-  }, [actualProjects, scope, user?.uid]);
+  }, [actualProjects, lifecycle, projectMatchesScope]);
 
   const runMobileAction = React.useCallback((action: () => void) => {
     if (mobileOpen) setMobileOpen(false);
     action();
   }, [mobileOpen, setMobileOpen]);
 
-  const selectProject = (id: string) => runMobileAction(() => onSelectProject(id));
-  const selectWorkspace = (id: string) => runMobileAction(() => onSelectWorkspace(id));
-  const startNewChat = () => runMobileAction(() => onQuickStart?.());
-  const openNewProject = () => runMobileAction(() => setShowNewProjectModal(true));
-  const canManage = (project: Project) => project.ownerId === user?.uid;
+  const closeChatMenu = React.useCallback(() => setChatMenu(null), []);
 
-  const moveStandaloneChat = async (workspaceId: string, projectId: string) => {
+  const selectProject = (id: string) => {
+    closeChatMenu();
+    runMobileAction(() => onSelectProject(id));
+  };
+
+  const selectWorkspace = (id: string) => {
+    closeChatMenu();
+    runMobileAction(() => onSelectWorkspace(id));
+  };
+
+  const startNewChat = () => {
+    closeChatMenu();
+    runMobileAction(() => onQuickStart?.());
+  };
+
+  const openNewProject = () => runMobileAction(() => setShowNewProjectModal(true));
+  const canManageProject = (project: Project) => project.ownerId === user?.uid;
+  const canManageWorkspace = (workspace: Workspace) => workspace.ownerId === user?.uid;
+
+  const toggleChatMenu = (workspace: Workspace, projectId: string | null, button: HTMLButtonElement) => {
+    setShowFilters(false);
+    setShowUserMenu(false);
+    setChatMenu(current => {
+      if (current?.workspace.id === workspace.id) return null;
+      const rect = button.getBoundingClientRect();
+      return {
+        workspace,
+        projectId,
+        anchor: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+      };
+    });
+  };
+
+  const updateWorkspaceLifecycle = async (
+    workspaceId: string,
+    values: { archived_at?: string | null; deleted_at?: string | null },
+  ) => {
+    const { error } = await supabase
+      .from('workspaces')
+      .update({ ...values, last_updated: nowIso() })
+      .eq('id', workspaceId)
+      .select('id')
+      .single();
+    if (error) throw error;
+  };
+
+  const archiveWorkspace = async (workspace: Workspace) => {
+    setPendingChatId(workspace.id);
     try {
-      await moveWorkspaceToProject(workspaceId, projectId);
-      setMovingChatId(null);
-      toast.success('Sohbet projeye taşındı.');
+      await updateWorkspaceLifecycle(workspace.id, { archived_at: nowIso(), deleted_at: null });
+      if (currentWorkspaceId === workspace.id) setCurrentWorkspaceId(null);
+      setChatMenu(null);
+      toast.success('Sohbet arşivlendi.');
     } catch (error) {
-      console.error('Failed to move standalone chat to project:', error);
-      toast.error('Sohbet projeye taşınamadı.');
+      console.error('Failed to archive conversation:', error);
+      toast.error('Sohbet arşivlenemedi.');
+    } finally {
+      setPendingChatId(null);
     }
+  };
+
+  const restoreWorkspace = async (workspace: Workspace) => {
+    setPendingChatId(workspace.id);
+    try {
+      await updateWorkspaceLifecycle(workspace.id, { archived_at: null, deleted_at: null });
+      setChatMenu(null);
+      toast.success('Sohbet geri yüklendi.');
+    } catch (error) {
+      console.error('Failed to restore conversation:', error);
+      toast.error('Sohbet geri yüklenemedi.');
+    } finally {
+      setPendingChatId(null);
+    }
+  };
+
+  const moveWorkspace = async (workspace: Workspace, projectId: string | null) => {
+    setPendingChatId(workspace.id);
+    try {
+      await setWorkspaceProject(workspace.id, projectId);
+      setChatMenu(null);
+      toast.success(projectId ? 'Sohbet projeye taşındı.' : 'Sohbet bağımsız sohbetlere taşındı.');
+    } catch (error) {
+      console.error('Failed to move conversation:', error);
+      toast.error('Sohbet taşınamadı.');
+    } finally {
+      setPendingChatId(null);
+    }
+  };
+
+  const renameWorkspace = (workspace: Workspace) => {
+    setChatMenu(null);
+    if (mobileOpen) setMobileOpen(false);
+    setEditingWorkspace(workspace);
+  };
+
+  const deleteWorkspace = (workspaceId: string) => {
+    setChatMenu(null);
+    if (mobileOpen) setMobileOpen(false);
+    setDeletingWorkspace(workspaceId);
   };
 
   const openSettings = () => {
@@ -221,6 +619,7 @@ export function Sidebar(props: SidebarProps) {
   };
 
   const openSearch = () => {
+    closeChatMenu();
     if (compact) setCollapsed(false);
     setSearchOpen(true);
     window.setTimeout(() => searchInputRef.current?.focus(), 140);
@@ -323,88 +722,45 @@ export function Sidebar(props: SidebarProps) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3 scrollbar-hide">
-            {lifecycle === 'active' && (
+            <section className="mb-5">
+              <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">{conversationSectionLabel[lifecycle]}</div>
+              <div className="space-y-0.5">
+                {visibleStandalone.map(workspace => (
+                  <ConversationRow
+                    key={workspace.id}
+                    workspace={workspace}
+                    projectId={null}
+                    currentWorkspaceId={currentWorkspaceId}
+                    canManage={canManageWorkspace(workspace)}
+                    menuOpen={chatMenu?.workspace.id === workspace.id}
+                    onSelect={() => selectWorkspace(workspace.id)}
+                    onOpenMenu={button => toggleChatMenu(workspace, null, button)}
+                  />
+                ))}
+                {visibleStandalone.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-theme-text-muted">
+                    {query ? 'Aramana uygun bağımsız sohbet yok.' : `Bu görünümde bağımsız sohbet yok.`}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {recentWorkspaces.length > 0 && !query && (
               <section className="mb-5">
-                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Sohbetler</div>
-                <div className="space-y-0.5">
-                  {visibleStandalone.map(workspace => (
-                    <div key={workspace.id} className="group/chat relative flex items-center">
-                      <button
-                        type="button"
-                        onClick={() => selectWorkspace(workspace.id)}
-                        title={workspace.title}
-                        className={cn(
-                          'flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 py-2 pr-8 text-left text-sm transition-colors',
-                          currentWorkspaceId === workspace.id
-                            ? 'bg-theme-surface-hover text-theme-text'
-                            : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
-                        )}
-                      >
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-45" />
-                        <span className="truncate">{workspace.title}</span>
-                      </button>
-
-                      {workspace.ownerId === user?.uid && actualProjects.some(project => !project.deletedAt && !project.archivedAt) && (
-                        <button
-                          type="button"
-                          onClick={() => setMovingChatId(current => current === workspace.id ? null : workspace.id)}
-                          className="absolute right-1 flex h-7 w-7 items-center justify-center rounded-lg text-theme-text-muted opacity-0 transition-opacity hover:bg-theme-bg hover:text-theme-text group-hover/chat:opacity-100 focus:opacity-100"
-                          title="Sohbet seçenekleri"
-                          aria-label={`${workspace.title} seçenekleri`}
-                        >
-                          <MoreHorizontal size={13} />
-                        </button>
-                      )}
-
-                      {movingChatId === workspace.id && (
-                        <div className="absolute right-0 top-9 z-40 w-52 rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-xl">
-                          <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-theme-text-muted">Projeye taşı</div>
-                          {actualProjects
-                            .filter(project => !project.deletedAt && !project.archivedAt)
-                            .map(project => (
-                              <button
-                                type="button"
-                                key={project.id}
-                                onClick={() => void moveStandaloneChat(workspace.id, project.id)}
-                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text"
-                              >
-                                <Folder size={12} className="shrink-0" />
-                                <span className="truncate">{project.name}</span>
-                              </button>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {visibleStandalone.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-theme-text-muted">
-                      {query ? 'Aramana uygun bağımsız sohbet yok.' : 'Henüz bağımsız sohbet yok.'}
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {recentWorkspaces.length > 0 && lifecycle === 'active' && !query && (
-              <section className="mb-5">
-                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Son proje sohbetleri</div>
+                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Son kullanılanlar</div>
                 <div className="space-y-0.5">
                   {recentWorkspaces.map(({ workspace, project }) => (
-                    <button
-                      type="button"
+                    <ConversationRow
                       key={`recent-${workspace.id}`}
-                      onClick={() => selectWorkspace(workspace.id)}
+                      workspace={workspace}
+                      projectId={project.id}
+                      currentWorkspaceId={currentWorkspaceId}
+                      canManage={canManageWorkspace(workspace)}
+                      menuOpen={chatMenu?.workspace.id === workspace.id}
                       title={`${project.name} · ${workspace.title}`}
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition-colors',
-                        currentWorkspaceId === workspace.id
-                          ? 'bg-theme-surface-hover text-theme-text'
-                          : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
-                      )}
-                    >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-45" />
-                      <span className="truncate">{workspace.title}</span>
-                    </button>
+                      onSelect={() => selectWorkspace(workspace.id)}
+                      onOpenMenu={button => toggleChatMenu(workspace, project.id, button)}
+                    />
                   ))}
                 </div>
               </section>
@@ -427,14 +783,17 @@ export function Sidebar(props: SidebarProps) {
                   )}
                   <button
                     type="button"
-                    onClick={() => setShowFilters(previous => !previous)}
+                    onClick={() => {
+                      closeChatMenu();
+                      setShowFilters(previous => !previous);
+                    }}
                     className={cn(
                       'flex h-7 w-7 items-center justify-center rounded-lg transition-colors',
                       showFilters || scope === 'shared' || lifecycle !== 'active'
                         ? 'bg-theme-surface-hover text-theme-text'
                         : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
                     )}
-                    aria-label="Proje filtreleri"
+                    aria-label="Sohbet ve proje filtreleri"
                     title="Filtreler"
                   >
                     <SlidersHorizontal size={14} />
@@ -503,6 +862,9 @@ export function Sidebar(props: SidebarProps) {
                 {filtered.slice(0, visibleCount).map(project => {
                   const isProjectActive = currentProjectId === project.id || activeProject?.id === project.id;
                   const open = Boolean(expanded[project.id]);
+                  const projectLifecycleMatch = projectMatchesLifecycle(project);
+                  const visibleWorkspaces = getVisibleProjectWorkspaces(project);
+
                   return (
                     <div key={project.id} className={cn('group/project rounded-xl', isProjectActive && 'bg-theme-surface-hover/60')}>
                       <div className="flex min-w-0 items-center gap-0.5 pr-1">
@@ -525,7 +887,7 @@ export function Sidebar(props: SidebarProps) {
                           <Folder size={15} className="shrink-0 opacity-70" />
                           <span className="truncate">{project.name}</span>
                         </button>
-                        {canManage(project) && (
+                        {canManageProject(project) && projectLifecycleMatch && (
                           <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/project:opacity-100 focus-within:opacity-100">
                             {lifecycle === 'active' && (
                               <button type="button" onClick={() => onArchiveProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-theme-text" title="Arşivle">
@@ -548,24 +910,22 @@ export function Sidebar(props: SidebarProps) {
 
                       {open && (
                         <div className="mb-1 ml-7 space-y-0.5 pl-2">
-                          {project.workspaces
-                            .filter(workspace => !workspace.deletedAt && !workspace.archivedAt)
-                            .map(workspace => (
-                              <button
-                                type="button"
-                                key={workspace.id}
-                                onClick={() => selectWorkspace(workspace.id)}
-                                className={cn(
-                                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors',
-                                  currentWorkspaceId === workspace.id
-                                    ? 'bg-theme-bg font-medium text-theme-text'
-                                    : 'text-theme-text-muted hover:bg-theme-bg/70 hover:text-theme-text',
-                                )}
-                              >
-                                <FileText size={12} className="shrink-0 opacity-65" />
-                                <span className="truncate">{workspace.title}</span>
-                              </button>
-                            ))}
+                          {visibleWorkspaces.map(workspace => (
+                            <ConversationRow
+                              key={workspace.id}
+                              workspace={workspace}
+                              projectId={project.id}
+                              currentWorkspaceId={currentWorkspaceId}
+                              canManage={canManageWorkspace(workspace)}
+                              menuOpen={chatMenu?.workspace.id === workspace.id}
+                              size="compact"
+                              onSelect={() => selectWorkspace(workspace.id)}
+                              onOpenMenu={button => toggleChatMenu(workspace, project.id, button)}
+                            />
+                          ))}
+                          {visibleWorkspaces.length === 0 && (
+                            <div className="px-2 py-1.5 text-[11px] text-theme-text-muted">Bu görünümde sohbet yok.</div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -575,7 +935,7 @@ export function Sidebar(props: SidebarProps) {
 
               {filtered.length === 0 && !isLoadingProjects && (
                 <div className="px-3 py-8 text-center text-xs text-theme-text-muted">
-                  {query ? 'Aramana uygun sonuç yok.' : 'Bu görünümde henüz proje yok.'}
+                  {query ? 'Aramana uygun sonuç yok.' : 'Bu görünümde henüz proje veya proje sohbeti yok.'}
                 </div>
               )}
 
@@ -597,6 +957,7 @@ export function Sidebar(props: SidebarProps) {
         <button
           type="button"
           onClick={() => {
+            closeChatMenu();
             if (compact) setCollapsed(false);
             else setShowUserMenu(previous => !previous);
           }}
@@ -685,6 +1046,23 @@ export function Sidebar(props: SidebarProps) {
         />
       )}
       {content}
+      {chatMenu && typeof document !== 'undefined' && createPortal(
+        <ConversationActionsMenu
+          key={`${chatMenu.workspace.id}-${chatMenu.projectId || 'standalone'}-${lifecycle}`}
+          menu={chatMenu}
+          projects={actualProjects}
+          lifecycle={lifecycle}
+          pending={pendingChatId === chatMenu.workspace.id}
+          menuRef={chatMenuRef}
+          onClose={closeChatMenu}
+          onRename={() => renameWorkspace(chatMenu.workspace)}
+          onMove={projectId => void moveWorkspace(chatMenu.workspace, projectId)}
+          onArchive={() => void archiveWorkspace(chatMenu.workspace)}
+          onRestore={() => void restoreWorkspace(chatMenu.workspace)}
+          onDelete={() => deleteWorkspace(chatMenu.workspace.id)}
+        />,
+        document.body,
+      )}
     </>
   );
 }
