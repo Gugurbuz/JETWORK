@@ -43,7 +43,19 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain("['selamun aleykum', 'Aleykümselam! Nasıl yardımcı olabilirim?']");
     expect(helperSource).toContain('deterministicTrivialResponseForMessage(input.message)');
     expect(helperSource).toContain('usage: { deterministic_fast_path: 1 }');
-    expect(helperSource).toContain('Selamlaşma ifadesini başka bir selamlaşma biçimine dönüştürme');
+    expect(helperSource).toContain('Selamlaşma biçimini yalnız mevcut mesaj belirler');
+    expect(helperSource).toContain('"nasılsın" veya "naber" için bunu kullanma');
+  });
+
+  it('isolates a narrow noisy casual extension from enterprise conversation history', () => {
+    expect(helperSource).toContain('NOISY_CONVERSATIONAL_EXTENSION_PATTERN');
+    expect(helperSource).toContain('MIN_NOISY_EXTENSION_LENGTH = 10');
+    expect(helperSource).toContain('MAX_NOISY_EXTENSION_LENGTH = 64');
+    expect(helperSource).toContain('if (attachmentCount > 0) return false');
+    expect(helperSource).toContain('isNoisyConversationalExtension(normalized, input.attachmentCount)');
+    expect(helperSource).toContain('yalnızca mevcut kullanıcı mesajını bağlam kabul et');
+    expect(helperSource).toContain('klavye testi, teknik konu, önceki soru ya da başka bir kullanıcı amacı uydurma');
+    expect(helperSource).toContain('multi-word substantive requests');
   });
 
   it('routes eligible turns through one claim RPC and keeps the normal core fallback', () => {
