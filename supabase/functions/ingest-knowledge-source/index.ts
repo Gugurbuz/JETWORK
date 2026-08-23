@@ -7,6 +7,10 @@ import {
   type ParsedKnowledgeChunk,
   type ParsedKnowledgeObject,
 } from '../_shared/knowledgeParser.ts'
+import {
+  compileKnowledgeSource,
+  KNOWLEDGE_COMPILER_VERSION,
+} from '../_shared/knowledgeSemanticCompiler.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -389,10 +393,6 @@ serve(async (req) => {
     if (jobError || !job) throw jobError || new Error('Ingestion job could not be created.')
     jobId = job.id
 
-    // The catalog row is created after the file is parsed, so the authenticated
-    // Storage SELECT policy cannot authorize this new object yet. Ownership,
-    // path and knowledge-space access were validated above; read the upload
-    // through the server-only client to avoid that pre-catalog RLS deadlock.
     const { data: fileData, error: downloadError } = await adminClient.storage
       .from('knowledge-sources')
       .download(storagePath)
@@ -411,7 +411,8 @@ serve(async (req) => {
       throw new Error('Çıkarılan metin 5 MB sınırını aşıyor; kaynak dosyayı daha küçük bölümlere ayırın.')
     }
     const contentHash = await sha256(bytes)
-    const parsed = parseKnowledgeSource(fileName, rawText)
+    const deterministic = parseKnowledgeSource(fileName, rawText)
+    const parsed = await compileKnowledgeSource(fileName, rawText, deterministic)
     const embeddingStats = await attachDocumentEmbeddings(parsed.objects)
 
     await adminClient
@@ -424,6 +425,8 @@ serve(async (req) => {
           chunkCount: parsed.objects.reduce((count, object) => count + (object.chunks?.length || 0), 0),
           embeddingStats,
           extractionMethod: extracted.extractionMethod,
+          compilerVersion: parsed.compilerVersion,
+          compileStats: parsed.compileStats,
         },
       })
       .eq('id', jobId)
@@ -438,7 +441,7 @@ serve(async (req) => {
         p_mime_type: mimeType,
         p_content_hash: contentHash,
         p_raw_text: rawText,
-        p_parser_version: KNOWLEDGE_PARSER_VERSION,
+        p_parser_version: `${KNOWLEDGE_PARSER_VERSION}+${KNOWLEDGE_COMPILER_VERSION}`,
         p_document_type: parsed.documentType,
         p_objects: parsed.objects,
         p_relations: parsed.relations,
@@ -459,6 +462,8 @@ serve(async (req) => {
       chunkCount: parsed.objects.reduce((count, object) => count + (object.chunks?.length || 0), 0),
       embeddingStats,
       extractionMethod: extracted.extractionMethod,
+      compilerVersion: parsed.compilerVersion,
+      compileStats: parsed.compileStats,
       warnings: parsed.warnings,
     })
   } catch (error) {
