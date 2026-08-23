@@ -1,13 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'npm:@supabase/supabase-js@2.99.3'
 import { GoogleGenAI } from 'npm:@google/genai@1.52.0'
+import { shouldUseTrivialAssistantFastPath } from '../_shared/trivialAssistantFastPath.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
-  'Access-Control-Expose-Headers': 'x-jetwork-auto-route,x-jetwork-auto-evidence',
+  'Access-Control-Expose-Headers': 'x-jetwork-auto-route,x-jetwork-auto-evidence,x-jetwork-trivial-fast-path',
 }
 const streamHeaders = {
   ...corsHeaders,
@@ -15,17 +16,18 @@ const streamHeaders = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  'X-JetWork-Primary-Agent-Bridge': 'v5-runtime-evidence-source-focus',
+  'X-JetWork-Primary-Agent-Bridge': 'v6-trivial-before-auto',
 }
 
 const AUTO_MODEL = 'auto'
 const LITE_MODEL = 'gemini-3.5-flash-lite'
 const FLASH_MODEL = 'gemini-3.5-flash'
 const PRO_MODEL = 'gemini-3.1-pro-preview'
-const ROUTER_VERSION = 'primary-bridge-runtime-evidence-v5'
+const ROUTER_VERSION = 'primary-bridge-runtime-evidence-v6'
 const MAX_CONTEXT_MESSAGES = 6
 const MAX_CONTEXT_CHARS = 3_000
 const TECHNICAL_IDENTIFIER = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/gu
+const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
 
 type RoutedModel = typeof LITE_MODEL | typeof FLASH_MODEL | typeof PRO_MODEL
 type EvidenceState = 'deferred'
@@ -43,6 +45,14 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.strin
 const clean = (value: unknown, max: number) => String(value ?? '').trim().slice(0, max)
 const escapeRegex = (value:string) => value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
 const unique = <T>(items:T[]) => [...new Set(items)]
+const normalizeShortText = (value:string) => value
+  .toLocaleLowerCase('tr-TR')
+  .replace(/ı/g,'i')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g,'')
+  .replace(/[!?.,;:]+/g,' ')
+  .replace(/\s+/g,' ')
+  .trim()
 const responseText = (response:any) => typeof response?.text === 'string'
   ? response.text.trim()
   : Array.isArray(response?.candidates?.[0]?.content?.parts)
@@ -205,6 +215,24 @@ function proxyStream(upstream:Response, route:RouteDecision|null, persist:()=>Pr
   return new Response(stream,{status:upstream.status,headers})
 }
 
+async function forwardTrivialAuto(input:{supabaseUrl:string;anonKey:string;authorization:string;body:Record<string,any>}) {
+  const upstream = await fetch(`${input.supabaseUrl}/functions/v1/openai-assistant-v2-internal`, {
+    method:'POST',
+    headers:{
+      Authorization:input.authorization,
+      apikey:input.anonKey,
+      'Content-Type':'application/json',
+      'x-client-info':`jetwork-${ROUTER_VERSION}-trivial`,
+    },
+    body:JSON.stringify(input.body),
+  })
+  const headers = new Headers(upstream.headers)
+  headers.set('x-jetwork-trivial-fast-path','1')
+  headers.set('Access-Control-Allow-Origin','*')
+  headers.set('Access-Control-Expose-Headers','x-jetwork-trivial-fast-path')
+  return new Response(upstream.body,{status:upstream.status,statusText:upstream.statusText,headers})
+}
+
 Deno.serve(async(req:Request)=>{
   if(req.method==='OPTIONS')return new Response('ok',{headers:corsHeaders})
   if(req.method!=='POST')return jsonResponse({error:'Only POST is supported.'},405)
@@ -218,14 +246,21 @@ Deno.serve(async(req:Request)=>{
   const requestedModel=clean(body.model||AUTO_MODEL,80)
   const workspaceId=clean(body.workspaceId,200)
   const messageId=clean(body.messageId,240)
+  const message=clean(body.message,32000)
+  const attachments=Array.isArray(body.chatAttachments)?body.chatAttachments.slice(0,3):[]
   let forwardedBody=body
   let route:RouteDecision|null=null
   const client=createClient(supabaseUrl,anonKey,{global:{headers:{Authorization:authorization}},auth:{persistSession:false}})
   if(requestedModel===AUTO_MODEL){
+    const contextSensitiveAck=CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS.has(normalizeShortText(message))
+    if(!contextSensitiveAck&&shouldUseTrivialAssistantFastPath({message,model:requestedModel,attachmentCount:attachments.length})){
+      console.info('PRIMARY_BRIDGE_TRIVIAL_BYPASS',JSON.stringify({version:ROUTER_VERSION,messageId,workspaceId}))
+      try{return await forwardTrivialAuto({supabaseUrl,anonKey,authorization,body})}
+      catch{return jsonResponse({error:'Asistan servisine bağlanılamadı. Lütfen tekrar deneyin.',code:'TRIVIAL_FAST_PATH_UNREACHABLE'},502)}
+    }
     if(!geminiApiKey)return jsonResponse({error:'GEMINI_API_KEY is required for Auto routing.',code:'AUTO_ROUTER_UNAVAILABLE'},503)
-    const message=clean(body.message,32000)
     const context=await loadCompactContext(client,workspaceId,messageId)
-    try{route=await routeAuto({apiKey:geminiApiKey,message,context,attachments:Array.isArray(body.chatAttachments)?body.chatAttachments.slice(0,3):[]})}
+    try{route=await routeAuto({apiKey:geminiApiKey,message,context,attachments})}
     catch(error){console.warn('PRIMARY_BRIDGE_AUTO_ROUTER_FAILED_KEEP_FLASH',String(error).slice(0,500));route={routedModel:FLASH_MODEL,decision:'USE_FLASH',usage:{inputTokens:0,outputTokens:0,reasoningTokens:0,totalTokens:0,estimatedCostUsd:0},evidenceState:'deferred',reasons:['router_error_flash_fallback','evidence_deferred_to_runtime']}}
     forwardedBody={...body,model:route.routedModel,autoRouted:true}
     if(serviceRoleKey){try{await alignAutoConversationModel({supabaseUrl,serviceRoleKey,workspaceId,routedModel:route.routedModel})}catch(error){console.warn('PRIMARY_BRIDGE_AUTO_CONVERSATION_ALIGN_FAILED',String(error).slice(0,500))}}

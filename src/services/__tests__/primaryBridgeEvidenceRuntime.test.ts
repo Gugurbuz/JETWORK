@@ -15,6 +15,16 @@ const provider = readFileSync(
 )
 
 describe('production evidence-aware primary bridge', () => {
+  it('keeps exact trivial turns ahead of the Auto model router', () => {
+    expect(bridge).toContain("shouldUseTrivialAssistantFastPath")
+    expect(bridge).toContain("functions/v1/openai-assistant-v2-internal")
+    expect(bridge).toContain("PRIMARY_BRIDGE_TRIVIAL_BYPASS")
+    expect(bridge).toContain("x-jetwork-trivial-fast-path")
+    expect(bridge).toContain("CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])")
+    expect(bridge).toContain('if(!contextSensitiveAck&&shouldUseTrivialAssistantFastPath')
+    expect(bridge.indexOf("if(!contextSensitiveAck&&shouldUseTrivialAssistantFastPath")).toBeLessThan(bridge.indexOf('routeAuto({apiKey:geminiApiKey'))
+  })
+
   it('keeps initial routing semantic-only without exact-identifier locks', () => {
     expect(bridge).toContain('Route only from semantic task complexity, conversation context, and attachment complexity.')
     expect(bridge).toContain('evidence_deferred_to_runtime')
