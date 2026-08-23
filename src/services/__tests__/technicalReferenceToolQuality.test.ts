@@ -54,7 +54,7 @@ describe('generic technical-reference evidence capability', () => {
     expect(enumerationIntent('bu class içindeki tüm methodları listele')).toBe(true);
     expect(enumerationIntent('ZCL_ORDER_SAVE_QUOTATIONS nedir')).toBe(false);
     expect(toolSource).toContain('MAX_ENUMERATION_RECORDS = 100');
-    expect(toolSource).toContain('latestUserRequestsEnumeration');
+    expect(toolSource).toContain('latestUserEnumerationContext');
     expect(toolSource).toContain("client.rpc('lookup_knowledge_technical_reference_v5'");
     expect(toolSource).toContain('p_offset: pageOffset');
     expect(toolSource).toContain('automaticEnumerationPagination: exhaustiveEnumeration');
@@ -63,6 +63,14 @@ describe('generic technical-reference evidence capability', () => {
     expect(migrationSource).toContain("'nextCursor'");
     expect(migrationSource).toContain('limit (select lim from params)');
     expect(migrationSource).toContain('offset (select off from params)');
+  });
+
+  it('scopes a class method inventory to that exact class instead of cross-reference methods', () => {
+    expect(toolSource).toContain("enumeration.targetObjectType === 'method'");
+    expect(toolSource).toContain('const expectedPrefix = `method:${technicalReference.toLocaleLowerCase');
+    expect(toolSource).toContain('startsWith(expectedPrefix)');
+    expect(toolSource).toContain('rawCandidateTotalCount');
+    expect(toolSource).toContain('const totalCount = exhaustiveEnumeration && !truncated ? records.length : rawCandidateTotalCount');
   });
 
   it('keeps normal exact technical-reference lookups bounded to one page', () => {
