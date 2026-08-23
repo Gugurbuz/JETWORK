@@ -13,9 +13,6 @@ const clean = (value: unknown, max = 320) => String(value ?? '').trim().slice(0,
 const contentReferencesTechnicalReference = (content: string, technicalReference: string) => {
   const ref = technicalReference.trim().toLocaleUpperCase('en-US')
   if (!ref) return false
-  // Slash and ABAP call-chain arrows are structural separators, not part of the
-  // referenced leaf identifier. Keep '-' and '_' as identifier characters so
-  // ZCRM2-545 does not accidentally match ZCRM2-5450.
   const pattern = new RegExp(`(^|[^A-Z0-9_-]|/)${escapeRegex(ref)}(?=$|->|[^A-Z0-9_-]|/)`, 'u')
   return pattern.test(content.toLocaleUpperCase('en-US'))
 }
@@ -53,6 +50,7 @@ async function getObjectsByTechnicalReference(
     ? args.objectTypes.map(value => clean(value, 40)).filter(value => (OBJECT_TYPES as readonly string[]).includes(value))
     : []
   const primaryRequestedType = requestedTypes[0] || ''
+  const requestedTypeSet = new Set(requestedTypes)
   const limitValue = Number(args.limit)
   const limit = Number.isFinite(limitValue) ? Math.max(1, Math.min(Math.trunc(limitValue), 20)) : 12
   if (!technicalReference) throw new Error('technicalReference is required')
@@ -82,15 +80,16 @@ async function getObjectsByTechnicalReference(
     return contentReferencesTechnicalReference(searchable, technicalReference)
   }).slice(0, limit)
 
-  // Candidate sources intentionally stay slightly broader than the model's
-  // objectTypes ordering. The response bridge performs the authoritative final
-  // focus against identifiers actually present in the completed answer.
+  // Keep every explicitly requested type available as a citation candidate.
+  // Tool ordering is model-generated and therefore cannot decide which source
+  // types survive. The response bridge performs the final answer-based focus.
   const sourceRecords = records.filter((record: Record<string, any>) => {
     const matchMode = String(record.matchMode || '')
+    const objectType = clean(record.objectType, 80)
     return matchMode === 'direct'
       || matchMode === 'relation'
-      || !primaryRequestedType
-      || clean(record.objectType, 80) === primaryRequestedType
+      || requestedTypeSet.size === 0
+      || requestedTypeSet.has(objectType)
   })
   const sources = sourceRecords
     .filter((record: Record<string, any>) => clean(record.sourceName, 300))
@@ -120,6 +119,7 @@ async function getObjectsByTechnicalReference(
       citationReady: records.length > 0,
       sourceCandidateCount: sources.length,
       primaryRequestedType: primaryRequestedType || null,
+      requestedTypeCount: requestedTypeSet.size,
       deterministicTechnicalReferenceLookup: true,
       singleRpcLookup: true,
     },
