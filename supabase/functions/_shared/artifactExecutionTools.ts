@@ -87,7 +87,7 @@ export const ASSISTANT_ARTIFACT_TOOLS = [
   {
     type: 'function',
     name: 'create_document_file',
-    description: 'Create a real DOCX or PPTX artifact from structured content. DOCX input is title plus paragraphs; PPTX input is an ordered list of slides with title/body. Returns the generated file as a JetWork file card.',
+    description: 'Create a real DOCX or PPTX artifact. For DOCX, prefer markdown with complete document content: the Python document worker renders headings, paragraphs, bullet/numbered lists, Markdown tables, inline emphasis, header/footer and cover metadata into a styled Word file. paragraphs remains a compatibility fallback when markdown is null. For PPTX use slides. A successful call returns the generated file as a JetWork file card; never claim file completion without this tool result.',
     strict: true,
     parameters: {
       type: 'object',
@@ -95,6 +95,21 @@ export const ASSISTANT_ARTIFACT_TOOLS = [
         format: { type: 'string', enum: ['docx', 'pptx'] },
         fileName: nullableText(180),
         title: nullableText(500),
+        markdown: nullableText(400_000),
+        headerText: nullableText(500),
+        footerText: nullableText(500),
+        metadata: {
+          type: 'array', maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', maxLength: 200 },
+              value: { type: 'string', maxLength: 2_000 },
+            },
+            required: ['label','value'],
+            additionalProperties: false,
+          },
+        },
         paragraphs: { type: 'array', maxItems: 500, items: { type: 'string', maxLength: 8_000 } },
         slides: {
           type: 'array', maxItems: 60,
@@ -105,7 +120,7 @@ export const ASSISTANT_ARTIFACT_TOOLS = [
           },
         },
       },
-      required: ['format','fileName','title','paragraphs','slides'],
+      required: ['format','fileName','title','markdown','headerText','footerText','metadata','paragraphs','slides'],
       additionalProperties: false,
     },
   },
@@ -186,7 +201,21 @@ export async function executeArtifactExecutionTool(input: {
   } else if (input.toolName === 'edit_office_file') {
     request = { operation: 'office_edit', workspaceId: input.workspaceId, input: requireRef(input.args.attachmentId), config: { operation: clean(input.args.operation, 30), findText: input.args.findText === null ? null : clean(input.args.findText, 2_000), replacementText: input.args.replacementText === null ? null : String(input.args.replacementText || '').slice(0, 8_000), outputFileName: input.args.outputFileName === null ? null : clean(input.args.outputFileName, 180) } }
   } else if (input.toolName === 'create_document_file') {
-    request = { operation: 'document_create', workspaceId: input.workspaceId, config: { format: clean(input.args.format, 10), fileName: input.args.fileName === null ? null : clean(input.args.fileName, 180), title: input.args.title === null ? null : String(input.args.title || '').slice(0, 500), paragraphs: Array.isArray(input.args.paragraphs) ? input.args.paragraphs.map(value => String(value).slice(0, 8_000)).slice(0, 500) : [], slides: Array.isArray(input.args.slides) ? input.args.slides.slice(0, 60) : [] } }
+    request = {
+      operation: 'document_create',
+      workspaceId: input.workspaceId,
+      config: {
+        format: clean(input.args.format, 10),
+        fileName: input.args.fileName === null ? null : clean(input.args.fileName, 180),
+        title: input.args.title === null ? null : String(input.args.title || '').slice(0, 500),
+        markdown: input.args.markdown === null ? null : String(input.args.markdown || '').slice(0, 400_000),
+        headerText: input.args.headerText === null ? null : String(input.args.headerText || '').slice(0, 500),
+        footerText: input.args.footerText === null ? null : String(input.args.footerText || '').slice(0, 500),
+        metadata: Array.isArray(input.args.metadata) ? input.args.metadata.slice(0, 20) : [],
+        paragraphs: Array.isArray(input.args.paragraphs) ? input.args.paragraphs.map(value => String(value).slice(0, 8_000)).slice(0, 500) : [],
+        slides: Array.isArray(input.args.slides) ? input.args.slides.slice(0, 60) : [],
+      },
+    }
   } else if (input.toolName === 'generate_or_edit_image') {
     const mode = clean(input.args.mode, 20)
     const ref = mode === 'edit' ? requireRef(input.args.attachmentId) : undefined
