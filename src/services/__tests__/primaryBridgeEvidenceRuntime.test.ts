@@ -9,25 +9,36 @@ const tools = readFileSync(
   new URL('../../../supabase/functions/_shared/assistantToolsAuthoritativeEvidence.ts', import.meta.url),
   'utf8',
 )
+const provider = readFileSync(
+  new URL('../../../supabase/functions/_shared/modelProvidersAuthoritativeTerminal.ts', import.meta.url),
+  'utf8',
+)
 
 describe('production evidence-aware primary bridge', () => {
-  it('routes from structured knowledge evidence without exact-identifier locks', () => {
-    expect(bridge).toContain('inspectEvidence')
-    expect(bridge).toContain("state = 'unresolved'")
-    expect(bridge).toContain("state = 'conflict'")
-    expect(bridge).toContain('evidence_unresolved_floor_flash')
-    expect(bridge).toContain('evidence_conflict_floor_pro')
+  it('keeps initial routing semantic-only without exact-identifier locks', () => {
+    expect(bridge).toContain('Route only from semantic task complexity, conversation context, and attachment complexity.')
+    expect(bridge).toContain('evidence_deferred_to_runtime')
+    expect(bridge).not.toContain('inspectEvidence')
     expect(bridge).not.toContain('exact_identifier_lite_guard')
+    expect(bridge).toContain('An exact identifier may start on any tier justified by semantic complexity')
   })
 
-  it('does not escalate solely because enterprise evidence is absent', () => {
-    expect(bridge).toContain('No enterprise evidence is not by itself a reason to spend more model capacity.')
-    expect(bridge).toContain('no_evidence_no_capacity_escalation_rule')
+  it('keeps verified evidence escalation in the post-retrieval provider layer', () => {
+    expect(provider).toContain('auto_runtime_escalated_flash = 1')
+    expect(provider).toContain('auto_runtime_evidence_conflict = 1')
+    expect(provider).toContain('effectiveModel = PRO_MODEL')
+    expect(provider).toContain('firstCoverage < expectedCount')
   })
 
-  it('keeps routing telemetry and exposes the evidence state', () => {
+  it('does not pre-escalate merely because enterprise evidence might be complex or absent', () => {
+    expect(bridge).toContain('Do not guess whether enterprise evidence exists; retrieval happens after this routing step.')
+    expect(bridge).toContain('do not pre-escalate merely because evidence might be complex')
+    expect(bridge).toContain("EvidenceState = 'deferred'")
+  })
+
+  it('keeps routing telemetry and exposes that evidence is deferred to runtime', () => {
     expect(bridge).toContain('primary_llm_router_calls:1')
-    expect(bridge).toContain('auto_evidence_complete:1')
+    expect(bridge).toContain('auto_evidence_deferred_to_runtime:1')
     expect(bridge).toContain("headers.set('x-jetwork-auto-evidence',route.evidenceState)")
   })
 

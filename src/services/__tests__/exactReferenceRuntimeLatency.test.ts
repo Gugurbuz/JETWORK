@@ -27,18 +27,28 @@ describe('exact technical reference runtime latency path', () => {
     expect(technicalToolSource).toContain("(?=$|->|[^A-Z0-9_-]|/)");
   });
 
-  it('keeps broad evidence for synthesis but focuses displayed sources by the primary requested type', () => {
-    expect(technicalToolSource).toContain('const primaryRequestedType = requestedTypes[0]');
-    expect(technicalToolSource).toContain("String(record.matchMode || '') === 'direct'");
-    expect(technicalToolSource).toContain('clean(record.objectType, 80) === primaryRequestedType');
-    expect(technicalToolSource).toContain('focusedSourceCount: sources.length');
+  it('keeps direct and relation-neighbor sources available until final-answer focus', () => {
+    expect(technicalToolSource).toContain("matchMode === 'direct'");
+    expect(technicalToolSource).toContain("matchMode === 'relation'");
+    expect(technicalToolSource).toContain('sourceCandidateCount: sources.length');
+    expect(technicalToolSource).toContain('ordering is only a hint and is not treated as authoritative');
   });
 
-  it('reuses the same RPC in the Auto evidence preflight', () => {
-    expect(bridgeSource).toContain("client.rpc('lookup_knowledge_technical_reference_v4'");
-    expect(bridgeSource).not.toContain("client.from('knowledge_object_versions_v2')");
-    expect(bridgeSource).not.toContain("client.from('knowledge_relations_v2')");
-    expect(bridgeSource).toContain("ROUTER_VERSION = 'primary-bridge-evidence-v3-single-rpc'");
+  it('does not duplicate the runtime knowledge lookup in Auto preflight', () => {
+    expect(bridgeSource).not.toContain("client.rpc('lookup_knowledge_technical_reference_v4'");
+    expect(bridgeSource).not.toContain('inspectEvidence');
+    expect(bridgeSource).toContain("EvidenceState = 'deferred'");
+    expect(bridgeSource).toContain('evidence_deferred_to_runtime');
+    expect(bridgeSource).toContain("ROUTER_VERSION = 'primary-bridge-runtime-evidence-v5'");
+  });
+
+  it('focuses source refs only after the completed answer reveals actually used identifiers', () => {
+    expect(bridgeSource).toContain('focusSourcesForAnswer');
+    expect(bridgeSource).toContain('sourceIdentifiers');
+    expect(bridgeSource).toContain('answerMentionsIdentifier');
+    expect(bridgeSource).toContain("payload?.type==='sources'");
+    expect(bridgeSource).toContain("payload?.type==='completed'");
+    expect(bridgeSource).toContain("controller.enqueue(encodeFrame(encoder,'sources',{type:'sources',sources:focused}))");
   });
 
   it('keeps one active conversation when Auto changes routed model between turns', () => {

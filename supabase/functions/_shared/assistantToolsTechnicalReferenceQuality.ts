@@ -29,7 +29,7 @@ const TECHNICAL_REFERENCE_TOOL = {
     type: 'object',
     properties: {
       technicalReference: { type: 'string', minLength: 2, maxLength: 160 },
-      objectTypes: { type: ['array','null'], items: { type: 'string', enum: OBJECT_TYPES }, description: 'Optional preferred answer/object types ordered from most to least relevant. Put the type directly requested by the user first. Evidence may include other types when needed to resolve the relation.' },
+      objectTypes: { type: ['array','null'], items: { type: 'string', enum: OBJECT_TYPES }, description: 'Optional preferred answer/object types. Evidence may include other types when needed to resolve the relation; ordering is only a hint and is not treated as authoritative.' },
       limit: { type: ['integer','null'], minimum: 1, maximum: 20 },
     },
     required: ['technicalReference','objectTypes','limit'],
@@ -82,12 +82,16 @@ async function getObjectsByTechnicalReference(
     return contentReferencesTechnicalReference(searchable, technicalReference)
   }).slice(0, limit)
 
-  const sourceRecords = primaryRequestedType
-    ? records.filter((record: Record<string, any>) => (
-      String(record.matchMode || '') === 'direct'
+  // Candidate sources intentionally stay slightly broader than the model's
+  // objectTypes ordering. The response bridge performs the authoritative final
+  // focus against identifiers actually present in the completed answer.
+  const sourceRecords = records.filter((record: Record<string, any>) => {
+    const matchMode = String(record.matchMode || '')
+    return matchMode === 'direct'
+      || matchMode === 'relation'
+      || !primaryRequestedType
       || clean(record.objectType, 80) === primaryRequestedType
-    ))
-    : records
+  })
   const sources = sourceRecords
     .filter((record: Record<string, any>) => clean(record.sourceName, 300))
     .map((record: Record<string, any>) => ({
@@ -114,7 +118,7 @@ async function getObjectsByTechnicalReference(
       relationCount: Number(payload.relationCount || 0),
       conflictCount: Number(payload.conflictCount || 0),
       citationReady: records.length > 0,
-      focusedSourceCount: sources.length,
+      sourceCandidateCount: sources.length,
       primaryRequestedType: primaryRequestedType || null,
       deterministicTechnicalReferenceLookup: true,
       singleRpcLookup: true,
