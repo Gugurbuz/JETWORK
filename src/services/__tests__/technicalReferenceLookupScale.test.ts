@@ -25,7 +25,8 @@ describe('technical reference lookup scale and cross references', () => {
     expect(migrationSource).toContain("'cross_reference'::text")
     expect(source).toContain('crossReferenceCount')
     expect(source).toContain('relationNeighborCount')
-    expect(source).toContain('Evidence may include other types when needed to resolve the relation.')
+    expect(source).toContain('Evidence may include other types when needed to resolve the relation')
+    expect(source).toContain("matchMode === 'relation'")
   })
 
   it('preserves identifier boundary filtering after database discovery', () => {
