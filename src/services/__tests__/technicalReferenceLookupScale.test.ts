@@ -5,22 +5,32 @@ const source = readFileSync(
   new URL('../../../supabase/functions/_shared/assistantToolsTechnicalReferenceQuality.ts', import.meta.url),
   'utf8',
 )
+const migrationSource = readFileSync(
+  new URL('../../../supabase/migrations/20260823164641_optimize_exact_reference_runtime_v4.sql', import.meta.url),
+  'utf8',
+)
 
 describe('technical reference lookup scale and cross references', () => {
-  it('does not scan an arbitrary first-N object catalog', () => {
+  it('does not scan an arbitrary first-N object catalog and uses indexed candidate discovery', () => {
     expect(source).not.toContain(".select('id,canonical_key,object_type,name,title")
     expect(source).not.toMatch(/knowledge_objects_v2[\s\S]{0,400}\.limit\(120\)/u)
-    expect(source).toContain(".ilike('content', `%${technicalReference}%`)")
+    expect(source).toContain("client.rpc('lookup_knowledge_technical_reference_v4'")
+    expect(migrationSource).toContain("search_document @@ plainto_tsquery('simple', p.ref)")
+    expect(migrationSource).toContain("v.content ilike ('%' || p.ref || '%')")
   })
 
-  it('returns cross-reference objects across types even when direct anchor types are preferred', () => {
-    expect(source).toContain("matchMode: directAnchor ? 'direct' : 'cross_reference'")
+  it('returns direct, graph-neighbor and cross-reference objects across types', () => {
+    expect(migrationSource).toContain("'direct'::text as match_mode")
+    expect(migrationSource).toContain("'relation'::text")
+    expect(migrationSource).toContain("'cross_reference'::text")
     expect(source).toContain('crossReferenceCount')
-    expect(source).toContain('Cross-reference evidence is still returned across all object types.')
+    expect(source).toContain('relationNeighborCount')
+    expect(source).toContain('Evidence may include other types when needed to resolve the relation.')
   })
 
   it('preserves identifier boundary filtering after database discovery', () => {
     expect(source).toContain('contentReferencesTechnicalReference')
-    expect(source).toContain("TECHNICAL_REFERENCE_TOOL")
+    expect(source).toContain('TECHNICAL_REFERENCE_TOOL')
+    expect(source).toContain("String(record.matchMode || '') === 'direct'")
   })
 })
