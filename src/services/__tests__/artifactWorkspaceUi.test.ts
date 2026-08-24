@@ -13,6 +13,10 @@ const previewWorkerSource = readFileSync(
   new URL('../../../api/artifact-preview.py', import.meta.url),
   'utf8',
 );
+const assistantRuntimeSource = readFileSync(
+  new URL('../assistantRuntimeClient.ts', import.meta.url),
+  'utf8',
+);
 
 describe('ChatGPT-like artifact workspace', () => {
   it('uses one generic right-side artifact workspace instead of the legacy BA tabs', () => {
@@ -23,6 +27,14 @@ describe('ChatGPT-like artifact workspace', () => {
     expect(workspaceSource).not.toContain('BA Analiz Çalışma Alanı');
     expect(workspaceSource).not.toContain('BA Analizi');
     expect(workspaceSource).not.toContain("type MobileSurface = 'chat' | 'document'");
+  });
+
+  it('keeps legacy BA Canvas interception disabled by default so document requests reach file executors', () => {
+    expect(assistantRuntimeSource).toContain("VITE_LEGACY_DOCUMENT_CANVAS ?? 'false'");
+    expect(assistantRuntimeSource).toContain("let documentRequestMode: AssistantDocumentRequestMode = 'none'");
+    expect(assistantRuntimeSource).toContain('if (legacyDocumentCanvasEnabled)');
+    expect(assistantRuntimeSource).toContain('const autoCaptureDocument = legacyDocumentCanvasEnabled');
+    expect(assistantRuntimeSource).toContain("const assistantMessage = documentRequest\n    ? buildDocumentGenerationMessage(input.message)\n    : input.message;");
   });
 
   it('treats generated tool outputs as selectable artifacts and auto-opens new output', () => {
