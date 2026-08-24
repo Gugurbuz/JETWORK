@@ -1,17 +1,18 @@
-/* Keep live assistant progress responsive on desktop environments that report reduced motion.
- * The base stylesheet still disables non-essential settle motion; these overrides restore only
- * the essential progress indicators at the same cadence users see on mobile. */
+/* Desktop environments can inherit prefers-reduced-motion from the OS even when
+ * the user expects JetWork's live progress feedback to animate. Keep only the
+ * active progress motion aligned with the default/mobile cadence. !important is
+ * intentional here because the base reduced-motion rule is bundled later. */
 @media (prefers-reduced-motion: reduce) {
   .assistant-work__activity--active .assistant-work__activity-icon,
   .assistant-work__live-status svg {
-    animation: assistant-work-active-spin 1s steps(12, end) infinite;
+    animation: assistant-work-active-spin 1s linear infinite !important;
   }
 
   .assistant-work__logo-motion {
-    animation: assistant-work-logo-story 4.4s steps(24, end) infinite;
+    animation: assistant-work-logo-story 4.4s cubic-bezier(0.45, 0, 0.2, 1) infinite !important;
   }
 
   .assistant-work__label {
-    animation: assistant-work-text-shimmer 2.6s ease-in-out infinite;
+    animation: assistant-work-text-shimmer 2.4s ease-in-out infinite !important;
   }
 }
