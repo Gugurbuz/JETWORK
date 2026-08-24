@@ -116,6 +116,18 @@ describe('Python DOCX artifact worker', () => {
     expect(edgeWorkerSource).toContain('corporateShell: brandProfile === ENERJISA_ANALYSIS_BRAND')
   })
 
+  it('reads brand provenance with an internal client after user authorization and does not depend on optional metadata', () => {
+    expect(edgeWorkerSource).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')")
+    expect(edgeWorkerSource).toContain(".select('plan,started_at')")
+    expect(edgeWorkerSource).toContain(".order('started_at', { ascending: false })")
+    expect(edgeWorkerSource).toContain(".eq('owner_id', ownerId)")
+    expect(edgeWorkerSource).toContain('const provenanceClient = serviceRoleKey')
+    expect(edgeWorkerSource).toContain('return signalCount >= 5')
+    expect(edgeWorkerSource).not.toContain(".select('plan,created_at')")
+    expect(edgeWorkerSource).not.toContain(".order('created_at', { ascending: false })")
+    expect(edgeWorkerSource).not.toContain('hasRequestMetadata')
+  })
+
   it('keeps generic explicit Word requests on the normal DOCX runtime without imposing the Enerjisa analysis profile', () => {
     expect(classifyDocumentArtifactRequest('Word olarak kısa bir toplantı notu hazırla')).toEqual({
       artifactRoute: true,
