@@ -50,24 +50,29 @@ const looksLikeEnerjisaAnalysisDocument = (config: Record<string, unknown>) => {
     'FONKSIYONEL TASARIM DOKUMANLARI',
   ]
   const signalCount = requiredSignals.filter(signal => markdown.includes(signal)).length
-  const metadata = Array.isArray(config.metadata) ? config.metadata : []
-  const labels = metadata
-    .filter(item => item && typeof item === 'object')
-    .map(item => normalizedTurkish((item as Record<string, unknown>).label))
-  const hasRequestMetadata = labels.some(label => label === 'TALEP ADI')
-    || labels.some(label => label === 'TALEP NO' || label === 'TALEP NUMARASI')
-  return signalCount >= 5 && hasRequestMetadata
+  // Five of the six exact approved section families is intentionally enough for
+  // a defensive fallback. If a generated analysis omits one optional/empty
+  // section, it should still receive the Enerjisa corporate shell. This does not
+  // classify arbitrary Word documents because the section signature is specific.
+  return signalCount >= 5
 }
 
-async function resolveBrandProfile(client: any, workspaceId: string, config: Record<string, unknown>) {
-  // The current reasoning run is created and patched before artifact execution.
-  // Prefer that server-side semantic provenance so the model cannot opt out of branding.
+async function resolveBrandProfile(
+  provenanceClient: any,
+  workspaceId: string,
+  ownerId: string,
+  config: Record<string, unknown>,
+) {
+  // The current reasoning run is created before artifact execution. Read its
+  // semantic provenance with an internal server client only after the caller's
+  // JWT and workspace ownership/access have already been validated below.
   try {
-    const { data, error } = await client
+    const { data, error } = await provenanceClient
       .from('assistant_reasoning_runs')
-      .select('plan,created_at')
+      .select('plan,started_at')
       .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
+      .eq('owner_id', ownerId)
+      .order('started_at', { ascending: false })
       .limit(1)
       .maybeSingle()
     if (!error && data?.plan && typeof data.plan === 'object') {
@@ -80,9 +85,9 @@ async function resolveBrandProfile(client: any, workspaceId: string, config: Rec
     console.warn('Enerjisa DOCX reasoning provenance lookup failed:', String(error).slice(0, 300))
   }
 
-  // Defensive fallback for deployments where reasoning telemetry is hidden by RLS.
-  // Require the approved Enerjisa section signature plus request metadata to avoid
-  // accidentally branding ordinary Word documents.
+  // Defensive structural fallback is independent of model-supplied metadata.
+  // The approved section signature is sufficient to preserve corporate identity
+  // even if Talep Adı / Talep No metadata was omitted by the model.
   return looksLikeEnerjisaAnalysisDocument(config) ? ENERJISA_ANALYSIS_BRAND : ''
 }
 
@@ -131,6 +136,7 @@ serve(async req => {
   const authorization = req.headers.get('Authorization') || ''
   const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || ''
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
   if (!authorization || !supabaseUrl || !anonKey) return jsonResponse({ error: 'Authentication is required.' }, 401)
 
   const client = createClient(supabaseUrl, anonKey, {
@@ -156,7 +162,17 @@ serve(async req => {
       .from('workspaces').select('id').eq('id', workspaceId).maybeSingle()
     if (workspaceError || !workspace) return jsonResponse({ error: 'Workspace access denied.' }, 403)
 
-    const brandProfile = await resolveBrandProfile(client, workspaceId, config)
+    // Authorization is complete at this point. The service-role client is scoped
+    // only to internal semantic provenance lookup and is never returned/exposed.
+    const provenanceClient = serviceRoleKey
+      ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
+      : client
+    const brandProfile = await resolveBrandProfile(
+      provenanceClient,
+      workspaceId,
+      authData.user.id,
+      config,
+    )
     const workerUrl = brandProfile === ENERJISA_ANALYSIS_BRAND
       ? clean(Deno.env.get('DOCX_ENERJISA_PYTHON_WORKER_URL') || DEFAULT_ENERJISA_DOCX_WORKER_URL, 600)
       : clean(Deno.env.get('DOCX_PYTHON_WORKER_URL') || DEFAULT_DOCX_WORKER_URL, 600)
