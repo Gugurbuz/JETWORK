@@ -54,7 +54,8 @@ Dokümanda aşağıdaki yapı ve sıra zorunludur:
 
 Kapak:
 | İş Analizi Dokümanı | Talep Adı |
-| Talep No | |
+|---|---|
+| Talep No | [AÇIK KONU] |
 
 ## İçindekiler
 # İHTİYAÇ ANALİZİ
