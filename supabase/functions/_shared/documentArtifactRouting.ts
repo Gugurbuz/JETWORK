@@ -46,16 +46,14 @@ Bu blok JetWork ürün sözleşmesidir. Kullanıcıdan ek bir "Word" veya "DOCX"
 DOSYA TESLİM KURALI
 - Bu talebi sohbet içinde düz metin doküman veya Canvas kaydı olarak tamamlama.
 - Gerçek bir DOCX artifact üretmek için create_document_file aracını format=docx ile çağır.
-- DOCX içeriğini markdown alanında tam doküman olarak ver; Python DOCX worker tablo, başlık, liste, header/footer ve metadata'yı işleyecektir.
+- DOCX içeriğini markdown alanında tam doküman gövdesi olarak ver.
+- create_document_file metadata alanında mutlaka Talep Adı ve Talep No kayıtlarını gönder. Talep No bilinmiyorsa value=[AÇIK KONU] kullan.
+- Kurumsal kapak tablosunu markdown içinde üretme. Kapak, Enerjisa logosu, iç sayfa header/footer, Gizli/Hizmete Özel sınıflandırması, sayfa numarası, renkler ve tablo görsel stili renderer tarafından otomatik uygulanır.
+- headerText/footerText alanlarını kurumsal shell'i değiştirmek için kullanma; Enerjisa analiz profilinde renderer bunları yönetir.
 - Executor başarılı olmadan dosyanın üretildiğini söyleme.
 
 ENERJİSA İŞ ANALİZİ ŞABLONU
-Dokümanda aşağıdaki yapı ve sıra zorunludur:
-
-Kapak:
-| İş Analizi Dokümanı | Talep Adı |
-|---|---|
-| Talep No | [AÇIK KONU] |
+Markdown gövdesinde aşağıdaki yapı ve sıra zorunludur:
 
 ## İçindekiler
 # İHTİYAÇ ANALİZİ
