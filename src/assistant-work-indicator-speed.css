@@ -1,0 +1,17 @@
+/* Keep live assistant progress responsive on desktop environments that report reduced motion.
+ * The base stylesheet still disables non-essential settle motion; these overrides restore only
+ * the essential progress indicators at the same cadence users see on mobile. */
+@media (prefers-reduced-motion: reduce) {
+  .assistant-work__activity--active .assistant-work__activity-icon,
+  .assistant-work__live-status svg {
+    animation: assistant-work-active-spin 1s steps(12, end) infinite;
+  }
+
+  .assistant-work__logo-motion {
+    animation: assistant-work-logo-story 4.4s steps(24, end) infinite;
+  }
+
+  .assistant-work__label {
+    animation: assistant-work-text-shimmer 2.6s ease-in-out infinite;
+  }
+}
