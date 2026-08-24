@@ -1,8 +1,5 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import {
-  applyEnerjisaAnalysisDocxProfile,
-  classifyDocumentArtifactRequest,
-} from '../_shared/documentArtifactRouting.ts'
+import { classifyDocumentArtifactRequest } from '../_shared/documentArtifactRouting.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -37,11 +34,16 @@ Deno.serve(async (req: Request) => {
   const message = clean(payload.message, 26_000)
   const routeDecision = classifyDocumentArtifactRequest(message)
   const artifactRoute = routeDecision.artifactRoute
-  const target = artifactRoute ? 'openai-assistant-v2-internal' : 'openai-assistant-v2-primary'
-  const routedPayload = routeDecision.enerjisaAnalysisDocx
-    ? { ...payload, message: applyEnerjisaAnalysisDocxProfile(message, routeDecision) }
-    : payload
-  const upstreamBody = new TextEncoder().encode(JSON.stringify(routedPayload))
+  const target = routeDecision.enerjisaAnalysisDocx
+    ? 'openai-assistant-enerjisa-docx'
+    : artifactRoute
+      ? 'openai-assistant-v2-internal'
+      : 'openai-assistant-v2-primary'
+
+  // Preserve the user's original message at the public router. Enerjisa's long
+  // document template is appended only after semantic intent planning inside
+  // openai-assistant-enerjisa-docx, preventing template headings from polluting routing.
+  const upstreamBody = new TextEncoder().encode(JSON.stringify(payload))
 
   let upstream: Response
   try {
@@ -52,7 +54,7 @@ Deno.serve(async (req: Request) => {
         apikey: anonKey,
         'Content-Type': 'application/json',
         'x-client-info': routeDecision.enerjisaAnalysisDocx
-          ? 'jetwork-enerjisa-analysis-docx-route/v1'
+          ? 'jetwork-enerjisa-analysis-docx-postplan-route/v1'
           : artifactRoute
             ? 'jetwork-docx-artifact-route/v1'
             : 'jetwork-primary-route/v1',
@@ -67,7 +69,7 @@ Deno.serve(async (req: Request) => {
   headers.set('Access-Control-Allow-Origin', '*')
   headers.set('Access-Control-Expose-Headers', 'x-jetwork-runtime-route')
   headers.set('x-jetwork-runtime-route', routeDecision.enerjisaAnalysisDocx
-    ? 'enerjisa-analysis-docx-v1'
+    ? 'enerjisa-analysis-docx-postplan-v1'
     : artifactRoute
       ? 'docx-reasoning-v2'
       : 'primary-agent')
