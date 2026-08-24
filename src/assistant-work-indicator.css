@@ -512,6 +512,10 @@ button.assistant-work__summary:hover {
   stroke-width: 1.8;
 }
 
+.assistant-work__chevron--open {
+  transform: rotate(180deg);
+}
+
 .assistant-work--completed .assistant-work__logo-stage {
   filter: none;
 }
@@ -617,5 +621,21 @@ button.assistant-work__summary:hover {
   .assistant-work__label,
   .assistant-work__summary {
     animation: none;
+  }
+
+  /* Keep essential live-status feedback visible on desktop even when the OS
+   * reports reduced motion. Motion is deliberately slower and less spatial than
+   * the default animation so accessibility preferences are still respected. */
+  .assistant-work__activity--active .assistant-work__activity-icon,
+  .assistant-work__live-status svg {
+    animation: assistant-work-active-spin 2.4s steps(12, end) infinite;
+  }
+
+  .assistant-work__logo-motion {
+    animation: assistant-work-logo-story 8.8s steps(24, end) infinite;
+  }
+
+  .assistant-work__label {
+    animation: assistant-work-text-shimmer 6s ease-in-out infinite;
   }
 }
