@@ -12,6 +12,7 @@ const assistantToolSource = readFileSync(new URL('../../../supabase/functions/_s
 const authoritativeSource = readFileSync(new URL('../../../supabase/functions/_shared/assistantToolsAuthoritativeEvidence.ts', import.meta.url), 'utf8')
 const runtimeSource = readFileSync(new URL('../assistantRuntimeClient.ts', import.meta.url), 'utf8')
 const routeSource = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2-entry-router/index.ts', import.meta.url), 'utf8')
+const documentOrchestratorSource = readFileSync(new URL('../../../supabase/functions/openai-assistant-enerjisa-docx/index.ts', import.meta.url), 'utf8')
 const edgeWorkerSource = readFileSync(new URL('../../../supabase/functions/docx-execute/index.ts', import.meta.url), 'utf8')
 
 describe('Python DOCX artifact worker', () => {
@@ -61,8 +62,8 @@ describe('Python DOCX artifact worker', () => {
     expect(classifyDocumentArtifactRequest('Analiz oluştur').enerjisaAnalysisDocx).toBe(true)
     expect(classifyDocumentArtifactRequest('bu konuyu analiz et').artifactRoute).toBe(false)
     expect(classifyDocumentArtifactRequest('mevcut analiz dokümanını özetle').artifactRoute).toBe(false)
-    expect(routeSource).toContain('enerjisa-analysis-docx-v1')
-    expect(routeSource).toContain('applyEnerjisaAnalysisDocxProfile')
+    expect(routeSource).toContain("'openai-assistant-enerjisa-docx'")
+    expect(routeSource).toContain('enerjisa-analysis-docx-postplan-v1')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('create_document_file')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('# İHTİYAÇ ANALİZİ')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('## 8. FONKSİYONEL TASARIM DOKÜMANLARI')
@@ -70,7 +71,22 @@ describe('Python DOCX artifact worker', () => {
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).not.toContain("Canvas'a")
   })
 
-  it('keeps generic explicit Word requests on the DOCX runtime without imposing the Enerjisa analysis profile', () => {
+  it('resolves semantic intent before appending the long Enerjisa template', () => {
+    const planIndex = documentOrchestratorSource.indexOf('buildSemanticExecutionPlan')
+    const profileIndex = documentOrchestratorSource.indexOf('applyEnerjisaAnalysisDocxProfile(message, routeDecision)')
+    const attachIndex = documentOrchestratorSource.indexOf('attachSemanticPlan(profiledMessage, plan)')
+    expect(planIndex).toBeGreaterThan(-1)
+    expect(profileIndex).toBeGreaterThan(planIndex)
+    expect(attachIndex).toBeGreaterThan(profileIndex)
+    expect(documentOrchestratorSource).toContain("intent: 'document' as const")
+    expect(documentOrchestratorSource).toContain("executionMode: 'artifact' as const")
+    expect(documentOrchestratorSource).toContain("promptProfile: 'artifact' as const")
+    expect(documentOrchestratorSource).toContain('enumerationTarget: undefined')
+    expect(documentOrchestratorSource).toContain("'openai-assistant-core-v2'")
+    expect(routeSource).not.toContain('applyEnerjisaAnalysisDocxProfile')
+  })
+
+  it('keeps generic explicit Word requests on the normal DOCX runtime without imposing the Enerjisa analysis profile', () => {
     expect(classifyDocumentArtifactRequest('Word olarak kısa bir toplantı notu hazırla')).toEqual({
       artifactRoute: true,
       enerjisaAnalysisDocx: false,
