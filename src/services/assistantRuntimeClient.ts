@@ -517,13 +517,19 @@ export async function streamAssistantResponse(input: {
   const token = session?.access_token;
   const supabaseUrl = env.VITE_SUPABASE_URL;
   const anonKey = env.VITE_SUPABASE_ANON_KEY;
-  let documentRequestMode = resolveAssistantDocumentRequestMode(input.message);
-  if (documentRequestMode === 'none') {
-    documentRequestMode = (await resolvePersistedDocumentContinuationMode({
-      workspaceId: input.workspaceId,
-      messageId: input.messageId,
-      message: input.message,
-    })) || 'none';
+  const legacyDocumentCanvasEnabled = String(env.VITE_LEGACY_DOCUMENT_CANVAS ?? 'false')
+    .trim()
+    .toLocaleLowerCase('en-US') === 'true';
+  let documentRequestMode: AssistantDocumentRequestMode = 'none';
+  if (legacyDocumentCanvasEnabled) {
+    documentRequestMode = resolveAssistantDocumentRequestMode(input.message);
+    if (documentRequestMode === 'none') {
+      documentRequestMode = (await resolvePersistedDocumentContinuationMode({
+        workspaceId: input.workspaceId,
+        messageId: input.messageId,
+        message: input.message,
+      })) || 'none';
+    }
   }
   const documentRequest = documentRequestMode !== 'none';
   const assistantMessage = documentRequest
@@ -686,7 +692,8 @@ export async function streamAssistantResponse(input: {
       ? executionLabels.map(label => `• ${label}`).join('\n')
       : undefined;
     const runtimeWorkSummary = buildRuntimeWorkSummary({ executionLabels, sources });
-    const autoCaptureDocument = documentRequestMode === 'none'
+    const autoCaptureDocument = legacyDocumentCanvasEnabled
+      && documentRequestMode === 'none'
       && !useDocumentStore.getState().documentContent?.businessAnalysis?.content?.trim()
       && validateEnerjisaDocumentContract(persistablePresentation.visibleText).valid;
     const effectiveDocumentRequestMode: AssistantDocumentRequestMode = autoCaptureDocument
