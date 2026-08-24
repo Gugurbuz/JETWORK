@@ -1,5 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import {
+  classifyDocumentArtifactRequest,
+  ENERJISA_ANALYSIS_DOCX_DIRECTIVE,
+} from '../../../supabase/functions/_shared/documentArtifactRouting'
 
 const workerSource = readFileSync(new URL('../../../api/docx-worker.py', import.meta.url), 'utf8')
 const requirements = readFileSync(new URL('../../../requirements.txt', import.meta.url), 'utf8')
@@ -47,8 +51,31 @@ describe('Python DOCX artifact worker', () => {
     expect(runtimeSource).not.toContain("if (!/\\.xlsx$/i.test(name) && mimeType !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')")
   })
 
-  it('routes only explicit Word/DOCX output requests away from the primary low-latency path', () => {
-    expect(routeSource).toContain('requiresDocxArtifactRuntime')
+  it('defaults analysis-document creation to the Enerjisa DOCX artifact profile without requiring Word', () => {
+    expect(classifyDocumentArtifactRequest('analiz dokümanı yaz')).toEqual({
+      artifactRoute: true,
+      enerjisaAnalysisDocx: true,
+      reason: 'enerjisa_analysis_document',
+    })
+    expect(classifyDocumentArtifactRequest('İYS ile CRM entegrasyonu için kapsamlı bir analiz dokümanı oluştur').enerjisaAnalysisDocx).toBe(true)
+    expect(classifyDocumentArtifactRequest('Analiz oluştur').enerjisaAnalysisDocx).toBe(true)
+    expect(classifyDocumentArtifactRequest('bu konuyu analiz et').artifactRoute).toBe(false)
+    expect(classifyDocumentArtifactRequest('mevcut analiz dokümanını özetle').artifactRoute).toBe(false)
+    expect(routeSource).toContain('enerjisa-analysis-docx-v1')
+    expect(routeSource).toContain('applyEnerjisaAnalysisDocxProfile')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('create_document_file')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('# İHTİYAÇ ANALİZİ')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('## 8. FONKSİYONEL TASARIM DOKÜMANLARI')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('[AÇIK KONU]')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).not.toContain("Canvas'a")
+  })
+
+  it('keeps generic explicit Word requests on the DOCX runtime without imposing the Enerjisa analysis profile', () => {
+    expect(classifyDocumentArtifactRequest('Word olarak kısa bir toplantı notu hazırla')).toEqual({
+      artifactRoute: true,
+      enerjisaAnalysisDocx: false,
+      reason: 'explicit_docx',
+    })
     expect(routeSource).toContain("'openai-assistant-v2-internal'")
     expect(routeSource).toContain("'openai-assistant-v2-primary'")
     expect(routeSource).toContain('docx-reasoning-v2')
