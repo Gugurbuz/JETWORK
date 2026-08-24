@@ -6,6 +6,8 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 const ARTIFACT_LINK_TTL_SECONDS = 7 * 24 * 60 * 60
 const MAX_FILE_BYTES = 20 * 1024 * 1024
 const DEFAULT_DOCX_WORKER_URL = 'https://jetwork.vercel.app/api/docx-worker'
+const DEFAULT_ENERJISA_DOCX_WORKER_URL = 'https://jetwork.vercel.app/api/docx-worker-enerjisa'
+const ENERJISA_ANALYSIS_BRAND = 'enerjisa-analysis-v1'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +33,57 @@ const sha256Bytes = async (bytes: Uint8Array) => {
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
   const digest = await crypto.subtle.digest('SHA-256', buffer)
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+}
+const normalizedTurkish = (value: unknown) => String(value ?? '')
+  .toLocaleUpperCase('tr-TR')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+
+const looksLikeEnerjisaAnalysisDocument = (config: Record<string, unknown>) => {
+  const markdown = normalizedTurkish(config.markdown)
+  const requiredSignals = [
+    'IHTIYAC ANALIZI',
+    'ANALIZ KAPSAMI',
+    'IS GEREKSINIMLERI',
+    'FONKSIYONEL GEREKSINIMLER',
+    'SUREC RISK ANALIZI',
+    'FONKSIYONEL TASARIM DOKUMANLARI',
+  ]
+  const signalCount = requiredSignals.filter(signal => markdown.includes(signal)).length
+  const metadata = Array.isArray(config.metadata) ? config.metadata : []
+  const labels = metadata
+    .filter(item => item && typeof item === 'object')
+    .map(item => normalizedTurkish((item as Record<string, unknown>).label))
+  const hasRequestMetadata = labels.some(label => label === 'TALEP ADI')
+    || labels.some(label => label === 'TALEP NO' || label === 'TALEP NUMARASI')
+  return signalCount >= 5 && hasRequestMetadata
+}
+
+async function resolveBrandProfile(client: any, workspaceId: string, config: Record<string, unknown>) {
+  // The current reasoning run is created and patched before artifact execution.
+  // Prefer that server-side semantic provenance so the model cannot opt out of branding.
+  try {
+    const { data, error } = await client
+      .from('assistant_reasoning_runs')
+      .select('plan,created_at')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!error && data?.plan && typeof data.plan === 'object') {
+      const version = clean((data.plan as Record<string, unknown>).orchestratorVersion, 120)
+      if (version.toLocaleLowerCase('en-US').startsWith('enerjisa-analysis-docx')) {
+        return ENERJISA_ANALYSIS_BRAND
+      }
+    }
+  } catch (error) {
+    console.warn('Enerjisa DOCX reasoning provenance lookup failed:', String(error).slice(0, 300))
+  }
+
+  // Defensive fallback for deployments where reasoning telemetry is hidden by RLS.
+  // Require the approved Enerjisa section signature plus request metadata to avoid
+  // accidentally branding ordinary Word documents.
+  return looksLikeEnerjisaAnalysisDocument(config) ? ENERJISA_ANALYSIS_BRAND : ''
 }
 
 async function uploadArtifact(
@@ -103,7 +156,10 @@ serve(async req => {
       .from('workspaces').select('id').eq('id', workspaceId).maybeSingle()
     if (workspaceError || !workspace) return jsonResponse({ error: 'Workspace access denied.' }, 403)
 
-    const workerUrl = clean(Deno.env.get('DOCX_PYTHON_WORKER_URL') || DEFAULT_DOCX_WORKER_URL, 600)
+    const brandProfile = await resolveBrandProfile(client, workspaceId, config)
+    const workerUrl = brandProfile === ENERJISA_ANALYSIS_BRAND
+      ? clean(Deno.env.get('DOCX_ENERJISA_PYTHON_WORKER_URL') || DEFAULT_ENERJISA_DOCX_WORKER_URL, 600)
+      : clean(Deno.env.get('DOCX_PYTHON_WORKER_URL') || DEFAULT_DOCX_WORKER_URL, 600)
     const paragraphs = Array.isArray(config.paragraphs)
       ? config.paragraphs.map(value => String(value).slice(0, 8_000)).slice(0, 500)
       : []
@@ -112,7 +168,9 @@ serve(async req => {
       headers: {
         Authorization: authorization,
         'Content-Type': 'application/json',
-        'x-client-info': 'jetwork-docx-python-worker/v1',
+        'x-client-info': brandProfile === ENERJISA_ANALYSIS_BRAND
+          ? 'jetwork-docx-enerjisa-worker/v1'
+          : 'jetwork-docx-python-worker/v1',
       },
       body: JSON.stringify({
         title: config.title == null ? '' : String(config.title).slice(0, 500),
@@ -121,6 +179,7 @@ serve(async req => {
         headerText: typeof config.headerText === 'string' ? config.headerText.slice(0, 500) : '',
         footerText: typeof config.footerText === 'string' ? config.footerText.slice(0, 500) : '',
         metadata: Array.isArray(config.metadata) ? config.metadata.slice(0, 20) : [],
+        brandProfile,
       }),
     })
     const workerPayload = await workerResponse.json().catch(() => ({})) as Record<string, unknown>
@@ -146,6 +205,8 @@ serve(async req => {
         format: 'docx',
         engine: 'python-docx',
         pythonWorker: true,
+        brandProfile: brandProfile || null,
+        corporateShell: brandProfile === ENERJISA_ANALYSIS_BRAND,
         qa,
       },
     })
