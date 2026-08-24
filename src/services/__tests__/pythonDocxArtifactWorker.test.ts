@@ -82,7 +82,7 @@ describe('Python DOCX artifact worker', () => {
     expect(documentOrchestratorSource).toContain("executionMode: 'artifact' as const")
     expect(documentOrchestratorSource).toContain("promptProfile: 'artifact' as const")
     expect(documentOrchestratorSource).toContain('enumerationTarget: undefined')
-    expect(documentOrchestratorSource).toContain("'openai-assistant-core-v2'")
+    expect(documentOrchestratorSource).toContain('/functions/v1/openai-assistant-core-v2')
     expect(routeSource).not.toContain('applyEnerjisaAnalysisDocxProfile')
   })
 
