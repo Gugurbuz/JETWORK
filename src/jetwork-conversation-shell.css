@@ -1,0 +1,183 @@
+@keyframes jetwork-calm-logo {
+  0%, 100% { transform: rotate(-3deg) translateY(0); opacity: .86; }
+  50% { transform: rotate(3deg) translateY(-1px); opacity: 1; }
+}
+
+.jetwork-conversation-shell {
+  background: var(--theme-bg);
+}
+
+.jetwork-conversation-shell [data-testid="workspace-chat-surface"] {
+  width: 100%;
+}
+
+/* Calm, conversation-first messages. */
+.jetwork-conversation-shell .group:has([data-message-role="user"]) {
+  justify-content: flex-end;
+}
+
+.jetwork-conversation-shell .group:has([data-message-role="user"]) > .shrink-0,
+.jetwork-conversation-shell .group:has([data-message-role="user"]) > .flex-1 > .flex.items-baseline,
+.jetwork-conversation-shell .group:has([data-message-role="model"]) > .flex-1 > .flex.items-baseline {
+  display: none !important;
+}
+
+.jetwork-conversation-shell [data-testid="chat-message"][data-message-role="user"] {
+  width: fit-content;
+  max-width: min(78%, 46rem);
+  margin-left: auto;
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-text) 8%) !important;
+  box-shadow: none !important;
+  border-radius: 1.25rem !important;
+  padding: .7rem .95rem !important;
+}
+
+.jetwork-conversation-shell [data-testid="chat-message"][data-message-role="model"] {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+}
+
+.jetwork-conversation-shell [data-testid="chat-message"] .prose {
+  font-size: .94rem;
+  line-height: 1.72;
+}
+
+/* Hide operational telemetry from the default conversation surface. */
+.jetwork-conversation-shell [data-message-role="model"] .rounded-md.border.border-theme-border.bg-theme-surface,
+.jetwork-conversation-shell [data-message-role="model"] span[title*="gemini" i],
+.jetwork-conversation-shell [data-message-role="model"] span[title*="gpt" i] {
+  display: none !important;
+}
+
+/* Simplify the chat header. */
+.jetwork-conversation-shell header.h-16 {
+  height: 3.25rem !important;
+  border-bottom-color: color-mix(in srgb, var(--theme-border) 65%, transparent) !important;
+  box-shadow: none !important;
+  padding-left: .75rem !important;
+  padding-right: .75rem !important;
+}
+
+.jetwork-conversation-shell header.h-16 select,
+.jetwork-conversation-shell header.h-16 .w-8.h-8.bg-theme-primary,
+.jetwork-conversation-shell header.h-16 .flex.-space-x-2 {
+  display: none !important;
+}
+
+.jetwork-conversation-shell header.h-16 h1 {
+  font-size: .84rem !important;
+  font-weight: 600 !important;
+}
+
+.jetwork-conversation-shell header.h-16 h1 + * {
+  opacity: .72;
+}
+
+/* Keep the conversation readable and airy. */
+.jetwork-conversation-shell .chat-scroll-container {
+  padding: 2.25rem 1.25rem 8.5rem !important;
+}
+
+.jetwork-conversation-shell .chat-scroll-container > .max-w-4xl {
+  max-width: 48rem !important;
+  gap: 0 !important;
+}
+
+.jetwork-conversation-shell .chat-scroll-container .space-y-8 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 1.8rem !important;
+}
+
+/* Floating composer instead of dashboard footer. */
+.jetwork-conversation-shell .chat-scroll-container + div.p-6 {
+  position: absolute !important;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-top: 0 !important;
+  background: linear-gradient(to top, var(--theme-bg) 66%, transparent) !important;
+  box-shadow: none !important;
+  padding: 1rem 1.25rem 1.15rem !important;
+}
+
+.jetwork-conversation-shell .chat-scroll-container + div.p-6 > .max-w-4xl {
+  max-width: 48rem !important;
+}
+
+.jetwork-conversation-shell textarea[data-testid="chat-input"] {
+  min-height: 3.35rem !important;
+  padding: .85rem 1rem .5rem !important;
+  font-size: .95rem !important;
+}
+
+.jetwork-conversation-shell textarea[data-testid="chat-input"]:parent {
+  box-shadow: none;
+}
+
+.jetwork-conversation-shell form > .relative.flex.flex-col {
+  border-color: color-mix(in srgb, var(--theme-border) 82%, var(--theme-text) 18%) !important;
+  border-radius: 1.5rem !important;
+  background: var(--theme-bg) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .07) !important;
+}
+
+.jetwork-conversation-shell [data-testid="chat-send"] {
+  border: 0 !important;
+  background: var(--theme-text) !important;
+  color: var(--theme-bg) !important;
+}
+
+/* File cards: opening is primary, downloading secondary in the viewer. */
+.jetwork-conversation-shell button[title$="dosyasını indir"] {
+  border-color: var(--theme-border) !important;
+  background: var(--theme-bg) !important;
+  box-shadow: none !important;
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease !important;
+}
+
+.jetwork-conversation-shell button[title$="dosyasını indir"]:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--theme-text-muted) 45%, var(--theme-border)) !important;
+  background: var(--theme-surface) !important;
+}
+
+/* Thinking should feel calm and professional. */
+.jetwork-conversation-shell .assistant-work__logo-motion {
+  animation: jetwork-calm-logo 2.8s ease-in-out infinite !important;
+  filter: none !important;
+}
+
+.jetwork-conversation-shell .assistant-work__label {
+  animation-duration: 3.6s !important;
+  font-weight: 600 !important;
+}
+
+.jetwork-conversation-shell .assistant-work__details {
+  border-left-color: color-mix(in srgb, var(--theme-border) 80%, transparent) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jetwork-conversation-shell *,
+  .jetwork-conversation-shell *::before,
+  .jetwork-conversation-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .jetwork-conversation-shell .chat-scroll-container {
+    padding: 1.25rem .85rem 8rem !important;
+  }
+  .jetwork-conversation-shell .chat-scroll-container + div.p-6 {
+    padding: .75rem .75rem .9rem !important;
+  }
+  .jetwork-conversation-shell [data-testid="chat-message"][data-message-role="user"] {
+    max-width: 88%;
+  }
+}
