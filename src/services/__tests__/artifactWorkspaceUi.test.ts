@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 const workspaceSource = readFileSync(new URL('../../components/WorkspaceView.tsx', import.meta.url), 'utf8');
 const mainContentSource = readFileSync(new URL('../../components/MainContent.tsx', import.meta.url), 'utf8');
 const fileViewerSource = readFileSync(new URL('../../components/FileViewer.tsx', import.meta.url), 'utf8');
+const fileViewerLoadingCss = readFileSync(new URL('../../components/file-viewer-loading.css', import.meta.url), 'utf8');
 const fileLibrarySource = readFileSync(new URL('../../components/FileLibrary.tsx', import.meta.url), 'utf8');
 const modelControlSource = readFileSync(new URL('../../components/CompactModelControl.tsx', import.meta.url), 'utf8');
 const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
@@ -52,6 +53,22 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(fileViewerSource).not.toContain('Artifact önizlenemedi');
   });
 
+  it('uses a JetWork-specific loading animation instead of a generic spinner', () => {
+    expect(fileViewerSource).toContain("import { JetWorkLogo } from './JetWorkLogo'");
+    expect(fileViewerSource).toContain('jetwork-file-loader-mark');
+    expect(fileViewerSource).not.toContain('Loader2');
+    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-logo-breathe');
+    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-ring-turn');
+    expect(fileViewerLoadingCss).toContain('prefers-reduced-motion');
+  });
+
+  it('keeps DOCX fallback clean without a technical preview disclaimer', () => {
+    expect(fileViewerSource).toContain('preferredDocxRendition');
+    expect(fileViewerSource).toContain('previewStoragePath');
+    expect(fileViewerSource).not.toContain('Hızlı içerik önizlemesi');
+    expect(fileViewerSource).not.toContain('Word’deki sayfa yerleşimi');
+  });
+
   it('keeps the calm conversation visual contract and compact model selector', () => {
     expect(shellCss).toContain('[data-message-role="user"]');
     expect(shellCss).toContain('[data-message-role="model"]');
@@ -67,13 +84,6 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(fileLibrarySource).toContain('Dosyalarda ara');
     expect(fileLibrarySource).toContain('Belgeler');
     expect(fileLibrarySource).toContain('Sunumlar');
-  });
-
-  it('prefers a DOCX rendition when available and labels fallback HTML honestly', () => {
-    expect(fileViewerSource).toContain('preferredDocxRendition');
-    expect(fileViewerSource).toContain('previewStoragePath');
-    expect(fileViewerSource).toContain('Hızlı içerik önizlemesi');
-    expect(fileViewerSource).toContain('Word’deki sayfa yerleşimi');
   });
 
   it('keeps viewer keyboard behavior accessible', () => {
