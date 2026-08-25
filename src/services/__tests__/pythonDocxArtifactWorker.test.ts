@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyDocumentArtifactRequest,
   ENERJISA_ANALYSIS_DOCX_DIRECTIVE,
+  isDocumentRevisionRequest,
+  isGroundedRequirementRequest,
+  REQUIREMENT_GROUNDING_DIRECTIVE,
 } from '../../../supabase/functions/_shared/documentArtifactRouting'
 
 const workerSource = readFileSync(new URL('../../../api/docx-worker.py', import.meta.url), 'utf8')
@@ -16,6 +19,7 @@ const runtimeSource = readFileSync(new URL('../assistantRuntimeClient.ts', impor
 const routeSource = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2-entry-router/index.ts', import.meta.url), 'utf8')
 const documentOrchestratorSource = readFileSync(new URL('../../../supabase/functions/openai-assistant-enerjisa-docx/index.ts', import.meta.url), 'utf8')
 const edgeWorkerSource = readFileSync(new URL('../../../supabase/functions/docx-execute/index.ts', import.meta.url), 'utf8')
+const durableArtifactMigration = readFileSync(new URL('../../../supabase/migrations/20260825142500_durable_assistant_turn_artifacts.sql', import.meta.url), 'utf8')
 
 describe('Python DOCX artifact worker', () => {
   it('uses python-docx and reloads the generated package for structural QA', () => {
@@ -65,7 +69,7 @@ describe('Python DOCX artifact worker', () => {
     expect(classifyDocumentArtifactRequest('bu konuyu analiz et').artifactRoute).toBe(false)
     expect(classifyDocumentArtifactRequest('mevcut analiz dokümanını özetle').artifactRoute).toBe(false)
     expect(routeSource).toContain("'openai-assistant-enerjisa-docx'")
-    expect(routeSource).toContain('enerjisa-analysis-docx-postplan-v1')
+    expect(routeSource).toContain('enerjisa-analysis-docx-postplan-v2')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('create_document_file')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('# İHTİYAÇ ANALİZİ')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('## 8. FONKSİYONEL TASARIM DOKÜMANLARI')
@@ -75,6 +79,36 @@ describe('Python DOCX artifact worker', () => {
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('renderer tarafından otomatik uygulanır')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).not.toContain('| İş Analizi Dokümanı | Talep Adı |')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).not.toContain("Canvas'a")
+  })
+
+  it('routes revisions of a recent Enerjisa analysis DOCX back through the document orchestrator', () => {
+    expect(isDocumentRevisionRequest('evet dokümandaki ilgili bölümleri güncelle')).toBe(true)
+    expect(isDocumentRevisionRequest('dokümanı revize et')).toBe(true)
+    expect(isDocumentRevisionRequest('bu cevabı güncelle')).toBe(false)
+    expect(routeSource).toContain('hasRecentEnerjisaAnalysisDocx')
+    expect(routeSource).toContain('revisionOfEnerjisaAnalysis')
+    expect(routeSource).toContain('enerjisa-analysis-docx-revision-v1')
+  })
+
+  it('forces NFR definition requests through grounded reasoning and forbids invented corporate specifics', () => {
+    expect(isGroundedRequirementRequest('NFRları tanımla')).toBe(true)
+    expect(isGroundedRequirementRequest('fonksiyonel olmayan gereksinimleri çıkar')).toBe(true)
+    expect(isGroundedRequirementRequest('ZCRM2-545 hangi koşulda alınır')).toBe(false)
+    expect(REQUIREMENT_GROUNDING_DIRECTIVE).toContain('[AÇIK KONU]')
+    expect(REQUIREMENT_GROUNDING_DIRECTIVE).toContain('sayısal eşik')
+    expect(REQUIREMENT_GROUNDING_DIRECTIVE).toContain('SAP GUI/Fiori')
+    expect(routeSource).toContain('grounded-requirements-v1')
+    expect(routeSource).toContain('applyRequirementGroundingGuard')
+  })
+
+  it('persists file side effects so reconnects cannot execute the same DOCX twice', () => {
+    expect(durableArtifactMigration).toContain('assistant_turn_artifacts')
+    expect(durableArtifactMigration).toContain('capture_assistant_turn_artifact_after_insert')
+    expect(durableArtifactMigration).toContain('artifact_recovered_without_reexecution')
+    expect(durableArtifactMigration).toContain('if turn_has_artifact then')
+    expect(durableArtifactMigration).toContain('get_assistant_turn_artifacts')
+    expect(routeSource).toContain('get_assistant_turn_artifacts')
+    expect(routeSource).toContain('enrichAssistantSse')
   })
 
   it('resolves semantic intent before appending the long Enerjisa template', () => {
