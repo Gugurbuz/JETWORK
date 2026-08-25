@@ -113,10 +113,6 @@
   font-size: .95rem !important;
 }
 
-.jetwork-conversation-shell textarea[data-testid="chat-input"]:parent {
-  box-shadow: none;
-}
-
 .jetwork-conversation-shell form > .relative.flex.flex-col {
   border-color: color-mix(in srgb, var(--theme-border) 82%, var(--theme-text) 18%) !important;
   border-radius: 1.5rem !important;
@@ -131,6 +127,8 @@
 }
 
 /* File cards: opening is primary, downloading secondary in the viewer. */
+.jetwork-conversation-shell button[data-jetwork-file-name],
+.jetwork-conversation-shell button[title$="dosyasını aç"],
 .jetwork-conversation-shell button[title$="dosyasını indir"] {
   border-color: var(--theme-border) !important;
   background: var(--theme-bg) !important;
@@ -138,6 +136,8 @@
   transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease !important;
 }
 
+.jetwork-conversation-shell button[data-jetwork-file-name]:hover,
+.jetwork-conversation-shell button[title$="dosyasını aç"]:hover,
 .jetwork-conversation-shell button[title$="dosyasını indir"]:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--theme-text-muted) 45%, var(--theme-border)) !important;
