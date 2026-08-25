@@ -10,18 +10,29 @@
 }
 
 @media (min-width: 1024px) {
+  /* Do not rely on Tailwind's responsive flex utility here. The file workspace
+     must be physically pinned to the right and must never fall below chat. */
+  .jetwork-conversation-shell--file-open {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+  }
+
   .jetwork-conversation-shell--file-open > [data-testid="workspace-chat-surface"] {
     width: clamp(320px, 34%, 560px);
+    height: 100%;
     flex: 0 0 clamp(320px, 34%, 560px);
     border-right: 1px solid color-mix(in srgb, var(--theme-border) 72%, transparent);
     transition: width 180ms ease, flex-basis 180ms ease;
   }
 
   .workspace-side-file-viewer {
-    position: relative;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: clamp(320px, 34%, 560px);
+    z-index: 20;
     min-width: 0;
-    height: 100%;
-    flex: 1 1 auto;
     overflow: hidden;
     background: var(--theme-bg);
     animation: jetwork-file-panel-enter 180ms ease-out both;

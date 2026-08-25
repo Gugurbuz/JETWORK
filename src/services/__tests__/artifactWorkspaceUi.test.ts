@@ -12,13 +12,16 @@ const previewWorkerSource = readFileSync(new URL('../../../api/artifact-preview.
 const assistantRuntimeSource = readFileSync(new URL('../assistantRuntimeClient.ts', import.meta.url), 'utf8');
 
 describe('JetWork 2.0 conversation + file experience', () => {
-  it('keeps generated files inline and opens the selected file in a temporary right-side workspace', () => {
+  it('keeps generated files inline and pins the selected file to a temporary right-side workspace', () => {
     expect(workspaceSource).toContain("import { FileViewer } from './FileViewer'");
     expect(workspaceSource).toContain('data-testid="workspace-right-file-panel"');
     expect(workspaceSource).toContain('workspace-side-file-viewer');
     expect(workspaceSource).toContain('dosyasını sağda aç');
     expect(workspaceSource).toContain('<FileViewer file={selectedFile} onClose={closeFile} />');
     expect(filePanelCss).toContain('clamp(320px, 34%, 560px)');
+    expect(filePanelCss).toContain('flex-direction: row !important');
+    expect(filePanelCss).toContain('position: absolute;');
+    expect(filePanelCss).toContain('left: clamp(320px, 34%, 560px)');
     expect(filePanelCss).toContain('.workspace-side-file-viewer > [role="dialog"]');
     expect(workspaceSource).not.toContain("import { ArtifactWorkspace } from './ArtifactWorkspace'");
     expect(workspaceSource).not.toContain('role="separator"');
