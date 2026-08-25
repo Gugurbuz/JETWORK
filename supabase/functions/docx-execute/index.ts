@@ -6,6 +6,8 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 const ARTIFACT_LINK_TTL_SECONDS = 7 * 24 * 60 * 60
 const MAX_FILE_BYTES = 20 * 1024 * 1024
 const DEFAULT_DOCX_WORKER_URL = 'https://jetwork.vercel.app/api/docx-worker'
+const DEFAULT_ENERJISA_DOCX_WORKER_URL = 'https://jetwork.vercel.app/api/enerjisa-docx-worker'
+const ENERJISA_PROFILE_MARKER = '[ENERJISA_ANALYSIS_DOCX]'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -103,7 +105,14 @@ serve(async req => {
       .from('workspaces').select('id').eq('id', workspaceId).maybeSingle()
     if (workspaceError || !workspace) return jsonResponse({ error: 'Workspace access denied.' }, 403)
 
-    const workerUrl = clean(Deno.env.get('DOCX_PYTHON_WORKER_URL') || DEFAULT_DOCX_WORKER_URL, 600)
+    const headerText = typeof config.headerText === 'string' ? config.headerText.slice(0, 500) : ''
+    const enerjisaProfile = headerText.trim().startsWith(ENERJISA_PROFILE_MARKER)
+    const workerUrl = clean(
+      enerjisaProfile
+        ? Deno.env.get('ENERJISA_DOCX_PYTHON_WORKER_URL') || DEFAULT_ENERJISA_DOCX_WORKER_URL
+        : Deno.env.get('DOCX_PYTHON_WORKER_URL') || DEFAULT_DOCX_WORKER_URL,
+      600,
+    )
     const paragraphs = Array.isArray(config.paragraphs)
       ? config.paragraphs.map(value => String(value).slice(0, 8_000)).slice(0, 500)
       : []
@@ -112,15 +121,18 @@ serve(async req => {
       headers: {
         Authorization: authorization,
         'Content-Type': 'application/json',
-        'x-client-info': 'jetwork-docx-python-worker/v1',
+        'x-client-info': enerjisaProfile
+          ? 'jetwork-docx-python-worker/enerjisa-v1'
+          : 'jetwork-docx-python-worker/v1',
       },
       body: JSON.stringify({
         title: config.title == null ? '' : String(config.title).slice(0, 500),
         paragraphs,
         markdown: typeof config.markdown === 'string' ? config.markdown.slice(0, 400_000) : '',
-        headerText: typeof config.headerText === 'string' ? config.headerText.slice(0, 500) : '',
+        headerText: enerjisaProfile ? '' : headerText,
         footerText: typeof config.footerText === 'string' ? config.footerText.slice(0, 500) : '',
         metadata: Array.isArray(config.metadata) ? config.metadata.slice(0, 20) : [],
+        brandProfile: enerjisaProfile ? 'enerjisa_analysis' : null,
       }),
     })
     const workerPayload = await workerResponse.json().catch(() => ({})) as Record<string, unknown>
@@ -144,7 +156,8 @@ serve(async req => {
       artifact,
       summary: {
         format: 'docx',
-        engine: 'python-docx',
+        engine: enerjisaProfile ? 'python-docx-enerjisa' : 'python-docx',
+        brandProfile: enerjisaProfile ? 'enerjisa_analysis' : null,
         pythonWorker: true,
         qa,
       },
