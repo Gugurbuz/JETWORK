@@ -1,1 +1,95 @@
-x
+@keyframes jetwork-file-logo-breathe {
+  0%, 100% {
+    transform: scale(0.96) rotate(-2deg);
+    filter: drop-shadow(0 8px 20px rgba(255, 193, 7, 0.10));
+  }
+  50% {
+    transform: scale(1.04) rotate(2deg);
+    filter: drop-shadow(0 10px 28px rgba(255, 193, 7, 0.22));
+  }
+}
+
+@keyframes jetwork-file-ring-turn {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes jetwork-file-ring-turn-reverse {
+  from { transform: rotate(20deg); }
+  to { transform: rotate(-340deg); }
+}
+
+@keyframes jetwork-file-loading-text {
+  0%, 100% { opacity: 0.48; }
+  50% { opacity: 0.9; }
+}
+
+.jetwork-file-loader {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 18px;
+  color: var(--theme-text-muted);
+}
+
+.jetwork-file-loader-mark {
+  position: relative;
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  isolation: isolate;
+}
+
+.jetwork-file-loader-mark::before,
+.jetwork-file-loader-mark::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 22px;
+  pointer-events: none;
+}
+
+.jetwork-file-loader-mark::before {
+  border: 1px solid color-mix(in srgb, #FFC107 34%, transparent);
+  border-top-color: color-mix(in srgb, #FFC107 82%, transparent);
+  border-right-color: color-mix(in srgb, #FF9800 62%, transparent);
+  animation: jetwork-file-ring-turn 3.8s linear infinite;
+}
+
+.jetwork-file-loader-mark::after {
+  inset: 10px;
+  border: 1px solid color-mix(in srgb, #FF9800 22%, transparent);
+  border-left-color: color-mix(in srgb, #FFC107 72%, transparent);
+  animation: jetwork-file-ring-turn-reverse 5.4s linear infinite;
+}
+
+.jetwork-file-loader-logo {
+  position: relative;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  animation: jetwork-file-logo-breathe 2.2s ease-in-out infinite;
+}
+
+.jetwork-file-loader-text {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  animation: jetwork-file-loading-text 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jetwork-file-loader-mark::before,
+  .jetwork-file-loader-mark::after,
+  .jetwork-file-loader-logo,
+  .jetwork-file-loader-text {
+    animation: none !important;
+  }
+
+  .jetwork-file-loader-text {
+    opacity: 0.72;
+  }
+}
