@@ -2,29 +2,42 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const workspaceSource = readFileSync(new URL('../../components/WorkspaceView.tsx', import.meta.url), 'utf8');
+const mainContentSource = readFileSync(new URL('../../components/MainContent.tsx', import.meta.url), 'utf8');
 const fileViewerSource = readFileSync(new URL('../../components/FileViewer.tsx', import.meta.url), 'utf8');
 const fileLibrarySource = readFileSync(new URL('../../components/FileLibrary.tsx', import.meta.url), 'utf8');
 const modelControlSource = readFileSync(new URL('../../components/CompactModelControl.tsx', import.meta.url), 'utf8');
 const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
+const filePanelCss = readFileSync(new URL('../../workspace-file-panel.css', import.meta.url), 'utf8');
 const previewWorkerSource = readFileSync(new URL('../../../api/artifact-preview.py', import.meta.url), 'utf8');
 const assistantRuntimeSource = readFileSync(new URL('../assistantRuntimeClient.ts', import.meta.url), 'utf8');
 
-describe('JetWork 2.0 conversation-first file experience', () => {
-  it('keeps the conversation primary and opens files in a focused viewer', () => {
+describe('JetWork 2.0 conversation + file experience', () => {
+  it('keeps generated files inline and opens the selected file in a temporary right-side workspace', () => {
     expect(workspaceSource).toContain("import { FileViewer } from './FileViewer'");
+    expect(workspaceSource).toContain('data-testid="workspace-right-file-panel"');
+    expect(workspaceSource).toContain('workspace-side-file-viewer');
+    expect(workspaceSource).toContain('dosyasını sağda aç');
     expect(workspaceSource).toContain('<FileViewer file={selectedFile} onClose={closeFile} />');
+    expect(filePanelCss).toContain('clamp(320px, 34%, 560px)');
+    expect(filePanelCss).toContain('.workspace-side-file-viewer > [role="dialog"]');
     expect(workspaceSource).not.toContain("import { ArtifactWorkspace } from './ArtifactWorkspace'");
     expect(workspaceSource).not.toContain('role="separator"');
     expect(workspaceSource).not.toContain('chatPercent');
     expect(workspaceSource).not.toContain('artifact-workspace-open');
     expect(workspaceSource).not.toContain('artifact-workspace-mobile-switch');
+  });
+
+  it('does not auto-open newly generated files and leaves the file card under the response', () => {
+    expect(workspaceSource).toContain('const [selectedFile, setSelectedFile]');
+    expect(workspaceSource).toContain('Compatibility bridge for the current ChatPanel output card');
+    expect(workspaceSource).not.toContain('latestArtifact');
+    expect(workspaceSource).not.toContain('UNINITIALIZED_ARTIFACT_KEY');
     expect(workspaceSource).not.toContain('openArtifact(latestArtifact)');
   });
 
-  it('does not auto-open newly generated files', () => {
-    expect(workspaceSource).toContain('const [selectedFile, setSelectedFile]');
-    expect(workspaceSource).not.toContain('latestArtifact');
-    expect(workspaceSource).not.toContain('UNINITIALIZED_ARTIFACT_KEY');
+  it('restores the original sidebar surface while keeping the separate Dosyalar entry', () => {
+    expect(mainContentSource).toContain('<FileLibraryLauncher />');
+    expect(mainContentSource).not.toContain('SidebarSurfaceEnhancer');
   });
 
   it('uses user-facing file language instead of artifact language', () => {

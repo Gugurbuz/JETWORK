@@ -1,0 +1,60 @@
+@keyframes jetwork-file-panel-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(8px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (min-width: 1024px) {
+  .jetwork-conversation-shell--file-open > [data-testid="workspace-chat-surface"] {
+    width: clamp(320px, 34%, 560px);
+    flex: 0 0 clamp(320px, 34%, 560px);
+    border-right: 1px solid color-mix(in srgb, var(--theme-border) 72%, transparent);
+    transition: width 180ms ease, flex-basis 180ms ease;
+  }
+
+  .workspace-side-file-viewer {
+    position: relative;
+    min-width: 0;
+    height: 100%;
+    flex: 1 1 auto;
+    overflow: hidden;
+    background: var(--theme-bg);
+    animation: jetwork-file-panel-enter 180ms ease-out both;
+  }
+
+  .workspace-side-file-viewer > [role="dialog"] {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 20 !important;
+    width: 100% !important;
+    height: 100% !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    background: transparent !important;
+    padding: 0 !important;
+    backdrop-filter: none !important;
+  }
+
+  .workspace-side-file-viewer > [role="dialog"] > div {
+    width: 100% !important;
+    max-width: none !important;
+    height: 100% !important;
+    max-height: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-side-file-viewer,
+  .jetwork-conversation-shell--file-open > [data-testid="workspace-chat-surface"] {
+    animation: none !important;
+    transition: none !important;
+  }
+}

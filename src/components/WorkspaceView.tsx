@@ -10,6 +10,7 @@ import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
 import { useMessageStore } from '../store/useMessageStore';
 import '../jetwork-conversation-shell.css';
+import '../workspace-file-panel.css';
 
 interface WorkspaceViewProps {
   messages: Message[];
@@ -98,9 +99,8 @@ export function WorkspaceView(props: WorkspaceViewProps) {
     setSelectedFile(null);
   }, [currentWorkspaceId]);
 
-  // Compatibility bridge for the existing ChatPanel file card. The next ChatPanel
-  // extraction can call openFile directly; until then this keeps the user-facing
-  // interaction correct without auto-opening or splitting the conversation.
+  // Compatibility bridge for the current ChatPanel output card. The generated file
+  // stays inline under the assistant response; clicking that card opens this workspace panel.
   useEffect(() => {
     const root = layoutRef.current;
     if (!root) return;
@@ -111,7 +111,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
         const name = rawTitle.replace(/\s+dosyasını indir$/u, '').trim();
         if (!name) return;
         button.dataset.jetworkFileName = name;
-        button.setAttribute('title', `${name} dosyasını aç`);
+        button.setAttribute('title', `${name} dosyasını sağda aç`);
         const action = button.querySelector('span:last-child');
         if (action) {
           for (const node of Array.from(action.childNodes)) {
@@ -127,10 +127,10 @@ export function WorkspaceView(props: WorkspaceViewProps) {
 
     const interceptFileOpen = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      const button = target?.closest<HTMLButtonElement>('button[data-jetwork-file-name], button[title$="dosyasını aç"]');
+      const button = target?.closest<HTMLButtonElement>('button[data-jetwork-file-name], button[title$="dosyasını sağda aç"]');
       if (!button || !root.contains(button)) return;
       const name = button.dataset.jetworkFileName
-        || (button.getAttribute('title') || '').replace(/\s+dosyasını aç$/u, '').trim();
+        || (button.getAttribute('title') || '').replace(/\s+dosyasını sağda aç$/u, '').trim();
       const file = fileByName(name);
       if (!file) return;
       event.preventDefault();
@@ -146,10 +146,15 @@ export function WorkspaceView(props: WorkspaceViewProps) {
   }, [fileByName, openFile]);
 
   return (
-    <div ref={layoutRef} className="jetwork-conversation-shell relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="pointer-events-auto absolute right-14 top-2.5 z-30 hidden lg:block">
-        <CompactModelControl disabled={isGenerating || isDiscussing} />
-      </div>
+    <div
+      ref={layoutRef}
+      className={`jetwork-conversation-shell relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row${selectedFile ? ' jetwork-conversation-shell--file-open' : ''}`}
+    >
+      {!selectedFile && (
+        <div className="pointer-events-auto absolute right-14 top-2.5 z-30 hidden lg:block">
+          <CompactModelControl disabled={isGenerating || isDiscussing} />
+        </div>
+      )}
 
       <header
         data-testid="workspace-mobile-header"
@@ -243,7 +248,11 @@ export function WorkspaceView(props: WorkspaceViewProps) {
         />
       </section>
 
-      {selectedFile && <FileViewer file={selectedFile} onClose={closeFile} />}
+      {selectedFile && (
+        <div data-testid="workspace-right-file-panel" className="workspace-side-file-viewer">
+          <FileViewer file={selectedFile} onClose={closeFile} />
+        </div>
+      )}
     </div>
   );
 }
