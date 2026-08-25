@@ -3,6 +3,7 @@ import { Menu, MessageSquarePlus, Plus } from 'lucide-react';
 import { ProjectDashboard } from './ProjectDashboard';
 import { JetWorkLogo } from './JetWorkLogo';
 import { FileLibraryLauncher } from './FileLibrary';
+import { SidebarSurfaceEnhancer } from './SidebarSurfaceEnhancer';
 import { useDataStore } from '../store/useDataStore';
 import { useUIStore } from '../store/useUIStore';
 
@@ -21,6 +22,7 @@ export function MainContent({ children, onQuickStart }: MainContentProps) {
   const project = projects.find(item => item.id === currentProjectId);
 
   return <main className="relative z-10 flex min-h-0 min-w-0 flex-1 overflow-hidden">
+    <SidebarSurfaceEnhancer />
     <FileLibraryLauncher />
     {!currentWorkspaceId && <button type="button" onClick={() => setMobileSidebarOpen(true)} aria-label="Projeler menüsünü aç"
       className="absolute left-3 top-3 z-30 rounded-xl p-2 text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text md:hidden"><Menu size={20} /></button>}
