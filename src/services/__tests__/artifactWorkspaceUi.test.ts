@@ -1,26 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const workspaceSource = readFileSync(
-  new URL('../../components/WorkspaceView.tsx', import.meta.url),
-  'utf8',
-);
-const fileViewerSource = readFileSync(
-  new URL('../../components/FileViewer.tsx', import.meta.url),
-  'utf8',
-);
-const shellCss = readFileSync(
-  new URL('../../jetwork-conversation-shell.css', import.meta.url),
-  'utf8',
-);
-const previewWorkerSource = readFileSync(
-  new URL('../../../api/artifact-preview.py', import.meta.url),
-  'utf8',
-);
-const assistantRuntimeSource = readFileSync(
-  new URL('../assistantRuntimeClient.ts', import.meta.url),
-  'utf8',
-);
+const workspaceSource = readFileSync(new URL('../../components/WorkspaceView.tsx', import.meta.url), 'utf8');
+const fileViewerSource = readFileSync(new URL('../../components/FileViewer.tsx', import.meta.url), 'utf8');
+const fileLibrarySource = readFileSync(new URL('../../components/FileLibrary.tsx', import.meta.url), 'utf8');
+const modelControlSource = readFileSync(new URL('../../components/CompactModelControl.tsx', import.meta.url), 'utf8');
+const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
+const previewWorkerSource = readFileSync(new URL('../../../api/artifact-preview.py', import.meta.url), 'utf8');
+const assistantRuntimeSource = readFileSync(new URL('../assistantRuntimeClient.ts', import.meta.url), 'utf8');
 
 describe('JetWork 2.0 conversation-first file experience', () => {
   it('keeps the conversation primary and opens files in a focused viewer', () => {
@@ -49,11 +36,34 @@ describe('JetWork 2.0 conversation-first file experience', () => {
     expect(fileViewerSource).not.toContain('Artifact önizlenemedi');
   });
 
-  it('keeps the calm conversation visual contract', () => {
+  it('keeps the calm conversation visual contract and compact model selector', () => {
     expect(shellCss).toContain('[data-message-role="user"]');
     expect(shellCss).toContain('[data-message-role="model"]');
     expect(shellCss).toContain('jetwork-calm-logo');
     expect(shellCss).toContain('prefers-reduced-motion');
+    expect(workspaceSource).toContain('<CompactModelControl');
+    expect(modelControlSource).toContain("{ value: 'auto', label: 'Otomatik'");
+  });
+
+  it('provides a global Dosyalar library over generated tool outputs', () => {
+    expect(fileLibrarySource).toContain(".from('messages')");
+    expect(fileLibrarySource).toContain("file.purpose !== 'tool_output'");
+    expect(fileLibrarySource).toContain('Dosyalarda ara');
+    expect(fileLibrarySource).toContain('Belgeler');
+    expect(fileLibrarySource).toContain('Sunumlar');
+  });
+
+  it('prefers a DOCX rendition when available and labels fallback HTML honestly', () => {
+    expect(fileViewerSource).toContain('preferredDocxRendition');
+    expect(fileViewerSource).toContain('previewStoragePath');
+    expect(fileViewerSource).toContain('Hızlı içerik önizlemesi');
+    expect(fileViewerSource).toContain('Word’deki sayfa yerleşimi');
+  });
+
+  it('keeps viewer keyboard behavior accessible', () => {
+    expect(fileViewerSource).toContain("event.key === 'Escape'");
+    expect(fileViewerSource).toContain("event.key !== 'Tab'");
+    expect(fileViewerSource).toContain('aria-modal="true"');
   });
 
   it('keeps legacy BA Canvas interception disabled by default so document requests reach file executors', () => {
