@@ -29,13 +29,19 @@ type PreviewPayload = SpreadsheetPreview | PresentationPreview;
 type PreviewState =
   | { kind: 'loading' }
   | { kind: 'image'; url: string }
-  | { kind: 'pdf'; url: string }
+  | { kind: 'pdf'; url: string; rendition?: boolean }
   | { kind: 'docx'; html: string }
   | { kind: 'markdown'; text: string }
   | { kind: 'text'; text: string }
   | { kind: 'structured'; payload: PreviewPayload }
   | { kind: 'unsupported' }
   | { kind: 'error'; message: string };
+
+type FileWithPreview = MessageAttachment & {
+  previewUrl?: string;
+  previewStoragePath?: string;
+  previewStorageBucket?: string;
+};
 
 interface FileViewerProps {
   file: MessageAttachment;
@@ -57,6 +63,17 @@ async function signedFileUrl(file: MessageAttachment, download = false): Promise
   }
   if (file.url) return file.url;
   throw new Error('Dosya referansı bulunamadı.');
+}
+
+async function preferredDocxRendition(file: MessageAttachment): Promise<string | null> {
+  const candidate = file as FileWithPreview;
+  if (candidate.previewUrl) return candidate.previewUrl;
+  if (!candidate.previewStoragePath) return null;
+  const bucket = candidate.previewStorageBucket || file.storageBucket || ASSISTANT_FILES_BUCKET;
+  if (bucket !== ASSISTANT_FILES_BUCKET) return null;
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(candidate.previewStoragePath, 5 * 60);
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
 }
 
 async function fetchChecked(url: string) {
@@ -125,6 +142,7 @@ function PresentationView({ preview }: { preview: PresentationPreview }) {
 export function FileViewer({ file, onClose }: FileViewerProps) {
   const [preview, setPreview] = useState<PreviewState>({ kind: 'loading' });
   const [reloadToken, setReloadToken] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const mime = useMemo(() => normalizedAssistantFileMime(file), [file]);
   const extension = extensionOf(file.name);
@@ -136,6 +154,8 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
       if (mime.startsWith('image/')) return setPreview({ kind: 'image', url });
       if (mime === PDF_MIME || extension === 'pdf') return setPreview({ kind: 'pdf', url });
       if (mime === DOCX_MIME || extension === 'docx') {
+        const renditionUrl = await preferredDocxRendition(file);
+        if (renditionUrl) return setPreview({ kind: 'pdf', url: renditionUrl, rendition: true });
         const result = await mammoth.convertToHtml({ arrayBuffer: await (await fetchChecked(url)).arrayBuffer() });
         return setPreview({ kind: 'docx', html: DOMPurify.sanitize(result.value) });
       }
@@ -166,7 +186,25 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
   useEffect(() => {
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -187,7 +225,7 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
     if (preview.kind === 'loading') return <div className="flex h-full items-center justify-center gap-2 text-sm text-theme-text-muted"><Loader2 size={18} className="animate-spin" /> Dosya açılıyor…</div>;
     if (preview.kind === 'image') return <div className="flex h-full items-center justify-center overflow-auto bg-slate-100 p-6"><img src={preview.url} alt={file.name || 'Dosya'} className="max-h-full max-w-full object-contain shadow-sm" /></div>;
     if (preview.kind === 'pdf') return <iframe title={file.name || 'PDF'} src={preview.url} className="h-full w-full border-0 bg-white" />;
-    if (preview.kind === 'docx') return <div className="h-full overflow-auto bg-slate-100 px-4 py-8 sm:px-8"><article className="artifact-docx-page prose prose-sm mx-auto min-h-full max-w-[860px] bg-white px-8 py-10 text-slate-900 shadow-sm sm:px-14 sm:py-14" dangerouslySetInnerHTML={{ __html: preview.html }} /></div>;
+    if (preview.kind === 'docx') return <div className="h-full overflow-auto bg-slate-100 px-4 py-8 sm:px-8"><div className="mx-auto mb-3 max-w-[860px] rounded-lg border border-slate-200 bg-white/90 px-3 py-2 text-[11px] text-slate-500">Hızlı içerik önizlemesi · Word’deki sayfa yerleşimi, header/footer ve bazı görsel ayrıntılar farklı görünebilir.</div><article className="artifact-docx-page prose prose-sm mx-auto min-h-full max-w-[860px] bg-white px-8 py-10 text-slate-900 shadow-sm sm:px-14 sm:py-14" dangerouslySetInnerHTML={{ __html: preview.html }} /></div>;
     if (preview.kind === 'markdown') return <div className="h-full overflow-auto bg-slate-100 px-4 py-8 sm:px-8"><article className="prose prose-sm mx-auto min-h-full max-w-[860px] bg-white px-8 py-10 text-slate-900 shadow-sm sm:px-14 sm:py-14"><ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.text}</ReactMarkdown></article></div>;
     if (preview.kind === 'text') return <div className="h-full overflow-auto bg-slate-50 p-6"><pre className="mx-auto max-w-5xl whitespace-pre-wrap rounded-xl border border-slate-200 bg-white p-5 text-xs leading-relaxed text-slate-800">{preview.text}</pre></div>;
     if (preview.kind === 'structured') return preview.payload.kind === 'spreadsheet' ? <SpreadsheetView preview={preview.payload} /> : <PresentationView preview={preview.payload} />;
@@ -196,7 +234,7 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
   })();
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/30 p-0 backdrop-blur-[2px] sm:p-5" role="dialog" aria-modal="true" aria-label={`${file.name || 'Dosya'} önizleme`}>
+    <div ref={dialogRef} className="fixed inset-0 z-[90] flex items-center justify-center bg-black/30 p-0 backdrop-blur-[2px] sm:p-5" role="dialog" aria-modal="true" aria-label={`${file.name || 'Dosya'} önizleme`}>
       <div className="flex h-full w-full flex-col overflow-hidden bg-theme-bg shadow-2xl sm:h-[94vh] sm:max-w-[1280px] sm:rounded-2xl sm:border sm:border-theme-border/70">
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-theme-border/70 bg-theme-bg px-3 sm:px-4">
           <div className="min-w-0">
