@@ -6,6 +6,8 @@ import {
 } from '../../../supabase/functions/_shared/documentArtifactRouting'
 
 const workerSource = readFileSync(new URL('../../../api/docx-worker.py', import.meta.url), 'utf8')
+const enerjisaWorkerSource = readFileSync(new URL('../../../api/enerjisa-docx-worker.py', import.meta.url), 'utf8')
+const enerjisaLogoSource = readFileSync(new URL('../../../api/enerjisa_logo.py', import.meta.url), 'utf8')
 const requirements = readFileSync(new URL('../../../requirements.txt', import.meta.url), 'utf8')
 const executionToolsSource = readFileSync(new URL('../../../supabase/functions/_shared/artifactExecutionTools.ts', import.meta.url), 'utf8')
 const assistantToolSource = readFileSync(new URL('../../../supabase/functions/_shared/artifactAssistantTool.ts', import.meta.url), 'utf8')
@@ -65,6 +67,9 @@ describe('Python DOCX artifact worker', () => {
     expect(routeSource).toContain("'openai-assistant-enerjisa-docx'")
     expect(routeSource).toContain('enerjisa-analysis-docx-postplan-v1')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('create_document_file')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('[ENERJISA_ANALYSIS_DOCX]')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('Talep Adı')
+    expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('Talep No')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('# İHTİYAÇ ANALİZİ')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('## 8. FONKSİYONEL TASARIM DOKÜMANLARI')
     expect(ENERJISA_ANALYSIS_DOCX_DIRECTIVE).toContain('[AÇIK KONU]')
@@ -84,6 +89,22 @@ describe('Python DOCX artifact worker', () => {
     expect(documentOrchestratorSource).toContain('enumerationTarget: undefined')
     expect(documentOrchestratorSource).toContain('/functions/v1/openai-assistant-core-v2')
     expect(routeSource).not.toContain('applyEnerjisaAnalysisDocxProfile')
+  })
+
+  it('renders Enerjisa analysis DOCX with the approved corporate shell and embedded real logo asset', () => {
+    expect(enerjisaLogoSource).toContain('ENERJISA_LOGO_B64')
+    expect(enerjisaWorkerSource).toContain('from enerjisa_logo import ENERJISA_LOGO_B64')
+    expect(enerjisaWorkerSource).toContain('İş Uygulamaları Yönetim Müdürlüğü')
+    expect(enerjisaWorkerSource).toContain('Enerjisa Elektrik Perakende Satış A.Ş')
+    expect(enerjisaWorkerSource).toContain('Hizmete Özel\\nGizli')
+    expect(enerjisaWorkerSource).toContain('Talep Adı')
+    expect(enerjisaWorkerSource).toContain('Talep No')
+    expect(enerjisaWorkerSource).toContain('TABLE_HEADER = "D9D9D9"')
+    expect(enerjisaWorkerSource).toContain('"brandProfile": "enerjisa_analysis"')
+    expect(enerjisaWorkerSource).toContain('"logoEmbedded": True')
+    expect(edgeWorkerSource).toContain("const ENERJISA_PROFILE_MARKER = '[ENERJISA_ANALYSIS_DOCX]'")
+    expect(edgeWorkerSource).toContain("DEFAULT_ENERJISA_DOCX_WORKER_URL")
+    expect(edgeWorkerSource).toContain("brandProfile: enerjisaProfile ? 'enerjisa_analysis' : null")
   })
 
   it('keeps generic explicit Word requests on the normal DOCX runtime without imposing the Enerjisa analysis profile', () => {
