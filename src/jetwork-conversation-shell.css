@@ -159,10 +159,44 @@
   border-left-color: color-mix(in srgb, var(--theme-border) 80%, transparent) !important;
 }
 
+/* Global sidebar: keep enterprise capabilities, remove dashboard visual weight. */
+.jetwork-sidebar-v2 {
+  border-right-color: color-mix(in srgb, var(--theme-border) 58%, transparent) !important;
+  background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-bg) 12%) !important;
+  box-shadow: none !important;
+}
+
+.jetwork-sidebar-v2 > div:first-child {
+  border-bottom: 0 !important;
+}
+
+.jetwork-sidebar-v2 button {
+  box-shadow: none !important;
+}
+
+.jetwork-sidebar-v2 button[class*="bg-theme-surface-hover"] {
+  background: color-mix(in srgb, var(--theme-text) 6%, transparent) !important;
+}
+
+.jetwork-sidebar-v2 button:hover {
+  background-color: color-mix(in srgb, var(--theme-text) 5%, transparent) !important;
+}
+
+.jetwork-sidebar-v2 [class*="uppercase"][class*="tracking"] {
+  letter-spacing: .02em !important;
+  text-transform: none !important;
+}
+
+.jetwork-sidebar-v2 [class*="shadow"] {
+  box-shadow: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .jetwork-conversation-shell *,
   .jetwork-conversation-shell *::before,
-  .jetwork-conversation-shell *::after {
+  .jetwork-conversation-shell *::after,
+  .jetwork-sidebar-v2,
+  .jetwork-sidebar-v2 * {
     scroll-behavior: auto !important;
     animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;
