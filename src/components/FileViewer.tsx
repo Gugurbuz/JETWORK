@@ -3,9 +3,11 @@ import * as mammoth from 'mammoth';
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Download, FileText, Loader2, RefreshCw, X } from 'lucide-react';
+import { Download, FileText, RefreshCw, X } from 'lucide-react';
 import type { MessageAttachment } from '../types';
 import { supabase } from '../supabase';
+import { JetWorkLogo } from './JetWorkLogo';
+import './file-viewer-loading.css';
 import {
   ASSISTANT_FILES_BUCKET,
   DOCX_MIME,
@@ -222,10 +224,17 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
   };
 
   const body = (() => {
-    if (preview.kind === 'loading') return <div className="flex h-full items-center justify-center gap-2 text-sm text-theme-text-muted"><Loader2 size={18} className="animate-spin" /> Dosya açılıyor…</div>;
+    if (preview.kind === 'loading') return (
+      <div className="jetwork-file-loader" aria-live="polite" aria-label="Dosya açılıyor">
+        <div className="jetwork-file-loader-mark" aria-hidden="true">
+          <JetWorkLogo className="jetwork-file-loader-logo" />
+        </div>
+        <div className="jetwork-file-loader-text">Dosya açılıyor…</div>
+      </div>
+    );
     if (preview.kind === 'image') return <div className="flex h-full items-center justify-center overflow-auto bg-slate-100 p-6"><img src={preview.url} alt={file.name || 'Dosya'} className="max-h-full max-w-full object-contain shadow-sm" /></div>;
     if (preview.kind === 'pdf') return <iframe title={file.name || 'PDF'} src={preview.url} className="h-full w-full border-0 bg-white" />;
-    if (preview.kind === 'docx') return <div className="h-full overflow-auto bg-slate-100 px-4 py-8 sm:px-8"><div className="mx-auto mb-3 max-w-[860px] rounded-lg border border-slate-200 bg-white/90 px-3 py-2 text-[11px] text-slate-500">Hızlı içerik önizlemesi · Word’deki sayfa yerleşimi, header/footer ve bazı görsel ayrıntılar farklı görünebilir.</div><article className="artifact-docx-page prose prose-sm mx-auto min-h-full max-w-[860px] bg-white px-8 py-10 text-slate-900 shadow-sm sm:px-14 sm:py-14" dangerouslySetInnerHTML={{ __html: preview.html }} /></div>;
+    if (preview.kind === 'docx') return <div className="h-full overflow-auto bg-slate-100 px-4 py-8 sm:px-8"><article className="artifact-docx-page prose prose-sm mx-auto min-h-full max-w-[860px] bg-white px-8 py-10 text-slate-900 shadow-sm sm:px-14 sm:py-14" dangerouslySetInnerHTML={{ __html: preview.html }} /></div>;
     if (preview.kind === 'markdown') return <div className="h-full overflow-auto bg-slate-100 px-4 py-8 sm:px-8"><article className="prose prose-sm mx-auto min-h-full max-w-[860px] bg-white px-8 py-10 text-slate-900 shadow-sm sm:px-14 sm:py-14"><ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.text}</ReactMarkdown></article></div>;
     if (preview.kind === 'text') return <div className="h-full overflow-auto bg-slate-50 p-6"><pre className="mx-auto max-w-5xl whitespace-pre-wrap rounded-xl border border-slate-200 bg-white p-5 text-xs leading-relaxed text-slate-800">{preview.text}</pre></div>;
     if (preview.kind === 'structured') return preview.payload.kind === 'spreadsheet' ? <SpreadsheetView preview={preview.payload} /> : <PresentationView preview={preview.payload} />;
