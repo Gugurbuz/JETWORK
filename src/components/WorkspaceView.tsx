@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Menu } from 'lucide-react';
 import { ChatPanel } from './ChatPanel';
 import { FileViewer } from './FileViewer';
+import { CompactModelControl } from './CompactModelControl';
 import type { Message, DocumentData, MessageAttachment, MessageSendOptions } from '../types';
 import type { User } from '../hooks/useAuth';
 import { useDataStore } from '../store/useDataStore';
@@ -146,6 +147,10 @@ export function WorkspaceView(props: WorkspaceViewProps) {
 
   return (
     <div ref={layoutRef} className="jetwork-conversation-shell relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="pointer-events-auto absolute right-14 top-2.5 z-30 hidden lg:block">
+        <CompactModelControl disabled={isGenerating || isDiscussing} />
+      </div>
+
       <header
         data-testid="workspace-mobile-header"
         className="flex h-12 shrink-0 items-center gap-2 border-b border-theme-border/60 bg-theme-bg px-2.5 lg:hidden"
