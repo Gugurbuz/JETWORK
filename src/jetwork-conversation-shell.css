@@ -1,8 +1,3 @@
-@keyframes jetwork-calm-logo {
-  0%, 100% { transform: rotate(-3deg) translateY(0); opacity: .86; }
-  50% { transform: rotate(3deg) translateY(-1px); opacity: 1; }
-}
-
 .jetwork-conversation-shell {
   background: var(--theme-bg);
 }
@@ -144,12 +139,7 @@
   background: var(--theme-surface) !important;
 }
 
-/* Thinking should feel calm and professional. */
-.jetwork-conversation-shell .assistant-work__logo-motion {
-  animation: jetwork-calm-logo 2.8s ease-in-out infinite !important;
-  filter: none !important;
-}
-
+/* Keep the shared thinking animation visible inside the conversation shell. */
 .jetwork-conversation-shell .assistant-work__label {
   animation-duration: 3.6s !important;
   font-weight: 600 !important;

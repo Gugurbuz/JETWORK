@@ -69,10 +69,11 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(fileViewerSource).not.toContain('Word’deki sayfa yerleşimi');
   });
 
-  it('keeps the calm conversation visual contract and compact model selector', () => {
+  it('keeps the conversation visual contract without overriding the shared thinking animation', () => {
     expect(shellCss).toContain('[data-message-role="user"]');
     expect(shellCss).toContain('[data-message-role="model"]');
-    expect(shellCss).toContain('jetwork-calm-logo');
+    expect(shellCss).not.toContain('jetwork-calm-logo');
+    expect(shellCss).not.toContain('.assistant-work__logo-motion');
     expect(shellCss).toContain('prefers-reduced-motion');
     expect(shellCss).not.toContain('animation-duration: .001ms !important');
     expect(shellCss).not.toContain('animation-iteration-count: 1 !important');
