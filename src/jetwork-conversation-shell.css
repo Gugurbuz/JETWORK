@@ -192,15 +192,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .jetwork-conversation-shell *,
-  .jetwork-conversation-shell *::before,
-  .jetwork-conversation-shell *::after,
-  .jetwork-sidebar-v2,
-  .jetwork-sidebar-v2 * {
+  .jetwork-conversation-shell .chat-scroll-container,
+  .jetwork-sidebar-v2 {
     scroll-behavior: auto !important;
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
   }
 }
 

@@ -74,8 +74,17 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(shellCss).toContain('[data-message-role="model"]');
     expect(shellCss).toContain('jetwork-calm-logo');
     expect(shellCss).toContain('prefers-reduced-motion');
+    expect(shellCss).not.toContain('animation-duration: .001ms !important');
+    expect(shellCss).not.toContain('animation-iteration-count: 1 !important');
     expect(workspaceSource).toContain('<CompactModelControl');
     expect(modelControlSource).toContain("{ value: 'auto', label: 'Otomatik'");
+  });
+
+  it('keeps the welcome background logos moving independently from CSS motion preferences', () => {
+    expect(mainContentSource).toContain('data-testid="floating-jetwork-logo"');
+    expect(mainContentSource).toContain('requestAnimationFrame(tick)');
+    expect(mainContentSource).toContain('cancelAnimationFrame(frameId)');
+    expect(mainContentSource).toContain('element.style.transform = `translate3d(');
   });
 
   it('provides a global Dosyalar library over generated tool outputs', () => {
