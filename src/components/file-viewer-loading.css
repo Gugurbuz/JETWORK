@@ -1,27 +1,39 @@
-@keyframes jetwork-file-logo-breathe {
-  0%, 100% {
-    transform: scale(0.96) rotate(-2deg);
-    filter: drop-shadow(0 8px 20px rgba(255, 193, 7, 0.10));
+@keyframes jetwork-file-logo-heartbeat {
+  0%, 12%, 46%, 100% {
+    transform: scale(1) translate3d(0, 0, 0);
+    filter: drop-shadow(0 3px 7px rgba(255, 152, 0, 0.18));
   }
-  50% {
-    transform: scale(1.04) rotate(2deg);
-    filter: drop-shadow(0 10px 28px rgba(255, 193, 7, 0.22));
+  18% {
+    transform: scale(1.16) translate3d(0, -1px, 0);
+    filter: drop-shadow(0 7px 16px rgba(255, 152, 0, 0.32));
+  }
+  26% {
+    transform: scale(0.98) translate3d(0, 0, 0);
+    filter: drop-shadow(0 3px 7px rgba(255, 152, 0, 0.18));
+  }
+  34% {
+    transform: scale(1.1) translate3d(0, -1px, 0);
+    filter: drop-shadow(0 6px 14px rgba(255, 193, 7, 0.3));
   }
 }
 
-@keyframes jetwork-file-ring-turn {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes jetwork-file-heartbeat-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  12% {
+    opacity: 0.42;
+  }
+  54%, 100% {
+    opacity: 0;
+    transform: scale(1.55);
+  }
 }
 
-@keyframes jetwork-file-ring-turn-reverse {
-  from { transform: rotate(20deg); }
-  to { transform: rotate(-340deg); }
-}
-
-@keyframes jetwork-file-loading-text {
-  0%, 100% { opacity: 0.48; }
-  50% { opacity: 0.9; }
+@keyframes jetwork-file-text-shimmer {
+  0%, 16% { background-position: 150% 50%; }
+  72%, 100% { background-position: -45% 50%; }
 }
 
 .jetwork-file-loader {
@@ -29,67 +41,92 @@
   min-height: 100%;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 18px;
   color: var(--theme-text-muted);
+}
+
+.jetwork-file-loader-line {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.7rem;
 }
 
 .jetwork-file-loader-mark {
   position: relative;
-  display: grid;
-  width: 72px;
-  height: 72px;
-  place-items: center;
-  isolation: isolate;
+  display: inline-flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 2.35rem;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
 }
 
-.jetwork-file-loader-mark::before,
-.jetwork-file-loader-mark::after {
-  content: '';
+.jetwork-file-loader-pulse {
   position: absolute;
-  inset: 3px;
-  border-radius: 22px;
-  pointer-events: none;
+  inset: 0.15rem;
+  border: 1px solid color-mix(in srgb, #ffc107 54%, transparent);
+  border-radius: 0.9rem;
+  opacity: 0;
+  transform-origin: center;
+  animation: jetwork-file-heartbeat-ring 1.65s cubic-bezier(0.22, 0.9, 0.32, 1) infinite;
 }
 
-.jetwork-file-loader-mark::before {
-  border: 1px solid color-mix(in srgb, #FFC107 34%, transparent);
-  border-top-color: color-mix(in srgb, #FFC107 82%, transparent);
-  border-right-color: color-mix(in srgb, #FF9800 62%, transparent);
-  animation: jetwork-file-ring-turn 3.8s linear infinite;
+.jetwork-file-loader-pulse--secondary {
+  inset: 0.34rem;
+  border-color: color-mix(in srgb, #ff9800 48%, transparent);
+  animation-delay: 0.18s;
 }
 
-.jetwork-file-loader-mark::after {
-  inset: 10px;
-  border: 1px solid color-mix(in srgb, #FF9800 22%, transparent);
-  border-left-color: color-mix(in srgb, #FFC107 72%, transparent);
-  animation: jetwork-file-ring-turn-reverse 5.4s linear infinite;
+.jetwork-file-loader-logo-motion {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 1.55rem;
+  height: 1.55rem;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center;
+  will-change: transform;
+  animation: jetwork-file-logo-heartbeat 1.65s cubic-bezier(0.22, 0.9, 0.32, 1) infinite;
 }
 
 .jetwork-file-loader-logo {
-  position: relative;
-  z-index: 1;
-  width: 36px;
-  height: 36px;
-  animation: jetwork-file-logo-breathe 2.2s ease-in-out infinite;
+  width: 1.55rem;
+  height: 1.55rem;
 }
 
 .jetwork-file-loader-text {
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  animation: jetwork-file-loading-text 1.8s ease-in-out infinite;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 0%,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 36%,
+    #ffc107 48%,
+    #fff3c4 54%,
+    #ff9800 60%,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 72%,
+    color-mix(in srgb, var(--theme-text) 62%, var(--theme-text-muted)) 100%
+  );
+  background-size: 240% 100%;
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  animation: jetwork-file-text-shimmer 2.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .jetwork-file-loader-mark::before,
-  .jetwork-file-loader-mark::after,
-  .jetwork-file-loader-logo,
-  .jetwork-file-loader-text {
-    animation: none !important;
+  .jetwork-file-loader-pulse {
+    animation: none;
+  }
+
+  .jetwork-file-loader-logo-motion {
+    animation: jetwork-file-logo-heartbeat 3.3s steps(8, end) infinite;
   }
 
   .jetwork-file-loader-text {
-    opacity: 0.72;
+    animation: jetwork-file-text-shimmer 6s ease-in-out infinite;
   }
 }

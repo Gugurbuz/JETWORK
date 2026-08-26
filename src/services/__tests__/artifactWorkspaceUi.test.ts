@@ -53,12 +53,18 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(fileViewerSource).not.toContain('Artifact önizlenemedi');
   });
 
-  it('uses a JetWork-specific loading animation instead of a generic spinner', () => {
+  it('uses a loading-specific JetWork heartbeat for file opening instead of a generic spinner', () => {
     expect(fileViewerSource).toContain("import { JetWorkLogo } from './JetWorkLogo'");
     expect(fileViewerSource).toContain('jetwork-file-loader-mark');
+    expect(fileViewerSource).toContain('jetwork-file-loader-pulse--primary');
+    expect(fileViewerSource).toContain('jetwork-file-loader-logo-motion');
     expect(fileViewerSource).not.toContain('Loader2');
-    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-logo-breathe');
-    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-ring-turn');
+    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-logo-heartbeat');
+    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-heartbeat-ring');
+    expect(fileViewerLoadingCss).toContain('@keyframes jetwork-file-text-shimmer');
+    expect(fileViewerLoadingCss).not.toContain('jetwork-file-logo-breathe');
+    expect(fileViewerLoadingCss).not.toContain('jetwork-file-ring-turn');
+    expect(fileViewerLoadingCss).not.toContain('assistant-work-logo-story');
     expect(fileViewerLoadingCss).toContain('prefers-reduced-motion');
   });
 

@@ -226,10 +226,16 @@ export function FileViewer({ file, onClose }: FileViewerProps) {
   const body = (() => {
     if (preview.kind === 'loading') return (
       <div className="jetwork-file-loader" aria-live="polite" aria-label="Dosya açılıyor">
-        <div className="jetwork-file-loader-mark" aria-hidden="true">
-          <JetWorkLogo className="jetwork-file-loader-logo" />
+        <div className="jetwork-file-loader-line">
+          <span className="jetwork-file-loader-mark" aria-hidden="true">
+            <span className="jetwork-file-loader-pulse jetwork-file-loader-pulse--primary" />
+            <span className="jetwork-file-loader-pulse jetwork-file-loader-pulse--secondary" />
+            <span className="jetwork-file-loader-logo-motion">
+              <JetWorkLogo className="jetwork-file-loader-logo" />
+            </span>
+          </span>
+          <span className="jetwork-file-loader-text">Dosya açılıyor…</span>
         </div>
-        <div className="jetwork-file-loader-text">Dosya açılıyor…</div>
       </div>
     );
     if (preview.kind === 'image') return <div className="flex h-full items-center justify-center overflow-auto bg-slate-100 p-6"><img src={preview.url} alt={file.name || 'Dosya'} className="max-h-full max-w-full object-contain shadow-sm" /></div>;
