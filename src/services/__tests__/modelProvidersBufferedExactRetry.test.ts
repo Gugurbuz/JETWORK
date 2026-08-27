@@ -12,7 +12,9 @@ describe('buffered exact identifier provider retry', () => {
     expect(source).toContain("if (plan.executionMode !== 'direct') return false")
     expect(source).toContain("if (plan.webMode !== 'none') return false")
     expect(source).toContain('if (plan.knowledgeRequired === true || plan.enterpriseGroundingRequired === true) return false')
-    expect(source).toContain('EXACT_CUSTOM_IDENTIFIER_PATTERN.test')
+    expect(source).toContain("import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'")
+    expect(source).toContain('return hasExactTechnicalIdentifier(lastUserText(input.items))')
+    expect(source).not.toContain('EXACT_CUSTOM_IDENTIFIER_PATTERN')
   })
 
   it('buffers the first attempt and retries timeout recovery without tools', () => {

@@ -3,11 +3,11 @@ import {
   type NormalizedModelResponse,
 } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/4507172bfa9b2f1fb6e5c14ac34e87f1e0475142/supabase/functions/_shared/modelProviders.ts?buffered-exact-retry-base=1'
 import { extractSemanticPlanFromItems } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/4507172bfa9b2f1fb6e5c14ac34e87f1e0475142/supabase/functions/_shared/geminiCostGuard.ts?buffered-exact-retry-plan=1'
+import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'
 
 export * from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/4507172bfa9b2f1fb6e5c14ac34e87f1e0475142/supabase/functions/_shared/modelProviders.ts?buffered-exact-retry-base=1'
 
 const EXPLICIT_PRO_MODEL = 'gemini-3.1-pro-preview'
-const EXACT_CUSTOM_IDENTIFIER_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)\b/u
 
 type GeminiRequest = {
   apiKey: string
@@ -74,7 +74,7 @@ const shouldUseBufferedDirectRecovery = (input: GeminiRequest) => {
   if (plan.executionMode !== 'direct') return false
   if (plan.webMode !== 'none') return false
   if (plan.knowledgeRequired === true || plan.enterpriseGroundingRequired === true) return false
-  return EXACT_CUSTOM_IDENTIFIER_PATTERN.test(lastUserText(input.items).toLocaleUpperCase('en-US'))
+  return hasExactTechnicalIdentifier(lastUserText(input.items))
 }
 
 export async function requestGeminiResponse(input: GeminiRequest): Promise<NormalizedModelResponse> {
