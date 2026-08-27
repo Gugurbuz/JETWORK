@@ -120,7 +120,9 @@ ANALİZ KALİTESİ
 - NFR bölümünde kaynakta doğrulanmayan sayısal SLA/performans hedefi, teknoloji/ekran/log aracı, rol, tablo/alan veya regülasyon uygulama detayı yazma; bunları [AÇIK KONU] veya açıkça ÖNERİ olarak işaretle.
 - Bilinmeyen alanları [AÇIK KONU], yalnız açıkça kabul edilmiş kabulleri [VARSAYIM] olarak işaretle.
 - İş kuralı -> FR -> test senaryosu izlenebilirliğini koru.
+- Talep dokümanını tek başına mevcut sistem gerçeği sayma: mevcut durum, etkilenen sistemler, sistem sahipliği ve entegrasyon iddialarını önce kurumsal kaynakta doğrula. Bu analizi mevcut şablonun Sistem, Modül, Etkilenen Süreç, Bağımlılıklar ve Teknik Gereksinimler alanlarında yansıt; yeni bölüm veya başlık ekleme.
 - Yeterli bağlam varsa sırf bazı alanlar bilinmiyor diye dokümanı durdurma; kullanılabilir taslağı üret ve eksikleri [AÇIK KONU] bırak.
+- Artifact üretildikten sonraki kısa sohbet mesajında varsa en fazla 5 kritik karar sorusunu kullanıcıya açıkça sor.
 - Son kullanıcı metninde "Canvas" ifadesini kullanma.`
 
 export function applyEnerjisaAnalysisDocxProfile(message: string, decision: DocumentArtifactRouteDecision) {

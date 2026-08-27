@@ -603,6 +603,8 @@ serve(async req => {
       }
       const skillToolResultCache = new Map<string, SkillToolExecution>()
       const loadedSkillKeys = new Set<string>()
+      const semanticArtifactRequired = () => planForArtifactCompletion?.executionMode === 'artifact'
+      let planForArtifactCompletion: ReasoningPlan | null = null
       let turnCompleted = false
       const runController = new AbortController()
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
@@ -799,6 +801,7 @@ serve(async req => {
           route, signal: runController.signal,
         })
         const plan = planned.plan
+        planForArtifactCompletion = plan
         const geminiNativeWebPlanned = configuredProvider === 'gemini'
           && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))
         let knowledgePreflightAttempted = false
@@ -950,6 +953,7 @@ serve(async req => {
             const canLiveStreamProviderText = activeProvider === 'gemini'
               && plan.enterpriseGroundingRequired !== true
               && plan.intent !== 'sap_diagnosis'
+              && plan.executionMode !== 'artifact'
               && !hasExactCustomIdentifierInRequest
 
             if (activeProvider === 'gemini') {
@@ -1041,6 +1045,18 @@ serve(async req => {
 
           const functionCalls = output.filter((item: Record<string, unknown>) => item.type === 'function_call')
           if (!functionCalls.length) {
+            if (semanticArtifactRequired() && generatedArtifacts.size === 0) {
+              if (!mustSynthesize && totalToolCalls < MAX_TOOL_CALLS) {
+                runItems.push({
+                  role: 'developer',
+                  content: 'SEMANTIC_ARTIFACT_REQUIRED: Semantic plan bu turn için gerçek artifact teslimini zorunlu kılıyor. Kaynak metindeki kelimelerden yeni intent çıkarma; planın istediği artifact capability/executorunu çağır. Executor artifact döndürmeden final verme.',
+                })
+                usage = addUsage(usage, { semantic_artifact_completion_guard: 1 })
+                emitStatus('synthesizing', 'Planlanan dosya çıktısı oluşturuluyor...')
+                continue
+              }
+              throw new Error('Required artifact executor did not produce a file.')
+            }
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
             const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()] })
             if (shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })) {

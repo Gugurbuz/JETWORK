@@ -15,12 +15,13 @@ describe('core live streaming gate', () => {
     expect(gate).not.toContain('&& geminiNativeWebPlanned')
   })
 
-  it('keeps exact enterprise identifiers and high-risk turn classes buffered', () => {
+  it('keeps exact enterprise identifiers and semantic artifact turns buffered', () => {
     expect(coreSource).toContain('hasExactCustomIdentifierInRequest')
     expect(coreSource).toContain("plan.enterpriseGroundingRequired !== true")
     expect(coreSource).toContain("plan.intent !== 'sap_diagnosis'")
     expect(coreSource).toContain('!hasExactCustomIdentifierInRequest')
-    expect(coreSource).toContain('!artifactMutationRequested')
+    expect(coreSource).toContain("plan.executionMode !== 'artifact'")
+    expect(coreSource).not.toContain('artifactMutationRequested')
   })
 
   it('still emits each approved provider delta directly to SSE', () => {
