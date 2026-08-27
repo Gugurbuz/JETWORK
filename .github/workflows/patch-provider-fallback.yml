@@ -1,8 +1,9 @@
-name: Patch provider fallback recovery
+name: Provider fallback recovery patch
+
 on:
   push:
-    branches:
-      - 'fix/provider-fallback-timeout-recovery'
+    branches: ["fix/provider-fallback-timeout-recovery"]
+    paths: [".github/workflows/patch-provider-fallback.yml"]
 
 permissions:
   contents: write
@@ -13,32 +14,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/provider-fallback-timeout-recovery
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
       - name: Apply semantic fallback patch
+        shell: python
         run: |
-          python - <<'PY'
           from pathlib import Path
-          p = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
-          s = p.read_text()
-          reps = [
-            ("const requestActiveProvider = async () => {", "const requestActiveProvider = async (forceNoTools = false) => {"),
-            ("const skillToolsEnabled = !mustSynthesize && plan.intent !== 'research'", "const skillToolsEnabled = !forceNoTools && !mustSynthesize && plan.intent !== 'research'"),
-            ("const knowledgeToolsEnabled = !mustSynthesize\n              && plan.knowledgeRequired", "const knowledgeToolsEnabled = !forceNoTools && !mustSynthesize\n              && plan.knowledgeRequired"),
-            ("const providerWebEnabled = !mustSynthesize && plan.webMode !== 'none'", "const providerWebEnabled = !forceNoTools && !mustSynthesize && plan.webMode !== 'none'"),
+          path = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          text = path.read_text()
+          replacements = [
+              ("const requestActiveProvider = async () => {", "const requestActiveProvider = async (forceNoTools = false) => {"),
+              ("const skillToolsEnabled = !mustSynthesize && plan.intent !== 'research'", "const skillToolsEnabled = !forceNoTools && !mustSynthesize && plan.intent !== 'research'"),
+              ("const knowledgeToolsEnabled = !mustSynthesize\n              && plan.knowledgeRequired", "const knowledgeToolsEnabled = !forceNoTools && !mustSynthesize\n              && plan.knowledgeRequired"),
+              ("const providerWebEnabled = !mustSynthesize && plan.webMode !== 'none'", "const providerWebEnabled = !forceNoTools && !mustSynthesize && plan.webMode !== 'none'"),
           ]
-          for old, new in reps:
-            count = s.count(old)
-            if count != 1:
-              raise SystemExit(f'expected 1 occurrence, found {count}: {old[:80]}')
-            s = s.replace(old, new, 1)
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one match, found {text.count(old)}: {old[:70]}')
+              text = text.replace(old, new, 1)
           old = """          try {
             response = await requestActiveProvider()
           } catch (providerError) {
@@ -61,25 +57,19 @@ jobs:
             response = await requestActiveProvider(directNoToolFallback)
           }
 """
-          count = s.count(old)
-          if count != 1:
-            raise SystemExit(f'expected fallback block once, found {count}')
-          p.write_text(s.replace(old, new, 1))
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one provider fallback block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
 
           test = Path('src/services/__tests__/providerFallbackDirectSynthesis.test.ts')
-          test.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst coreSource = readFileSync(\n  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),\n  'utf8',\n)\nconst providerSource = readFileSync(\n  new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),\n  'utf8',\n)\n\ndescribe('provider fallback direct synthesis', () => {\n  it('drops tool capability only for semantic direct/no-retrieval fallback turns', () => {\n    expect(coreSource).toContain('const requestActiveProvider = async (forceNoTools = false)')\n    expect(coreSource).toContain('const skillToolsEnabled = !forceNoTools &&')\n    expect(coreSource).toContain('const knowledgeToolsEnabled = !forceNoTools &&')\n    expect(coreSource).toContain('const providerWebEnabled = !forceNoTools &&')\n    expect(coreSource).toContain(\"const directNoToolFallback = plan.executionMode === 'direct'\")\n    expect(coreSource).toContain(\"&& plan.webMode === 'none'\")\n    expect(coreSource).toContain('&& plan.knowledgeRequired !== true')\n    expect(coreSource).toContain('&& plan.enterpriseGroundingRequired !== true')\n    expect(coreSource).toContain('response = await requestActiveProvider(directNoToolFallback)')\n  })\n\n  it('gives a no-tool Gemini fallback the final-synthesis timeout window', () => {\n    expect(providerSource).toContain('const GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000')\n    expect(providerSource).toContain('const finalSynthesis = !input.allowTools && !trivialConversation')\n  })\n})\n""")
-          PY
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Focused tests
-        run: pnpm vitest run src/services/__tests__/providerFallbackDirectSynthesis.test.ts src/services/__tests__/geminiProTimeoutPolicy.test.ts src/services/__tests__/geminiFastFailover.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
-      - name: Assistant runtime verification
-        run: pnpm run verify:assistant-runtime
-      - name: Commit patch
+          test.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst coreSource = readFileSync(\n  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),\n  'utf8',\n)\nconst providerSource = readFileSync(\n  new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),\n  'utf8',\n)\n\ndescribe('provider fallback direct synthesis', () => {\n  it('drops tools only for semantic direct/no-retrieval fallback turns', () => {\n    expect(coreSource).toContain('const requestActiveProvider = async (forceNoTools = false)')\n    expect(coreSource).toContain('const skillToolsEnabled = !forceNoTools &&')\n    expect(coreSource).toContain('const knowledgeToolsEnabled = !forceNoTools &&')\n    expect(coreSource).toContain('const providerWebEnabled = !forceNoTools &&')\n    expect(coreSource).toContain(\"const directNoToolFallback = plan.executionMode === 'direct'\")\n    expect(coreSource).toContain(\"&& plan.webMode === 'none'\")\n    expect(coreSource).toContain('&& plan.knowledgeRequired !== true')\n    expect(coreSource).toContain('&& plan.enterpriseGroundingRequired !== true')\n    expect(coreSource).toContain('response = await requestActiveProvider(directNoToolFallback)')\n  })\n\n  it('uses the longer final-synthesis window when tools are disabled', () => {\n    expect(providerSource).toContain('const GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000')\n    expect(providerSource).toContain('const finalSynthesis = !input.allowTools && !trivialConversation')\n  })\n})\n""")
+      - run: npx vitest run src/services/__tests__/providerFallbackDirectSynthesis.test.ts src/services/__tests__/geminiProTimeoutPolicy.test.ts src/services/__tests__/geminiFastFailover.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
+      - run: npm run verify:assistant-runtime
+      - name: Commit validated fallback patch
         run: |
           rm .github/workflows/patch-provider-fallback.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m 'fix: harden direct provider fallback'
-          git push origin HEAD:fix/provider-fallback-timeout-recovery
+          git commit -m "fix: harden direct provider fallback"
+          git push origin HEAD:${GITHUB_REF_NAME}
