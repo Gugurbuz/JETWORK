@@ -30,6 +30,17 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f'expected one artifact policy, found {text.count(old)}')
           path.write_text(text.replace(old, new, 1))
+      - name: Align regression assertion
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/services/__tests__/capabilitySystemV2.test.ts')
+          text = path.read_text()
+          old = "expect(coreSource).toContain('ARTIFACT CAPABILITY POLICY')"
+          new = "expect(coreSource).toContain('ARTIFACT POLICY')"
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one old assertion, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
       - run: npx vitest run src/services/__tests__/capabilitySystemV2.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts src/services/__tests__/pythonDocxArtifactWorker.test.ts
       - run: npm run verify:assistant-runtime
       - name: Commit validated compact policy
