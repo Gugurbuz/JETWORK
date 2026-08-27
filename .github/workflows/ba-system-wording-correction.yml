@@ -1,0 +1,60 @@
+name: BA system wording correction
+on:
+  push:
+    paths:
+      - '.github/workflows/ba-system-wording-correction.yml'
+permissions:
+  contents: write
+jobs:
+  correct-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ba-analysis-intelligence
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Correct system semantics and preserve template
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          routing = Path('supabase/functions/_shared/documentArtifactRouting.ts')
+          s = routing.read_text()
+          s = s.replace('''### 1.1. Platform ve Sistem Etki Analizi\n| Platform/Sistem | Mevcut Rol | Talep Etkisi | Kurumsal Kanıt | Durum | tablosunu kullan. Platform veya system-of-record bilgisi doğrulanamıyorsa tahmin etme; [AÇIK KONU] yaz.\n''', '')
+          s = s.replace('''### 6.4. Açık Konular ve Karar Gerektiren Sorular\nÖnce kurumsal kaynakta araştır. Araştırmayla çözülemeyen ve çözüm mimarisini, platform sahipliğini, faturalama/tahsilat akışını veya entegrasyon sınırını materially etkileyen konuları net sorular halinde yaz. Kullanıcıdan cevap almadan bunları gerçek karar gibi doldurma.\n''', '')
+          s = s.replace('Talep dokümanını tek başına mevcut sistem gerçeği sayma: mevcut durum, platform sahipliği ve entegrasyon iddialarını önce kurumsal kaynakta doğrula.', 'Talep dokümanını tek başına mevcut sistem gerçeği sayma: mevcut durum, etkilenen sistemler, sistem sahipliği ve entegrasyon iddialarını önce kurumsal kaynakta doğrula. Bu analizi mevcut şablonun Sistem, Modül, Etkilenen Süreç, Bağımlılıklar ve Teknik Gereksinimler alanlarında yansıt; yeni bölüm veya başlık ekleme.')
+          routing.write_text(s)
+
+          enerjisa = Path('supabase/functions/openai-assistant-enerjisa-docx/index.ts')
+          s = enerjisa.read_text()
+          s = s.replace('Kurumsal mevcut durum, benzer ürün/süreç, platform-sistem sahipliği, entegrasyon ve veri kaynakları:', 'Kurumsal mevcut durum, benzer ürün/süreç, etkilenen sistemler, sistem sahipliği, entegrasyon ve veri kaynakları:')
+          s = s.replace("id: 'analyze-platform-impact'", "id: 'analyze-system-impact'")
+          s = s.replace("label: 'Platform, sistem sahipliği, entegrasyon sınırları ve veri kaynakları için etki analizi yap'", "label: 'Etkilenen sistemler, sistem sahipliği, entegrasyon sınırları ve veri kaynakları için etki analizi yap'")
+          s = s.replace("successCriteria: 'Platform kararı kanıta dayanır; çözülemeyen sistem sahipliği kararları [AÇIK KONU] olarak bırakılır.'", "successCriteria: 'Etkilenen sistemler ve sistem sahipliği kanıta dayanır; çözülemeyen sistem kararları [AÇIK KONU] olarak bırakılır.'")
+          enerjisa.write_text(s)
+
+          test = Path('src/services/__tests__/baAnalysisIntelligenceRegression.test.ts')
+          s = test.read_text()
+          s = s.replace("it('forces Enerjisa BA specialization to research enterprise current state and platform impact', () => {", "it('forces Enerjisa BA specialization to research enterprise current state and affected systems', () => {")
+          s = s.replace("expect(enerjisaSource).toContain(\"id: 'analyze-platform-impact'\")", "expect(enerjisaSource).toContain(\"id: 'analyze-system-impact'\")")
+          s = s.replace("expect(enerjisaSource).toContain('platform-sistem sahipliği')", "expect(enerjisaSource).toContain('etkilenen sistemler, sistem sahipliği')")
+          old = '''  it('requires platform analysis and unresolved decision questions in Enerjisa document profile', () => {\n    expect(routingSource).toContain('Platform ve Sistem Etki Analizi')\n    expect(routingSource).toContain('Açık Konular ve Karar Gerektiren Sorular')\n    expect(routingSource).toContain('önce kurumsal kaynakta doğrula')\n    expect(routingSource).toContain('en fazla 5 kritik karar sorusunu')\n  })'''
+          new = '''  it('preserves the approved Enerjisa template while grounding affected systems', () => {\n    expect(routingSource).toContain('Başlık/Açıklama tablosunda en az Sistem, Modül, Etkilenen Süreç')\n    expect(routingSource).toContain('## 6.2. Bağımlılıklar')\n    expect(routingSource).toContain('## 8.2. Teknik Gereksinimler')\n    expect(routingSource).toContain('etkilenen sistemler, sistem sahipliği')\n    expect(routingSource).toContain('yeni bölüm veya başlık ekleme')\n    expect(routingSource).not.toContain('### 1.1. Platform ve Sistem Etki Analizi')\n    expect(routingSource).not.toContain('### 6.4. Açık Konular ve Karar Gerektiren Sorular')\n  })'''
+          if old not in s:
+              raise SystemExit('expected old template regression block not found')
+          test.write_text(s.replace(old, new))
+          PY
+      - name: Run focused regression tests
+        run: npx vitest run src/services/__tests__/baAnalysisIntelligenceRegression.test.ts src/services/__tests__/capabilitySystemV2.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts src/services/__tests__/pythonDocxArtifactWorker.test.ts
+      - run: npm run verify:assistant-runtime
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/ba-system-wording-correction.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/_shared/documentArtifactRouting.ts supabase/functions/openai-assistant-enerjisa-docx/index.ts src/services/__tests__/baAnalysisIntelligenceRegression.test.ts .github/workflows/ba-system-wording-correction.yml
+          git commit -m 'fix: preserve Enerjisa template and analyze affected systems'
+          git push origin HEAD:fix/ba-analysis-intelligence
