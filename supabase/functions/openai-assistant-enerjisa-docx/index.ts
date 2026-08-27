@@ -184,7 +184,7 @@ Deno.serve(async (req: Request) => {
     webMode: 'none' as const,
     verificationRequired: false,
     evidenceQueries: [
-      clean(`Kurumsal mevcut durum, benzer ürün/süreç, platform-sistem sahipliği, entegrasyon ve veri kaynakları: ${message}`, 1_800),
+      clean(`Kurumsal mevcut durum, benzer ürün/süreç, etkilenen sistemler, sistem sahipliği, entegrasyon ve veri kaynakları: ${message}`, 1_800),
     ],
     steps: [
       {
@@ -194,10 +194,10 @@ Deno.serve(async (req: Request) => {
         successCriteria: 'Kurumsal kaynaklar gerçekten aranır; bulunan kanıtlar ile kullanıcı talebi birbirinden ayrılır.',
       },
       {
-        id: 'analyze-platform-impact',
-        label: 'Platform, sistem sahipliği, entegrasyon sınırları ve veri kaynakları için etki analizi yap',
+        id: 'analyze-system-impact',
+        label: 'Etkilenen sistemler, sistem sahipliği, entegrasyon sınırları ve veri kaynakları için etki analizi yap',
         toolHint: 'knowledge' as const,
-        successCriteria: 'Platform kararı kanıta dayanır; çözülemeyen sistem sahipliği kararları [AÇIK KONU] olarak bırakılır.',
+        successCriteria: 'Etkilenen sistemler ve sistem sahipliği kanıta dayanır; çözülemeyen sistem kararları [AÇIK KONU] olarak bırakılır.',
       },
       {
         id: 'synthesize-enerjisa-analysis',
