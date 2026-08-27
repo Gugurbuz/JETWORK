@@ -20,12 +20,12 @@ describe('BA analysis intelligence regression', () => {
     expect(entities).not.toContain('ZENLENMESI')
   })
 
-  it('forces Enerjisa BA specialization to research enterprise current state and platform impact', () => {
+  it('forces Enerjisa BA specialization to research enterprise current state and affected systems', () => {
     expect(enerjisaSource).toContain('knowledgeRequired: true')
     expect(enerjisaSource).toContain('enterpriseGroundingRequired: true')
     expect(enerjisaSource).toContain("id: 'research-enterprise-current-state'")
-    expect(enerjisaSource).toContain("id: 'analyze-platform-impact'")
-    expect(enerjisaSource).toContain('platform-sistem sahipliği')
+    expect(enerjisaSource).toContain("id: 'analyze-system-impact'")
+    expect(enerjisaSource).toContain('etkilenen sistemler, sistem sahipliği')
   })
 
   it('keeps artifact completion semantic and executor-backed without raw-message artifact regex', () => {
@@ -37,10 +37,13 @@ describe('BA analysis intelligence regression', () => {
     expect(coreSource).not.toContain('artifactMutationRequested')
   })
 
-  it('requires platform analysis and unresolved decision questions in Enerjisa document profile', () => {
-    expect(routingSource).toContain('Platform ve Sistem Etki Analizi')
-    expect(routingSource).toContain('Açık Konular ve Karar Gerektiren Sorular')
-    expect(routingSource).toContain('önce kurumsal kaynakta doğrula')
-    expect(routingSource).toContain('en fazla 5 kritik karar sorusunu')
+  it('preserves the approved Enerjisa template while grounding affected systems', () => {
+    expect(routingSource).toContain('Başlık/Açıklama tablosunda en az Sistem, Modül, Etkilenen Süreç')
+    expect(routingSource).toContain('## 6.2. Bağımlılıklar')
+    expect(routingSource).toContain('## 8.2. Teknik Gereksinimler')
+    expect(routingSource).toContain('etkilenen sistemler, sistem sahipliği')
+    expect(routingSource).toContain('yeni bölüm veya başlık ekleme')
+    expect(routingSource).not.toContain('### 1.1. Platform ve Sistem Etki Analizi')
+    expect(routingSource).not.toContain('### 6.4. Açık Konular ve Karar Gerektiren Sorular')
   })
 })
