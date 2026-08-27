@@ -20,8 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
       - run: python scripts/semantic_artifact_refactor.py
       - run: npx vitest run src/services/__tests__/capabilitySystemV2.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
       - name: Commit validated refactor
