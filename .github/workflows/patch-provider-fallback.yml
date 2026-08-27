@@ -1,0 +1,84 @@
+name: Patch provider fallback recovery
+on:
+  push:
+    branches:
+      - fix/provider-fallback-timeout-recovery
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/provider-fallback-timeout-recovery
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply semantic fallback patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          s = p.read_text()
+          reps = [
+            ("const requestActiveProvider = async () => {", "const requestActiveProvider = async (forceNoTools = false) => {"),
+            ("const skillToolsEnabled = !mustSynthesize && plan.intent !== 'research'", "const skillToolsEnabled = !forceNoTools && !mustSynthesize && plan.intent !== 'research'"),
+            ("const knowledgeToolsEnabled = !mustSynthesize\n              && plan.knowledgeRequired", "const knowledgeToolsEnabled = !forceNoTools && !mustSynthesize\n              && plan.knowledgeRequired"),
+            ("const providerWebEnabled = !mustSynthesize && plan.webMode !== 'none'", "const providerWebEnabled = !forceNoTools && !mustSynthesize && plan.webMode !== 'none'"),
+          ]
+          for old, new in reps:
+            count = s.count(old)
+            if count != 1:
+              raise SystemExit(f'expected 1 occurrence, found {count}: {old[:80]}')
+            s = s.replace(old, new, 1)
+          old = """          try {
+            response = await requestActiveProvider()
+          } catch (providerError) {
+            if (requestedModel !== AUTO_MODEL || activeProvider !== 'openai' || !geminiApiKey || runController.signal.aborted) throw providerError
+            activeProvider = 'gemini'; activeModel = DEFAULT_GEMINI_MODEL; providerFallbackUsed = true; roundText = ''; roundTextStreamed = false
+            emitStatus('planning', 'OpenAI sağlayıcısı başarısız oldu; yedek modele kontrollü geçiş yapılıyor...')
+            response = await requestActiveProvider()
+          }
+"""
+          new = """          try {
+            response = await requestActiveProvider()
+          } catch (providerError) {
+            if (requestedModel !== AUTO_MODEL || activeProvider !== 'openai' || !geminiApiKey || runController.signal.aborted) throw providerError
+            activeProvider = 'gemini'; activeModel = DEFAULT_GEMINI_MODEL; providerFallbackUsed = true; roundText = ''; roundTextStreamed = false
+            const directNoToolFallback = plan.executionMode === 'direct'
+              && plan.webMode === 'none'
+              && plan.knowledgeRequired !== true
+              && plan.enterpriseGroundingRequired !== true
+            emitStatus('planning', 'OpenAI sağlayıcısı başarısız oldu; yedek modele kontrollü geçiş yapılıyor...')
+            response = await requestActiveProvider(directNoToolFallback)
+          }
+"""
+          count = s.count(old)
+          if count != 1:
+            raise SystemExit(f'expected fallback block once, found {count}')
+          p.write_text(s.replace(old, new, 1))
+
+          test = Path('src/services/__tests__/providerFallbackDirectSynthesis.test.ts')
+          test.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst coreSource = readFileSync(\n  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),\n  'utf8',\n)\nconst providerSource = readFileSync(\n  new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),\n  'utf8',\n)\n\ndescribe('provider fallback direct synthesis', () => {\n  it('drops tool capability only for semantic direct/no-retrieval fallback turns', () => {\n    expect(coreSource).toContain('const requestActiveProvider = async (forceNoTools = false)')\n    expect(coreSource).toContain('const skillToolsEnabled = !forceNoTools &&')\n    expect(coreSource).toContain('const knowledgeToolsEnabled = !forceNoTools &&')\n    expect(coreSource).toContain('const providerWebEnabled = !forceNoTools &&')\n    expect(coreSource).toContain(\"const directNoToolFallback = plan.executionMode === 'direct'\")\n    expect(coreSource).toContain(\"&& plan.webMode === 'none'\")\n    expect(coreSource).toContain('&& plan.knowledgeRequired !== true')\n    expect(coreSource).toContain('&& plan.enterpriseGroundingRequired !== true')\n    expect(coreSource).toContain('response = await requestActiveProvider(directNoToolFallback)')\n  })\n\n  it('gives a no-tool Gemini fallback the final-synthesis timeout window', () => {\n    expect(providerSource).toContain('const GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000')\n    expect(providerSource).toContain('const finalSynthesis = !input.allowTools && !trivialConversation')\n  })\n})\n""")
+          PY
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Focused tests
+        run: pnpm vitest run src/services/__tests__/providerFallbackDirectSynthesis.test.ts src/services/__tests__/geminiProTimeoutPolicy.test.ts src/services/__tests__/geminiFastFailover.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
+      - name: Assistant runtime verification
+        run: pnpm run verify:assistant-runtime
+      - name: Commit patch and remove temporary workflow
+        run: |
+          rm .github/workflows/patch-provider-fallback.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add supabase/functions/openai-assistant-core-v2/implementation.ts src/services/__tests__/providerFallbackDirectSynthesis.test.ts .github/workflows/patch-provider-fallback.yml
+          git commit -m "fix: harden direct provider fallback"
+          git push origin HEAD:fix/provider-fallback-timeout-recovery
