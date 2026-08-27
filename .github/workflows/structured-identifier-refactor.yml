@@ -1,0 +1,83 @@
+name: Structured identifier refactor
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/structured-identifier-refactor.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Unify exact identifier detection
+        shell: python
+        run: |
+          from pathlib import Path
+
+          core = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          text = core.read_text()
+          anchor = "import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'\n"
+          addition = anchor + "import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'\n"
+          if text.count(anchor) != 1:
+              raise SystemExit('core import anchor mismatch')
+          text = text.replace(anchor, addition, 1)
+          old = "const hasExactCustomIdentifierInRequest = /\\b(?:Z[A-Z0-9_]{2,}(?:-\\d{2,4})?|CHECK_[A-Z0-9_]+)\\b/u.test(message.toLocaleUpperCase('en-US'))"
+          new = "const hasExactCustomIdentifierInRequest = hasExactTechnicalIdentifier(message)"
+          if text.count(old) != 1:
+              raise SystemExit(f'core identifier guard mismatch: {text.count(old)}')
+          core.write_text(text.replace(old, new, 1))
+
+          adapter = Path('supabase/functions/_shared/modelProvidersBufferedExactRetry.ts')
+          text = adapter.read_text()
+          plan_import = "import { extractSemanticPlanFromItems } from 'https://raw.githubusercontent.com/Gugurbuz/JETWORK/4507172bfa9b2f1fb6e5c14ac34e87f1e0475142/supabase/functions/_shared/geminiCostGuard.ts?buffered-exact-retry-plan=1'\n"
+          if text.count(plan_import) != 1:
+              raise SystemExit('adapter import anchor mismatch')
+          text = text.replace(plan_import, plan_import + "import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'\n", 1)
+          pattern_line = "const EXACT_CUSTOM_IDENTIFIER_PATTERN = /\\b(?:Z[A-Z0-9_]{2,}(?:-\\d{2,4})?|CHECK_[A-Z0-9_]+)\\b/u\n"
+          if text.count(pattern_line) != 1:
+              raise SystemExit('adapter legacy pattern mismatch')
+          text = text.replace(pattern_line, '', 1)
+          old = "return EXACT_CUSTOM_IDENTIFIER_PATTERN.test(lastUserText(input.items).toLocaleUpperCase('en-US'))"
+          new = "return hasExactTechnicalIdentifier(lastUserText(input.items))"
+          if text.count(old) != 1:
+              raise SystemExit('adapter detector call mismatch')
+          adapter.write_text(text.replace(old, new, 1))
+
+          semantic = Path('supabase/functions/_shared/semanticOrchestrator.ts')
+          text = semantic.read_text()
+          model_import = "import type { AssistantProvider } from './modelProviders.ts'\n"
+          if text.count(model_import) != 1:
+              raise SystemExit('semantic import anchor mismatch')
+          text = text.replace(model_import, model_import + "import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'\n", 1)
+          structured = "const STRUCTURED_TECHNICAL_ENTITY_PATTERN = /\\b(?:Z[A-Za-z0-9_]{2,}(?:[-_/][A-Za-z0-9_]+)+|Z[A-Za-z_]*\\d[A-Za-z0-9_/-]*|CHECK_[A-Za-z0-9_]+|NINJA_[A-Za-z0-9_]+|[A-Z][A-Z0-9_]{2,}-\\d{2,4})\\b/g\nconst PLAIN_UPPERCASE_Z_ENTITY_PATTERN = /\\bZ[A-Z]{2,8}\\b/g\n"
+          if text.count(structured) != 1:
+              raise SystemExit('semantic legacy patterns mismatch')
+          text = text.replace(structured, '', 1)
+          old = "const extractTechnicalEntities = (value: string) => unique([\n  ...[...value.matchAll(STRUCTURED_TECHNICAL_ENTITY_PATTERN)].map(match => match[0].toLocaleUpperCase('en-US')),\n  ...[...value.matchAll(PLAIN_UPPERCASE_Z_ENTITY_PATTERN)].map(match => match[0]),\n], 10)"
+          new = "const extractTechnicalEntities = (value: string) => unique(extractExactTechnicalIdentifiers(value, 10), 10)"
+          if text.count(old) != 1:
+              raise SystemExit('semantic extraction function mismatch')
+          semantic.write_text(text.replace(old, new, 1))
+
+          regression = Path('src/services/__tests__/technicalIdentifierRuntimeRegression.test.ts')
+          regression.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst core = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')\nconst adapter = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBufferedExactRetry.ts', import.meta.url), 'utf8')\nconst semantic = readFileSync(new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url), 'utf8')\n\ndescribe('structured identifier runtime integration', () => {\n  it('uses the shared detector in the core streaming guard', () => {\n    expect(core).toContain(\"import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'\")\n    expect(core).toContain('const hasExactCustomIdentifierInRequest = hasExactTechnicalIdentifier(message)')\n    expect(core).not.toContain(\"message.toLocaleUpperCase('en-US')\")\n  })\n\n  it('uses the same detector in buffered timeout recovery', () => {\n    expect(adapter).toContain(\"import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'\")\n    expect(adapter).toContain('return hasExactTechnicalIdentifier(lastUserText(input.items))')\n    expect(adapter).not.toContain('EXACT_CUSTOM_IDENTIFIER_PATTERN')\n  })\n\n  it('uses the shared extractor in semantic planning', () => {\n    expect(semantic).toContain(\"import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'\")\n    expect(semantic).toContain('extractExactTechnicalIdentifiers(value, 10)')\n    expect(semantic).not.toContain('PLAIN_UPPERCASE_Z_ENTITY_PATTERN')\n  })\n})\n""")
+      - run: npx vitest run src/services/__tests__/technicalIdentifier.test.ts src/services/__tests__/technicalIdentifierRuntimeRegression.test.ts src/services/__tests__/baAnalysisIntelligenceRegression.test.ts src/services/__tests__/coreLiveStreamingGate.test.ts src/services/__tests__/modelProvidersBufferedExactRetry.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
+      - run: npm run verify:assistant-runtime
+      - name: Commit validated refactor
+        run: |
+          rm .github/workflows/structured-identifier-refactor.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: unify structured technical identifier detection"
+          git push origin HEAD:${GITHUB_REF_NAME}
