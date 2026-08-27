@@ -73,18 +73,22 @@ export function AppUtilityDock() {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [compact, setCompact] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   useEffect(() => {
     const resolve = () => {
       const aside = document.querySelector<HTMLElement>('aside');
       if (!aside) {
         setPortalTarget(null);
+        setProfileMenuOpen(false);
         return;
       }
 
       const footer = Array.from(aside.children).at(-1);
-      setPortalTarget(footer instanceof HTMLElement ? footer : null);
+      const resolvedFooter = footer instanceof HTMLElement ? footer : null;
+      setPortalTarget(resolvedFooter);
       setCompact(aside.getBoundingClientRect().width < 100);
+      setProfileMenuOpen(Boolean(resolvedFooter?.querySelector('#sidebar-ai-model')));
     };
 
     resolve();
@@ -105,7 +109,7 @@ export function AppUtilityDock() {
     return () => observer.disconnect();
   }, [portalTarget]);
 
-  const dock = portalTarget ? createPortal(
+  const dock = portalTarget && !profileMenuOpen ? createPortal(
     <div
       className={cn(
         'absolute bottom-full z-30 mb-1 rounded-xl bg-theme-surface p-1 shadow-sm',
