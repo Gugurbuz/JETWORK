@@ -3,7 +3,9 @@ name: Semantic artifact routing refactor
 on:
   push:
     branches: ["fix/semantic-artifact-routing"]
-    paths: [".github/workflows/semantic-artifact-refactor.yml"]
+    paths:
+      - ".github/workflows/semantic-artifact-refactor.yml"
+      - "scripts/semantic_artifact_refactor.py"
 
 permissions:
   contents: write
