@@ -69,6 +69,14 @@ jobs:
               raise SystemExit('semantic extraction function mismatch')
           semantic.write_text(text.replace(old, new, 1))
 
+          stale = Path('src/services/__tests__/modelProvidersBufferedExactRetry.test.ts')
+          text = stale.read_text()
+          old = "    expect(source).toContain('EXACT_CUSTOM_IDENTIFIER_PATTERN.test')"
+          new = "    expect(source).toContain(\"import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'\")\n    expect(source).toContain('return hasExactTechnicalIdentifier(lastUserText(input.items))')\n    expect(source).not.toContain('EXACT_CUSTOM_IDENTIFIER_PATTERN')"
+          if text.count(old) != 1:
+              raise SystemExit('stale adapter assertion mismatch')
+          stale.write_text(text.replace(old, new, 1))
+
           regression = Path('src/services/__tests__/technicalIdentifierRuntimeRegression.test.ts')
           regression.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst core = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')\nconst adapter = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBufferedExactRetry.ts', import.meta.url), 'utf8')\nconst semantic = readFileSync(new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url), 'utf8')\n\ndescribe('structured identifier runtime integration', () => {\n  it('uses the shared detector in the core streaming guard', () => {\n    expect(core).toContain(\"import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'\")\n    expect(core).toContain('const hasExactCustomIdentifierInRequest = hasExactTechnicalIdentifier(message)')\n    expect(core).not.toContain(\"message.toLocaleUpperCase('en-US')\")\n  })\n\n  it('uses the same detector in buffered timeout recovery', () => {\n    expect(adapter).toContain(\"import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'\")\n    expect(adapter).toContain('return hasExactTechnicalIdentifier(lastUserText(input.items))')\n    expect(adapter).not.toContain('EXACT_CUSTOM_IDENTIFIER_PATTERN')\n  })\n\n  it('uses the shared extractor in semantic planning', () => {\n    expect(semantic).toContain(\"import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'\")\n    expect(semantic).toContain('extractExactTechnicalIdentifiers(value, 10)')\n    expect(semantic).not.toContain('PLAIN_UPPERCASE_Z_ENTITY_PATTERN')\n  })\n})\n""")
       - run: npx vitest run src/services/__tests__/technicalIdentifier.test.ts src/services/__tests__/technicalIdentifierRuntimeRegression.test.ts src/services/__tests__/baAnalysisIntelligenceRegression.test.ts src/services/__tests__/coreLiveStreamingGate.test.ts src/services/__tests__/modelProvidersBufferedExactRetry.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
