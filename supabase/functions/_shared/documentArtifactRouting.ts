@@ -88,8 +88,6 @@ Markdown gövdesinde aşağıdaki yapı ve sıra zorunludur:
 # İHTİYAÇ ANALİZİ
 ## 1. ANALİZ KAPSAMI
 Başlık/Açıklama tablosunda en az Sistem, Modül, Etkilenen Süreç, Etkilenen Roller, Varsayımlar ve Kısıtlar.
-### 1.1. Platform ve Sistem Etki Analizi
-| Platform/Sistem | Mevcut Rol | Talep Etkisi | Kurumsal Kanıt | Durum | tablosunu kullan. Platform veya system-of-record bilgisi doğrulanamıyorsa tahmin etme; [AÇIK KONU] yaz.
 ## 2. KISALTMALAR
 Kısaltma/Açıklama tablosu.
 ## 3. İŞ GEREKSİNİMLERİ
@@ -107,8 +105,6 @@ FR-01, FR-02 biçiminde test edilebilir maddeler.
 ### 6.1. Kısıtlar ve Varsayımlar
 ### 6.2. Bağımlılıklar
 ### 6.3. Süreç Etkileri
-### 6.4. Açık Konular ve Karar Gerektiren Sorular
-Önce kurumsal kaynakta araştır. Araştırmayla çözülemeyen ve çözüm mimarisini, platform sahipliğini, faturalama/tahsilat akışını veya entegrasyon sınırını materially etkileyen konuları net sorular halinde yaz. Kullanıcıdan cevap almadan bunları gerçek karar gibi doldurma.
 Gerekli olduğunda test senaryolarını | Test ID | Given | When | Then | Negatif Senaryo | Not | kolonlarıyla ekle.
 ## 7. ONAY
 ### 7.1. İş Analizi
@@ -124,7 +120,7 @@ ANALİZ KALİTESİ
 - NFR bölümünde kaynakta doğrulanmayan sayısal SLA/performans hedefi, teknoloji/ekran/log aracı, rol, tablo/alan veya regülasyon uygulama detayı yazma; bunları [AÇIK KONU] veya açıkça ÖNERİ olarak işaretle.
 - Bilinmeyen alanları [AÇIK KONU], yalnız açıkça kabul edilmiş kabulleri [VARSAYIM] olarak işaretle.
 - İş kuralı -> FR -> test senaryosu izlenebilirliğini koru.
-- Talep dokümanını tek başına mevcut sistem gerçeği sayma: mevcut durum, platform sahipliği ve entegrasyon iddialarını önce kurumsal kaynakta doğrula.
+- Talep dokümanını tek başına mevcut sistem gerçeği sayma: mevcut durum, etkilenen sistemler, sistem sahipliği ve entegrasyon iddialarını önce kurumsal kaynakta doğrula. Bu analizi mevcut şablonun Sistem, Modül, Etkilenen Süreç, Bağımlılıklar ve Teknik Gereksinimler alanlarında yansıt; yeni bölüm veya başlık ekleme.
 - Yeterli bağlam varsa sırf bazı alanlar bilinmiyor diye dokümanı durdurma; kullanılabilir taslağı üret ve eksikleri [AÇIK KONU] bırak.
 - Artifact üretildikten sonraki kısa sohbet mesajında varsa en fazla 5 kritik karar sorusunu kullanıcıya açıkça sor.
 - Son kullanıcı metninde "Canvas" ifadesini kullanma.`
