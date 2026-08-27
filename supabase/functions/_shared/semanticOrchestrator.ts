@@ -74,7 +74,8 @@ export const compactSemanticConversation = (messages: SemanticContextMessage[]) 
   return compact
 }
 
-const TECHNICAL_ENTITY_PATTERN = /\b(?:Z[A-Z0-9_]{2,}(?:[-_/][A-Z0-9_]+)*|CHECK_[A-Z0-9_]+|NINJA_[A-Z0-9_]+|[A-Z][A-Z0-9_]{2,}-\d{2,4})\b/g
+const STRUCTURED_TECHNICAL_ENTITY_PATTERN = /\b(?:Z[A-Za-z0-9_]{2,}(?:[-_/][A-Za-z0-9_]+)+|Z[A-Za-z_]*\d[A-Za-z0-9_/-]*|CHECK_[A-Za-z0-9_]+|NINJA_[A-Za-z0-9_]+|[A-Z][A-Z0-9_]{2,}-\d{2,4})\b/g
+const PLAIN_UPPERCASE_Z_ENTITY_PATTERN = /\bZ[A-Z]{2,8}\b/g
 const REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
 const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
 const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct)$/i
@@ -90,7 +91,10 @@ const looksLikeUserProvidedRequirements = (message: string): boolean => {
   return message.trim().length >= 350 && (numberedItems >= 2 || requirementSignals >= 3)
 }
 
-const extractTechnicalEntities = (value: string) => unique([...value.toLocaleUpperCase('en-US').matchAll(TECHNICAL_ENTITY_PATTERN)].map(match => match[0]), 10)
+const extractTechnicalEntities = (value: string) => unique([
+  ...[...value.matchAll(STRUCTURED_TECHNICAL_ENTITY_PATTERN)].map(match => match[0].toLocaleUpperCase('en-US')),
+  ...[...value.matchAll(PLAIN_UPPERCASE_Z_ENTITY_PATTERN)].map(match => match[0]),
+], 10)
 
 const priorUserEntities = (conversation: SemanticContextMessage[]) => {
   for (let index = conversation.length - 1; index >= 0; index -= 1) {

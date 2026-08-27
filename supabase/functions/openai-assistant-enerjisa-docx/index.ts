@@ -179,12 +179,31 @@ Deno.serve(async (req: Request) => {
     creativeMode: false,
     enumerationTarget: undefined,
     goal: semantic.plan.conversationState?.resolvedRequest || message,
+    knowledgeRequired: true,
+    enterpriseGroundingRequired: true,
+    webMode: 'none' as const,
+    verificationRequired: false,
+    evidenceQueries: [
+      clean(`Kurumsal mevcut durum, benzer ürün/süreç, platform-sistem sahipliği, entegrasyon ve veri kaynakları: ${message}`, 1_800),
+    ],
     steps: [
       {
+        id: 'research-enterprise-current-state',
+        label: 'JetWork kurumsal kaynaklarında mevcut süreç, benzer ürünler ve iş kurallarını araştır',
+        toolHint: 'knowledge' as const,
+        successCriteria: 'Kurumsal kaynaklar gerçekten aranır; bulunan kanıtlar ile kullanıcı talebi birbirinden ayrılır.',
+      },
+      {
+        id: 'analyze-platform-impact',
+        label: 'Platform, sistem sahipliği, entegrasyon sınırları ve veri kaynakları için etki analizi yap',
+        toolHint: 'knowledge' as const,
+        successCriteria: 'Platform kararı kanıta dayanır; çözülemeyen sistem sahipliği kararları [AÇIK KONU] olarak bırakılır.',
+      },
+      {
         id: 'synthesize-enerjisa-analysis',
-        label: 'Konuşma bağlamı ve varsa doğrulanmış kanıtlarla Enerjisa iş analizini sentezle',
-        toolHint: semantic.plan.knowledgeRequired ? 'knowledge' as const : 'synthesis' as const,
-        successCriteria: 'Bilinmeyen detaylar uydurulmaz; [AÇIK KONU] olarak işaretlenir.',
+        label: 'Talep dokümanı ile doğrulanmış kurumsal kanıtları birleştirerek Enerjisa iş analizini sentezle',
+        toolHint: 'synthesis' as const,
+        successCriteria: 'Bilinmeyen detaylar uydurulmaz; kritik belirsizlikler karar gerektiren soru veya [AÇIK KONU] olarak işaretlenir.',
       },
       {
         id: 'create-docx-artifact',
