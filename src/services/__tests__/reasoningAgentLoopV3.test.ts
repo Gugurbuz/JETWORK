@@ -165,6 +165,28 @@ describe('Reasoning primary-agent and legacy capability compatibility', () => {
     expect(result.plan.evidenceQueries).toEqual([]);
   });
 
+  it('treats a long supplied requirement as self-contained evidence without adding a planner call', async () => {
+    const result = await buildSemanticExecutionPlan({
+      provider: 'openai',
+      model: 'gpt-5.6-sol',
+      message: [
+        'analiz dokümanı yaz',
+        '1.1 LÜ Proforma LRT-V3P kapsamında yeni süreç tasarlanacaktır.',
+        '1.2 Faturalama detayları örnek Excel içinde paylaşılmıştır.',
+        '1.3 Sanal borç kalemlerinin oluşturulması ve mahsuplaşma kuralları açıklanmalıdır.',
+        '2.1 Gereksinimler mevcut süreç ve iş kuralları dikkate alınarak analiz edilmelidir.',
+        '2.2 Açık konular analiz dokümanında ayrıca gösterilmelidir.',
+      ].join('\n').repeat(6),
+      conversation: [],
+    })
+
+    expect(result.plan.intent).toBe('analysis')
+    expect(result.plan.executionMode).toBe('direct')
+    expect(result.plan.knowledgeRequired).toBe(false)
+    expect(result.plan.webMode).toBe('none')
+    expect(result.usage?.semantic_planner_provider_calls_avoided).toBe(1)
+  })
+
   it('removes the semantic provider request stack and records avoided planner calls', () => {
     const semanticSource = readFileSync(
       new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
