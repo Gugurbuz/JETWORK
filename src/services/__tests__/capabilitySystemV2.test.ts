@@ -118,7 +118,7 @@ describe('JetWork Capability System v2', () => {
   })
 
   it('keeps artifact intent semantic while execution stays capability-backed', () => {
-    expect(coreSource).toContain('ARTIFACT CAPABILITY POLICY')
+    expect(coreSource).toContain('ARTIFACT POLICY')
     expect(coreSource).toContain('ASSISTANT_SKILL_TOOLS')
     expect(coreSource).toContain("tool_choice: tools.length ? 'auto' : 'none'")
     expect(coreSource).toContain('captureGeneratedArtifacts')
