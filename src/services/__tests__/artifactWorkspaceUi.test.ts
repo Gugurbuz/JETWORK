@@ -40,7 +40,7 @@ describe('JetWork 2.0 conversation + file experience', () => {
   });
 
   it('restores the original sidebar surface while keeping the separate Dosyalar entry', () => {
-    expect(mainContentSource).toContain('<FileLibraryLauncher />');
+    expect(mainContentSource).toContain('<AppUtilityDock />');
     expect(mainContentSource).not.toContain('SidebarSurfaceEnhancer');
   });
 
