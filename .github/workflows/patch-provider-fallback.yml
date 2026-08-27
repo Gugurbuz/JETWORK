@@ -2,13 +2,14 @@ name: Patch provider fallback recovery
 on:
   push:
     branches:
-      - fix/provider-fallback-timeout-recovery
+      - 'fix/provider-fallback-timeout-recovery'
+
+permissions:
+  contents: write
+
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,11 +75,11 @@ jobs:
         run: pnpm vitest run src/services/__tests__/providerFallbackDirectSynthesis.test.ts src/services/__tests__/geminiProTimeoutPolicy.test.ts src/services/__tests__/geminiFastFailover.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
       - name: Assistant runtime verification
         run: pnpm run verify:assistant-runtime
-      - name: Commit patch and remove temporary workflow
+      - name: Commit patch
         run: |
           rm .github/workflows/patch-provider-fallback.yml
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add supabase/functions/openai-assistant-core-v2/implementation.ts src/services/__tests__/providerFallbackDirectSynthesis.test.ts .github/workflows/patch-provider-fallback.yml
-          git commit -m "fix: harden direct provider fallback"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: harden direct provider fallback'
           git push origin HEAD:fix/provider-fallback-timeout-recovery
