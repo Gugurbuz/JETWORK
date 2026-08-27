@@ -117,12 +117,15 @@ describe('JetWork Capability System v2', () => {
     }
   })
 
-  it('forces execution completion before final answers for real artifact requests', () => {
-    expect(coreSource).toContain('GENERIC SPREADSHEET EDIT CONTRACT')
-    expect(coreSource).toContain('SPREADSHEET_MUTATION_REQUIRED')
-    expect(coreSource).toContain('SPREADSHEET_CREATE_REQUIRED')
-    expect(coreSource).toContain('MULTI-FORMAT ARTIFACT CONTRACT')
-    expect(coreSource).toContain('ARTIFACT_MUTATION_REQUIRED')
-    expect(coreSource).toContain("'transform_pdf_file', 'edit_office_file', 'create_document_file', 'generate_or_edit_image'")
+  it('keeps artifact intent semantic while execution stays capability-backed', () => {
+    expect(coreSource).toContain('ARTIFACT CAPABILITY POLICY')
+    expect(coreSource).toContain('ASSISTANT_SKILL_TOOLS')
+    expect(coreSource).toContain("tool_choice: tools.length ? 'auto' : 'none'")
+    expect(coreSource).toContain('captureGeneratedArtifacts')
+    expect(coreSource).not.toContain('spreadsheetCreateRequested')
+    expect(coreSource).not.toContain('spreadsheetMutationRequested')
+    expect(coreSource).not.toContain('artifactMutationRequested')
+    expect(coreSource).not.toContain('SPREADSHEET_CREATE_REQUIRED')
+    expect(coreSource).not.toContain('ARTIFACT_MUTATION_REQUIRED')
   })
 })
