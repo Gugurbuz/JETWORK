@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'npm:@supabase/supabase-js@2.99.3'
 import { GoogleGenAI } from 'npm:@google/genai@1.52.0'
 import { shouldUseTrivialAssistantFastPath } from '../_shared/trivialAssistantFastPath.ts'
+import { extractExactTechnicalIdentifiers } from '../_shared/technicalIdentifier.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,7 +27,6 @@ const PRO_MODEL = 'gemini-3.1-pro-preview'
 const ROUTER_VERSION = 'primary-bridge-runtime-evidence-v6'
 const MAX_CONTEXT_MESSAGES = 6
 const MAX_CONTEXT_CHARS = 3_000
-const TECHNICAL_IDENTIFIER = /\b(?:Z[A-Z0-9_/-]{2,}(?:-\d+)?|CHECK_[A-Z0-9_]+)\b/gu
 const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
 
 type RoutedModel = typeof LITE_MODEL | typeof FLASH_MODEL | typeof PRO_MODEL
@@ -86,7 +86,7 @@ async function loadCompactContext(client:any, workspaceId:string, messageId:stri
 
 async function routeAuto(input:{apiKey:string;message:string;context:string;attachments:any[]}):Promise<RouteDecision> {
   const ai = new GoogleGenAI({apiKey:input.apiKey})
-  const identifiers = unique([...input.message.toLocaleUpperCase('en-US').matchAll(TECHNICAL_IDENTIFIER)].map(match=>match[0])).slice(0,6)
+  const identifiers = extractExactTechnicalIdentifiers(input.message, 6)
   const prompt = [
     `Current user request:\n${clean(input.message,3000)}`,
     input.context ? `Recent conversation context (continuity only, not evidence):\n${input.context}` : '',
@@ -155,7 +155,7 @@ const sourceIdentifiers=(source:SourceRef)=>{
     if(leaf)values.push(leaf)
   }
   const title=clean(source.title,500).toLocaleUpperCase('en-US')
-  values.push(...[...title.matchAll(TECHNICAL_IDENTIFIER)].map(match=>match[0]))
+  values.push(...extractExactTechnicalIdentifiers(title, 12))
   return unique(values.filter(value=>value.length>=3))
 }
 const answerMentionsIdentifier=(answer:string,identifier:string)=>{

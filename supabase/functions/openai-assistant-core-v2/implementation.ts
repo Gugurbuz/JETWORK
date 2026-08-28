@@ -1059,7 +1059,7 @@ serve(async req => {
               throw new Error('Required artifact executor did not produce a file.')
             }
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
-            const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()] })
+            const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })
             if (shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })) {
               console.warn('ASSISTANT_GROUNDING_COVERAGE_BLOCKED', JSON.stringify({
                 messageId, unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,

@@ -232,9 +232,10 @@ export const evaluateGroundedTechnicalClaims = (input: {
   plan: GroundingPlanLike
   sources: GroundingSourceLike[]
   toolResults: GroundingToolResultLike[]
+  currentUserText?: string
 }): GroundingCoverageResult => {
   const responseIdentifiers = extractTechnicalIdentifiers(input.text)
-  const suppliedText = suppliedRequestText(input.plan)
+  const suppliedText = clean(input.currentUserText, 32_000) || suppliedRequestText(input.plan)
   const suppliedIdentifiers = new Set(extractTechnicalIdentifiers(suppliedText))
   const responseMessageClaims = exactMessageClaims(input.text)
   const suppliedMessageClaims = exactMessageClaims(suppliedText)
