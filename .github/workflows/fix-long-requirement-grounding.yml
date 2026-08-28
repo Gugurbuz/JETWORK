@@ -1,0 +1,78 @@
+name: Fix long requirement grounding
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/fix-long-requirement-grounding.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Apply grounding and router fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          guard = Path('supabase/functions/_shared/groundingGuard.ts')
+          text = guard.read_text()
+          old = """export const evaluateGroundedTechnicalClaims = (input: {\n  text: string\n  plan: GroundingPlanLike\n  sources: GroundingSourceLike[]\n  toolResults: GroundingToolResultLike[]\n}): GroundingCoverageResult => {\n  const responseIdentifiers = extractTechnicalIdentifiers(input.text)\n  const suppliedText = suppliedRequestText(input.plan)\n"""
+          new = """export const evaluateGroundedTechnicalClaims = (input: {\n  text: string\n  plan: GroundingPlanLike\n  sources: GroundingSourceLike[]\n  toolResults: GroundingToolResultLike[]\n  currentUserText?: string\n}): GroundingCoverageResult => {\n  const responseIdentifiers = extractTechnicalIdentifiers(input.text)\n  const suppliedText = clean(input.currentUserText, 32_000) || suppliedRequestText(input.plan)\n"""
+          if text.count(old) != 1:
+              raise SystemExit(f'grounding guard anchor mismatch: {text.count(old)}')
+          guard.write_text(text.replace(old, new, 1))
+
+          core = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          text = core.read_text()
+          old = "evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()] })"
+          new = "evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })"
+          if text.count(old) != 1:
+              raise SystemExit(f'core grounding call mismatch: {text.count(old)}')
+          core.write_text(text.replace(old, new, 1))
+
+          bridge = Path('supabase/functions/openai-assistant-v2-primary-bridge-evidence/index.ts')
+          text = bridge.read_text()
+          anchor = "import { shouldUseTrivialAssistantFastPath } from '../_shared/trivialAssistantFastPath.ts'\n"
+          if text.count(anchor) != 1:
+              raise SystemExit('bridge import anchor mismatch')
+          text = text.replace(anchor, anchor + "import { extractExactTechnicalIdentifiers } from '../_shared/technicalIdentifier.ts'\n", 1)
+          legacy = "const TECHNICAL_IDENTIFIER = /\\b(?:Z[A-Z0-9_/-]{2,}(?:-\\d+)?|CHECK_[A-Z0-9_]+)\\b/gu\n"
+          if text.count(legacy) != 1:
+              raise SystemExit('bridge legacy identifier pattern mismatch')
+          text = text.replace(legacy, '', 1)
+          old = "const identifiers = unique([...input.message.toLocaleUpperCase('en-US').matchAll(TECHNICAL_IDENTIFIER)].map(match=>match[0])).slice(0,6)"
+          new = "const identifiers = extractExactTechnicalIdentifiers(input.message, 6)"
+          if text.count(old) != 1:
+              raise SystemExit('bridge identifier extraction mismatch')
+          text = text.replace(old, new, 1)
+          old = "values.push(...[...title.matchAll(TECHNICAL_IDENTIFIER)].map(match=>match[0]))"
+          new = "values.push(...extractExactTechnicalIdentifiers(title, 12))"
+          if text.count(old) != 1:
+              raise SystemExit('bridge source identifier extraction mismatch')
+          bridge.write_text(text.replace(old, new, 1))
+
+          test = Path('src/services/__tests__/longRequirementGroundingRegression.test.ts')
+          test.write_text("""import { describe, expect, it } from 'vitest'\nimport { evaluateGroundedTechnicalClaims } from '../../../supabase/functions/_shared/groundingGuard.ts'\nimport { extractExactTechnicalIdentifiers } from '../../../supabase/functions/_shared/technicalIdentifier.ts'\n\ndescribe('long supplied requirement grounding regression', () => {\n  it('uses the actual current user text rather than a truncated semantic-plan copy', () => {\n    const prefix = 'Talep dokümanı ve iş kuralları. '.repeat(500)\n    const currentUserText = `${prefix} Rapor ZCRM_COST_REPORT tablosu ZTAB0000RY ve ZCRM_NINJA_LOG_I / ZCRM_NINJA_LOG_O üzerinden üretilecektir.`\n    const result = evaluateGroundedTechnicalClaims({\n      text: 'Analizde ZCRM_COST_REPORT, ZTAB0000RY, ZCRM_NINJA_LOG_I ve ZCRM_NINJA_LOG_O etkilenmektedir.',\n      plan: { knowledgeRequired: false, enterpriseGroundingRequired: false, goal: currentUserText.slice(0, 1200) },\n      sources: [],\n      toolResults: [],\n      currentUserText,\n    })\n    expect(result.ok).toBe(true)\n    expect(result.unsupportedIdentifiers).toEqual([])\n  })\n\n  it('does not treat Turkish prose fragments as exact technical identifiers', () => {\n    expect(extractExactTechnicalIdentifiers('tüketim üzerinden aynı zamanda düzenlenmesi zamanında yapılır')).toEqual([])\n    expect(extractExactTechnicalIdentifiers('ZCRM_COST_REPORT ZTAB0000RY CHECK_FATURADAR')).toEqual(['ZCRM_COST_REPORT','ZTAB0000RY','CHECK_FATURADAR'])\n  })\n})\n""")
+
+          integration = Path('src/services/__tests__/longRequirementRuntimeIntegration.test.ts')
+          integration.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst core = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')\nconst bridge = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2-primary-bridge-evidence/index.ts', import.meta.url), 'utf8')\n\ndescribe('long requirement runtime integration', () => {\n  it('passes the current message into grounding coverage', () => {\n    expect(core).toContain('currentUserText: message')\n  })\n  it('uses the shared technical identifier detector in the primary model router', () => {\n    expect(bridge).toContain("import { extractExactTechnicalIdentifiers } from '../_shared/technicalIdentifier.ts'")\n    expect(bridge).toContain('extractExactTechnicalIdentifiers(input.message, 6)')\n    expect(bridge).not.toContain('const TECHNICAL_IDENTIFIER =')\n  })\n})\n""")
+      - run: npx vitest run src/services/__tests__/longRequirementGroundingRegression.test.ts src/services/__tests__/longRequirementRuntimeIntegration.test.ts src/services/__tests__/groundingCoverageRegression.test.ts src/services/__tests__/technicalIdentifier.test.ts src/services/__tests__/baAnalysisIntelligenceRegression.test.ts src/services/__tests__/coreLiveStreamingGate.test.ts src/services/__tests__/modelProvidersBufferedExactRetry.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts
+      - run: npm run verify:assistant-runtime
+      - name: Commit validated fix
+        run: |
+          rm .github/workflows/fix-long-requirement-grounding.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve supplied facts in long requirement grounding"
+          git push origin HEAD:${GITHUB_REF_NAME}
