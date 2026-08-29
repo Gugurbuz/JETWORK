@@ -1,0 +1,54 @@
+name: Long context internal route
+on: [push]
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: contains(github.event.head_commit.message, 'validate long-context internal routing')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/functions/openai-assistant-v2-entry-router/index.ts')
+          s=p.read_text()
+          old="""  const groundedRequirement = !enerjisaAnalysisDocx && isGroundedRequirementRequest(message)
+  const artifactRoute = routeDecision.artifactRoute || enerjisaAnalysisDocx
+  const target = enerjisaAnalysisDocx
+    ? 'openai-assistant-enerjisa-docx'
+    : artifactRoute || groundedRequirement
+      ? 'openai-assistant-v2-internal'
+      : 'openai-assistant-v2-primary'
+"""
+          new="""  const groundedRequirement = !enerjisaAnalysisDocx && isGroundedRequirementRequest(message)
+  // Long user inputs need the full semantic/capability runtime. This is a
+  // transport/capacity decision only; semantic intent is still resolved inside
+  // the orchestrator rather than inferred here from business keywords.
+  const longContextNeedsReasoning = message.length >= 2_000
+  const artifactRoute = routeDecision.artifactRoute || enerjisaAnalysisDocx
+  const target = enerjisaAnalysisDocx
+    ? 'openai-assistant-enerjisa-docx'
+    : artifactRoute || groundedRequirement || longContextNeedsReasoning
+      ? 'openai-assistant-v2-internal'
+      : 'openai-assistant-v2-primary'
+"""
+          assert old in s
+          p.write_text(s.replace(old,new,1))
+          t=Path('src/services/__tests__/contextualBaArtifactRoutingRegression.test.ts')
+          ts=t.read_text()
+          ts=ts.replace("expect(router).toContain('enerjisa-analysis-docx-contextual-v1')", "expect(router).toContain('enerjisa-analysis-docx-contextual-v1')\n    expect(router).toContain('longContextNeedsReasoning = message.length >= 2_000')",1)
+          t.write_text(ts)
+          PY
+      - run: npx vitest run src/services/__tests__/contextualBaArtifactRoutingRegression.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts src/services/__tests__/baAnalysisIntelligenceRegression.test.ts src/services/__tests__/groundingCoverageRegression.test.ts
+      - run: npm run verify:assistant-runtime
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/openai-assistant-v2-entry-router/index.ts src/services/__tests__/contextualBaArtifactRoutingRegression.test.ts
+          git commit -m 'fix: send long BA context through semantic runtime'
+          git push
