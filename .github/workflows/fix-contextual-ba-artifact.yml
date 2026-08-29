@@ -1,0 +1,149 @@
+name: Fix contextual BA artifact routing
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-contextual-ba-artifact.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Apply contextual BA and artifact fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          sem = Path('supabase/functions/_shared/semanticOrchestrator.ts')
+          s = sem.read_text()
+          s = s.replace("""  const route = userProvidedRequirements
+    ? {
+        ...routed,
+        intent: 'analysis' as const,
+        knowledgeRequired: false,
+        webMode: 'none' as const,
+        verificationRequired: false,
+        creativeMode: false,
+      }
+""", """  const route = userProvidedRequirements
+    ? {
+        ...routed,
+        intent: 'analysis' as const,
+        knowledgeRequired: true,
+        webMode: 'none' as const,
+        verificationRequired: false,
+        creativeMode: false,
+      }
+""")
+          s = s.replace("""    knowledgeRequired: userProvidedRequirements ? false : route.knowledgeRequired,
+    enterpriseGroundingRequired: false,
+    webMode: userProvidedRequirements ? 'none' : route.webMode,
+""", """    knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired,
+    enterpriseGroundingRequired: userProvidedRequirements,
+    webMode: userProvidedRequirements ? 'none' : route.webMode,
+""")
+          s = s.replace("""      enterpriseGroundingRequired: false,
+""", """      enterpriseGroundingRequired: inputPlan.enterpriseGroundingRequired === true,
+""", 1)
+          s = s.replace("""      successCriteria: userProvidedRequirements
+        ? 'Kullanıcının verdiği gereksinimler doğrudan analiz edilir; yalnız gerçekten eksik dış fact için capability kullanılır.'
+""", """      successCriteria: userProvidedRequirements
+        ? 'Kullanıcı gereksinimleri talep kanıtıdır; mevcut sistem, benzer ürün, sistem sahipliği ve entegrasyon iddiaları için kurumsal knowledge kanıtı kullanılır.'
+""")
+          sem.write_text(s)
+
+          router = Path('supabase/functions/openai-assistant-v2-entry-router/index.ts')
+          r = router.read_text()
+          marker = """async function hasRecentEnerjisaAnalysisDocx(client: ReturnType<typeof createClient>, workspaceId: string) {
+"""
+          helper = """async function loadRecentArtifactContext(
+  client: ReturnType<typeof createClient>,
+  workspaceId: string,
+  messageId: string,
+) {
+  if (!workspaceId) return { priorUser: '', recentContext: '' }
+  const { data, error } = await client
+    .from('messages')
+    .select('id,role,text,created_at')
+    .eq('workspace_id', workspaceId)
+    .in('role', ['user', 'model'])
+    .order('created_at', { ascending: false })
+    .limit(8)
+  if (error) {
+    console.warn('Artifact continuation context lookup failed:', error.message)
+    return { priorUser: '', recentContext: '' }
+  }
+  const rows = (data || []).filter(row => String(row.id || '') !== messageId)
+  const priorUserRow = rows.find(row => row.role === 'user' && clean(row.text, 26_000))
+  const priorUser = priorUserRow ? clean(priorUserRow.text, 26_000) : ''
+  const recentContext = [...rows]
+    .reverse()
+    .slice(-4)
+    .map(row => `${row.role === 'user' ? 'user' : 'assistant'}: ${clean(row.text, 4_000)}`)
+    .filter(Boolean)
+    .join('\n\n')
+  return { priorUser, recentContext }
+}
+
+"""
+          if helper not in r:
+            r = r.replace(marker, helper + marker)
+
+          old = """  const routeDecision = classifyDocumentArtifactRequest(message)
+  const revisionCandidate = isDocumentRevisionRequest(message)
+"""
+          new = """  const routeDecision = classifyDocumentArtifactRequest(message)
+  const artifactContext = !routeDecision.artifactRoute
+    ? await loadRecentArtifactContext(client, workspaceId, messageId)
+    : { priorUser: '', recentContext: '' }
+  const contextualDecision = !routeDecision.artifactRoute && artifactContext.recentContext
+    ? classifyDocumentArtifactRequest(`${artifactContext.recentContext}\n\ncurrent user request: ${message}`)
+    : routeDecision
+  const contextualEnerjisaCreation = !routeDecision.enerjisaAnalysisDocx
+    && contextualDecision.enerjisaAnalysisDocx
+    && Boolean(artifactContext.priorUser)
+  const revisionCandidate = isDocumentRevisionRequest(message)
+"""
+          r = r.replace(old, new)
+          r = r.replace("""  const enerjisaAnalysisDocx = routeDecision.enerjisaAnalysisDocx || revisionOfEnerjisaAnalysis
+""", """  const enerjisaAnalysisDocx = routeDecision.enerjisaAnalysisDocx || contextualEnerjisaCreation || revisionOfEnerjisaAnalysis
+""")
+          r = r.replace("""  const upstreamPayload = groundedRequirement
+    ? { ...payload, message: applyRequirementGroundingGuard(message) }
+    : payload
+""", """  const contextualArtifactMessage = contextualEnerjisaCreation
+    ? `${artifactContext.priorUser}\n\n[KULLANICI DEVAM TALİMATI]\n${message}`
+    : message
+  const upstreamPayload = groundedRequirement
+    ? { ...payload, message: applyRequirementGroundingGuard(message) }
+    : contextualEnerjisaCreation
+      ? { ...payload, message: contextualArtifactMessage }
+      : payload
+""")
+          r = r.replace("""      ? 'enerjisa-analysis-docx-revision-v1'
+      : 'enerjisa-analysis-docx-postplan-v2'
+""", """      ? 'enerjisa-analysis-docx-revision-v1'
+      : contextualEnerjisaCreation
+        ? 'enerjisa-analysis-docx-contextual-v1'
+        : 'enerjisa-analysis-docx-postplan-v2'
+""")
+          router.write_text(r)
+
+          test = Path('src/services/__tests__/contextualBaArtifactRoutingRegression.test.ts')
+          test.write_text("""import { describe, expect, it } from 'vitest'\nimport fs from 'node:fs'\n\ndescribe('contextual BA artifact routing regression', () => {\n  const orchestrator = fs.readFileSync('supabase/functions/_shared/semanticOrchestrator.ts','utf8')\n  const router = fs.readFileSync('supabase/functions/openai-assistant-v2-entry-router/index.ts','utf8')\n\n  it('requires enterprise knowledge for structured user requirements', () => {\n    expect(orchestrator).toContain('knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired')\n    expect(orchestrator).toContain('enterpriseGroundingRequired: userProvidedRequirements')\n    expect(orchestrator).toContain('enterpriseGroundingRequired: inputPlan.enterpriseGroundingRequired === true')\n  })\n\n  it('carries recent conversation into first-time artifact follow-ups', () => {\n    expect(router).toContain('loadRecentArtifactContext')\n    expect(router).toContain('contextualEnerjisaCreation')\n    expect(router).toContain('[KULLANICI DEVAM TALİMATI]')\n    expect(router).toContain('enerjisa-analysis-docx-contextual-v1')\n  })\n})\n""")
+      - run: npx vitest run src/services/__tests__/contextualBaArtifactRoutingRegression.test.ts src/services/__tests__/baAnalysisIntelligenceRegression.test.ts src/services/__tests__/groundingCoverageRegression.test.ts src/services/__tests__/technicalIdentifier.test.ts src/services/__tests__/reasoningAgentLoopV3.test.ts src/services/__tests__/pythonDocxArtifactWorker.test.ts
+      - run: npm run verify:assistant-runtime
+      - name: Commit validated fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/_shared/semanticOrchestrator.ts supabase/functions/openai-assistant-v2-entry-router/index.ts src/services/__tests__/contextualBaArtifactRoutingRegression.test.ts
+          git commit -m 'fix: carry BA context into artifact and evidence planning'
+          git push
