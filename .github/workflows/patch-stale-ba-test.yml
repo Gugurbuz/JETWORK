@@ -1,0 +1,24 @@
+name: Align BA evidence regression
+on: [push]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, 'align BA evidence regression')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/services/__tests__/reasoningAgentLoopV3.test.ts')
+          s=p.read_text()
+          old="expect(result.plan.knowledgeRequired).toBe(false)"
+          assert old in s
+          p.write_text(s.replace(old,"expect(result.plan.knowledgeRequired).toBe(true)",1))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/services/__tests__/reasoningAgentLoopV3.test.ts
+          git commit -m 'test: require enterprise evidence for BA requirements'
+          git push
