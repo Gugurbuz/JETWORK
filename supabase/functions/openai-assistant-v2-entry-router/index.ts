@@ -209,10 +209,13 @@ Deno.serve(async (req: Request) => {
     && await hasRecentEnerjisaAnalysisDocx(client, workspaceId)
   const enerjisaAnalysisDocx = routeDecision.enerjisaAnalysisDocx || contextualEnerjisaCreation || revisionOfEnerjisaAnalysis
   const groundedRequirement = !enerjisaAnalysisDocx && isGroundedRequirementRequest(message)
+  // Long inputs require the full semantic/capability runtime. Intent is still
+  // resolved inside the semantic orchestrator, not here from business keywords.
+  const longContextNeedsReasoning = message.length >= 2_000
   const artifactRoute = routeDecision.artifactRoute || enerjisaAnalysisDocx
   const target = enerjisaAnalysisDocx
     ? 'openai-assistant-enerjisa-docx'
-    : artifactRoute || groundedRequirement
+    : artifactRoute || groundedRequirement || longContextNeedsReasoning
       ? 'openai-assistant-v2-internal'
       : 'openai-assistant-v2-primary'
 

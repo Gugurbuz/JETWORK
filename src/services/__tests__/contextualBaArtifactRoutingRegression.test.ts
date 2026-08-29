@@ -14,5 +14,6 @@ describe('contextual BA artifact routing regression', () => {
     expect(router).toContain('contextualEnerjisaCreation')
     expect(router).toContain('[KULLANICI DEVAM TALİMATI]')
     expect(router).toContain('enerjisa-analysis-docx-contextual-v1')
+    expect(router).toContain('longContextNeedsReasoning = message.length >= 2_000')
   })
 })
