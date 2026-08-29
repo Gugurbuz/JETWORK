@@ -182,7 +182,7 @@ describe('Reasoning primary-agent and legacy capability compatibility', () => {
 
     expect(result.plan.intent).toBe('analysis')
     expect(result.plan.executionMode).toBe('direct')
-    expect(result.plan.knowledgeRequired).toBe(false)
+    expect(result.plan.knowledgeRequired).toBe(true)
     expect(result.plan.webMode).toBe('none')
     expect(result.usage?.semantic_planner_provider_calls_avoided).toBe(1)
   })
