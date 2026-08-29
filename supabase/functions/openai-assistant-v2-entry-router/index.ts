@@ -47,6 +47,35 @@ const isEnerjisaAnalysisAttachment = (value: unknown) => {
   return docx && /(?:enerjisa|is[-_ ]?analizi|iş[-_ ]?analizi)/iu.test(name)
 }
 
+async function loadRecentArtifactContext(
+  client: ReturnType<typeof createClient>,
+  workspaceId: string,
+  messageId: string,
+) {
+  if (!workspaceId) return { priorUser: '', recentContext: '' }
+  const { data, error } = await client
+    .from('messages')
+    .select('id,role,text,created_at')
+    .eq('workspace_id', workspaceId)
+    .in('role', ['user', 'model'])
+    .order('created_at', { ascending: false })
+    .limit(8)
+  if (error) {
+    console.warn('Artifact continuation context lookup failed:', error.message)
+    return { priorUser: '', recentContext: '' }
+  }
+  const rows = (data || []).filter(row => String(row.id || '') !== messageId)
+  const priorUserRow = rows.find(row => row.role === 'user' && clean(row.text, 26_000))
+  const priorUser = priorUserRow ? clean(priorUserRow.text, 26_000) : ''
+  const recentContext = [...rows]
+    .reverse()
+    .slice(-4)
+    .map(row => `${row.role === 'user' ? 'user' : 'assistant'}: ${clean(row.text, 4_000)}`)
+    .filter(Boolean)
+    .join('\n\n')
+  return { priorUser, recentContext }
+}
+
 async function hasRecentEnerjisaAnalysisDocx(client: ReturnType<typeof createClient>, workspaceId: string) {
   if (!workspaceId) return false
   const { data, error } = await client
@@ -165,11 +194,20 @@ Deno.serve(async (req: Request) => {
   })
 
   const routeDecision = classifyDocumentArtifactRequest(message)
+  const artifactContext = !routeDecision.artifactRoute
+    ? await loadRecentArtifactContext(client, workspaceId, messageId)
+    : { priorUser: '', recentContext: '' }
+  const contextualDecision = !routeDecision.artifactRoute && artifactContext.recentContext
+    ? classifyDocumentArtifactRequest(`${artifactContext.recentContext}\n\ncurrent user request: ${message}`)
+    : routeDecision
+  const contextualEnerjisaCreation = !routeDecision.enerjisaAnalysisDocx
+    && contextualDecision.enerjisaAnalysisDocx
+    && Boolean(artifactContext.priorUser)
   const revisionCandidate = isDocumentRevisionRequest(message)
   const revisionOfEnerjisaAnalysis = !routeDecision.enerjisaAnalysisDocx
     && revisionCandidate
     && await hasRecentEnerjisaAnalysisDocx(client, workspaceId)
-  const enerjisaAnalysisDocx = routeDecision.enerjisaAnalysisDocx || revisionOfEnerjisaAnalysis
+  const enerjisaAnalysisDocx = routeDecision.enerjisaAnalysisDocx || contextualEnerjisaCreation || revisionOfEnerjisaAnalysis
   const groundedRequirement = !enerjisaAnalysisDocx && isGroundedRequirementRequest(message)
   const artifactRoute = routeDecision.artifactRoute || enerjisaAnalysisDocx
   const target = enerjisaAnalysisDocx
@@ -178,9 +216,14 @@ Deno.serve(async (req: Request) => {
       ? 'openai-assistant-v2-internal'
       : 'openai-assistant-v2-primary'
 
+  const contextualArtifactMessage = contextualEnerjisaCreation
+    ? `${artifactContext.priorUser}\n\n[KULLANICI DEVAM TALİMATI]\n${message}`
+    : message
   const upstreamPayload = groundedRequirement
     ? { ...payload, message: applyRequirementGroundingGuard(message) }
-    : payload
+    : contextualEnerjisaCreation
+      ? { ...payload, message: contextualArtifactMessage }
+      : payload
 
   // Preserve the original user message for normal document generation/revision.
   // Enerjisa's long template is appended only after semantic intent planning
@@ -216,7 +259,9 @@ Deno.serve(async (req: Request) => {
   headers.set('x-jetwork-runtime-route', enerjisaAnalysisDocx
     ? revisionOfEnerjisaAnalysis
       ? 'enerjisa-analysis-docx-revision-v1'
-      : 'enerjisa-analysis-docx-postplan-v2'
+      : contextualEnerjisaCreation
+        ? 'enerjisa-analysis-docx-contextual-v1'
+        : 'enerjisa-analysis-docx-postplan-v2'
     : groundedRequirement
       ? 'grounded-requirements-v1'
       : artifactRoute

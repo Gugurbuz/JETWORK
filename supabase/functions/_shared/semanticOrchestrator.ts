@@ -231,7 +231,7 @@ const buildPrimaryAgentPlan = (input: {
     ? {
         ...routed,
         intent: 'analysis' as const,
-        knowledgeRequired: false,
+        knowledgeRequired: true,
         webMode: 'none' as const,
         verificationRequired: false,
         creativeMode: false,
@@ -253,8 +253,8 @@ const buildPrimaryAgentPlan = (input: {
     // The user's supplied requirement/specification text is itself the primary
     // evidence for analysis. Otherwise respect the deterministic router instead
     // of forcing every primary-agent turn into knowledge + public web mode.
-    knowledgeRequired: userProvidedRequirements ? false : route.knowledgeRequired,
-    enterpriseGroundingRequired: false,
+    knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired,
+    enterpriseGroundingRequired: userProvidedRequirements,
     webMode: userProvidedRequirements ? 'none' : route.webMode,
     verificationRequired: false,
     creativeMode: route.creativeMode,
@@ -265,7 +265,7 @@ const buildPrimaryAgentPlan = (input: {
       label: 'Primary LLM kullanıcı talebini yorumlar ve gerekirse capability çağırır',
       toolHint: 'synthesis',
       successCriteria: userProvidedRequirements
-        ? 'Kullanıcının verdiği gereksinimler doğrudan analiz edilir; yalnız gerçekten eksik dış fact için capability kullanılır.'
+        ? 'Kullanıcı gereksinimleri talep kanıtıdır; mevcut sistem, benzer ürün, sistem sahipliği ve entegrasyon iddiaları için kurumsal knowledge kanıtı kullanılır.'
         : 'Tool seçimi planner tarafından zorlanmaz; primary LLM ihtiyaç halinde knowledge/web capability kullanır.',
     }],
     conversationState: state,
@@ -299,7 +299,7 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
       goal,
       evidenceQueries: [],
       verificationRequired: false,
-      enterpriseGroundingRequired: false,
+      enterpriseGroundingRequired: inputPlan.enterpriseGroundingRequired === true,
       // Gemini keeps provider lock by encoding public web as a native capability
       // marker. The core must not interpret this as an OpenAI preflight request.
       webMode: providerNativeWeb ? 'none' : inputPlan.webMode,
