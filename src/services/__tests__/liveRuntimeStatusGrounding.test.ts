@@ -28,7 +28,7 @@ B2B portal update servis güncellemesi
 `;
 
 describe('Live runtime status and grounding regression', () => {
-  it('treats a supplied structured requirement as analysis input instead of SAP diagnosis evidence lookup', async () => {
+  it('treats a supplied structured requirement as BA analysis that requires internal enterprise evidence without public web', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.1-pro-preview',
@@ -37,8 +37,8 @@ describe('Live runtime status and grounding regression', () => {
     });
 
     expect(result.plan.intent).toBe('analysis');
-    expect(result.plan.knowledgeRequired).toBe(false);
-    expect(result.plan.enterpriseGroundingRequired).toBe(false);
+    expect(result.plan.knowledgeRequired).toBe(true);
+    expect(result.plan.enterpriseGroundingRequired).toBe(true);
     expect(result.plan.webMode).toBe('none');
     expect(result.plan.verificationRequired).toBe(false);
     expect(result.plan.evidenceQueries).toEqual([]);
