@@ -22,8 +22,9 @@ describe('production answerability + cost guard wiring', () => {
     expect(providerBaseSource).toContain("objectTypes: ['message']")
   })
 
-  it('does not force provider web on every primary-agent request', () => {
-    expect(semanticSource).toContain('knowledgeRequired: userProvidedRequirements ? false : route.knowledgeRequired')
+  it('requires internal evidence for structured BA requirements without forcing provider web', () => {
+    expect(semanticSource).toContain('knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired')
+    expect(semanticSource).toContain('enterpriseGroundingRequired: userProvidedRequirements')
     expect(semanticSource).toContain("webMode: userProvidedRequirements ? 'none' : route.webMode")
     expect(semanticSource).not.toContain("webMode: userProvidedRequirements ? 'none' : 'if_internal_insufficient'")
   })
