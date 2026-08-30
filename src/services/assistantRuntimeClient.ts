@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import { consumeSseBuffer, type SseEvent } from './sseParser';
+import { isRecoverableAssistantTransportError } from './assistantRuntimeRecovery';
 import type { AssistantKnowledgeSource, Message, MessageAttachment, Question } from '../types';
 import {
   buildDocumentGenerationMessage,
@@ -511,6 +512,7 @@ export async function streamAssistantResponse(input: {
   onSources?: (sources: AssistantKnowledgeSource[]) => void;
   onArtifacts?: (attachments: MessageAttachment[]) => void;
   onStatus?: (stage: AssistantRuntimeStage, label?: string) => void;
+  onCompleted?: () => void;
 }): Promise<AssistantRuntimeResult> {
   const env = runtimeEnv();
   const { data: { session } } = await supabase.auth.getSession();
@@ -657,6 +659,7 @@ export async function streamAssistantResponse(input: {
         return;
       }
       completedSeen = true;
+      input.onCompleted?.();
       conversationId = parsed.conversationId;
       model = parsed.model;
       provider = parsed.provider;
@@ -667,16 +670,25 @@ export async function streamAssistantResponse(input: {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parsed = consumeSseBuffer(buffer);
-      buffer = parsed.remainder;
-      parsed.events.forEach(handleEvent);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parsed = consumeSseBuffer(buffer);
+        buffer = parsed.remainder;
+        parsed.events.forEach(handleEvent);
+      }
+      buffer += decoder.decode();
+      consumeSseBuffer(buffer, true).events.forEach(handleEvent);
+    } catch (streamError) {
+      if (!completedSeen || !isRecoverableAssistantTransportError(streamError)) {
+        throw streamError;
+      }
+      // The backend completed event is the terminal business state. A later
+      // network/read close is transport noise and must not overwrite success.
+      rememberExecutionLabel('Yanıt tamamlandı; bağlantı kapanışı güvenli şekilde yoksayıldı.');
     }
-    buffer += decoder.decode();
-    consumeSseBuffer(buffer, true).events.forEach(handleEvent);
 
     if (!completedSeen) {
       throw new Error('Asistan bağlantısı yanıt tamamlanmadan kesildi.');
