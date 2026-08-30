@@ -51,6 +51,7 @@ async function loadRecentArtifactContext(
   client: ReturnType<typeof createClient>,
   workspaceId: string,
   messageId: string,
+  currentMessage: string,
 ) {
   if (!workspaceId) return { priorUser: '', recentContext: '' }
   const { data, error } = await client
@@ -65,7 +66,16 @@ async function loadRecentArtifactContext(
     return { priorUser: '', recentContext: '' }
   }
   const rows = (data || []).filter(row => String(row.id || '') !== messageId)
-  const priorUserRow = rows.find(row => row.role === 'user' && clean(row.text, 26_000))
+  const currentUserText = clean(currentMessage, 26_000)
+  const priorUserRows = rows.filter(row => (
+    row.role === 'user'
+    && clean(row.text, 26_000)
+    && clean(row.text, 26_000) !== currentUserText
+  ))
+  // Short retry/follow-up messages must not replace the substantive requirement
+  // that the artifact is supposed to represent. Prefer the nearest substantial
+  // user input; fall back to the latest distinct user input when none exists.
+  const priorUserRow = priorUserRows.find(row => clean(row.text, 26_000).length >= 400) || priorUserRows[0]
   const priorUser = priorUserRow ? clean(priorUserRow.text, 26_000) : ''
   const recentContext = [...rows]
     .reverse()
@@ -195,7 +205,7 @@ Deno.serve(async (req: Request) => {
 
   const routeDecision = classifyDocumentArtifactRequest(message)
   const artifactContext = !routeDecision.artifactRoute
-    ? await loadRecentArtifactContext(client, workspaceId, messageId)
+    ? await loadRecentArtifactContext(client, workspaceId, messageId, message)
     : { priorUser: '', recentContext: '' }
   const contextualDecision = !routeDecision.artifactRoute && artifactContext.recentContext
     ? classifyDocumentArtifactRequest(`${artifactContext.recentContext}\n\ncurrent user request: ${message}`)

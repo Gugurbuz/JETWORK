@@ -1115,6 +1115,7 @@ serve(async req => {
           runItems.push(...output)
           const hasSkillCalls = functionCalls.some((call: Record<string, unknown>) => isSkillTool(cleanString(call.name, 120)))
           emitStatus('synthesizing', hasSkillCalls ? 'İlgili JetWork skill prosedürleri yükleniyor...' : 'Sentez sırasında ek teknik kanıt isteniyor...')
+          let enterpriseArtifactEvidenceRetryRequested = false
           for (const call of functionCalls) {
             if (totalToolCalls >= MAX_TOOL_CALLS) {
               runItems.push({ type: 'function_call_output', call_id: String(call.call_id || ''), output: JSON.stringify({ error: 'TOOL_BUDGET_EXHAUSTED' }) })
@@ -1124,6 +1125,29 @@ serve(async req => {
             const callId = cleanString(call.call_id, 200)
             let args: Record<string, unknown> = {}
             try { args = JSON.parse(String(call.arguments || '{}')) } catch { args = {} }
+            if (
+              toolName === 'create_document_file'
+              && plan.enterpriseGroundingRequired === true
+              && !knowledgeUsed
+              && !enterpriseArtifactEvidenceRetryRequested
+            ) {
+              enterpriseArtifactEvidenceRetryRequested = true
+              runItems.push({
+                type: 'function_call_output',
+                call_id: callId,
+                output: JSON.stringify({
+                  error: 'ENTERPRISE_EVIDENCE_EMPTY_REVISE_ARTIFACT',
+                  instruction: 'Kurumsal arama doğrulanmış kanıt üretmedi. Artifactı yeniden hazırla: yalnız kullanıcının açıkça verdiği gerçekleri kesin bilgi olarak kullan. Sistem/modül/rol/SLA-performans/entegrasyon/veri kaynağı/hata mesajı/yasal-teknik uygulama ayrıntıları kullanıcı metninde açıkça yoksa [AÇIK KONU] veya [ÖNERİ] olarak işaretle; uydurma.',
+                }),
+              })
+              runItems.push({
+                role: 'developer',
+                content: 'ENTERPRISE_EVIDENCE_EMPTY: Doğrulanmış kurumsal evidence bulunamadı. Kullanıcının mevcut talep metni yalnız açıkça söylediği gerçekler için kanıttır. Sistem/modül, rol, SLA veya performans sayısı, entegrasyon mekanizması, veri kaynağı, hata metni, mevzuat/yasal nitelik ve teknik implementasyon gibi belirtilmemiş ayrıntıları kesin bilgi olarak yazma; [AÇIK KONU] veya [ÖNERİ] yap. Enerjisa şablon başlıklarını değiştirme.',
+              })
+              usage = addUsage(usage, { enterprise_artifact_evidence_retry: 1 })
+              emitStatus('verifying', 'Kurumsal kanıt bulunmadığı için doküman yalnız doğrulanmış talep bilgileriyle yeniden hazırlanıyor...')
+              continue
+            }
             try {
               const result = isSkillTool(toolName)
                 ? await runSkillTool(toolName, args, 'model:skill')
@@ -1138,6 +1162,36 @@ serve(async req => {
         throw new Error('Assistant could not synthesize a final answer after evidence collection.')
       } catch (streamError) {
         console.error('Reasoning assistant stream failed:', streamError)
+        if (!turnCompleted && semanticArtifactRequired() && generatedArtifacts.size > 0) {
+          const recoveryText = 'Doküman oluşturuldu.'
+          const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: recoveryText }])
+          const { error: recoveryCompletionError } = await adminClient.rpc('complete_assistant_turn', {
+            p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
+            p_expected_revision: conversationRevision, p_state_items: stateItems,
+            p_response_text: recoveryText, p_source_refs: sources, p_usage: addUsage(usage, { artifact_finalization_recovered: 1 }) || {}, p_response_model: responseModel,
+          })
+          if (!recoveryCompletionError) {
+            turnCompleted = true
+            usage = addUsage(usage, { artifact_finalization_recovered: 1 })
+            await patchReasoningRun(adminClient, reasoningRunId, {
+              execution_trace: trace, knowledge_used: knowledgeUsed, web_used: webUsed, tool_call_count: totalToolCalls,
+              evidence_summary: { skillToolCalls, loadedSkills: [...loadedSkillKeys], artifactFinalizationRecovered: true },
+              fallback_used: providerFallbackUsed || reasoningFallbackUsed, status: 'completed', error_message: null, completed_at: new Date().toISOString(),
+            })
+            try {
+              emitGeneratedArtifacts()
+              sendEvent(controller, encoder, 'text_delta', { type: 'text_delta', delta: recoveryText })
+              sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
+              sendEvent(controller, encoder, 'completed', {
+                type: 'completed', conversationId: conversation.id, model: responseModel, provider: activeProvider,
+                fallbackUsed: providerFallbackUsed || reasoningFallbackUsed, usage, recoveredArtifact: true,
+              })
+              controller.enqueue(encoder.encode('data: [DONE]\n\n')); controller.close()
+              return
+            } catch { return }
+          }
+          console.error('Artifact finalization recovery could not complete turn:', recoveryCompletionError)
+        }
         if (!turnCompleted) {
           const { error: failError } = await adminClient.rpc('fail_assistant_turn', {
             p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken, p_error_message: errorMessage(streamError),
