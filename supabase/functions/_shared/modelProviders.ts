@@ -1,12 +1,33 @@
 import {
+  providerForModel as baseProviderForModel,
   requestGeminiResponse as baseRequestGeminiResponse,
   type NormalizedModelResponse,
 } from './modelProvidersBase.ts'
 import { extractSemanticPlanFromItems } from './geminiCostGuard.ts'
 import { runDeterministicGeminiWebResearch } from './deterministicGeminiWebResearch.ts'
 import { createStreamingProviderAnswerabilityGuard } from './providerAnswerabilityGuard.ts'
+import {
+  DEFAULT_OLLAMA_MODEL,
+  OLLAMA_MODELS,
+  isOllamaModel,
+  ollamaExecutionModel,
+  requestOllamaResponse,
+} from './ollamaProvider.ts'
 
 export * from './modelProvidersBase.ts'
+export {
+  DEFAULT_OLLAMA_MODEL,
+  OLLAMA_MODELS,
+  isOllamaModel,
+  ollamaExecutionModel,
+  requestOllamaResponse,
+}
+
+export type AssistantProvider = 'openai' | 'gemini' | 'ollama'
+
+export const providerForModel = (model: string): AssistantProvider => (
+  isOllamaModel(model) ? 'ollama' : baseProviderForModel(model)
+)
 
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const UNTRUSTED_EVIDENCE_PATTERN = /\[UNTRUSTED_EVIDENCE\]\s*([\s\S]*?)\s*\[END_UNTRUSTED_EVIDENCE\]/i
