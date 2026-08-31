@@ -173,6 +173,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
         <div className="min-w-0 flex-1 px-1">
           <p className="truncate text-sm font-semibold text-theme-text">{currentWorkspace?.title || 'Sohbet'}</p>
         </div>
+        <CompactModelControl mobile disabled={isGenerating || isDiscussing} />
         {currentWorkspace?.collaborators && currentWorkspace.collaborators.length > 0 && (
           <button
             type="button"
