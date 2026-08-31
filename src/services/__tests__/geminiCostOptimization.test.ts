@@ -6,7 +6,12 @@ const providerSource = readFileSync(
   'utf8',
 );
 
-describe('Gemini cost optimization routing', () => {
+const controllerSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/agentControllerPolicy.ts', import.meta.url),
+  'utf8',
+);
+
+describe('Gemini provider-agnostic controller routing', () => {
   it('keeps the explicitly selected Gemini model for every provider call', () => {
     expect(providerSource).toContain('const requestedModel = normalizeGeminiRequestedModel(input.model)');
     expect(providerSource).toContain('model: requestedModel');
@@ -17,37 +22,40 @@ describe('Gemini cost optimization routing', () => {
 
   it('compacts repeated agent context without changing the selected model', () => {
     expect(providerSource).toContain('compactGeminiAgentItems(sanitizeItems(input.items))');
-    expect(providerSource).toContain('cost_guard_context_compacted_calls');
+    expect(providerSource).toContain('agent_controller_context_compacted_calls');
   });
 
-  it('caps enterprise knowledge loops at two rounds for normal work and three for high complexity', () => {
-    expect(providerSource).toContain("const hardCap = plan?.complexity === 'high' ? 3 : 2");
-    expect(providerSource).toContain('Math.min(plannedBudget, hardCap)');
+  it('does not impose a semantic two-or-three-call enterprise knowledge cap', () => {
     expect(providerSource).toContain('countExecutedKnowledgeToolCalls');
-    expect(providerSource).toContain('cost_guard_knowledge_budget_exhausted');
+    expect(providerSource).not.toContain("const hardCap = plan?.complexity === 'high' ? 3 : 2");
+    expect(providerSource).not.toContain('Math.min(plannedBudget, hardCap)');
+    expect(providerSource).not.toContain('cost_guard_knowledge_budget_exhausted');
+    expect(providerSource).not.toContain('budgetFilteredTools');
   });
 
-  it('does not let the knowledge budget disable procedural skill and artifact tools', () => {
-    expect(providerSource).toContain("input.tools.filter(tool => !KNOWLEDGE_TOOL_NAMES.has(String(tool.name || '')))");
-    expect(providerSource).toContain('tools: effectiveAllowTools ? budgetFilteredTools : []');
+  it('keeps procedural, knowledge and provider web capabilities available for LLM selection', () => {
+    expect(providerSource).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
+    expect(providerSource).toContain('tools: effectiveAllowTools ? input.tools : []');
+    expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION');
+    expect(controllerSource).toContain('Knowledge, web, skill ve artifact capabilityleri arasındaki seçimi');
   });
 
-  it('stops repeated empty knowledge search after two misses', () => {
-    expect(providerSource).toContain('MAX_EMPTY_KNOWLEDGE_SEARCHES = 2');
-    expect(providerSource).toContain('emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES');
-    expect(providerSource).toContain('gemini_empty_knowledge_forced_synthesis');
+  it('treats empty searches as observations instead of deterministic stop signals', () => {
+    expect(providerSource).not.toContain('MAX_EMPTY_KNOWLEDGE_SEARCHES');
+    expect(providerSource).not.toContain('emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES');
+    expect(providerSource).not.toContain('gemini_empty_knowledge_forced_synthesis');
+    expect(controllerSource).toContain('Bir arama boş döndüğünde bunu otomatik bitiş sinyali sayma');
   });
 
-  it('stops an exact message identifier miss before a third provider call', () => {
-    expect(providerSource).toContain('findEmptyExactIdentifierPair(input.items)');
-    expect(providerSource).toContain('hasEmptyMessageDetailLookup(input.items)');
-    expect(providerSource).toContain('jetwork-exact-id-miss:');
-    expect(providerSource).toContain('cost_guard_exact_identifier_early_stop');
-    expect(providerSource).toContain('deterministic_provider_calls_avoided');
+  it('does not use exact-identifier misses to bypass controller reasoning', () => {
+    expect(providerSource).not.toContain('findEmptyExactIdentifierPair(input.items)');
+    expect(providerSource).not.toContain('jetwork-exact-id-miss:');
+    expect(providerSource).not.toContain('cost_guard_exact_identifier_early_stop');
+    expect(providerSource).not.toContain('deterministic_provider_calls_avoided');
   });
 
-  it('suppresses provider web after an exact message lookup miss unless web was explicitly requested', () => {
-    expect(providerSource).toContain("|| (!emptyMessageDetailLookup && (input.allowProviderWeb ?? input.allowTools))");
-    expect(providerSource).toContain('cost_guard_provider_web_suppressed_after_exact_miss');
+  it('does not suppress web merely because one exact internal lookup missed', () => {
+    expect(providerSource).not.toContain('cost_guard_provider_web_suppressed_after_exact_miss');
+    expect(providerSource).toContain('agent_controller_provider_web_available');
   });
 });
