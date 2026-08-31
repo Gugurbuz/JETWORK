@@ -10,6 +10,7 @@ const OPTIONS = [
   { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', detail: 'Google' },
   { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', detail: 'Google' },
   { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', detail: 'Google' },
+  { value: 'ollama:qwen3:4b-instruct', label: 'Qwen3 4B (Local)', detail: 'Ollama • self-hosted' },
 ];
 
 export function CompactModelControl({ disabled = false }: { disabled?: boolean }) {
