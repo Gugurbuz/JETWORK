@@ -2,9 +2,21 @@
 // Install provider guards before loading the implementation so provider
 // requests share warm-isolate health state and bounded synthesis policy.
 import { installGeminiFinalSynthesisThinkingGuard } from '../_shared/geminiThinkingGuard.ts'
+import { OLLAMA_MODELS, OPENAI_MODELS } from '../_shared/modelProviders.ts'
+import { installOllamaResponsesBridge } from '../_shared/ollamaResponsesBridge.ts'
 import { installOpenAiCircuitBreaker } from '../_shared/providerCircuitBreaker.ts'
 
+// The durable core builds its allow-list from OPENAI_MODELS. Register the local
+// model identifiers in that mutable set before implementation.ts evaluates its
+// constants. providerForModel still reports these models as the distinct
+// `ollama` provider, so telemetry and final events retain provider identity.
+for (const model of OLLAMA_MODELS) OPENAI_MODELS.add(model)
+
+// Keep the existing OpenAI circuit breaker around real OpenAI traffic. The
+// Ollama bridge is installed afterwards so ollama:* requests are diverted before
+// they can affect OpenAI provider health state.
 installOpenAiCircuitBreaker()
+installOllamaResponsesBridge()
 installGeminiFinalSynthesisThinkingGuard()
 
 // TTFT optimization: the core currently validates workspace access and only then
