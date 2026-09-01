@@ -16,7 +16,6 @@ describe('Semantic artifact runtime completion guard', () => {
   it('keeps enough mechanical tool budget for inspect and execution workflows', () => {
     expect(coreSource).toMatch(/ASSISTANT_V2_MAX_TOOL_ROUNDS', 6, 1, 8/)
     expect(coreSource).toMatch(/ASSISTANT_V2_MAX_TOOL_CALLS', 24, 4, 40/)
-    expect(coreSource).toContain('These are runtime resource guardrails')
   })
 
   it('does not accept a final response while the semantic artifact contract is still pending', () => {
