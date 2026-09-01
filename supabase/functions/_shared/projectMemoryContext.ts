@@ -32,11 +32,21 @@ const tokenize = (value: string) => new Set(
   normalize(value).split(' ').filter(token => token.length >= 3),
 )
 
+const memoryState = (row: ProjectMemoryContextRow) => cleanText(row.confirmation_state, 40).toLocaleLowerCase('en-US')
+const memorySourceType = (row: ProjectMemoryContextRow) => cleanText(row.source_type, 40).toLocaleLowerCase('en-US')
+
 const isTrustedMemoryRow = (row: ProjectMemoryContextRow) => {
-  const state = cleanText(row.confirmation_state, 40).toLocaleLowerCase('en-US')
-  const sourceType = cleanText(row.source_type, 40).toLocaleLowerCase('en-US')
+  const state = memoryState(row)
+  const sourceType = memorySourceType(row)
   return state === 'confirmed' || (sourceType === 'user_message' && state !== 'rejected')
 }
+
+// A rejection is a tombstone only when it comes from an authoritative source.
+// This prevents a newer AI-proposed/rejected row from erasing a confirmed user
+// decision while still allowing the user's explicit correction to invalidate it.
+const isAuthoritativeRejectedRow = (row: ProjectMemoryContextRow) => (
+  memoryState(row) === 'rejected' && memorySourceType(row) === 'user_message'
+)
 
 const memoryTimestamp = (row: ProjectMemoryContextRow) => {
   const parsed = Date.parse(cleanText(row.valid_from || row.updated_at, 80))
@@ -69,22 +79,26 @@ export const selectProjectMemoryContext = (
   const safeQuery = cleanText(query, 4_000)
   if (!safeQuery || !rows.length) return []
 
-  const trustedByKey = new Map<string, { row: ProjectMemoryContextRow; version: number; timestamp: number }>()
+  // Resolve version/timestamp first, including explicit user rejections. Only
+  // after the newest authoritative row is selected do we decide whether it is
+  // usable context or a tombstone. This keeps stale confirmed versions dead.
+  const authoritativeByKey = new Map<string, { row: ProjectMemoryContextRow; version: number; timestamp: number }>()
   for (const row of rows) {
-    if (!isTrustedMemoryRow(row)) continue
+    if (!isTrustedMemoryRow(row) && !isAuthoritativeRejectedRow(row)) continue
     const key = cleanText(row.memory_key, 240)
     const value = cleanText(row.value, 1_200)
     if (!key || !value) continue
     const version = Math.max(1, Number(row.memory_version || 1) || 1)
     const timestamp = memoryTimestamp(row)
-    const existing = trustedByKey.get(key)
+    const existing = authoritativeByKey.get(key)
     if (!existing || version > existing.version || (version === existing.version && timestamp > existing.timestamp)) {
-      trustedByKey.set(key, { row, version, timestamp })
+      authoritativeByKey.set(key, { row, version, timestamp })
     }
   }
 
   const queryTerms = tokenize(safeQuery)
-  return [...trustedByKey.entries()]
+  return [...authoritativeByKey.entries()]
+    .filter(([, selected]) => !isAuthoritativeRejectedRow(selected.row))
     .map(([key, selected]) => {
       const item: ProjectMemoryContextItem = {
         key,
