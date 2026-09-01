@@ -124,8 +124,6 @@ describe('resolved conversation state continuity', () => {
           key: 'constraint.quality',
           value: 'Kalite düşmeden context küçültülecek.',
           category: 'constraint',
-          confidence: 1,
-          sourceType: 'user_message',
           version: 2,
         }],
       },
