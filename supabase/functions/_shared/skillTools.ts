@@ -32,7 +32,101 @@ const normalize = (value: unknown) => String(value ?? '')
   .replace(/\s+/g, ' ')
   .trim()
 
-const tokens = (value: unknown) => normalize(value).split(' ').filter(token => token.length >= 2)
+const STOP_WORDS = new Set([
+  'acaba', 'ama', 'and', 'bana', 'ben', 'bir', 'bu', 'da', 'de', 'ile', 'icin', 'mi', 'mu', 'nasil', 'ne', 'of', 'or', 'the', 've', 'veya',
+  'hangi', 'olarak', 'olan', 'olur', 'et', 'yap', 'yapmak', 'istiyorum', 'gerekiyor',
+])
+
+// Turkish is highly inflected. Candidate retrieval should not lose a relevant
+// capability only because the user wrote `entegrasyonları` while the registry
+// contains a base-form token. These are morphology reductions, never routes.
+const TURKISH_SUFFIXES = [
+  'lerinizden', 'larinizdan', 'lerimizden', 'larimizdan',
+  'leriniz', 'lariniz', 'lerimiz', 'larimiz',
+  'lerinden', 'larindan', 'lerinin', 'larinin',
+  'leriyle', 'lariyla', 'lerine', 'larina', 'lerini', 'larini',
+  'lerden', 'lardan', 'lerin', 'larin', 'lere', 'lara', 'leri', 'lari',
+  'imiz', 'imiz', 'umuz', 'umuz', 'iniz', 'iniz', 'unuz', 'unuz',
+  'den', 'dan', 'ten', 'tan', 'nin', 'nun', 'nın', 'nün',
+  'dir', 'dır', 'dur', 'dür', 'tir', 'tır', 'tur', 'tür',
+  'ler', 'lar', 'lik', 'lık', 'luk', 'lük', 'ci', 'cı', 'cu', 'cü',
+  'yi', 'yı', 'yu', 'yü', 'ye', 'ya', 'in', 'ın', 'un', 'ün',
+]
+  .map(normalize)
+  .sort((left, right) => right.length - left.length)
+
+const stemToken = (raw: string) => {
+  const token = normalize(raw)
+  if (token.length < 6) return token
+  for (const suffix of TURKISH_SUFFIXES) {
+    if (suffix.length < 2 || !token.endsWith(suffix)) continue
+    const stem = token.slice(0, -suffix.length)
+    if (stem.length >= 4) return stem
+  }
+  return token
+}
+
+const tokens = (value: unknown) => normalize(value)
+  .split(/[\s/_-]+/)
+  .map(token => token.trim())
+  .filter(token => token.length >= 2 && !STOP_WORDS.has(token))
+
+const tokenForms = (raw: string) => {
+  const normalized = normalize(raw)
+  const stemmed = stemToken(normalized)
+  return stemmed && stemmed !== normalized ? [normalized, stemmed] : [normalized]
+}
+
+const bigrams = (value: string) => {
+  const normalized = normalize(value).replace(/[^a-z0-9]+/g, '')
+  if (normalized.length < 2) return normalized ? [normalized] : []
+  const result: string[] = []
+  for (let index = 0; index < normalized.length - 1; index += 1) result.push(normalized.slice(index, index + 2))
+  return result
+}
+
+const diceSimilarity = (left: string, right: string) => {
+  if (!left || !right) return 0
+  if (left === right) return 1
+  const leftPairs = bigrams(left)
+  const rightPairs = bigrams(right)
+  if (!leftPairs.length || !rightPairs.length) return 0
+  const remaining = new Map<string, number>()
+  for (const pair of rightPairs) remaining.set(pair, (remaining.get(pair) || 0) + 1)
+  let overlap = 0
+  for (const pair of leftPairs) {
+    const count = remaining.get(pair) || 0
+    if (!count) continue
+    overlap += 1
+    remaining.set(pair, count - 1)
+  }
+  return (2 * overlap) / (leftPairs.length + rightPairs.length)
+}
+
+const tokenSimilarity = (left: string, right: string) => {
+  let best = 0
+  for (const leftForm of tokenForms(left)) {
+    for (const rightForm of tokenForms(right)) {
+      if (!leftForm || !rightForm) continue
+      if (leftForm === rightForm) return 1
+      const shorter = Math.min(leftForm.length, rightForm.length)
+      if (shorter >= 4 && (leftForm.startsWith(rightForm) || rightForm.startsWith(leftForm))) {
+        best = Math.max(best, shorter / Math.max(leftForm.length, rightForm.length))
+      }
+      if (shorter >= 5) best = Math.max(best, diceSimilarity(leftForm, rightForm))
+    }
+  }
+  return best
+}
+
+const bestTokenSimilarity = (queryToken: string, candidates: readonly string[]) => {
+  let best = 0
+  for (const candidate of candidates) {
+    best = Math.max(best, tokenSimilarity(queryToken, candidate))
+    if (best === 1) break
+  }
+  return best
+}
 
 // Retrieval only: this creates a broad candidate surface for the controller LLM.
 // It must never be treated as the semantic decision about which capability to use.
@@ -49,19 +143,53 @@ const skillSearchText = (skill: JetWorkSkillRecord) => normalize([
 const scoreSkill = (skill: JetWorkSkillRecord, query: string) => {
   const normalizedQuery = normalize(query)
   if (!normalizedQuery) return 0
+  const normalizedKey = normalize(skill.key)
+  const normalizedTitle = normalize(skill.title)
+  const normalizedAliases = skill.aliases.map(normalize)
   const haystack = skillSearchText(skill)
   let score = 0
-  if (normalize(skill.key) === normalizedQuery) score += 20
-  if (normalize(skill.key).includes(normalizedQuery)) score += 10
-  if (normalize(skill.title).includes(normalizedQuery)) score += 8
-  if (skill.aliases.some(alias => normalize(alias) === normalizedQuery)) score += 12
+
+  // Exact lexical matches remain the strongest signal.
+  if (normalizedKey === normalizedQuery) score += 20
+  if (normalizedKey.includes(normalizedQuery)) score += 10
+  if (normalizedTitle.includes(normalizedQuery)) score += 8
+  if (normalizedAliases.some(alias => alias === normalizedQuery)) score += 12
   if (haystack.includes(normalizedQuery)) score += 6
+
   const queryTokens = [...new Set(tokens(normalizedQuery))]
+  const keyTokens = [...new Set(tokens(normalizedKey))]
+  const titleTokens = [...new Set(tokens(normalizedTitle))]
+  const aliasTokens = [...new Set(normalizedAliases.flatMap(tokens))]
+  // Markdown/description is intentionally a weaker field. Keep the set bounded
+  // so a long skill file cannot win merely by containing many unrelated words.
+  const haystackTokens = [...new Set(tokens(haystack))].slice(0, 260)
+
+  let identityCoverage = 0
   for (const token of queryTokens) {
-    if (normalize(skill.key).includes(token)) score += 4
-    else if (normalize(skill.title).includes(token)) score += 3
-    else if (skill.aliases.some(alias => normalize(alias).includes(token))) score += 3
+    const keySimilarity = bestTokenSimilarity(token, keyTokens)
+    const titleSimilarity = bestTokenSimilarity(token, titleTokens)
+    const aliasSimilarity = bestTokenSimilarity(token, aliasTokens)
+    const identitySimilarity = Math.max(keySimilarity, titleSimilarity, aliasSimilarity)
+
+    if (identitySimilarity >= 0.58) {
+      identityCoverage += 1
+      score += 4.5 * identitySimilarity * identitySimilarity
+    } else {
+      const haystackSimilarity = bestTokenSimilarity(token, haystackTokens)
+      // High threshold protects precision while still tolerating inflection,
+      // typos and technical loan-word spelling differences.
+      if (haystackSimilarity >= 0.72) score += 1.25 * haystackSimilarity * haystackSimilarity
+    }
+
+    // Preserve the previous field weighting for exact/substring hits.
+    if (normalizedKey.includes(token)) score += 4
+    else if (normalizedTitle.includes(token)) score += 3
+    else if (normalizedAliases.some(alias => alias.includes(token))) score += 3
     else if (haystack.includes(token)) score += 1
+  }
+
+  if (queryTokens.length > 1 && identityCoverage > 0) {
+    score += 2 * (identityCoverage / queryTokens.length)
   }
   if (skill.priority === 'P0') score += 0.25
   return score
@@ -204,7 +332,7 @@ export function executeSkillTool(toolName: string, rawArguments: unknown): Skill
     return {
       output: JSON.stringify({ securityNotice: TRUST_NOTICE, tool: toolName, records }),
       sources: [],
-      summary: { resultCount: records.length, runtimeSkillCount: JETWORK_RUNTIME_SKILLS.length, v2SkillCount: JETWORK_V2_SKILL_COUNT, proceduralOnly: true, citationReady: false, controllerDecisionRequired: true },
+      summary: { resultCount: records.length, runtimeSkillCount: JETWORK_RUNTIME_SKILLS.length, v2SkillCount: JETWORK_V2_SKILL_COUNT, proceduralOnly: true, citationReady: false, controllerDecisionRequired: true, retrievalMode: 'multilingual-fuzzy-candidate-v2' },
     }
   }
   if (toolName === 'load_skills') {
