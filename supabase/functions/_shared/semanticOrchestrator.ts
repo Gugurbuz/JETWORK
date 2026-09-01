@@ -170,36 +170,60 @@ const buildConversationState = (input: {
   priorExecution?: PriorExecutionContext
 }): ConversationSemanticState => {
   const priorIntent = priorIntentFor(input.priorExecution)
+  const currentNormalized = normalize(input.currentMessage)
+  const priorResolvedRequest = cleanText(input.priorExecution?.resolvedRequest, 1_400)
   const currentEntities = extractTechnicalEntities(input.currentMessage)
   const priorEntities = unique([
     ...(input.priorExecution?.activeEntities || []),
     ...(input.priorExecution?.verifiedFactRefs || []),
     ...priorUserEntities(input.conversation),
   ], 10)
-  const shortFollowUp = normalize(input.currentMessage).split(' ').filter(Boolean).length <= 6
-    && ELLIPTICAL_PATTERN.test(normalize(input.currentMessage))
+  const currentWordCount = currentNormalized.split(' ').filter(Boolean).length
+  const shortFollowUp = currentWordCount <= 8 && ELLIPTICAL_PATTERN.test(currentNormalized)
+  const genericContinuation = Boolean(priorResolvedRequest)
+    && currentWordCount <= 10
+    && (
+      shortFollowUp
+      || CONTINUATION_PATTERN.test(currentNormalized)
+      || CONFIRMATION_PATTERN.test(currentNormalized)
+      || REJECTION_PATTERN.test(currentNormalized)
+      || CORRECTION_PATTERN.test(currentNormalized)
+    )
   const operationContinuation = Boolean(input.priorExecution?.activeOperation?.complete === false)
-    && CONTINUATION_PATTERN.test(normalize(input.currentMessage))
-  const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(input.currentMessage))
+    && CONTINUATION_PATTERN.test(currentNormalized)
+  const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(currentNormalized)
   const deepResearchTarget = deepResearchFollowUp ? priorUserRequest(input.conversation) : ''
-  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation || deepResearchTarget)
+  const continuation = Boolean(
+    genericContinuation
+    || (shortFollowUp && priorEntities.length)
+    || operationContinuation
+    || deepResearchTarget,
+  )
   const activeEntities = unique([
     ...currentEntities,
     ...(continuation ? priorEntities : []),
   ], 10)
   const resolvedRequest = deepResearchTarget
     ? `${deepResearchTarget}\nAraştırma talebi: ${cleanText(input.currentMessage, 700)}`
-    : continuation && activeEntities.length
-      ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
-      : cleanText(input.currentMessage, 900)
-  const retainedContext = input.conversation
-    .slice(-4)
-    .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
-    .filter(Boolean)
+    : genericContinuation && priorResolvedRequest
+      ? `${priorResolvedRequest}\nKullanıcının yeni hamlesi: ${cleanText(input.currentMessage, 700)}`
+      : continuation && activeEntities.length
+        ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
+        : cleanText(input.currentMessage, 900)
+  const retainedContext = [
+    ...(genericContinuation && priorResolvedRequest
+      ? [`resolved_task: ${cleanText(priorResolvedRequest.replace(/\s+/g, ' '), 600)}`]
+      : []),
+    ...input.conversation
+      .slice(-4)
+      .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
+      .filter(Boolean),
+  ].slice(-5)
 
   return {
     continuation,
-    topic: activeEntities[0] || cleanText(input.currentMessage, 300),
+    topic: activeEntities[0]
+      || (genericContinuation && priorResolvedRequest ? cleanText(priorResolvedRequest, 300) : cleanText(input.currentMessage, 300)),
     userMove: userMoveFor(input.currentMessage, continuation),
     operationMove: operationContinuation ? 'continue' : 'none',
     priorIntent: priorIntent === 'simple_answer' ? 'none' : priorIntent,
@@ -209,7 +233,10 @@ const buildConversationState = (input: {
     openQuestions: [],
     resolvedRequest,
     activeEntities,
-    requestedEvidence: requestedEvidenceFor(input.currentMessage),
+    requestedEvidence: unique([
+      ...requestedEvidenceFor(input.currentMessage),
+      ...(continuation ? input.priorExecution?.requestedEvidence || [] : []),
+    ], 8),
     userDecisions: [],
     verifiedFactRefs: unique(input.priorExecution?.verifiedFactRefs || [], 12),
   }
@@ -283,6 +310,11 @@ const mergeCachedConversationState = (
     ...fresh,
     rejectedHypotheses: unique([...(fresh.rejectedHypotheses || []), ...(cached.rejectedHypotheses || [])], 6),
     rejectedScopes: unique([...(fresh.rejectedScopes || []), ...(cached.rejectedScopes || [])], 6),
+    retainedContext: unique([...(cached.retainedContext || []), ...(fresh.retainedContext || [])], 8),
+    openQuestions: unique([...(cached.openQuestions || []), ...(fresh.openQuestions || [])], 8),
+    userDecisions: unique([...(cached.userDecisions || []), ...(fresh.userDecisions || [])], 8),
+    activeEntities: unique([...(fresh.activeEntities || []), ...(cached.activeEntities || [])], 10),
+    requestedEvidence: unique([...(fresh.requestedEvidence || []), ...(cached.requestedEvidence || [])], 8),
     verifiedFactRefs: unique([...(fresh.verifiedFactRefs || []), ...(cached.verifiedFactRefs || [])], 12),
   }
 }
