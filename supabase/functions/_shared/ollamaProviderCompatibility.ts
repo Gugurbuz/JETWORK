@@ -55,17 +55,16 @@ const preferredNonNullType = (value: unknown) => {
 const normalizeEnum = (value: unknown) => {
   if (!Array.isArray(value)) return undefined
   const filtered = value.filter(item => item !== null && ['string', 'number', 'boolean'].includes(typeof item))
-  return filtered.length ? filtered : undefined
+  return filtered.length ? filtered.slice(0, 48) : undefined
 }
 
 const BASIC_SCHEMA_TYPES = new Set(['object', 'array', 'string', 'integer', 'number', 'boolean', 'null'])
 
 /**
- * llama.cpp/Ollama tool grammar generation supports a narrower JSON Schema
- * surface than JetWork's strict OpenAI/Gemini tools. Preserve only the schema
- * structure the local model needs to form arguments: basic type, object
- * properties/required keys, array items, scalar enum and descriptions.
- * Provider-specific validation constraints stay server-side.
+ * Keep only the minimal JSON Schema surface Ollama needs for function calling.
+ * Descriptions and validation-only constraints are intentionally omitted from
+ * nested parameter schemas because llama.cpp includes the whole tool grammar in
+ * the model context and JetWork's strict schemas can otherwise exceed 4k tokens.
  */
 export const normalizeOllamaToolSchema = (value: unknown): unknown => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value
@@ -75,9 +74,6 @@ export const normalizeOllamaToolSchema = (value: unknown): unknown => {
   const result: Record<string, unknown> = {}
 
   if (type) result.type = type
-  if (typeof source.description === 'string' && source.description.trim()) {
-    result.description = source.description.trim().slice(0, 500)
-  }
 
   const enumValues = normalizeEnum(source.enum)
   if (enumValues) result.enum = enumValues
@@ -113,7 +109,7 @@ const normalizeOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => 
   return [{
     type: 'function',
     name,
-    description: clean(tool.description).slice(0, 500),
+    description: clean(tool.description).slice(0, 160),
     parameters: normalizeOllamaToolSchema(
       tool.parameters && typeof tool.parameters === 'object'
         ? tool.parameters
@@ -129,6 +125,10 @@ const errorText = (error: unknown) => {
 
 const isToolGrammarError = (error: unknown) => (
   /failed to initialize samplers|failed to parse grammar|grammar.*parse/i.test(errorText(error))
+)
+
+const isContextSizeError = (error: unknown) => (
+  /exceeds the available context size|exceed_context_size_error|n_ctx/i.test(errorText(error))
 )
 
 const withUsage = (
@@ -186,13 +186,16 @@ export async function requestOllamaResponse(input: OllamaRequestInput): Promise<
       ollama_internal_marker_sanitizer: 1,
     })
   } catch (error) {
-    if (input.signal?.aborted || !input.allowTools || !input.tools.length || !isToolGrammarError(error)) {
+    const grammarError = isToolGrammarError(error)
+    const contextError = isContextSizeError(error)
+    if (input.signal?.aborted || !input.allowTools || !input.tools.length || (!grammarError && !contextError)) {
       throw error
     }
 
-    console.warn('OLLAMA_TOOL_GRAMMAR_RETRY_WITHOUT_TOOLS', JSON.stringify({
+    console.warn('OLLAMA_TOOL_RETRY_WITHOUT_TOOLS', JSON.stringify({
       model: input.model,
       toolCount: input.tools.length,
+      reason: grammarError ? 'grammar' : 'context_size',
       error: errorText(error).slice(0, 500),
     }))
 
@@ -203,7 +206,8 @@ export async function requestOllamaResponse(input: OllamaRequestInput): Promise<
 
     return withUsage(response, {
       ollama_tool_schema_compat: 1,
-      ollama_tool_grammar_retry_without_tools: 1,
+      ...(grammarError ? { ollama_tool_grammar_retry_without_tools: 1 } : {}),
+      ...(contextError ? { ollama_context_retry_without_tools: 1 } : {}),
       ollama_internal_marker_sanitizer: 1,
     })
   }
