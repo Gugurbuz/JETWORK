@@ -15,11 +15,12 @@ const semanticSource = readFileSync(
 )
 
 describe('production answerability + cost guard wiring', () => {
-  it('deterministically completes the exact catalog lookup after an empty message detail', () => {
-    expect(providerBaseSource).toContain('findEmptyMessageDetailNeedingCatalogCheck')
-    expect(providerBaseSource).toContain('cost_guard_exact_identifier_catalog_dispatch')
-    expect(providerBaseSource).toContain("name: 'search_knowledge_catalog'")
-    expect(providerBaseSource).toContain("objectTypes: ['message']")
+  it('keeps exact-identifier safety without deterministic catalog routing', () => {
+    expect(providerBaseSource).toContain('sanitizeNovelCustomIdentifierClaims')
+    expect(providerBaseSource).toContain('answerabilityRequestText')
+    expect(providerBaseSource).not.toContain('findEmptyMessageDetailNeedingCatalogCheck')
+    expect(providerBaseSource).not.toContain('cost_guard_exact_identifier_catalog_dispatch')
+    expect(providerBaseSource).not.toContain("name: 'search_knowledge_catalog'")
   })
 
   it('requires internal evidence for structured BA requirements without forcing provider web', () => {
