@@ -32,7 +32,6 @@ const normalize = (value: string) => value
   .trim()
 
 const itemRole = (item: Record<string, unknown>) => String(item.role || '').toLocaleLowerCase('en-US')
-const itemType = (item: Record<string, unknown>) => String(item.type || '').toLocaleLowerCase('en-US')
 
 const contentText = (content: unknown): string => {
   if (typeof content === 'string') return content
