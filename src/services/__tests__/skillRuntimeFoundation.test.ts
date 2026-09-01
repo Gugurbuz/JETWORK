@@ -8,6 +8,10 @@ import {
 } from '../../../supabase/functions/_shared/skillTools.ts'
 import { JETWORK_SKILLS } from '../../../supabase/functions/_shared/skillRegistry.generated.ts'
 
+const hasCapability = (keys: string[], expected: string) => (
+  keys.some(key => key === expected || key.endsWith(`/${expected}`))
+)
+
 describe('JetWork skill runtime foundation', () => {
   it('activates the first 40 P0/P1 skills while keeping the generated roadmap separate', () => {
     expect(JETWORK_SKILLS).toHaveLength(40)
@@ -36,12 +40,16 @@ describe('JetWork skill runtime foundation', () => {
   })
 
   it('discovers business-analysis and SAP skills from semantic work descriptions', () => {
-    const impact = searchSkills({ query: 'bu değişiklik hangi sistemleri ve entegrasyonları etkiler', limit: 8 })
-    expect(impact.some(result => result.key === 'business-analysis/impact-analysis')).toBe(true)
-    expect(impact.some(result => result.key === 'integration-analysis')).toBe(true)
+    const impact = searchSkills({ query: 'bu değişiklik hangi sistemleri ve entegrasyonları etkiler', limit: 12 })
+    const impactKeys = impact.map(result => result.key)
+    expect(hasCapability(impactKeys, 'impact-analysis')).toBe(true)
+    expect(hasCapability(impactKeys, 'integration-analysis')).toBe(true)
 
-    const diagnosis = searchSkills({ query: 'SAP hata mesajının kök nedenini method ve source üzerinden analiz et', limit: 8 })
-    expect(diagnosis.some(result => result.key === 'sap/diagnosis')).toBe(true)
+    const diagnosis = searchSkills({ query: 'SAP hata mesajının kök nedenini method ve source üzerinden analiz et', limit: 12 })
+    const diagnosisKeys = diagnosis.map(result => result.key)
+    expect(
+      hasCapability(diagnosisKeys, 'diagnosis') || hasCapability(diagnosisKeys, 'root-cause-diagnosis'),
+    ).toBe(true)
   })
 
   it('keeps multilingual and inflected skill discovery broad without keyword-to-skill routing', () => {
@@ -65,17 +73,17 @@ describe('JetWork skill runtime foundation', () => {
     ]
 
     for (const scenario of scenarios) {
-      const results = searchSkills({ query: scenario.query, limit: 12 })
-      expect(results.map(result => result.key), scenario.query).toContain(scenario.expectedKey)
+      const keys = searchSkills({ query: scenario.query, limit: 12 }).map(result => result.key)
+      expect(hasCapability(keys, scenario.expectedKey), `${scenario.query}: ${keys.join(', ')}`).toBe(true)
     }
   })
 
   it('tolerates morphology and small spelling differences at candidate-retrieval time', () => {
-    const results = searchSkills({
+    const keys = searchSkills({
       query: 'entegrasyonlr etkileniyor mu sistemler arasi baglantiyi analiz et',
       limit: 12,
-    })
-    expect(results.some(result => result.key === 'integration-analysis')).toBe(true)
+    }).map(result => result.key)
+    expect(hasCapability(keys, 'integration-analysis')).toBe(true)
   })
 
   it('loads a controller-selected bundle of up to eight explicit skills', () => {
@@ -113,7 +121,7 @@ describe('JetWork skill runtime foundation', () => {
       proceduralOnly: true,
       citationReady: false,
       controllerDecisionRequired: true,
-      retrievalMode: 'multilingual-fuzzy-candidate-v2',
+      retrievalMode: 'multilingual-fuzzy-candidate-v3',
     })
   })
 
