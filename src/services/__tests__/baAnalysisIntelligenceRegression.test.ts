@@ -5,6 +5,7 @@ import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/
 const coreSource = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')
 const enerjisaSource = readFileSync(new URL('../../../supabase/functions/openai-assistant-enerjisa-docx/index.ts', import.meta.url), 'utf8')
 const routingSource = readFileSync(new URL('../../../supabase/functions/_shared/documentArtifactRouting.ts', import.meta.url), 'utf8')
+const contractSource = readFileSync(new URL('../../../supabase/functions/_shared/enerjisaDocumentContract.ts', import.meta.url), 'utf8')
 
 describe('BA analysis intelligence regression', () => {
   it('does not promote ordinary Turkish z-words into technical entities', async () => {
@@ -20,12 +21,15 @@ describe('BA analysis intelligence regression', () => {
     expect(entities).not.toContain('ZENLENMESI')
   })
 
-  it('forces Enerjisa BA specialization to research enterprise current state and affected systems', () => {
-    expect(enerjisaSource).toContain('knowledgeRequired: true')
-    expect(enerjisaSource).toContain('enterpriseGroundingRequired: true')
-    expect(enerjisaSource).toContain("id: 'research-enterprise-current-state'")
-    expect(enerjisaSource).toContain("id: 'analyze-system-impact'")
-    expect(enerjisaSource).toContain('etkilenen sistemler, sistem sahipliği')
+  it('keeps Enerjisa specialization deterministic only about the requested artifact', () => {
+    expect(enerjisaSource).toContain('buildSemanticExecutionPlan')
+    expect(enerjisaSource).toContain("intent: 'document' as const")
+    expect(enerjisaSource).toContain("executionMode: 'artifact' as const")
+    expect(enerjisaSource).toContain('artifactPreferredTool: DOCUMENT_FILE_EXECUTOR_TOOL')
+    expect(enerjisaSource).toContain('Research, skill selection, evidence')
+    expect(enerjisaSource).toContain('remain controller-LLM decisions')
+    expect(enerjisaSource).not.toContain("id: 'research-enterprise-current-state'")
+    expect(enerjisaSource).not.toContain("id: 'analyze-system-impact'")
   })
 
   it('keeps artifact completion semantic and executor-backed without raw-message artifact regex', () => {
@@ -37,12 +41,14 @@ describe('BA analysis intelligence regression', () => {
     expect(coreSource).not.toContain('artifactMutationRequested')
   })
 
-  it('preserves the approved Enerjisa template while grounding affected systems', () => {
-    expect(routingSource).toContain('Başlık/Açıklama tablosunda en az Sistem, Modül, Etkilenen Süreç')
-    expect(routingSource).toContain('## 6.2. Bağımlılıklar')
-    expect(routingSource).toContain('## 8.2. Teknik Gereksinimler')
-    expect(routingSource).toContain('etkilenen sistemler, sistem sahipliği')
-    expect(routingSource).toContain('yeni bölüm veya başlık ekleme')
+  it('preserves one canonical Enerjisa template while grounding affected systems dynamically', () => {
+    expect(routingSource).toContain('ENERJISA_ANALYSIS_DOCX_DIRECTIVE')
+    expect(contractSource).toContain("ENERJISA_DOCUMENT_CONTRACT_VERSION = 'enerjisa-analysis-docx-v2'")
+    expect(contractSource).toContain('Başlık/Açıklama tablosunda en az Sistem, Modül, Etkilenen Süreç')
+    expect(contractSource).toContain('### 6.2. Bağımlılıklar')
+    expect(contractSource).toContain('### 8.2. Teknik Gereksinimler')
+    expect(contractSource).toContain('etkilenen sistemler, sistem sahipliği ve entegrasyon iddiaları')
+    expect(contractSource).toContain('controller uygun capabilitylerle toplasın')
     expect(routingSource).not.toContain('### 1.1. Platform ve Sistem Etki Analizi')
     expect(routingSource).not.toContain('### 6.4. Açık Konular ve Karar Gerektiren Sorular')
   })
