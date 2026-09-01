@@ -26,26 +26,28 @@ describe('JetWork skill runtime wiring', () => {
     expect(implementationSource).toContain('allowTools: tools.length > 0 || providerWebEnabled')
   })
 
-  it('dispatches skill calls separately from knowledge calls and audits them as procedural-only', () => {
+  it('dispatches skill calls separately from knowledge/capability calls and audits them as procedural-only', () => {
     expect(implementationSource).toContain("? await runSkillTool(toolName, args, 'model:skill')")
-    expect(implementationSource).toContain(": await runKnowledgeTool(toolName, args, 'model:knowledge')")
+    expect(implementationSource).toContain(": await runKnowledgeTool(toolName, args, 'model:capability')")
     expect(implementationSource).toContain('proceduralOnly: true')
     expect(implementationSource).toContain("sourceRefs: [], status: 'completed'")
     expect(implementationSource).toContain('loadedSkills: [...loadedSkillKeys]')
   })
 
-  it('keeps Gemini provider web capability independent from generic function tools except after an exact identifier miss', () => {
+  it('keeps Gemini provider web capability independent from generic function tools', () => {
     expect(providerSource).toContain('allowProviderWeb?: boolean')
-    expect(providerSource).toContain('const providerWebEnabled = providerNativeWebRequested')
-    expect(providerSource).toContain('!emptyMessageDetailLookup && (input.allowProviderWeb ?? input.allowTools)')
-    expect(providerSource).toContain("!forceNoToolSynthesis && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : ''")
+    expect(providerSource).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools')
+    expect(providerSource).toContain('const effectiveAllowTools = input.allowTools && (input.tools.length > 0 || providerWebEnabled)')
+    expect(providerSource).toContain('effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER')
     expect(implementationSource).toContain('allowProviderWeb: providerWebEnabled')
+    expect(providerSource).not.toContain('emptyMessageDetailLookup')
   })
 
-  it('does not let skill-only Gemini tool availability trigger knowledge enumeration', () => {
-    expect(providerSource).toContain("const ENUMERATION_KNOWLEDGE_TOOLS = new Set(['list_knowledge_catalog', 'list_class_inventory'])")
-    expect(providerSource).toContain("const enumerationKnowledgeEnabled = input.tools.some(tool => ENUMERATION_KNOWLEDGE_TOOLS.has(String(tool.name || '')))")
-    expect(providerSource).toContain('const enumerationDispatch = input.allowTools && enumerationKnowledgeEnabled')
+  it('does not let skill availability trigger deterministic knowledge enumeration', () => {
+    expect(providerSource).not.toContain('ENUMERATION_KNOWLEDGE_TOOLS')
+    expect(providerSource).not.toContain('enumerationKnowledgeEnabled')
+    expect(providerSource).not.toContain('buildEnumerationFastPathDispatch')
+    expect(providerSource).toContain('Tool availability is intentionally broad')
   })
 
   it('keeps skill instructions explicitly non-citable in final synthesis policy', () => {
