@@ -21,8 +21,11 @@ describe('Gemini provider-agnostic controller routing', () => {
   });
 
   it('compacts repeated agent context without changing the selected model', () => {
-    expect(providerSource).toContain('compactGeminiAgentItems(sanitizeItems(input.items))');
+    expect(providerSource).toContain('compactResolvedConversationItems(sanitizeItems(input.items), contextSeed)');
+    expect(providerSource).toContain('compactGeminiAgentItems(compactedProviderItems)');
     expect(providerSource).toContain('agent_controller_context_compacted_calls');
+    expect(providerSource).toContain('agent_controller_context_items_before');
+    expect(providerSource).toContain('agent_controller_context_items_after');
   });
 
   it('does not impose a semantic two-or-three-call enterprise knowledge cap', () => {
