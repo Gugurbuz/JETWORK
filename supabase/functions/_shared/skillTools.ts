@@ -46,7 +46,7 @@ const TURKISH_SUFFIXES = [
   'lerinden', 'larindan', 'lerinin', 'larinin',
   'leriyle', 'lariyla', 'lerine', 'larina', 'lerini', 'larini',
   'lerden', 'lardan', 'lerin', 'larin', 'lere', 'lara', 'leri', 'lari',
-  'imiz', 'imiz', 'umuz', 'umuz', 'iniz', 'iniz', 'unuz', 'unuz',
+  'imiz', 'umuz', 'iniz', 'unuz',
   'den', 'dan', 'ten', 'tan', 'nin', 'nun', 'nın', 'nün',
   'dir', 'dır', 'dur', 'dür', 'tir', 'tır', 'tur', 'tür',
   'ler', 'lar', 'lik', 'lık', 'luk', 'lük', 'ci', 'cı', 'cu', 'cü',
@@ -128,6 +128,34 @@ const bestTokenSimilarity = (queryToken: string, candidates: readonly string[]) 
   return best
 }
 
+// Generic concept equivalence is retrieval vocabulary, not routing. It widens
+// the candidate set across Turkish/English wording; the controller still owns
+// the semantic decision about which candidate (if any) to load and execute.
+const CONCEPT_GROUPS = [
+  ['integration', 'entegrasyon', 'connection', 'connected', 'baglanti', 'interface', 'boundary'],
+  ['system', 'systems', 'sistem', 'sistemler'],
+  ['impact', 'effect', 'affected', 'etki', 'etkilenen'],
+  ['dependency', 'dependencies', 'dependent', 'bagimlilik', 'bagimliliklar'],
+  ['risk', 'risks', 'riskler'],
+  ['technical', 'teknik'],
+  ['requirement', 'requirements', 'gereksinim', 'gereksinimler', 'ihtiyac'],
+  ['analysis', 'analyze', 'analyse', 'analiz', 'incele', 'inceleme'],
+  ['flow', 'akis', 'akisi', 'dataflow'],
+] as const
+
+const normalizedConceptGroups = CONCEPT_GROUPS.map(group => [...new Set(group.flatMap(tokenForms))])
+
+const expandQueryTokens = (rawTokens: string[]) => {
+  const expanded = new Set(rawTokens)
+  for (const token of rawTokens) {
+    for (const group of normalizedConceptGroups) {
+      if (!group.some(member => tokenSimilarity(token, member) >= 0.72)) continue
+      for (const member of group) expanded.add(member)
+    }
+  }
+  return [...expanded]
+}
+
 // Retrieval only: this creates a broad candidate surface for the controller LLM.
 // It must never be treated as the semantic decision about which capability to use.
 const skillSearchText = (skill: JetWorkSkillRecord) => normalize([
@@ -140,48 +168,66 @@ const skillSearchText = (skill: JetWorkSkillRecord) => normalize([
   String(skill.markdown || '').slice(0, 3_000),
 ].join(' '))
 
-const scoreSkill = (skill: JetWorkSkillRecord, query: string) => {
-  const normalizedQuery = normalize(query)
-  if (!normalizedQuery) return 0
+type SkillSearchIndex = {
+  skill: JetWorkSkillRecord
+  normalizedKey: string
+  normalizedTitle: string
+  normalizedAliases: string[]
+  haystack: string
+  keyTokens: string[]
+  titleTokens: string[]
+  aliasTokens: string[]
+  haystackTokens: string[]
+}
+
+// Search metadata is immutable for the lifetime of an Edge Function instance.
+// Precomputing it removes the former O(skills × query × markdown-tokenization)
+// hot path that made repeated capability discovery exceed unit/runtime budgets.
+const SKILL_SEARCH_INDEX: readonly SkillSearchIndex[] = JETWORK_RUNTIME_SKILLS.map(skill => {
   const normalizedKey = normalize(skill.key)
   const normalizedTitle = normalize(skill.title)
   const normalizedAliases = skill.aliases.map(normalize)
   const haystack = skillSearchText(skill)
+  return {
+    skill,
+    normalizedKey,
+    normalizedTitle,
+    normalizedAliases,
+    haystack,
+    keyTokens: [...new Set(tokens(normalizedKey))],
+    titleTokens: [...new Set(tokens(normalizedTitle))],
+    aliasTokens: [...new Set(normalizedAliases.flatMap(tokens))],
+    // Description/markdown is a recall field, not identity. A bounded prebuilt
+    // token set prevents long skill documents from dominating both CPU and rank.
+    haystackTokens: [...new Set(tokens(haystack))].slice(0, 96),
+  }
+})
+
+const scoreSkill = (index: SkillSearchIndex, normalizedQuery: string, queryTokens: string[]) => {
+  const { skill, normalizedKey, normalizedTitle, normalizedAliases, haystack } = index
   let score = 0
 
-  // Exact lexical matches remain the strongest signal.
   if (normalizedKey === normalizedQuery) score += 20
   if (normalizedKey.includes(normalizedQuery)) score += 10
   if (normalizedTitle.includes(normalizedQuery)) score += 8
   if (normalizedAliases.some(alias => alias === normalizedQuery)) score += 12
   if (haystack.includes(normalizedQuery)) score += 6
 
-  const queryTokens = [...new Set(tokens(normalizedQuery))]
-  const keyTokens = [...new Set(tokens(normalizedKey))]
-  const titleTokens = [...new Set(tokens(normalizedTitle))]
-  const aliasTokens = [...new Set(normalizedAliases.flatMap(tokens))]
-  // Markdown/description is intentionally a weaker field. Keep the set bounded
-  // so a long skill file cannot win merely by containing many unrelated words.
-  const haystackTokens = [...new Set(tokens(haystack))].slice(0, 260)
-
   let identityCoverage = 0
   for (const token of queryTokens) {
-    const keySimilarity = bestTokenSimilarity(token, keyTokens)
-    const titleSimilarity = bestTokenSimilarity(token, titleTokens)
-    const aliasSimilarity = bestTokenSimilarity(token, aliasTokens)
+    const keySimilarity = bestTokenSimilarity(token, index.keyTokens)
+    const titleSimilarity = bestTokenSimilarity(token, index.titleTokens)
+    const aliasSimilarity = bestTokenSimilarity(token, index.aliasTokens)
     const identitySimilarity = Math.max(keySimilarity, titleSimilarity, aliasSimilarity)
 
     if (identitySimilarity >= 0.58) {
       identityCoverage += 1
       score += 4.5 * identitySimilarity * identitySimilarity
     } else {
-      const haystackSimilarity = bestTokenSimilarity(token, haystackTokens)
-      // High threshold protects precision while still tolerating inflection,
-      // typos and technical loan-word spelling differences.
+      const haystackSimilarity = bestTokenSimilarity(token, index.haystackTokens)
       if (haystackSimilarity >= 0.72) score += 1.25 * haystackSimilarity * haystackSimilarity
     }
 
-    // Preserve the previous field weighting for exact/substring hits.
     if (normalizedKey.includes(token)) score += 4
     else if (normalizedTitle.includes(token)) score += 3
     else if (normalizedAliases.some(alias => alias.includes(token))) score += 3
@@ -217,12 +263,14 @@ export const searchSkills = (input: {
   limit?: number | null
 }) => {
   const query = String(input.query || '').trim().slice(0, 500)
+  const normalizedQuery = normalize(query)
   const category = normalize(input.category || '')
   const limit = Math.max(1, Math.min(Math.trunc(Number(input.limit) || 8), 12))
-  if (query.length < 2) return []
-  return JETWORK_RUNTIME_SKILLS
-    .filter(skill => !category || normalize(skill.category) === category)
-    .map(skill => ({ skill, score: scoreSkill(skill, query) }))
+  if (normalizedQuery.length < 2) return []
+  const queryTokens = expandQueryTokens([...new Set(tokens(normalizedQuery))])
+  return SKILL_SEARCH_INDEX
+    .filter(index => !category || normalize(index.skill.category) === category)
+    .map(index => ({ skill: index.skill, score: scoreSkill(index, normalizedQuery, queryTokens) }))
     .filter(item => item.score > 0)
     .sort((left, right) => right.score - left.score || left.skill.key.localeCompare(right.skill.key))
     .slice(0, limit)
@@ -332,7 +380,7 @@ export function executeSkillTool(toolName: string, rawArguments: unknown): Skill
     return {
       output: JSON.stringify({ securityNotice: TRUST_NOTICE, tool: toolName, records }),
       sources: [],
-      summary: { resultCount: records.length, runtimeSkillCount: JETWORK_RUNTIME_SKILLS.length, v2SkillCount: JETWORK_V2_SKILL_COUNT, proceduralOnly: true, citationReady: false, controllerDecisionRequired: true, retrievalMode: 'multilingual-fuzzy-candidate-v2' },
+      summary: { resultCount: records.length, runtimeSkillCount: JETWORK_RUNTIME_SKILLS.length, v2SkillCount: JETWORK_V2_SKILL_COUNT, proceduralOnly: true, citationReady: false, controllerDecisionRequired: true, retrievalMode: 'multilingual-fuzzy-candidate-v3' },
     }
   }
   if (toolName === 'load_skills') {
