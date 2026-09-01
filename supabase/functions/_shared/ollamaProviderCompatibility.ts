@@ -131,6 +131,42 @@ const isContextSizeError = (error: unknown) => (
   /exceeds the available context size|exceed_context_size_error|n_ctx/i.test(errorText(error))
 )
 
+const positiveIntegerEnv = (name: string, fallback: number) => {
+  const parsed = Number(Deno.env.get(name))
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback
+}
+
+// This is intentionally capacity-only, not semantic routing. If the complete
+// tool grammar cannot fit in the configured local context, sending it is a
+// guaranteed 400 from llama.cpp. Skip that doomed first request and preserve
+// the existing tools-off fallback behavior without adding prompt-specific rules.
+const toolContextPreflight = (
+  input: OllamaRequestInput,
+  tools: ReadonlyArray<Record<string, unknown>>,
+) => {
+  if (!input.allowTools || !tools.length) return { skip: false, estimatedTokens: 0, contextTokens: 0 }
+
+  const sanitizedItems = sanitizeInternalMarkers(input.items)
+  const serialized = JSON.stringify({
+    instructions: sanitizeInternalMemoryText(input.instructions),
+    input: sanitizedItems,
+    tools,
+  })
+
+  // JSON/tool payloads are token-dense. Three UTF-16 characters per token is a
+  // conservative estimate for this preflight; leave headroom for chat-template
+  // control tokens that are added by Ollama/llama.cpp after serialization.
+  const estimatedTokens = Math.ceil(serialized.length / 3)
+  const contextTokens = positiveIntegerEnv('OLLAMA_CONTEXT_TOKENS', 4096)
+  const safePromptBudget = Math.floor(contextTokens * 0.86)
+
+  return {
+    skip: estimatedTokens >= safePromptBudget,
+    estimatedTokens,
+    contextTokens,
+  }
+}
+
 const withUsage = (
   response: OllamaNormalizedResponse,
   extra: Record<string, number>,
@@ -168,6 +204,7 @@ const runBuffered = async (
     ...input,
     ...overrides,
     items: (sanitizeInternalMarkers(overrides.items ?? input.items) as Array<Record<string, unknown>>),
+    instructions: sanitizeInternalMemoryText(input.instructions),
     onText: () => {},
   })
   const cleanResponse = sanitizedResponse(response)
@@ -178,6 +215,27 @@ const runBuffered = async (
 
 export async function requestOllamaResponse(input: OllamaRequestInput): Promise<OllamaNormalizedResponse> {
   const normalizedTools = input.allowTools ? normalizeOllamaTools(input.tools) : input.tools
+  const preflight = toolContextPreflight(input, normalizedTools)
+
+  if (preflight.skip) {
+    console.warn('OLLAMA_TOOL_CONTEXT_PREFLIGHT_SKIP', JSON.stringify({
+      model: input.model,
+      toolCount: normalizedTools.length,
+      estimatedTokens: preflight.estimatedTokens,
+      contextTokens: preflight.contextTokens,
+    }))
+
+    const response = await runBuffered(input, {
+      tools: [],
+      allowTools: false,
+    })
+
+    return withUsage(response, {
+      ollama_tool_schema_compat: 1,
+      ollama_tool_context_preflight_skip: 1,
+      ollama_internal_marker_sanitizer: 1,
+    })
+  }
 
   try {
     const response = await runBuffered(input, { tools: normalizedTools })
