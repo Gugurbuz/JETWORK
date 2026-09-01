@@ -12,6 +12,7 @@ import {
 import type { AssistantProvider } from './modelProviders.ts'
 import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'
 import type { AssistantActiveOperation } from './operationState.ts'
+import type { ProjectMemoryContextItem } from './projectMemoryContext.ts'
 
 export const SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
@@ -36,6 +37,7 @@ export interface PriorExecutionContext {
   activeEntities?: string[]
   requestedEvidence?: string[]
   verifiedFactRefs?: string[]
+  projectMemory?: ProjectMemoryContextItem[]
   activeOperation?: AssistantActiveOperation
 }
 
@@ -164,6 +166,20 @@ const promptProfileFor = (intent: ReasoningIntent, executionMode: ReasoningExecu
   return 'base'
 }
 
+const projectMemoryDecisionContext = (items: ProjectMemoryContextItem[]) => unique(
+  items
+    .filter(item => ['decision','constraint','requirement','preference','business_rule'].includes(item.category))
+    .map(item => `${item.key}: ${item.value}`),
+  8,
+)
+
+const projectMemoryOpenQuestions = (items: ProjectMemoryContextItem[]) => unique(
+  items
+    .filter(item => item.category === 'open_question')
+    .map(item => `${item.key}: ${item.value}`),
+  8,
+)
+
 const buildConversationState = (input: {
   currentMessage: string
   conversation: SemanticContextMessage[]
@@ -219,6 +235,7 @@ const buildConversationState = (input: {
       .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
       .filter(Boolean),
   ].slice(-5)
+  const projectMemory = input.priorExecution?.projectMemory || []
 
   return {
     continuation,
@@ -230,14 +247,14 @@ const buildConversationState = (input: {
     rejectedHypotheses: collectRejectedHypotheses(input.conversation, input.currentMessage),
     rejectedScopes: [],
     retainedContext,
-    openQuestions: [],
+    openQuestions: projectMemoryOpenQuestions(projectMemory),
     resolvedRequest,
     activeEntities,
     requestedEvidence: unique([
       ...requestedEvidenceFor(input.currentMessage),
       ...(continuation ? input.priorExecution?.requestedEvidence || [] : []),
     ], 8),
-    userDecisions: [],
+    userDecisions: projectMemoryDecisionContext(projectMemory),
     verifiedFactRefs: unique(input.priorExecution?.verifiedFactRefs || [], 12),
   }
 }
