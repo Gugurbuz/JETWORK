@@ -38,9 +38,44 @@ describe('JetWork skill runtime foundation', () => {
   it('discovers business-analysis and SAP skills from semantic work descriptions', () => {
     const impact = searchSkills({ query: 'bu değişiklik hangi sistemleri ve entegrasyonları etkiler', limit: 8 })
     expect(impact.some(result => result.key === 'business-analysis/impact-analysis')).toBe(true)
+    expect(impact.some(result => result.key === 'integration-analysis')).toBe(true)
 
     const diagnosis = searchSkills({ query: 'SAP hata mesajının kök nedenini method ve source üzerinden analiz et', limit: 8 })
     expect(diagnosis.some(result => result.key === 'sap/diagnosis')).toBe(true)
+  })
+
+  it('keeps multilingual and inflected skill discovery broad without keyword-to-skill routing', () => {
+    const scenarios = [
+      {
+        query: 'entegrasyonları ve sistemler arası bağlantıları incele',
+        expectedKey: 'integration-analysis',
+      },
+      {
+        query: 'integration boundaries and connected systems need analysis',
+        expectedKey: 'integration-analysis',
+      },
+      {
+        query: 'risk analysis for the proposed enterprise change',
+        expectedKey: 'risk-analysis',
+      },
+      {
+        query: 'technical analysis of data flow and system behavior',
+        expectedKey: 'technical-analysis',
+      },
+    ]
+
+    for (const scenario of scenarios) {
+      const results = searchSkills({ query: scenario.query, limit: 12 })
+      expect(results.map(result => result.key), scenario.query).toContain(scenario.expectedKey)
+    }
+  })
+
+  it('tolerates morphology and small spelling differences at candidate-retrieval time', () => {
+    const results = searchSkills({
+      query: 'entegrasyonlr etkileniyor mu sistemler arasi baglantiyi analiz et',
+      limit: 12,
+    })
+    expect(results.some(result => result.key === 'integration-analysis')).toBe(true)
   })
 
   it('loads a controller-selected bundle of up to eight explicit skills', () => {
@@ -66,6 +101,20 @@ describe('JetWork skill runtime foundation', () => {
     expect(result.sources).toEqual([])
     expect(result.summary).toMatchObject({ proceduralOnly: true, citationReady: false, loadedCount: 2, controllerDecisionRequired: true })
     expect(result.output).toContain('TRUSTED_JETWORK_SKILL_INSTRUCTION')
+  })
+
+  it('reports candidate retrieval separately from controller semantic selection', () => {
+    const result = executeSkillTool('search_skills', {
+      query: 'entegrasyonları ve etkilenen sistemleri analiz et',
+      category: null,
+      limit: 8,
+    })
+    expect(result.summary).toMatchObject({
+      proceduralOnly: true,
+      citationReady: false,
+      controllerDecisionRequired: true,
+      retrievalMode: 'multilingual-fuzzy-candidate-v2',
+    })
   })
 
   it('keeps pure skill execution limited to discovery/materialization while exposing execution capabilities separately', () => {
