@@ -19,6 +19,11 @@ import {
 } from './geminiCostGuard.ts'
 import { assertExplicitGeminiModelPreserved } from './geminiProviderLock.ts'
 import { compactAssistantConversationMemory } from './conversationMemory.ts'
+import {
+  buildResolvedConversationInstruction,
+  compactResolvedConversationItems,
+  type ResolvedConversationContextSeed,
+} from './resolvedConversationContext.ts'
 import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
 import { baAnalysisInstructionForPlan } from './baAnalysisContract.ts'
 import { sanitizeNovelCustomIdentifierClaims } from './providerAnswerabilityGuard.ts'
@@ -145,6 +150,23 @@ const mergeNumericUsage = (...values: Array<Record<string, number> | undefined>)
   return merged
 }
 
+const resolvedContextSeedForPlan = (plan: ReturnType<typeof extractSemanticPlanFromItems>): ResolvedConversationContextSeed => ({
+  resolvedRequest: String(plan?.conversationState?.resolvedRequest || plan?.goal || '').trim() || undefined,
+  topic: String(plan?.conversationState?.topic || '').trim() || undefined,
+  activeEntities: plan?.conversationState?.activeEntities || [],
+  userDecisions: plan?.conversationState?.userDecisions || [],
+  rejectedScopes: plan?.conversationState?.rejectedScopes || [],
+  rejectedHypotheses: plan?.conversationState?.rejectedHypotheses || [],
+  openQuestions: plan?.conversationState?.openQuestions || [],
+  retainedContext: plan?.conversationState?.retainedContext || [],
+  verifiedFactRefs: plan?.conversationState?.verifiedFactRefs || [],
+})
+
+const resolvedProviderItems = (
+  items: Array<Record<string, unknown>>,
+  plan: ReturnType<typeof extractSemanticPlanFromItems>,
+) => compactResolvedConversationItems(sanitizeItems(items), resolvedContextSeedForPlan(plan))
+
 const toolEvidenceAsUserItem = (items: Array<Record<string, unknown>>): Record<string, unknown> | null => {
   const namesByCallId = new Map<string, string>()
   const evidence: string[] = []
@@ -167,8 +189,12 @@ const toolEvidenceAsUserItem = (items: Array<Record<string, unknown>>): Record<s
   }
 }
 
-const buildNoToolRecoveryItems = (items: Array<Record<string, unknown>>) => {
-  const sanitized = sanitizeItems(items).filter(item => !['function_call', 'function_call_output'].includes(String(item.type || '')))
+const buildNoToolRecoveryItems = (
+  items: Array<Record<string, unknown>>,
+  plan: ReturnType<typeof extractSemanticPlanFromItems>,
+) => {
+  const sanitized = resolvedProviderItems(items, plan)
+    .filter(item => !['function_call', 'function_call_output'].includes(String(item.type || '')))
   const evidenceItem = toolEvidenceAsUserItem(items)
   return evidenceItem ? [...sanitized, evidenceItem] : sanitized
 }
@@ -188,12 +214,14 @@ const primaryAgentInstruction = AGENT_CONTROLLER_INSTRUCTION
 
 const openAiPrimaryAgentDeveloperItem = (items: Array<Record<string, unknown>>) => {
   const plan = extractSemanticPlanFromItems(items)
+  const resolvedConversationInstruction = buildResolvedConversationInstruction(resolvedContextSeedForPlan(plan))
   return {
     type: 'message',
     role: 'developer',
     content: [
       primaryAgentInstruction,
       baAnalysisInstructionForPlan(plan),
+      resolvedConversationInstruction,
       'Semantic plan alanları advisory contexttir. Uygun tool/capability seçimini aktif controller modeli yapar; intent veya önceden hesaplanmış route bir capabilityyi semantik olarak yasaklamaz.',
     ].filter(Boolean).join('\n\n'),
   }
@@ -215,6 +243,9 @@ export async function requestGeminiResponse(input: {
   const plan = extractSemanticPlanFromItems(input.items)
   const baAnalysisInstruction = baAnalysisInstructionForPlan(plan)
   const executedKnowledgeCalls = countExecutedKnowledgeToolCalls(input.items)
+  const contextSeed = resolvedContextSeedForPlan(plan)
+  const resolvedConversationInstruction = buildResolvedConversationInstruction(contextSeed)
+  const compactedProviderItems = compactResolvedConversationItems(sanitizeItems(input.items), contextSeed)
 
   // Tool availability is intentionally broad. The active LLM decides whether
   // knowledge, skills or provider-native web are useful on each round.
@@ -225,6 +256,7 @@ export async function requestGeminiResponse(input: {
     providerInstructions,
     primaryAgentInstruction,
     baAnalysisInstruction,
+    resolvedConversationInstruction,
     effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
 
@@ -235,8 +267,8 @@ export async function requestGeminiResponse(input: {
     model: requestedModel,
     instructions: geminiInstructions,
     items: effectiveAllowTools
-      ? compactGeminiAgentItems(sanitizeItems(input.items))
-      : sanitizeItems(input.items),
+      ? compactGeminiAgentItems(compactedProviderItems)
+      : compactedProviderItems,
     tools: effectiveAllowTools ? input.tools : [],
     allowTools: effectiveAllowTools,
     onText: delta => {
@@ -254,7 +286,9 @@ export async function requestGeminiResponse(input: {
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
     primary_llm_final_calls: effectiveAllowTools ? 0 : 1,
-    agent_controller_context_compacted_calls: effectiveAllowTools ? 1 : 0,
+    agent_controller_context_compacted_calls: compactedProviderItems.length < input.items.length ? 1 : 0,
+    agent_controller_context_items_before: input.items.length,
+    agent_controller_context_items_after: compactedProviderItems.length,
     agent_controller_knowledge_tool_calls_seen: executedKnowledgeCalls,
     ...(providerWebEnabled ? { agent_controller_provider_web_available: 1 } : {}),
     ...(answerability.text !== firstProviderText ? {
@@ -272,6 +306,7 @@ export async function requestGeminiResponse(input: {
     providerInstructions,
     primaryAgentInstruction,
     baAnalysisInstruction,
+    resolvedConversationInstruction,
     '[JETWORK EMPTY FINAL RECOVERY]',
     'Önceki deneme kullanıcıya görünür bir yanıt üretmedi. Bu son transport-recovery denemesinde yeni araç çağırma; mevcut kullanıcı mesajını ve varsa tool observationlarını kullanarak dürüst nihai yanıt üret. Kanıt eksikse bunu açıkça belirt.',
   ].join('\n\n')
@@ -280,7 +315,7 @@ export async function requestGeminiResponse(input: {
     ...input,
     model: requestedModel,
     instructions: recoveryInstructions,
-    items: buildNoToolRecoveryItems(input.items),
+    items: buildNoToolRecoveryItems(input.items, plan),
     tools: [],
     allowTools: false,
     onText: delta => {
@@ -309,7 +344,8 @@ export async function requestGeminiResponse(input: {
 }
 
 export const cleanProviderItemsForOpenAi = (items: Array<Record<string, unknown>>) => {
-  const cleaned = sanitizeItems(items).map(item => {
+  const plan = extractSemanticPlanFromItems(items)
+  const cleaned = resolvedProviderItems(items, plan).map(item => {
     const { _geminiContent: _metadata, _geminiSkipContent: _skip, ...clean } = item
     return clean
   })
