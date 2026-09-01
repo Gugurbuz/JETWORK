@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_CONTROLLER_INSTRUCTION } from '../../../supabase/functions/_shared/agentControllerPolicy.ts'
 import { searchSkills } from '../../../supabase/functions/_shared/skillTools.ts'
 
+const hasCapability = (keys: string[], expected: string) => (
+  keys.some(key => key === expected || key.endsWith(`/${expected}`))
+)
+
 describe('Deep Analyst controller golden contract', () => {
   it('keeps capability choice with the controller instead of deterministic routes', () => {
     expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Deterministic routing avoidance')
@@ -48,7 +52,7 @@ describe('Deep Analyst controller golden contract', () => {
     for (const subgoal of controllerSubgoals) {
       const candidates = searchSkills({ query: subgoal.query, limit: 12 }).map(result => result.key)
       expect(
-        subgoal.expected.some(expected => candidates.includes(expected)),
+        subgoal.expected.some(expected => hasCapability(candidates, expected)),
         `${subgoal.query}\nCandidates: ${candidates.join(', ')}`,
       ).toBe(true)
     }
@@ -63,7 +67,7 @@ describe('Deep Analyst controller golden contract', () => {
 
     for (const query of phrasings) {
       const candidates = searchSkills({ query, limit: 12 }).map(result => result.key)
-      expect(candidates, query).toContain('integration-analysis')
+      expect(hasCapability(candidates, 'integration-analysis'), `${query}\nCandidates: ${candidates.join(', ')}`).toBe(true)
     }
   })
 })
