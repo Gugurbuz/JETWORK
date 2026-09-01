@@ -12,6 +12,7 @@ import {
   type SkillToolExecution,
 } from '../_shared/skillTools.ts'
 import { AGENT_CONTROLLER_VERSION } from '../_shared/agentControllerPolicy.ts'
+import { compactPersistentConversationState } from '../_shared/persistentConversationState.ts'
 import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
 import {
@@ -214,15 +215,11 @@ async function loadConversationHistory(client: any, workspaceId: string, current
   return history
 }
 
-function compactConversationState(items: Array<Record<string, unknown>>) {
-  let state = [...items]
-  const exceedsBudget = () => state.length > 120 || JSON.stringify(state).length > 220_000
-  while (exceedsBudget()) {
-    const nextUserIndex = state.findIndex((item, index) => index > 0 && item.role === 'user')
-    if (nextUserIndex <= 0) break
-    state = state.slice(nextUserIndex)
-  }
-  return state
+function compactConversationState(
+  items: Array<Record<string, unknown>>,
+  plan?: ReasoningPlan,
+) {
+  return compactPersistentConversationState(items, plan)
 }
 
 interface OpenAiResponse {
@@ -920,7 +917,7 @@ serve(async req => {
               deterministic_enumeration_records: deterministicEnumeration.collectedCount,
               deterministic_enumeration_complete: deterministicEnumeration.complete ? 1 : 0,
             })
-            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: deterministicText }])
+            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: deterministicText }], plan)
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
               p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
               p_expected_revision: conversationRevision, p_state_items: stateItems,
@@ -1103,7 +1100,7 @@ serve(async req => {
               })
               emitStatus('verifying', 'Kanıt kapsamı dışında kalan teknik iddialar engellendi')
             }
-            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: roundText }])
+            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: roundText }], plan)
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
               p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
               p_expected_revision: conversationRevision, p_state_items: stateItems,
@@ -1197,7 +1194,7 @@ serve(async req => {
         console.error('Reasoning assistant stream failed:', streamError)
         if (!turnCompleted && semanticArtifactRequired() && generatedArtifacts.size > 0) {
           const recoveryText = 'Doküman oluşturuldu.'
-          const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: recoveryText }])
+          const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: recoveryText }], planForArtifactCompletion || undefined)
           const { error: recoveryCompletionError } = await adminClient.rpc('complete_assistant_turn', {
             p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
             p_expected_revision: conversationRevision, p_state_items: stateItems,
