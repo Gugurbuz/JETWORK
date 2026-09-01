@@ -11,10 +11,11 @@ describe('BA artifact evidence and finalization recovery', () => {
     expect(router).toContain('loadRecentArtifactContext(client, workspaceId, messageId, message)')
   })
 
-  it('forces a user-evidence-only revision when enterprise evidence is empty', () => {
+  it('returns empty enterprise evidence to the controller instead of forcing a fixed research sequence', () => {
     expect(core).toContain('ENTERPRISE_EVIDENCE_EMPTY_REVISE_ARTIFACT')
     expect(core).toContain('enterprise_artifact_evidence_retry')
-    expect(core).toContain('Enerjisa şablon başlıklarını değiştirme')
+    expect(core).toContain('Kurumsal kanıt henüz doğrulanmadı')
+    expect(core).toContain('Controller olarak sıradaki aksiyona sen karar ver')
   })
 
   it('recovers a completed artifact when later narration/finalization fails', () => {
