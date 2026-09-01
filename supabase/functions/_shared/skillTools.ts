@@ -103,19 +103,32 @@ const diceSimilarity = (left: string, right: string) => {
   return (2 * overlap) / (leftPairs.length + rightPairs.length)
 }
 
+const TOKEN_SIMILARITY_CACHE = new Map<string, number>()
+
 const tokenSimilarity = (left: string, right: string) => {
+  const cacheKey = left <= right ? `${left}\u0000${right}` : `${right}\u0000${left}`
+  const cached = TOKEN_SIMILARITY_CACHE.get(cacheKey)
+  if (cached !== undefined) return cached
+
   let best = 0
   for (const leftForm of tokenForms(left)) {
     for (const rightForm of tokenForms(right)) {
       if (!leftForm || !rightForm) continue
-      if (leftForm === rightForm) return 1
+      if (leftForm === rightForm) {
+        best = 1
+        break
+      }
       const shorter = Math.min(leftForm.length, rightForm.length)
       if (shorter >= 4 && (leftForm.startsWith(rightForm) || rightForm.startsWith(leftForm))) {
         best = Math.max(best, shorter / Math.max(leftForm.length, rightForm.length))
       }
       if (shorter >= 5) best = Math.max(best, diceSimilarity(leftForm, rightForm))
     }
+    if (best === 1) break
   }
+
+  if (TOKEN_SIMILARITY_CACHE.size >= 4_096) TOKEN_SIMILARITY_CACHE.clear()
+  TOKEN_SIMILARITY_CACHE.set(cacheKey, best)
   return best
 }
 
@@ -177,7 +190,10 @@ type SkillSearchIndex = {
   keyTokens: string[]
   titleTokens: string[]
   aliasTokens: string[]
+  identityTokens: string[]
+  identityTokenSet: Set<string>
   haystackTokens: string[]
+  haystackTokenSet: Set<string>
 }
 
 // Search metadata is immutable for the lifetime of an Edge Function instance.
@@ -188,18 +204,26 @@ const SKILL_SEARCH_INDEX: readonly SkillSearchIndex[] = JETWORK_RUNTIME_SKILLS.m
   const normalizedTitle = normalize(skill.title)
   const normalizedAliases = skill.aliases.map(normalize)
   const haystack = skillSearchText(skill)
+  const keyTokens = [...new Set(tokens(normalizedKey).flatMap(tokenForms))]
+  const titleTokens = [...new Set(tokens(normalizedTitle).flatMap(tokenForms))]
+  const aliasTokens = [...new Set(normalizedAliases.flatMap(tokens).flatMap(tokenForms))]
+  const identityTokens = [...new Set([...keyTokens, ...titleTokens, ...aliasTokens])]
+  // Description/markdown stays a broad exact-recall surface. Expensive fuzzy
+  // comparison is intentionally limited to compact identity metadata.
+  const haystackTokens = [...new Set(tokens(haystack).flatMap(tokenForms))].slice(0, 128)
   return {
     skill,
     normalizedKey,
     normalizedTitle,
     normalizedAliases,
     haystack,
-    keyTokens: [...new Set(tokens(normalizedKey))],
-    titleTokens: [...new Set(tokens(normalizedTitle))],
-    aliasTokens: [...new Set(normalizedAliases.flatMap(tokens))],
-    // Description/markdown is a recall field, not identity. A bounded prebuilt
-    // token set prevents long skill documents from dominating both CPU and rank.
-    haystackTokens: [...new Set(tokens(haystack))].slice(0, 96),
+    keyTokens,
+    titleTokens,
+    aliasTokens,
+    identityTokens,
+    identityTokenSet: new Set(identityTokens),
+    haystackTokens,
+    haystackTokenSet: new Set(haystackTokens),
   }
 })
 
@@ -215,17 +239,15 @@ const scoreSkill = (index: SkillSearchIndex, normalizedQuery: string, queryToken
 
   let identityCoverage = 0
   for (const token of queryTokens) {
-    const keySimilarity = bestTokenSimilarity(token, index.keyTokens)
-    const titleSimilarity = bestTokenSimilarity(token, index.titleTokens)
-    const aliasSimilarity = bestTokenSimilarity(token, index.aliasTokens)
-    const identitySimilarity = Math.max(keySimilarity, titleSimilarity, aliasSimilarity)
+    const identitySimilarity = index.identityTokenSet.has(token)
+      ? 1
+      : bestTokenSimilarity(token, index.identityTokens)
 
     if (identitySimilarity >= 0.58) {
       identityCoverage += 1
       score += 4.5 * identitySimilarity * identitySimilarity
-    } else {
-      const haystackSimilarity = bestTokenSimilarity(token, index.haystackTokens)
-      if (haystackSimilarity >= 0.72) score += 1.25 * haystackSimilarity * haystackSimilarity
+    } else if (index.haystackTokenSet.has(token)) {
+      score += 1.25
     }
 
     if (normalizedKey.includes(token)) score += 4
@@ -267,7 +289,7 @@ export const searchSkills = (input: {
   const category = normalize(input.category || '')
   const limit = Math.max(1, Math.min(Math.trunc(Number(input.limit) || 8), 12))
   if (normalizedQuery.length < 2) return []
-  const queryTokens = expandQueryTokens([...new Set(tokens(normalizedQuery))])
+  const queryTokens = expandQueryTokens([...new Set(tokens(normalizedQuery).flatMap(tokenForms))])
   return SKILL_SEARCH_INDEX
     .filter(index => !category || normalize(index.skill.category) === category)
     .map(index => ({ skill: index.skill, score: scoreSkill(index, normalizedQuery, queryTokens) }))
