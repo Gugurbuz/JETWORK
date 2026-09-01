@@ -79,10 +79,10 @@ export const compactSemanticConversation = (messages: SemanticContextMessage[]) 
 
 const REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
 const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
-const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct)$/i
-const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|more|rest|continue|next)\b/i
+const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct|onayliyorum|onayladim|approved|approve)$/i
+const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|basla|uygula|tamamla|more|rest|continue|next|start|proceed)\b/i
 const DEEP_RESEARCH_FOLLOW_UP_PATTERN = /(?:bu yaniti|bu cevabi).*(?:daha derin|web|arastir)|(?:daha derin arastir|web uzerinde de arastir)/i
-const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari)\b/i
+const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari|ne yapacagiz simdi|ne yapcaz simdi|simdi ne)\b/i
 const STRUCTURED_REQUIREMENT_NUMBER_PATTERN = /^\s*\d+(?:\.\d+){1,}\s+/gmu
 const STRUCTURED_REQUIREMENT_LANGUAGE_PATTERN = /\b(?:gereksinim[a-z]*|is kurali|servis[a-z]* guncellen[a-z]*|guncellenmelidir|olacaktir|donmelidir|yapilmalidir|mevcutta|proje ile|senaryo)\b/gu
 
@@ -323,16 +323,16 @@ const mergeCachedConversationState = (
 ): ConversationSemanticState | undefined => {
   if (!fresh) return cached
   if (!cached) return fresh
+
+  // A cached semantic plan is continuity cache, never durable memory. Positive
+  // facts/decisions/entities from it can be stale after a user correction, so
+  // fresh state + scoped Project Brain are authoritative. Only negative context
+  // is carried because it prevents the controller from resurrecting an already
+  // rejected hypothesis/scope; current user input still wins on every rebuild.
   return {
     ...fresh,
     rejectedHypotheses: unique([...(fresh.rejectedHypotheses || []), ...(cached.rejectedHypotheses || [])], 6),
     rejectedScopes: unique([...(fresh.rejectedScopes || []), ...(cached.rejectedScopes || [])], 6),
-    retainedContext: unique([...(cached.retainedContext || []), ...(fresh.retainedContext || [])], 8),
-    openQuestions: unique([...(cached.openQuestions || []), ...(fresh.openQuestions || [])], 8),
-    userDecisions: unique([...(cached.userDecisions || []), ...(fresh.userDecisions || [])], 8),
-    activeEntities: unique([...(fresh.activeEntities || []), ...(cached.activeEntities || [])], 10),
-    requestedEvidence: unique([...(fresh.requestedEvidence || []), ...(cached.requestedEvidence || [])], 8),
-    verifiedFactRefs: unique([...(fresh.verifiedFactRefs || []), ...(cached.verifiedFactRefs || [])], 12),
   }
 }
 
