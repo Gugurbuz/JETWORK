@@ -28,70 +28,98 @@ type OllamaRequestInput = {
 
 const clean = (value: unknown) => String(value ?? '').trim()
 
-const SCHEMA_META_KEYS = new Set([
-  '$schema',
-  '$id',
-  '$anchor',
-  '$dynamicAnchor',
-  '$comment',
-])
+const MEMORY_BLOCK_PATTERN = /\[JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE\]\s*(?:Bu içerik yalnız konuşma sürekliliği içindir; kurumsal\/teknik fact veya citation değildir\.\s*)?([\s\S]*?)\s*\[END_JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE\]/giu
+const MEMORY_MARKER_PATTERN = /\[(?:END_)?JETWORK_CONVERSATIONAL_MEMORY_NOT_EVIDENCE\]/giu
+
+const sanitizeInternalMemoryText = (value: string) => value
+  .replace(MEMORY_BLOCK_PATTERN, (_match, payload) => String(payload || '').trim())
+  .replace(MEMORY_MARKER_PATTERN, '')
+  .replace(/^Bu içerik yalnız konuşma sürekliliği içindir; kurumsal\/teknik fact veya citation değildir\.\s*$/gimu, '')
+  .trim()
+
+const sanitizeInternalMarkers = (value: unknown): unknown => {
+  if (typeof value === 'string') return sanitizeInternalMemoryText(value)
+  if (Array.isArray(value)) return value.map(sanitizeInternalMarkers)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, sanitizeInternalMarkers(nested)]),
+  )
+}
 
 const preferredNonNullType = (value: unknown) => {
-  if (!Array.isArray(value)) return value
+  if (!Array.isArray(value)) return clean(value) || undefined
   const types = value.map(clean).filter(Boolean)
   return types.find(type => type !== 'null') || types[0] || 'string'
 }
 
-const normalizeEnum = (value: unknown, normalizedType: unknown) => {
-  if (!Array.isArray(value)) return value
-  if (normalizedType === 'null') return value
-  const filtered = value.filter(item => item !== null)
-  return filtered.length ? filtered : value
+const normalizeEnum = (value: unknown) => {
+  if (!Array.isArray(value)) return undefined
+  const filtered = value.filter(item => item !== null && ['string', 'number', 'boolean'].includes(typeof item))
+  return filtered.length ? filtered : undefined
 }
 
+const BASIC_SCHEMA_TYPES = new Set(['object', 'array', 'string', 'integer', 'number', 'boolean', 'null'])
+
 /**
- * Ollama/llama.cpp tool grammars currently accept a narrower JSON Schema
- * surface than JetWork's OpenAI/Gemini strict tools. In particular, nullable
- * type unions such as ["integer", "null"] can make sampler grammar creation
- * fail before the model receives the prompt.
- *
- * Keep the semantic shape of the tool, but collapse nullable type unions to
- * their non-null type and remove schema-only metadata that is irrelevant to
- * tool argument generation.
+ * llama.cpp/Ollama tool grammar generation supports a narrower JSON Schema
+ * surface than JetWork's strict OpenAI/Gemini tools. Preserve only the schema
+ * structure the local model needs to form arguments: basic type, object
+ * properties/required keys, array items, scalar enum and descriptions.
+ * Provider-specific validation constraints stay server-side.
  */
 export const normalizeOllamaToolSchema = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(normalizeOllamaToolSchema)
-  if (!value || typeof value !== 'object') return value
-
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
   const source = value as Record<string, unknown>
-  const normalizedType = preferredNonNullType(source.type)
+  const rawType = preferredNonNullType(source.type)
+  const type = rawType && BASIC_SCHEMA_TYPES.has(rawType) ? rawType : undefined
   const result: Record<string, unknown> = {}
 
-  for (const [key, nested] of Object.entries(source)) {
-    if (SCHEMA_META_KEYS.has(key)) continue
-    if (key === 'nullable') continue
-    if (key === 'type') {
-      result.type = normalizedType
-      continue
-    }
-    if (key === 'enum') {
-      result.enum = normalizeEnum(nested, normalizedType)
-      continue
-    }
-    if (key === 'default' && nested === null && normalizedType !== 'null') continue
-    result[key] = normalizeOllamaToolSchema(nested)
+  if (type) result.type = type
+  if (typeof source.description === 'string' && source.description.trim()) {
+    result.description = source.description.trim().slice(0, 500)
   }
 
+  const enumValues = normalizeEnum(source.enum)
+  if (enumValues) result.enum = enumValues
+
+  if (type === 'object' || source.properties) {
+    const sourceProperties = source.properties && typeof source.properties === 'object' && !Array.isArray(source.properties)
+      ? source.properties as Record<string, unknown>
+      : {}
+    const properties = Object.fromEntries(
+      Object.entries(sourceProperties).map(([key, schema]) => [key, normalizeOllamaToolSchema(schema)]),
+    )
+    result.type = 'object'
+    result.properties = properties
+
+    if (Array.isArray(source.required)) {
+      const required = source.required.map(clean).filter(key => key && Object.hasOwn(properties, key))
+      if (required.length) result.required = required
+    }
+  } else if (type === 'array') {
+    result.items = normalizeOllamaToolSchema(
+      source.items && typeof source.items === 'object' ? source.items : { type: 'string' },
+    )
+  }
+
+  if (!result.type) result.type = 'string'
   return result
 }
 
-const normalizeOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.map(tool => {
-  if (clean(tool.type) !== 'function') return tool
-  if (!tool.parameters || typeof tool.parameters !== 'object') return tool
-  return {
-    ...tool,
-    parameters: normalizeOllamaToolSchema(tool.parameters),
-  }
+const normalizeOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.flatMap(tool => {
+  if (clean(tool.type) !== 'function') return []
+  const name = clean(tool.name)
+  if (!name) return []
+  return [{
+    type: 'function',
+    name,
+    description: clean(tool.description).slice(0, 500),
+    parameters: normalizeOllamaToolSchema(
+      tool.parameters && typeof tool.parameters === 'object'
+        ? tool.parameters
+        : { type: 'object', properties: {} },
+    ),
+  }]
 })
 
 const errorText = (error: unknown) => {
@@ -114,16 +142,48 @@ const withUsage = (
   },
 })
 
+const sanitizedResponse = (response: OllamaNormalizedResponse): OllamaNormalizedResponse => (
+  sanitizeInternalMarkers(response) as OllamaNormalizedResponse
+)
+
+const responseVisibleText = (response: OllamaNormalizedResponse) => {
+  const output = Array.isArray(response.output) ? response.output : []
+  const chunks: string[] = []
+  for (const item of output) {
+    if (item?.type !== 'message' || !Array.isArray(item.content)) continue
+    for (const part of item.content as Array<Record<string, unknown>>) {
+      if ((part?.type === 'output_text' || part?.type === 'refusal') && typeof part.text === 'string') {
+        chunks.push(part.text)
+      }
+    }
+  }
+  return chunks.join('')
+}
+
+const runBuffered = async (
+  input: OllamaRequestInput,
+  overrides: Partial<Pick<OllamaRequestInput, 'items' | 'tools' | 'allowTools'>>,
+) => {
+  const response = await baseRequestOllamaResponse({
+    ...input,
+    ...overrides,
+    items: (sanitizeInternalMarkers(overrides.items ?? input.items) as Array<Record<string, unknown>>),
+    onText: () => {},
+  })
+  const cleanResponse = sanitizedResponse(response)
+  const text = responseVisibleText(cleanResponse)
+  if (text) input.onText(text)
+  return cleanResponse
+}
+
 export async function requestOllamaResponse(input: OllamaRequestInput): Promise<OllamaNormalizedResponse> {
   const normalizedTools = input.allowTools ? normalizeOllamaTools(input.tools) : input.tools
 
   try {
-    const response = await baseRequestOllamaResponse({
-      ...input,
-      tools: normalizedTools,
-    })
+    const response = await runBuffered(input, { tools: normalizedTools })
     return withUsage(response, {
       ollama_tool_schema_compat: input.allowTools && input.tools.length ? 1 : 0,
+      ollama_internal_marker_sanitizer: 1,
     })
   } catch (error) {
     if (input.signal?.aborted || !input.allowTools || !input.tools.length || !isToolGrammarError(error)) {
@@ -136,8 +196,7 @@ export async function requestOllamaResponse(input: OllamaRequestInput): Promise<
       error: errorText(error).slice(0, 500),
     }))
 
-    const response = await baseRequestOllamaResponse({
-      ...input,
+    const response = await runBuffered(input, {
       tools: [],
       allowTools: false,
     })
@@ -145,6 +204,7 @@ export async function requestOllamaResponse(input: OllamaRequestInput): Promise<
     return withUsage(response, {
       ollama_tool_schema_compat: 1,
       ollama_tool_grammar_retry_without_tools: 1,
+      ollama_internal_marker_sanitizer: 1,
     })
   }
 }
