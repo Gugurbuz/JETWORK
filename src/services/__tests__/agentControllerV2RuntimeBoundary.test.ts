@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_CONTROLLER_V2_FLAG,
+  DENO_DEPLOYMENT_ID_ENV,
   LEGACY_AGENT_CONTROLLER_FLAG,
   isAgentControllerV2Enabled,
   isLegacyAgentControllerEnabled,
@@ -28,7 +29,7 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isAgentControllerV2Enabled(() => undefined)).toBe(false)
   })
 
-  it('uses only the canonical rollout flag to enable Controller V2', () => {
+  it('uses the canonical rollout flag in normal deployments and ignores the legacy flag', () => {
     const canonical = new Map<string, string>([
       [AGENT_CONTROLLER_V2_FLAG, 'true'],
       [LEGACY_AGENT_CONTROLLER_FLAG, 'false'],
@@ -40,15 +41,35 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isLegacyAgentControllerEnabled(name => legacyOnly.get(name))).toBe(true)
   })
 
-  it('treats invalid canonical configuration as disabled', () => {
+  it('allows only explicit non-production canary function identities to enable live-like V2', () => {
+    const goldenCanary = new Map<string, string>([[
+      DENO_DEPLOYMENT_ID_ENV,
+      'bpbbvjigostgrssnduhk_8889f9e7-b72b-4549-b793-0045311043d6_12',
+    ]])
+    const coreCanary = new Map<string, string>([[
+      DENO_DEPLOYMENT_ID_ENV,
+      'bpbbvjigostgrssnduhk_7806a5b9-17a7-4cae-a15e-c3e2d6ec8eac_4',
+    ]])
+    expect(isAgentControllerV2Enabled(name => goldenCanary.get(name))).toBe(true)
+    expect(isAgentControllerV2Enabled(name => coreCanary.get(name))).toBe(true)
+
+    const productionGateway = new Map<string, string>([[
+      DENO_DEPLOYMENT_ID_ENV,
+      'bpbbvjigostgrssnduhk_0f38ecb0-e3c9-4adb-8aec-a52c3474d266_101',
+    ]])
+    expect(isAgentControllerV2Enabled(name => productionGateway.get(name))).toBe(false)
+  })
+
+  it('treats invalid canonical configuration as disabled outside explicit canary deployments', () => {
     const values = new Map<string, string>([
       [AGENT_CONTROLLER_V2_FLAG, 'maybe'],
       [LEGACY_AGENT_CONTROLLER_FLAG, 'true'],
+      [DENO_DEPLOYMENT_ID_ENV, 'bpbbvjigostgrssnduhk_0f38ecb0-e3c9-4adb-8aec-a52c3474d266_101'],
     ])
     expect(isAgentControllerV2Enabled(name => values.get(name))).toBe(false)
   })
 
-  it('bridges the canonical rollout decision into the durable core before implementation loads', () => {
+  it('bridges the canonical/canary rollout decision into the durable core before implementation loads', () => {
     expect(durableCoreEntrySource).toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')")
     expect(durableCoreEntrySource.indexOf("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'"))
       .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
