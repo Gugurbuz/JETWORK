@@ -21,8 +21,9 @@ const scenarios: AgenticRuntimeV2GoldenScenario[] = [
   },
 ]
 
-const result = (ttft: number | null, totalLatencyMs: number, artifactCount = 0) => ({
+const result = (messageId: string, ttft: number | null, totalLatencyMs: number, artifactCount = 0) => ({
   version: 'agentic-runtime-staging-probe-v1' as const,
+  messageId,
   fullText: ttft === null ? '' : 'ok',
   endToEndTtftMs: ttft,
   headersLatencyMs: 100,
@@ -34,11 +35,18 @@ const result = (ttft: number | null, totalLatencyMs: number, artifactCount = 0) 
 })
 
 describe('agentic runtime staging probe suite', () => {
-  it('runs scenario turns sequentially and aggregates only measured text TTFT values', async () => {
-    const probeTurn = vi.fn()
-      .mockResolvedValueOnce(result(300, 1_000))
-      .mockResolvedValueOnce(result(500, 1_200))
-      .mockResolvedValueOnce(result(null, 1_500, 1))
+  it('persists each exact user turn before probing and aggregates only measured text TTFT values', async () => {
+    const outcomes = [
+      { ttft: 300, total: 1_000, artifacts: 0 },
+      { ttft: 500, total: 1_200, artifacts: 0 },
+      { ttft: null, total: 1_500, artifacts: 1 },
+    ]
+    let index = 0
+    const beforeTurn = vi.fn(async () => undefined)
+    const probeTurn = vi.fn(async (input: any) => {
+      const outcome = outcomes[index++]
+      return result(input.messageId, outcome.ttft, outcome.total, outcome.artifacts)
+    })
 
     const suite = await runAgenticRuntimeStagingProbeSuite({
       targetSupabaseUrl: 'https://staging.supabase.co',
@@ -47,12 +55,23 @@ describe('agentic runtime staging probe suite', () => {
       accessToken: 'token',
       workspaceId: 'ws-1',
       scenarios,
+      beforeTurn,
       probeTurn: probeTurn as any,
       messageIdFactory: (scenarioId, turnIndex) => `${scenarioId}-${turnIndex}`,
     })
 
+    expect(beforeTurn).toHaveBeenCalledTimes(3)
     expect(probeTurn).toHaveBeenCalledTimes(3)
+    expect(beforeTurn.mock.calls.map(call => call[0])).toEqual([
+      expect.objectContaining({ scenarioId: 's1', turnIndex: 0, messageId: 's1-0', message: 'one' }),
+      expect.objectContaining({ scenarioId: 's2', turnIndex: 0, messageId: 's2-0', message: 'two-a' }),
+      expect.objectContaining({ scenarioId: 's2', turnIndex: 1, messageId: 's2-1', message: 'two-b' }),
+    ])
     expect(probeTurn.mock.calls.map(call => call[0].messageId)).toEqual(['s1-0', 's2-0', 's2-1'])
+    for (let turn = 0; turn < 3; turn += 1) {
+      expect(beforeTurn.mock.invocationCallOrder[turn]).toBeLessThan(probeTurn.mock.invocationCallOrder[turn])
+    }
+    expect(suite.scenarioResults.flatMap(item => item.turns.map(turn => turn.messageId))).toEqual(['s1-0', 's2-0', 's2-1'])
     expect(suite.scenarioCount).toBe(2)
     expect(suite.turnCount).toBe(3)
     expect(suite.performance.endToEndTtftP50Ms).toBe(300)
