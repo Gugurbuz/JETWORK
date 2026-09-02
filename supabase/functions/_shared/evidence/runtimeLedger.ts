@@ -3,6 +3,7 @@ import type { ReasoningSourceRef } from '../reasoningEngine.ts'
 import {
   addEvidence,
   createEvidenceMap,
+  registerConflict,
   setCoverageAspects,
   type CoverageAspect,
   type EvidenceMapV2,
@@ -103,6 +104,13 @@ export interface ControllerCoverageProposal {
   }>
 }
 
+export interface ControllerConflictProposal {
+  conflicts: Array<{
+    key: string
+    evidenceIds: string[]
+  }>
+}
+
 /**
  * The controller proposes semantic coverage. Runtime only validates that cited
  * evidence IDs actually exist; setCoverageAspects mechanically downgrades a
@@ -115,6 +123,25 @@ export const applyControllerCoverageProposal = (
   ...ledger,
   map: setCoverageAspects(ledger.map, proposal.aspects),
 })
+
+/**
+ * Conflict meaning is proposed by the controller. Runtime only attaches the
+ * conflict key to evidence IDs that already exist in the verified ledger.
+ */
+export const applyControllerConflictProposal = (
+  ledger: EvidenceRuntimeLedger,
+  proposal: ControllerConflictProposal,
+): EvidenceRuntimeLedger => {
+  const known = new Set(ledger.map.evidence.map(item => item.id))
+  let map = ledger.map
+  for (const conflict of proposal.conflicts) {
+    const key = clean(conflict.key, 240)
+    const evidenceIds = [...new Set((conflict.evidenceIds || []).map(id => clean(id, 160)).filter(id => known.has(id)))].slice(0, 24)
+    if (!key || evidenceIds.length < 2) continue
+    map = registerConflict(map, key, evidenceIds)
+  }
+  return { ...ledger, map }
+}
 
 export const evidenceCriticObservation = (ledger: EvidenceRuntimeLedger): EvidenceCriticObservation => (
   critiqueEvidenceMap(ledger.map)
@@ -133,5 +160,5 @@ export const evidenceLedgerObservation = (ledger: EvidenceRuntimeLedger) => ({
   })),
   aspects: ledger.map.aspects,
   critic: evidenceCriticObservation(ledger),
-  instruction: 'This is an observation only. Evidence IDs are mechanically verified; coverage labels are controller proposals constrained to real evidence IDs. Decide whether to research, use another capability, or answer based on the user goal and remaining uncertainty.',
+  instruction: 'This is an observation only. Evidence IDs are mechanically verified; coverage/conflict labels are controller proposals constrained to real evidence IDs. Decide whether to research, use another capability, or answer based on the user goal and remaining uncertainty.',
 })
