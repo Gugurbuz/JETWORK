@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_CONTROLLER_V2_FLAG,
@@ -7,6 +8,11 @@ import {
 } from '../../../supabase/functions/_shared/runtime/runtimeFlags.ts'
 import { buildAuthoritativeInventoryFastPlan } from '../../../supabase/functions/_shared/authoritativeInventoryFastPath.ts'
 import { shouldUseTrivialAssistantFastPath } from '../../../supabase/functions/_shared/trivialAssistantFastPath.ts'
+
+const durableCoreEntrySource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Agent Controller V2 runtime boundary', () => {
   it('defaults to disabled when rollout configuration is missing', () => {
@@ -31,6 +37,12 @@ describe('Agent Controller V2 runtime boundary', () => {
       [LEGACY_AGENT_CONTROLLER_FLAG, 'true'],
     ])
     expect(isAgentControllerV2Enabled(name => values.get(name))).toBe(false)
+  })
+
+  it('bridges the canonical rollout decision into the durable core before implementation loads', () => {
+    expect(durableCoreEntrySource).toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')")
+    expect(durableCoreEntrySource.indexOf("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'"))
+      .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
   })
 
   it('does not allow the authoritative inventory fast path to bypass an active controller', () => {
