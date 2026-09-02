@@ -2,6 +2,7 @@ import { ASSISTANT_KNOWLEDGE_TOOLS } from '../assistantTools.ts'
 import { ASSISTANT_ARTIFACT_TOOLS } from '../artifactExecutionTools.ts'
 import { ASSISTANT_EXECUTION_TOOLS } from '../executionTools.ts'
 import { ASSISTANT_CONTEXT_TOOLS } from '../contextTools.ts'
+import { getCapabilityRuntimeStatus } from '../capabilityManifest.ts'
 import { JETWORK_SKILLS, type JetWorkSkillRecord } from '../skillRegistry.generated.ts'
 import { JETWORK_V2_SKILLS } from '../skillRegistry.v2.ts'
 
@@ -41,30 +42,37 @@ const runtimeSkills = () => {
   return [...merged.values()]
 }
 
-const skillItem = (skill: JetWorkSkillRecord): CapabilityRegistryItem => ({
-  id: `skill:${skill.key}`,
-  version: String((skill as { version?: unknown }).version || '1'),
-  kind: 'skill',
-  category: 'skill',
-  title: skill.title,
-  description: skill.description,
-  skillKey: skill.key,
-  semanticText: compact([
-    skill.key,
-    skill.title,
-    skill.category,
-    skill.description,
-    ...(skill.aliases || []),
-    ...(skill.tools || []),
-    String(skill.markdown || '').slice(0, 6_000),
-  ].join('\n')),
-  metadata: {
-    category: skill.category,
-    priority: skill.priority,
-    aliases: skill.aliases || [],
-    declaredTools: skill.tools || [],
-  },
-})
+const skillItem = (skill: JetWorkSkillRecord): CapabilityRegistryItem => {
+  const runtime = getCapabilityRuntimeStatus(skill.key)
+  return {
+    id: `skill:${skill.key}`,
+    version: String((skill as { version?: unknown }).version || '1'),
+    kind: 'skill',
+    category: 'skill',
+    title: skill.title,
+    description: skill.description,
+    skillKey: skill.key,
+    semanticText: compact([
+      skill.key,
+      skill.title,
+      skill.category,
+      skill.description,
+      ...(skill.aliases || []),
+      ...(skill.tools || []),
+      ...runtime.executorTools,
+      String(skill.markdown || '').slice(0, 6_000),
+    ].join('\n')),
+    metadata: {
+      category: skill.category,
+      priority: skill.priority,
+      aliases: skill.aliases || [],
+      declaredTools: skill.tools || [],
+      executorTools: runtime.executorTools,
+      readiness: runtime.readiness,
+      executionMode: runtime.mode,
+    },
+  }
+}
 
 const toolItem = (
   tool: RuntimeToolSchema,
