@@ -16,10 +16,12 @@ const runtimeFlags = readFileSync(
 
 describe('Agentic Runtime V2 canary deployment boot', () => {
   it('uses static imports so hosted Edge Runtime does not require remote dynamic import', () => {
-    expect(canaryEntry).toContain("import '../_shared/runtime/agenticCanaryBootstrap.ts'")
-    expect(canaryEntry).toContain("import './implementation.ts'")
+    const bootstrapImport = "import '../_shared/runtime/agenticCanaryBootstrap.ts'"
+    const implementationImport = "import './implementation.ts'"
+    expect(canaryEntry).toContain(bootstrapImport)
+    expect(canaryEntry).toContain(implementationImport)
     expect(canaryEntry).not.toContain('await import(')
-    expect(canaryEntry.indexOf('agenticCanaryBootstrap.ts')).toBeLessThan(canaryEntry.indexOf("implementation.ts"))
+    expect(canaryEntry.indexOf(bootstrapImport)).toBeLessThan(canaryEntry.indexOf(implementationImport))
   })
 
   it('authorizes the bootstrap from deployment identity rather than request-controlled input', () => {
