@@ -14,9 +14,11 @@ describe('office revision runtime wiring v2', () => {
     expect(source).toContain('verifyOfficeRevisionInvariant')
   })
 
-  it('fails closed and removes an invalid generated revision', () => {
+  it('fails closed and removes generated output on invariant or inspection failure', () => {
     expect(source).toContain('ARTIFACT_REVISION_INVARIANT_FAILED')
-    expect(source).toContain('client.storage.from(outputRef.storageBucket).remove([outputRef.storagePath])')
+    expect(source).toContain('async function removeGeneratedArtifact')
+    expect(source).toContain('client.storage.from(artifact.storageBucket).remove([artifact.storagePath])')
+    expect(source).toMatch(/catch \(error\)[\s\S]*removeGeneratedArtifact\(client, outputRef\)[\s\S]*throw error/)
   })
 
   it('reports revision verification alongside persisted artifact integrity', () => {
