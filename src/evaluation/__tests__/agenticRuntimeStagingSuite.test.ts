@@ -42,7 +42,7 @@ describe('agentic runtime staging probe suite', () => {
       { ttft: null, total: 1_500, artifacts: 1 },
     ]
     let index = 0
-    const beforeTurn = vi.fn(async () => undefined)
+    const beforeTurn = vi.fn(async (input: any) => input)
     const probeTurn = vi.fn(async (input: any) => {
       const outcome = outcomes[index++]
       return result(input.messageId, outcome.ttft, outcome.total, outcome.artifacts)
