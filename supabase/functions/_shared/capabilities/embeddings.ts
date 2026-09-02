@@ -1,4 +1,4 @@
-import { GoogleGenAI } from 'npm:@google/genai@1.29.0'
+import { GoogleGenAI } from '@google/genai'
 
 export const CAPABILITY_EMBEDDING_MODEL = 'gemini-embedding-001'
 export const CAPABILITY_EMBEDDING_DIMENSIONS = 768
