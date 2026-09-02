@@ -1,6 +1,7 @@
 import { ASSISTANT_KNOWLEDGE_TOOLS } from '../assistantTools.ts'
 import { ASSISTANT_ARTIFACT_TOOLS } from '../artifactExecutionTools.ts'
 import { ASSISTANT_EXECUTION_TOOLS } from '../executionTools.ts'
+import { ASSISTANT_CONTEXT_TOOLS } from '../contextTools.ts'
 import { JETWORK_SKILLS, type JetWorkSkillRecord } from '../skillRegistry.generated.ts'
 import { JETWORK_V2_SKILLS } from '../skillRegistry.v2.ts'
 
@@ -107,6 +108,14 @@ export const buildCapabilityRegistry = (): readonly CapabilityRegistryItem[] => 
 
   for (const tool of ASSISTANT_KNOWLEDGE_TOOLS as unknown as readonly RuntimeToolSchema[]) {
     items.set(`tool:${tool.name}`, toolItem(tool, 'knowledge', { evidenceCapability: true }))
+  }
+
+  for (const tool of ASSISTANT_CONTEXT_TOOLS as unknown as readonly RuntimeToolSchema[]) {
+    items.set(`tool:${tool.name}`, toolItem(tool, 'context', {
+      contextCapability: true,
+      durableMemoryCapability: tool.name === 'record_project_memory',
+      requiresUserProvenance: true,
+    }))
   }
 
   const artifactNames = toolNameSet(ASSISTANT_ARTIFACT_TOOLS as unknown as readonly RuntimeToolSchema[])
