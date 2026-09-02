@@ -51,8 +51,8 @@ begin
     and jsonb_typeof(coalesce(run.source_refs, '[]'::jsonb)) = 'array'
     and jsonb_array_length(coalesce(run.source_refs, '[]'::jsonb)) > 0
     and (
-      coalesce((run.result_summary ->> 'citationReady')::boolean, false)
-      or coalesce((run.result_summary ->> 'verifiedKnowledgeEvidence')::boolean, false)
+      lower(coalesce(run.result_summary ->> 'citationReady', 'false')) = 'true'
+      or lower(coalesce(run.result_summary ->> 'verifiedKnowledgeEvidence', 'false')) = 'true'
       or run.tool_name in ('web_search', 'gemini_google_search')
     )
   order by run.created_at asc
@@ -61,6 +61,6 @@ end;
 $$;
 
 revoke all on function public.get_current_agent_evidence_sources_v2(text)
-from public, anon;
+from public, anon, authenticated;
 grant execute on function public.get_current_agent_evidence_sources_v2(text)
 to authenticated;
