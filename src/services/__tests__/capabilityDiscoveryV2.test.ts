@@ -33,7 +33,8 @@ describe('Semantic Capability Discovery v2', () => {
   it('builds one deduplicated registry across skills, knowledge, artifact and web capabilities', () => {
     expect(CAPABILITY_REGISTRY_VERSION).toBe('capability-registry-v2')
     expect(new Set(CAPABILITY_REGISTRY.map(candidate => candidate.id)).size).toBe(CAPABILITY_REGISTRY.length)
-    expect(new Set(CAPABILITY_REGISTRY.map(candidate => candidate.category))).toEqual(expect.objectContaining(new Set(['skill','knowledge','artifact','web'])))
+    const categories = new Set(CAPABILITY_REGISTRY.map(candidate => candidate.category))
+    for (const category of ['skill','knowledge','artifact','web'] as const) expect(categories.has(category)).toBe(true)
     expect(CAPABILITY_REGISTRY.some(candidate => candidate.id === 'tool:load_document_contract')).toBe(true)
     expect(CAPABILITY_REGISTRY.some(candidate => candidate.id === 'provider:web_search')).toBe(true)
   })
