@@ -13,7 +13,7 @@ import { compactSemanticConversation } from '../../../supabase/functions/_shared
 
 const gatewaySource = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url), 'utf8')
 const providerSource = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url), 'utf8')
-const controllerPolicySource = readFileSync(new URL('../../../supabase/functions/_shared/agentControllerPolicy.ts', import.meta.url), 'utf8')
+const controllerPolicySource = readFileSync(new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url), 'utf8')
 const reasoningSource = readFileSync(new URL('../../../supabase/functions/_shared/reasoningEngine.ts', import.meta.url), 'utf8')
 const orchestratorSource = readFileSync(new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url), 'utf8')
 const semanticCacheMigration = readFileSync(new URL('../../../supabase/migrations/20260809231500_semantic_orchestrator_plan_cache.sql', import.meta.url), 'utf8')
