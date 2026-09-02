@@ -9,6 +9,10 @@ import {
 import { buildAuthoritativeInventoryFastPlan } from '../../../supabase/functions/_shared/authoritativeInventoryFastPath.ts'
 import { shouldUseTrivialAssistantFastPath } from '../../../supabase/functions/_shared/trivialAssistantFastPath.ts'
 import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/semanticOrchestrator.ts'
+import {
+  ASSISTANT_ARTIFACT_TOOLS,
+  executeArtifactExecutionTool,
+} from '../../../supabase/functions/_shared/artifactExecutionTools.ts'
 
 const durableCoreEntrySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
@@ -62,6 +66,26 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(result.plan.evidenceQueries).toEqual([])
     expect(result.plan.enterpriseGroundingRequired).toBe(true)
     expect(result.usage?.controller_v2_advisory_plan).toBe(1)
+  })
+
+  it('exposes the canonical Enerjisa document contract as a controller-selected artifact capability', async () => {
+    expect(ASSISTANT_ARTIFACT_TOOLS.some(tool => tool.name === 'load_document_contract')).toBe(true)
+    const result = await executeArtifactExecutionTool({
+      toolName: 'load_document_contract',
+      args: { contractKey: 'enerjisa-analysis-docx' },
+      workspaceId: 'test-workspace',
+      attachments: [],
+      invoke: async () => { throw new Error('contract loading must not invoke binary execution') },
+    })
+
+    expect(result.artifacts).toEqual([])
+    expect(result.summary).toMatchObject({
+      proceduralOnly: true,
+      controllerDecisionRequired: true,
+      contractKey: 'enerjisa-analysis-docx',
+    })
+    expect(result.output).toContain('JETWORK_RUNTIME_DOCUMENT_PROFILE:ENERJISA_ANALYSIS_DOCX')
+    expect(result.output).toContain('create_document_file')
   })
 
   it('does not allow the authoritative inventory fast path to bypass an active controller', () => {
