@@ -3,6 +3,13 @@ import { isExecutionTool, type AssistantGeneratedFileRef } from './executionTool
 import { executeSpreadsheetAssistantTool } from './spreadsheetAssistantTool.ts'
 import { isArtifactExecutionTool } from './artifactExecutionTools.ts'
 import { executeArtifactAssistantTool } from './artifactAssistantTool.ts'
+import {
+  ASSISTANT_CONTEXT_TOOLS,
+  executeContextTool,
+  isContextTool,
+} from './context/contextTools.ts'
+
+export { ASSISTANT_CONTEXT_TOOLS }
 
 export interface AssistantSourceRef {
   sourceId?: string
@@ -571,6 +578,7 @@ export async function executeAssistantTool(
     return getExactObject(client, workspaceId, canonicalKey, objectTypes, toolName)
   }
   if (toolName === 'get_related_objects') return getRelatedObjects(client, workspaceId, args)
+  if (isContextTool(toolName)) return executeContextTool({ client, workspaceId, toolName, args })
   if (isExecutionTool(toolName)) return executeSpreadsheetAssistantTool(client, workspaceId, toolName, args)
   if (isArtifactExecutionTool(toolName)) return executeArtifactAssistantTool(client, workspaceId, toolName, args)
   throw new Error(`Unknown assistant tool: ${toolName}`)
