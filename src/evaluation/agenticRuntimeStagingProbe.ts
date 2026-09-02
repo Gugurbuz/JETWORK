@@ -17,6 +17,7 @@ export interface AgenticRuntimeStagingProbeInput {
 
 export interface AgenticRuntimeStagingProbeResult {
   version: typeof AGENTIC_RUNTIME_STAGING_PROBE_VERSION
+  messageId: string
   fullText: string
   endToEndTtftMs: number | null
   headersLatencyMs: number
@@ -37,6 +38,8 @@ const clean = (value: unknown, max = 2_000) => String(value ?? '').trim().slice(
 /**
  * Executes exactly one Agentic Runtime turn against an explicitly separate
  * staging Supabase target and measures request-start -> first visible text delta.
+ * The caller must persist the user message before invoking this probe because
+ * the gateway resolves current semantic context from the messages table.
  * It refuses to run when target and production URLs are the same.
  */
 export async function probeAgenticRuntimeStagingTurn(
@@ -47,7 +50,8 @@ export async function probeAgenticRuntimeStagingTurn(
   if (!target || !production) throw new Error('STAGING_PROBE_URLS_REQUIRED')
   if (target === production) throw new Error('STAGING_PROBE_PRODUCTION_TARGET_FORBIDDEN')
   if (!input.anonKey || !input.accessToken) throw new Error('STAGING_PROBE_AUTH_REQUIRED')
-  if (!clean(input.workspaceId, 200) || !clean(input.messageId, 240) || !clean(input.message, 32_000)) {
+  const messageId = clean(input.messageId, 240)
+  if (!clean(input.workspaceId, 200) || !messageId || !clean(input.message, 32_000)) {
     throw new Error('STAGING_PROBE_TURN_INPUT_REQUIRED')
   }
 
@@ -63,7 +67,7 @@ export async function probeAgenticRuntimeStagingTurn(
     },
     body: JSON.stringify({
       workspaceId: input.workspaceId,
-      messageId: input.messageId,
+      messageId,
       message: input.message,
       model: input.model || 'auto',
       chatAttachments: [],
@@ -142,6 +146,7 @@ export async function probeAgenticRuntimeStagingTurn(
 
   return {
     version: AGENTIC_RUNTIME_STAGING_PROBE_VERSION,
+    messageId,
     fullText,
     endToEndTtftMs: firstTextAtMs === null ? null : Math.max(0, firstTextAtMs - requestStartedAtMs),
     headersLatencyMs: Math.max(0, headersReceivedAtMs - requestStartedAtMs),
