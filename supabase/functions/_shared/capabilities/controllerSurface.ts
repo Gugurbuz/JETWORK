@@ -57,6 +57,7 @@ export interface ControllerCapabilitySurface {
     title: string
     toolName?: string
     skillKey?: string
+    declaredTools?: string[]
     score: number
   }>
 }
@@ -80,6 +81,12 @@ const uniqueTools = (tools: RuntimeToolSchema[]) => {
   })
 }
 
+const pushRuntimeTool = (selectedTools: RuntimeToolSchema[], toolName: string | undefined) => {
+  if (!toolName || toolName === 'provider_web') return
+  const schema = runtimeToolByName.get(toolName)
+  if (schema) selectedTools.push(schema)
+}
+
 export const buildControllerCapabilitySurface = (
   candidates: readonly CapabilityCandidate[],
 ): ControllerCapabilitySurface => {
@@ -91,9 +98,8 @@ export const buildControllerCapabilitySurface = (
   selectedTools.push(DISCOVER_MORE_CAPABILITIES_TOOL)
 
   for (const candidate of candidates) {
-    if (!candidate.toolName || candidate.toolName === 'provider_web') continue
-    const schema = runtimeToolByName.get(candidate.toolName)
-    if (schema) selectedTools.push(schema)
+    pushRuntimeTool(selectedTools, candidate.toolName)
+    for (const declaredTool of candidate.declaredTools || []) pushRuntimeTool(selectedTools, declaredTool)
   }
 
   const tools = uniqueTools(selectedTools)
@@ -111,6 +117,7 @@ export const buildControllerCapabilitySurface = (
       title: candidate.title,
       toolName: candidate.toolName,
       skillKey: candidate.skillKey,
+      declaredTools: candidate.declaredTools,
       score: candidate.score,
     })),
   }
@@ -187,5 +194,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: session.surface.candidates,
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'These are candidate capabilities only. Choose the next capability semantically. If insufficient, call discover_more_capabilities. Use review_evidence_coverage only to inspect/review verified current-turn evidence; it never chooses the next capability or finalizes the answer.',
+  instruction: 'These are candidate capabilities only. For a skill candidate, only its declared runtime tools are surfaced; choose among them semantically. Search results are discovery candidates and must be followed by an exact/detail tool before they can support grounded technical claims. If insufficient, call discover_more_capabilities. Use review_evidence_coverage only to inspect/review verified current-turn evidence; it never chooses the next capability or finalizes the answer.',
 })
