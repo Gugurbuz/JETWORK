@@ -33,6 +33,21 @@ describe('Agentic Runtime V2 telemetry adapter', () => {
     expect(trace.assertionsSatisfied).not.toContain('correction_supersedes_old_version')
   })
 
+  it('maps the P4 evidence-review observation tool to the critic capability', () => {
+    const trace = adaptAgenticRuntimeTelemetry({
+      completed: true,
+      toolRuns: [{
+        toolName: 'review_evidence_coverage',
+        status: 'completed',
+        selectedByController: true,
+        summary: { evidenceReview: true, controllerDecisionRequired: true },
+      }],
+    })
+
+    expect(trace.selectedCapabilities).toContain('critic')
+    expect(trace.observations).toContain('review_evidence_coverage:completed')
+  })
+
   it('requires reload + integrity telemetry for artifact completion', () => {
     const verifiedInput = {
       completed: true,
