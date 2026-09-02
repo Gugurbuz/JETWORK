@@ -17,6 +17,7 @@ const run = (overrides: Record<string, unknown> = {}) => ({
   toolCalls: 3,
   providerCalls: 2,
   ttftMs: 1200,
+  streamOpenToFirstTextMs: 300,
   totalLatencyMs: 5000,
   inputTokens: 1000,
   outputTokens: 500,
@@ -28,13 +29,15 @@ describe('agentic runtime v2 scorecard', () => {
   it('passes the quality gate when P6 thresholds are met', () => {
     const summary = summarizeAgenticRuntimeV2Scorecard([
       run({ scenarioId: 's1' }),
-      run({ scenarioId: 's2', critical: false, ttftMs: 1800, totalLatencyMs: 7000 }),
+      run({ scenarioId: 's2', critical: false, ttftMs: 1800, streamOpenToFirstTextMs: 450, totalLatencyMs: 7000 }),
     ] as any)
 
     expect(summary.releaseQualityGatePassed).toBe(true)
     expect(summary.quality.taskSuccessRate).toBe(1)
     expect(summary.performance.ttftP50Ms).toBe(1200)
     expect(summary.performance.ttftP95Ms).toBe(1800)
+    expect(summary.performance.streamOpenToFirstTextP50Ms).toBe(300)
+    expect(summary.performance.streamOpenToFirstTextP95Ms).toBe(450)
     expect(summary.performance.costPerSuccessfulGroundedAnswerUsd).toBeCloseTo(0.02)
   })
 
@@ -51,11 +54,12 @@ describe('agentic runtime v2 scorecard', () => {
 
   it('keeps latency/cost observational until P7 baseline thresholds exist', () => {
     const summary = summarizeAgenticRuntimeV2Scorecard([
-      run({ ttftMs: 999_999, totalLatencyMs: 999_999, costUsd: 99 }),
+      run({ ttftMs: 999_999, streamOpenToFirstTextMs: 777_777, totalLatencyMs: 999_999, costUsd: 99 }),
     ] as any, DEFAULT_AGENTIC_RUNTIME_QUALITY_THRESHOLDS)
 
     expect(summary.releaseQualityGatePassed).toBe(true)
     expect(summary.performance.ttftP95Ms).toBe(999_999)
-    expect(summary.note).toMatch(/not release-failing/i)
+    expect(summary.performance.streamOpenToFirstTextP95Ms).toBe(777_777)
+    expect(summary.note).toMatch(/not end-to-end TTFT/i)
   })
 })
