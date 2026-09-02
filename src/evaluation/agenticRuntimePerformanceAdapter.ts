@@ -26,11 +26,15 @@ export interface AgenticRuntimeMechanicalTelemetryInput {
 }
 
 const finite = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
-const integer = (value: unknown) => Math.max(0, Math.trunc(finite(value) || 0))
+const integerOrNull = (value: unknown) => {
+  const parsed = finite(value)
+  return parsed === null ? null : Math.max(0, Math.trunc(parsed))
+}
 
 const firstFinite = (usage: Record<string, unknown>, keys: readonly string[]) => {
   for (const key of keys) {
@@ -43,16 +47,16 @@ const firstFinite = (usage: Record<string, unknown>, keys: readonly string[]) =>
 /**
  * Mechanical adapter for P6/P7 release reporting. It never judges semantic
  * quality and it never derives end-to-end TTFT from a partial stream metric.
- * If request->first-text was not measured explicitly, ttftMs remains null.
+ * Missing counters remain null: zero is reserved for a measured zero.
  */
 export const adaptAgenticRuntimePerformanceMetrics = (
   input: AgenticRuntimeMechanicalTelemetryInput,
 ): AgenticRuntimeMechanicalPerformance => {
   const usage = input.usage && typeof input.usage === 'object' ? input.usage : {}
   return {
-    controllerRounds: integer(input.controllerRounds),
-    toolCalls: integer(input.toolCalls),
-    providerCalls: integer(input.providerCalls),
+    controllerRounds: integerOrNull(input.controllerRounds),
+    toolCalls: integerOrNull(input.toolCalls),
+    providerCalls: integerOrNull(input.providerCalls),
     ttftMs: finite(input.endToEndTtftMs),
     streamOpenToFirstTextMs: finite(input.streamOpenToFirstTextMs),
     totalLatencyMs: finite(input.totalLatencyMs),
