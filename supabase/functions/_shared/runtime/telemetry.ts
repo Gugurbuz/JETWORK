@@ -7,6 +7,7 @@ export type RuntimeTimingMark =
   | 'capability_discovery_completed'
   | 'controller_first_decision'
   | 'final_generation_started'
+  | 'first_text_delta'
   | 'completed'
 
 export interface RuntimeTimingBreakdown {
@@ -16,7 +17,9 @@ export interface RuntimeTimingBreakdown {
   contextToCapabilityDiscoveryMs: number | null
   capabilityDiscoveryLatencyMs: number | null
   contextToControllerFirstDecisionMs: number | null
-  finalGenerationTtftMs: number | null
+  finalGenerationStartMs: number | null
+  firstTextDeltaTtftMs: number | null
+  generationToFirstTextDeltaMs: number | null
   streamDurationMs: number | null
   totalTurnMs: number | null
   toolLatencyMs: Record<string, number[]>
@@ -39,6 +42,10 @@ export interface RuntimeTelemetryTracker {
 /**
  * Mechanical timing tracker only. It records already-occurring runtime events;
  * it never selects providers/capabilities or changes controller behavior.
+ *
+ * TTFT is defined as request_received -> first_text_delta. Generation start is
+ * intentionally kept as a separate phase mark so planner/controller delay is
+ * never mislabeled as first-token latency.
  */
 export const createRuntimeTelemetryTracker = (now: () => number = () => performance.now()): RuntimeTelemetryTracker => {
   const marks = new Map<RuntimeTimingMark, number>()
@@ -64,8 +71,10 @@ export const createRuntimeTelemetryTracker = (now: () => number = () => performa
         contextToCapabilityDiscoveryMs: delta(marks, 'context_resolved', 'capability_discovery_completed'),
         capabilityDiscoveryLatencyMs: delta(marks, 'context_resolved', 'capability_discovery_completed'),
         contextToControllerFirstDecisionMs: delta(marks, 'context_resolved', 'controller_first_decision'),
-        finalGenerationTtftMs: delta(marks, 'request_received', 'final_generation_started'),
-        streamDurationMs: delta(marks, 'final_generation_started', 'completed'),
+        finalGenerationStartMs: delta(marks, 'request_received', 'final_generation_started'),
+        firstTextDeltaTtftMs: delta(marks, 'request_received', 'first_text_delta'),
+        generationToFirstTextDeltaMs: delta(marks, 'final_generation_started', 'first_text_delta'),
+        streamDurationMs: delta(marks, 'first_text_delta', 'completed'),
         totalTurnMs: delta(marks, 'request_received', 'completed'),
         toolLatencyMs: Object.fromEntries([...toolLatencyMs.entries()].map(([name, values]) => [name, [...values]])),
       }
