@@ -19,6 +19,7 @@ export interface CapabilityCandidate {
   description: string
   toolName?: string
   skillKey?: string
+  declaredTools?: string[]
   score: number
   semanticScore: number | null
   lexicalScore: number
@@ -77,6 +78,9 @@ const cosineSimilarity = (left: number[] | undefined, right: number[] | undefine
 }
 
 const boundedTopK = (value: number | undefined) => Math.max(1, Math.min(Math.trunc(Number(value) || 10), 12))
+const declaredTools = (item: CapabilityRegistryItem) => Array.isArray(item.metadata?.declaredTools)
+  ? [...new Set(item.metadata.declaredTools.map(value => String(value || '').trim()).filter(Boolean))]
+  : undefined
 
 /**
  * Candidate retrieval only. A high score means "likely relevant"; it never
@@ -124,6 +128,7 @@ export const discoverCapabilityCandidates = (input: {
       description: item.description,
       toolName: item.toolName,
       skillKey: item.skillKey,
+      declaredTools: declaredTools(item),
       score: Number(score.toFixed(6)),
       semanticScore: semantic === null ? null : Number(semantic.toFixed(6)),
       lexicalScore: Number(lexical.toFixed(6)),
