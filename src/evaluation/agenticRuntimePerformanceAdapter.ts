@@ -48,15 +48,26 @@ const firstFinite = (usage: Record<string, unknown>, keys: readonly string[]) =>
  * Mechanical adapter for P6/P7 release reporting. It never judges semantic
  * quality and it never derives end-to-end TTFT from a partial stream metric.
  * Missing counters remain null: zero is reserved for a measured zero.
+ *
+ * JetWork AI Quality Lab already defines primary_llm_agent_calls as controller
+ * provider rounds and primary_llm_agent_calls + primary_llm_final_calls as the
+ * primary runtime provider-call count. Reuse that telemetry instead of creating
+ * a second counting convention.
  */
 export const adaptAgenticRuntimePerformanceMetrics = (
   input: AgenticRuntimeMechanicalTelemetryInput,
 ): AgenticRuntimeMechanicalPerformance => {
   const usage = input.usage && typeof input.usage === 'object' ? input.usage : {}
+  const agentCalls = integerOrNull(usage.primary_llm_agent_calls)
+  const finalCalls = integerOrNull(usage.primary_llm_final_calls)
+  const derivedProviderCalls = agentCalls !== null && finalCalls !== null
+    ? agentCalls + finalCalls
+    : null
+
   return {
-    controllerRounds: integerOrNull(input.controllerRounds),
+    controllerRounds: integerOrNull(input.controllerRounds) ?? agentCalls,
     toolCalls: integerOrNull(input.toolCalls),
-    providerCalls: integerOrNull(input.providerCalls),
+    providerCalls: integerOrNull(input.providerCalls) ?? derivedProviderCalls,
     ttftMs: finite(input.endToEndTtftMs),
     streamOpenToFirstTextMs: finite(input.streamOpenToFirstTextMs),
     totalLatencyMs: finite(input.totalLatencyMs),
