@@ -6,6 +6,7 @@ import {
   isLegacyAgentControllerEnabled,
 } from '../../../supabase/functions/_shared/runtime/runtimeFlags.ts'
 import { buildAuthoritativeInventoryFastPlan } from '../../../supabase/functions/_shared/authoritativeInventoryFastPath.ts'
+import { shouldUseTrivialAssistantFastPath } from '../../../supabase/functions/_shared/trivialAssistantFastPath.ts'
 
 describe('Agent Controller V2 runtime boundary', () => {
   it('defaults to disabled when rollout configuration is missing', () => {
@@ -38,10 +39,25 @@ describe('Agent Controller V2 runtime boundary', () => {
     })).toBeNull()
   })
 
-  it('keeps the inventory path available only for the legacy runtime during migration', () => {
+  it('does not allow the trivial fast path to bypass an active controller', () => {
+    expect(shouldUseTrivialAssistantFastPath({
+      message: 'merhaba',
+      model: 'auto',
+      attachmentCount: 0,
+      agentControllerV2Enabled: true,
+    })).toBe(false)
+  })
+
+  it('keeps legacy fast paths available only while Controller V2 is disabled', () => {
     const plan = buildAuthoritativeInventoryFastPlan('hangi classlar var', {
       agentControllerV2Enabled: false,
     })
     expect(plan?.enumerationTarget?.tool).toBe('list_class_inventory')
+    expect(shouldUseTrivialAssistantFastPath({
+      message: 'merhaba',
+      model: 'auto',
+      attachmentCount: 0,
+      agentControllerV2Enabled: false,
+    })).toBe(true)
   })
 })
