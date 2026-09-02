@@ -8,6 +8,7 @@ import {
 } from '../../../supabase/functions/_shared/runtime/runtimeFlags.ts'
 import { buildAuthoritativeInventoryFastPlan } from '../../../supabase/functions/_shared/authoritativeInventoryFastPath.ts'
 import { shouldUseTrivialAssistantFastPath } from '../../../supabase/functions/_shared/trivialAssistantFastPath.ts'
+import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/semanticOrchestrator.ts'
 
 const durableCoreEntrySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
@@ -43,6 +44,24 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(durableCoreEntrySource).toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')")
     expect(durableCoreEntrySource.indexOf("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'"))
       .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
+  })
+
+  it('makes semantic preplanning advisory instead of choosing capabilities', async () => {
+    const result = await buildSemanticExecutionPlan({
+      provider: 'gemini',
+      model: 'gemini-3.5-flash',
+      message: 'SAP CRM ZCRM2-545 hatasını araştır ve gerekiyorsa webden de doğrula',
+      conversation: [],
+      agentControllerV2Enabled: true,
+    })
+
+    expect(result.plan.intent).toBe('analysis')
+    expect(result.plan.executionMode).toBe('direct')
+    expect(result.plan.knowledgeRequired).toBe(false)
+    expect(result.plan.webMode).toBe('none')
+    expect(result.plan.evidenceQueries).toEqual([])
+    expect(result.plan.enterpriseGroundingRequired).toBe(true)
+    expect(result.usage?.controller_v2_advisory_plan).toBe(1)
   })
 
   it('does not allow the authoritative inventory fast path to bypass an active controller', () => {
