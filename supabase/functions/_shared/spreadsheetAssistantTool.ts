@@ -4,9 +4,16 @@ import {
   type AssistantExecutionAttachmentRef,
 } from './executionTools.ts'
 import type { AssistantToolExecution } from './assistantTools.ts'
+import { requireVerifiedArtifactOutputs } from './artifact/storageVerifier.ts'
 
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const ASSISTANT_FILES_BUCKET = 'assistant-files'
+const OUTPUT_ARTIFACT_TOOLS = new Set([
+  'edit_spreadsheet_file',
+  'transform_spreadsheet_file',
+  'create_spreadsheet_file',
+  'sync_spreadsheet_with_jira_export',
+])
 
 const asExecutionAttachment = (value: unknown): AssistantExecutionAttachmentRef | null => {
   if (!value || typeof value !== 'object') return null
@@ -78,6 +85,14 @@ export async function executeSpreadsheetAssistantTool(
     },
   })
 
+  const requiresOutputArtifact = OUTPUT_ARTIFACT_TOOLS.has(toolName)
+  if (requiresOutputArtifact && !execution.artifacts.length) {
+    throw new Error(`ARTIFACT_EXECUTOR_RETURNED_NO_OUTPUT:${toolName}`)
+  }
+  const artifactVerification = requiresOutputArtifact
+    ? await requireVerifiedArtifactOutputs(client, execution.artifacts)
+    : null
+
   return {
     output: execution.output,
     sources: [],
@@ -86,6 +101,12 @@ export async function executeSpreadsheetAssistantTool(
       ...execution.summary,
       executionOnly: true,
       citationReady: false,
+      artifactVerification: artifactVerification ? {
+        version: artifactVerification.version,
+        reloadVerified: artifactVerification.reloadVerified,
+        integrityVerified: artifactVerification.integrityVerified,
+        artifactCount: artifactVerification.artifacts.length,
+      } : null,
     },
   }
 }
