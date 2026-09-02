@@ -79,7 +79,7 @@ begin
   where message.workspace_id = p_workspace_id
     and message.owner_id = v_owner_id
     and message.role = 'user'
-    and pg_catalog.position(v_quote in coalesce(message.text, '')) > 0
+    and pg_catalog.strpos(coalesce(message.text, ''), v_quote) > 0
   order by message.created_at desc, message.id desc
   limit 1;
 
