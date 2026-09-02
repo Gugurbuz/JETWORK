@@ -25,6 +25,7 @@ export interface ArtifactRuntimeSnapshot {
   lastExecutorStatus?: 'not_started' | 'completed' | 'failed'
   reloadVerified: boolean
   integrityVerified: boolean
+  revisionInvariantVerified: boolean
   persisted: boolean
 }
 
@@ -47,18 +48,20 @@ export const newArtifactRuntimeSnapshot = (input: {
   artifactVersion?: number
   artifactType?: string
   evidenceRefs?: string[]
+  pendingRevision?: boolean
 } = {}): ArtifactRuntimeSnapshot => ({
   version: ARTIFACT_STATE_MACHINE_VERSION,
   artifactId: input.artifactId,
   artifactVersion: input.artifactVersion,
   artifactType: input.artifactType,
   state: 'requested',
-  pendingRevision: false,
+  pendingRevision: input.pendingRevision === true,
   userApprovedSections: [],
   evidenceRefs: [...new Set(input.evidenceRefs || [])],
   lastExecutorStatus: 'not_started',
   reloadVerified: false,
   integrityVerified: false,
+  revisionInvariantVerified: input.pendingRevision === true ? false : true,
   persisted: false,
 })
 
@@ -66,6 +69,10 @@ export const canTransitionArtifactState = (
   from: ArtifactRuntimeState,
   to: ArtifactRuntimeState,
 ) => transitions[from].includes(to)
+
+const revisionInvariantSatisfied = (snapshot: ArtifactRuntimeSnapshot) => (
+  snapshot.pendingRevision !== true || snapshot.revisionInvariantVerified === true
+)
 
 export const transitionArtifactState = (
   snapshot: ArtifactRuntimeSnapshot,
@@ -84,8 +91,14 @@ export const transitionArtifactState = (
   if (to === 'persisted' && (!next.reloadVerified || !next.integrityVerified)) {
     throw new Error('Artifact cannot be persisted before reload and integrity verification.')
   }
+  if (to === 'persisted' && !revisionInvariantSatisfied(next)) {
+    throw new Error('Artifact revision cannot be persisted before unchanged-section invariant verification.')
+  }
   if (to === 'completed' && (!next.persisted || !next.reloadVerified || !next.integrityVerified || next.lastExecutorStatus !== 'completed')) {
     throw new Error('Artifact cannot be completed without executor, reload/integrity verification, and persistence.')
+  }
+  if (to === 'completed' && !revisionInvariantSatisfied(next)) {
+    throw new Error('Artifact revision cannot be completed before unchanged-section invariant verification.')
   }
 
   return next
@@ -96,5 +109,6 @@ export const artifactCompletionReady = (snapshot: ArtifactRuntimeSnapshot) => (
   && snapshot.lastExecutorStatus === 'completed'
   && snapshot.reloadVerified
   && snapshot.integrityVerified
+  && revisionInvariantSatisfied(snapshot)
   && snapshot.persisted
 )
