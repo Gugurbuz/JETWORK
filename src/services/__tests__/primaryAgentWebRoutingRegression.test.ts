@@ -53,7 +53,7 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.webMode).toBe('none')
   })
 
-  it('leaves Gemini provider-native web available to the controller instead of forcing deterministic research', () => {
+  it('leaves Gemini provider-native web available when the runtime candidate surface enables it', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
       'utf8',
@@ -65,13 +65,14 @@ describe('primary agent web routing regression', () => {
     expect(source).not.toContain('deterministic_web_search_count')
   })
 
-  it('gates legacy preflight research while agentic mode exposes Gemini web capability', () => {
+  it('keeps legacy preflight routing isolated while agentic web visibility comes from semantic candidates', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
     )
 
-    expect(source).toContain("configuredProvider === 'gemini'\n          && (AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))")
+    expect(source).toContain("configuredProvider === 'gemini'\n          && !AGENTIC_CONTROLLER_ENABLED\n          && (plan.webMode !== 'none' || String(plan.goal || '').includes(PROVIDER_WEB_CAPABILITY_MARKER))")
+    expect(source).toContain("capabilitySession?.surface.providerWebVisible === true")
     expect(source).toContain("if (!AGENTIC_CONTROLLER_ENABLED && plan.webMode === 'required' && !geminiNativeWebPlanned)")
     expect(source).toContain("if (!AGENTIC_CONTROLLER_ENABLED && plan.verificationRequired && !geminiNativeWebPlanned)")
   })
