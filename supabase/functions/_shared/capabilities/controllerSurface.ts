@@ -10,6 +10,7 @@ import type { RuntimeToolSchema } from './registry.ts'
 
 export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v2'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
+export const REVIEW_EVIDENCE_COVERAGE_TOOL_NAME = 'review_evidence_coverage'
 
 const TOP_K_DEFAULT = 10
 const TOP_K_MAX = 12
@@ -35,6 +36,40 @@ export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
       limit: { type: ['integer', 'null'], minimum: 1, maximum: TOP_K_MAX },
     },
     required: ['query', 'limit'],
+    additionalProperties: false,
+  },
+}
+
+export const REVIEW_EVIDENCE_COVERAGE_TOOL: RuntimeToolSchema = {
+  type: 'function',
+  name: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
+  description: 'Review the current mechanically verified evidence ledger after you, the controller LLM, propose which evidence IDs support which user-question aspects. This does not search, choose another tool, or finalize the answer. Runtime validates the evidence IDs and returns coverage/gap/conflict observations from the critic; you decide what to do next.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      aspects: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 32,
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 160 },
+            label: { type: 'string', minLength: 1, maxLength: 500 },
+            evidenceIds: {
+              type: 'array',
+              maxItems: 24,
+              items: { type: 'string', minLength: 1, maxLength: 160 },
+            },
+            status: { type: 'string', enum: ['covered', 'partial', 'open'] },
+          },
+          required: ['id', 'label', 'evidenceIds', 'status'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['aspects'],
     additionalProperties: false,
   },
 }
@@ -84,7 +119,7 @@ export const buildControllerCapabilitySurface = (
     const schema = runtimeToolByName.get(name)
     if (schema) selectedTools.push(schema)
   }
-  selectedTools.push(DISCOVER_MORE_CAPABILITIES_TOOL)
+  selectedTools.push(DISCOVER_MORE_CAPABILITIES_TOOL, REVIEW_EVIDENCE_COVERAGE_TOOL)
 
   for (const candidate of candidates) {
     if (!candidate.toolName || candidate.toolName === 'provider_web') continue
@@ -183,5 +218,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: session.surface.candidates,
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'These are candidate capabilities only. Choose the next capability semantically. If insufficient, call discover_more_capabilities. Candidate ranking never authorizes execution and is not evidence.',
+  instruction: 'These are candidate capabilities only. Choose the next capability semantically. If insufficient, call discover_more_capabilities. Use review_evidence_coverage only to review verified evidence coverage; it never chooses the next capability or finalizes the answer.',
 })
