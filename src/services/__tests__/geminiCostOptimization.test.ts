@@ -7,7 +7,7 @@ const providerSource = readFileSync(
 );
 
 const controllerSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/agentControllerPolicy.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url),
   'utf8',
 );
 
