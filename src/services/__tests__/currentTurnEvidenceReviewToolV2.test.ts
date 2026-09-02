@@ -76,6 +76,6 @@ describe('current-turn evidence review context tool v2', () => {
     const payload = JSON.parse(reviewed.output)
     expect(payload.aspects.find((item: any) => item.id === 'messages').status).toBe('covered')
     expect(payload.aspects.find((item: any) => item.id === 'conditions').status).toBe('open')
-    expect(payload.critic.gaps).toContain('Koşullar')
+    expect(payload.critic.gaps.some((gap: string) => gap.startsWith('Koşullar:'))).toBe(true)
   })
 })
