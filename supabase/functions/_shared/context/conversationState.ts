@@ -2,7 +2,7 @@ import type { ReasoningPlan } from '../reasoningEngine.ts'
 import {
   compactResolvedConversationItems,
   type ResolvedConversationContextSeed,
-} from '../resolvedConversationContext.ts'
+} from './resolvedContext.ts'
 
 const PERSISTED_HISTORY_CHARACTERS = 12_000
 const PERSISTED_RECENT_ITEMS = 6
