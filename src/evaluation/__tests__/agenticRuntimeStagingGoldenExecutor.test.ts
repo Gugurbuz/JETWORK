@@ -32,7 +32,13 @@ const debug = (messageId: string, toolName: string, latencyMs: number) => ({
     judgeAssertions: [],
     observedBehaviors: [],
   },
-  usage: { input_tokens: 100, output_tokens: 20, estimated_total_cost_usd: 0.01 },
+  usage: {
+    input_tokens: 100,
+    output_tokens: 20,
+    estimated_total_cost_usd: 0.01,
+    primary_llm_agent_calls: 1,
+    primary_llm_final_calls: 1,
+  },
   latencyMs,
   toolCallCount: 1,
   responseModel: 'gpt-5.6-sol',
@@ -127,8 +133,8 @@ describe('agentic runtime staging golden executor', () => {
     expect(execution.telemetry.judgeAssertions).toEqual(['coverage_observation_present'])
     expect(execution.telemetry.observedBehaviors).toEqual([])
     expect(execution.telemetry.toolRuns.map(row => row.toolName)).toEqual(['get_abap_source', 'review_evidence_coverage'])
-    expect(execution.metrics.controllerRounds).toBeNull()
-    expect(execution.metrics.providerCalls).toBeNull()
+    expect(execution.metrics.controllerRounds).toBe(2)
+    expect(execution.metrics.providerCalls).toBe(4)
     expect(execution.metrics.toolCalls).toBe(2)
     expect(execution.metrics.ttftMs).toBe(450)
     expect(execution.metrics.totalLatencyMs).toBe(2_200)
