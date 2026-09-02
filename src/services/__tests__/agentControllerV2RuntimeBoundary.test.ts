@@ -3,6 +3,7 @@ import {
   AGENT_CONTROLLER_V2_FLAG,
   LEGACY_AGENT_CONTROLLER_FLAG,
   isAgentControllerV2Enabled,
+  isLegacyAgentControllerEnabled,
 } from '../../../supabase/functions/_shared/runtime/runtimeFlags.ts'
 import { buildAuthoritativeInventoryFastPlan } from '../../../supabase/functions/_shared/authoritativeInventoryFastPath.ts'
 
@@ -11,7 +12,7 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isAgentControllerV2Enabled(() => undefined)).toBe(false)
   })
 
-  it('prefers the canonical rollout flag and accepts the legacy flag only as compatibility', () => {
+  it('uses only the canonical rollout flag to enable Controller V2', () => {
     const canonical = new Map<string, string>([
       [AGENT_CONTROLLER_V2_FLAG, 'true'],
       [LEGACY_AGENT_CONTROLLER_FLAG, 'false'],
@@ -19,7 +20,16 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isAgentControllerV2Enabled(name => canonical.get(name))).toBe(true)
 
     const legacyOnly = new Map<string, string>([[LEGACY_AGENT_CONTROLLER_FLAG, 'true']])
-    expect(isAgentControllerV2Enabled(name => legacyOnly.get(name))).toBe(true)
+    expect(isAgentControllerV2Enabled(name => legacyOnly.get(name))).toBe(false)
+    expect(isLegacyAgentControllerEnabled(name => legacyOnly.get(name))).toBe(true)
+  })
+
+  it('treats invalid canonical configuration as disabled', () => {
+    const values = new Map<string, string>([
+      [AGENT_CONTROLLER_V2_FLAG, 'maybe'],
+      [LEGACY_AGENT_CONTROLLER_FLAG, 'true'],
+    ])
+    expect(isAgentControllerV2Enabled(name => values.get(name))).toBe(false)
   })
 
   it('does not allow the authoritative inventory fast path to bypass an active controller', () => {
