@@ -58,6 +58,7 @@ export interface ControllerCapabilitySurface {
     toolName?: string
     skillKey?: string
     declaredTools?: string[]
+    executorTools?: string[]
     score: number
   }>
 }
@@ -99,7 +100,7 @@ export const buildControllerCapabilitySurface = (
 
   for (const candidate of candidates) {
     pushRuntimeTool(selectedTools, candidate.toolName)
-    for (const declaredTool of candidate.declaredTools || []) pushRuntimeTool(selectedTools, declaredTool)
+    for (const executorTool of candidate.executorTools || []) pushRuntimeTool(selectedTools, executorTool)
   }
 
   const tools = uniqueTools(selectedTools)
@@ -118,6 +119,7 @@ export const buildControllerCapabilitySurface = (
       toolName: candidate.toolName,
       skillKey: candidate.skillKey,
       declaredTools: candidate.declaredTools,
+      executorTools: candidate.executorTools,
       score: candidate.score,
     })),
   }
@@ -194,5 +196,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: session.surface.candidates,
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'These are candidate capabilities only. For a skill candidate, only its declared runtime tools are surfaced; choose among them semantically. Search results are discovery candidates and must be followed by an exact/detail tool before they can support grounded technical claims. If insufficient, call discover_more_capabilities. Use review_evidence_coverage only to inspect/review verified current-turn evidence; it never chooses the next capability or finalizes the answer.',
+  instruction: 'These are candidate capabilities only. Skill declaredTools are semantic labels; only manifest-backed executorTools are executable and surfaced. Choose the next capability semantically. Search results are discovery candidates and must be followed by an exact/detail executor before they can support grounded technical claims. If insufficient, call discover_more_capabilities. Use review_evidence_coverage only to inspect/review verified current-turn evidence; it never chooses the next capability or finalizes the answer.',
 })
