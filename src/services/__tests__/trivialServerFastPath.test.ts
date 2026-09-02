@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import {
+  shouldUseTrivialAssistantFastPath,
+} from '../../../supabase/functions/_shared/trivialAssistantFastPath';
 
 const helperSource = readFileSync(
   new URL('../../../supabase/functions/_shared/trivialAssistantFastPath.ts', import.meta.url),
@@ -27,14 +30,19 @@ const completionModelAllowlistMigration = readFileSync(
 );
 
 describe('trivial assistant server fast path', () => {
-  it('keeps exact conversational turns eligible for auto routing even when stale attachment state exists', () => {
+  it('keeps exact conversational turns eligible for legacy auto routing even when stale attachment state exists', () => {
     expect(helperSource).toContain('TRIVIAL_CONVERSATION_PATTERN');
     expect(helperSource).toMatch(/\^\(\?:selam/);
     expect(helperSource).toContain("model !== 'auto'");
     expect(helperSource).not.toContain("model === 'auto' || input.attachmentCount > 0");
     expect(helperSource).toContain("model === 'auto' || GEMINI_FAST_PATH_MODELS.has(model)");
     expect(helperSource).toContain("model === 'auto' || model === 'gemini-3.1-pro-preview'");
-    expect(helperSource).toContain('Stale attachment state');
+    expect(shouldUseTrivialAssistantFastPath({
+      message: 'merhaba',
+      model: 'auto',
+      attachmentCount: 3,
+      agentControllerV2Enabled: false,
+    })).toBe(true);
   });
 
   it('uses exact deterministic greeting responses instead of culturally expanding the greeting', () => {
@@ -47,7 +55,7 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain('"nasılsın" veya "naber" için bunu kullanma');
   });
 
-  it('isolates a narrow noisy casual extension from enterprise conversation history', () => {
+  it('isolates a narrow noisy casual extension from substantive enterprise requests', () => {
     expect(helperSource).toContain('NOISY_CONVERSATIONAL_EXTENSION_PATTERN');
     expect(helperSource).toContain('MIN_NOISY_EXTENSION_LENGTH = 10');
     expect(helperSource).toContain('MAX_NOISY_EXTENSION_LENGTH = 64');
@@ -55,10 +63,21 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain('isNoisyConversationalExtension(normalized, input.attachmentCount)');
     expect(helperSource).toContain('yalnızca mevcut kullanıcı mesajını bağlam kabul et');
     expect(helperSource).toContain('klavye testi, teknik konu, önceki soru ya da başka bir kullanıcı amacı uydurma');
-    expect(helperSource).toContain('multi-word substantive requests');
+    expect(shouldUseTrivialAssistantFastPath({
+      message: 'merhaba abcdefghijklmnop',
+      model: 'auto',
+      attachmentCount: 0,
+      agentControllerV2Enabled: false,
+    })).toBe(true);
+    expect(shouldUseTrivialAssistantFastPath({
+      message: 'merhaba sap crm hata',
+      model: 'auto',
+      attachmentCount: 0,
+      agentControllerV2Enabled: false,
+    })).toBe(false);
   });
 
-  it('routes eligible turns through one claim RPC and keeps the normal core fallback', () => {
+  it('routes eligible legacy turns through one claim RPC and keeps the normal core fallback', () => {
     expect(gatewaySource).toContain("client.rpc('claim_trivial_assistant_turn'");
     expect(gatewaySource).toContain('requestTrivialAssistantResponse');
     expect(gatewaySource).toContain("client.rpc('complete_trivial_assistant_turn'");
@@ -87,11 +106,16 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).not.toContain('requestGeminiResponse');
   });
 
-  it('keeps Gemini greeting tuning cheap and isolated from shared reasoning', () => {
+  it('keeps Gemini greeting tuning cheap only on the legacy lane', () => {
     expect(helperSource).toContain('maxOutputTokens: 160');
     expect(helperSource).toContain('thinkingConfig: {');
     expect(helperSource).toContain("? 'minimal'");
-    expect(helperSource).toContain('Exact trivial turns and low-risk clarification handshakes are latency-sensitive');
+    expect(shouldUseTrivialAssistantFastPath({
+      message: 'merhaba',
+      model: 'auto',
+      attachmentCount: 0,
+      agentControllerV2Enabled: true,
+    })).toBe(false);
   });
 
   it('keeps provider isolation for explicit model selection while allowing auto to choose a low-cost provider', () => {
