@@ -34,26 +34,30 @@ describe('controller capability surface v2', () => {
     expect(surface.providerWebVisible).toBe(false)
   })
 
-  it('surfaces only the runtime tools declared by a discovered skill candidate', () => {
+  it('surfaces manifest-backed executor tools but not semantic declared-tool labels', () => {
     const surface = buildControllerCapabilitySurface([
       candidate({
-        id: 'skill:knowledge-investigation',
+        id: 'skill:sap/method-analysis',
         kind: 'skill',
         category: 'skill',
-        title: 'Knowledge investigation',
-        skillKey: 'knowledge-investigation',
-        declaredTools: ['search_knowledge_catalog', 'get_abap_source', 'get_knowledge_object'],
+        title: 'SAP method analysis',
+        skillKey: 'sap/method-analysis',
+        declaredTools: ['knowledge', 'code-analysis'],
+        executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_related_objects'],
       }),
     ])
 
     expect(surface.toolNames).toContain('search_knowledge_catalog')
-    expect(surface.toolNames).toContain('get_abap_source')
     expect(surface.toolNames).toContain('get_knowledge_object')
+    expect(surface.toolNames).toContain('get_related_objects')
+    expect(surface.toolNames).not.toContain('knowledge')
+    expect(surface.toolNames).not.toContain('code-analysis')
     expect(surface.toolNames).not.toContain('get_message_detail')
-    expect(surface.candidates[0]?.declaredTools).toEqual([
+    expect(surface.candidates[0]?.declaredTools).toEqual(['knowledge', 'code-analysis'])
+    expect(surface.candidates[0]?.executorTools).toEqual([
       'search_knowledge_catalog',
-      'get_abap_source',
       'get_knowledge_object',
+      'get_related_objects',
     ])
   })
 
