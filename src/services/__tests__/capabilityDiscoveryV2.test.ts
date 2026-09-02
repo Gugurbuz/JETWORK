@@ -16,7 +16,12 @@ const discoverySource = readFileSync(
   'utf8',
 )
 
-const item = (id: string, category: CapabilityRegistryItem['category'], semanticText: string): CapabilityRegistryItem => ({
+const item = (
+  id: string,
+  category: CapabilityRegistryItem['category'],
+  semanticText: string,
+  metadata: Record<string, unknown> = {},
+): CapabilityRegistryItem => ({
   id,
   version: '1',
   kind: id.startsWith('skill:') ? 'skill' : 'tool',
@@ -26,7 +31,7 @@ const item = (id: string, category: CapabilityRegistryItem['category'], semantic
   semanticText,
   toolName: id.startsWith('tool:') ? id.slice(5) : undefined,
   skillKey: id.startsWith('skill:') ? id.slice(6) : undefined,
-  metadata: {},
+  metadata,
 })
 
 describe('Semantic Capability Discovery v2', () => {
@@ -51,6 +56,25 @@ describe('Semantic Capability Discovery v2', () => {
     expect(discoverySource).toContain('Candidate retrieval only')
     expect(discoverySource).not.toContain('executeAssistantTool')
     expect(discoverySource).not.toContain('executeSkillTool')
+  })
+
+  it('preserves only the runtime tools declared by a discovered skill', () => {
+    const registry = [
+      item('skill:knowledge-investigation', 'skill', 'search and verify enterprise knowledge', {
+        declaredTools: ['search_knowledge_catalog', 'get_abap_source', 'get_knowledge_object'],
+      }),
+    ]
+    const candidates = discoverCapabilityCandidates({
+      query: 'verify enterprise knowledge',
+      registry,
+      topK: 1,
+    })
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].declaredTools).toEqual([
+      'search_knowledge_catalog',
+      'get_abap_source',
+      'get_knowledge_object',
+    ])
   })
 
   it('lets semantic embeddings dominate lexical coincidence when vectors are available', () => {
