@@ -1,22 +1,19 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  ASSISTANT_CONTEXT_TOOLS,
   executeContextTool,
-  RECORD_PROJECT_MEMORY_TOOL_NAME,
 } from '../../../supabase/functions/_shared/contextTools.ts'
 import { CAPABILITY_REGISTRY } from '../../../supabase/functions/_shared/capabilities/registry.ts'
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 
-const baseInput = {
-  toolName: RECORD_PROJECT_MEMORY_TOOL_NAME,
-  workspaceId: 'workspace-1',
-  ownerId: '00000000-0000-0000-0000-000000000001',
-  sourceMessageId: 'message-1',
-  currentUserText: 'Karar: canlıya geçiş yalnız golden testler yeşil olduktan sonra yapılacak.',
-}
+const RECORD_PROJECT_MEMORY_TOOL_NAME = 'record_project_memory'
 
 describe('trusted Project Memory capability v2', () => {
   it('is a semantic context candidate, not an always-visible meta tool', () => {
+    const tool = ASSISTANT_CONTEXT_TOOLS.find(item => item.name === RECORD_PROJECT_MEMORY_TOOL_NAME)
+    expect(tool).toBeTruthy()
+
     const memoryCapability = CAPABILITY_REGISTRY.find(item => item.toolName === RECORD_PROJECT_MEMORY_TOOL_NAME)
     expect(memoryCapability?.category).toBe('context')
     expect(memoryCapability?.metadata.requiresUserProvenance).toBe(true)
@@ -40,60 +37,61 @@ describe('trusted Project Memory capability v2', () => {
     expect(withMemory.toolNames).toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
   })
 
-  it('rejects a model-invented quote before any database write', async () => {
-    const rpc = vi.fn()
-    await expect(executeContextTool({
-      ...baseInput,
-      client: { rpc },
-      args: {
-        memoryClass: 'DECISION',
-        memoryKey: 'rollout_gate',
-        value: 'Production only after golden tests pass.',
-        correctionTarget: null,
-        sourceQuote: 'Kullanıcı production hemen açılsın dedi.',
-      },
-    })).rejects.toThrow('MEMORY_SOURCE_QUOTE_NOT_IN_CURRENT_USER_MESSAGE')
-    expect(rpc).not.toHaveBeenCalled()
+  it('never exposes owner or source-message identity to the controller schema', () => {
+    const tool = ASSISTANT_CONTEXT_TOOLS.find(item => item.name === RECORD_PROJECT_MEMORY_TOOL_NAME)!
+    const properties = tool.parameters.properties as Record<string, unknown>
+    expect(properties).toHaveProperty('sourceQuote')
+    expect(properties).not.toHaveProperty('ownerId')
+    expect(properties).not.toHaveProperty('owner_id')
+    expect(properties).not.toHaveProperty('sourceMessageId')
+    expect(properties).not.toHaveProperty('source_message_id')
   })
 
-  it('supplies owner/workspace/message identity from runtime and stores only an exact user-backed decision', async () => {
+  it('writes through the authenticated trusted RPC using only semantic memory fields plus exact quote', async () => {
     const rpc = vi.fn().mockResolvedValue({ data: 'memory-id-1', error: null })
     const sourceQuote = 'canlıya geçiş yalnız golden testler yeşil olduktan sonra yapılacak'
     const result = await executeContextTool({
-      ...baseInput,
       client: { rpc },
+      workspaceId: 'workspace-1',
+      toolName: RECORD_PROJECT_MEMORY_TOOL_NAME,
       args: {
         memoryClass: 'DECISION',
+        category: 'decision',
         memoryKey: 'rollout_gate',
         value: 'Canlıya geçiş golden testlerden sonra.',
-        correctionTarget: null,
         sourceQuote,
       },
     })
 
-    expect(rpc).toHaveBeenCalledWith('persist_agent_project_memory_from_user_quote_v2', expect.objectContaining({
-      p_workspace_id: baseInput.workspaceId,
-      p_owner_id: baseInput.ownerId,
-      p_source_message_id: baseInput.sourceMessageId,
-      p_source_quote: sourceQuote,
+    expect(rpc).toHaveBeenCalledWith('record_agent_project_memory_v2', {
+      p_workspace_id: 'workspace-1',
       p_memory_key: 'rollout_gate',
+      p_value: 'Canlıya geçiş golden testlerden sonra.',
+      p_memory_class: 'DECISION',
       p_category: 'decision',
-    }))
-    expect(result.summary.provenanceVerifiedByRuntime).toBe(true)
-    expect(result.summary.provenanceVerifiedByDatabase).toBe(true)
+      p_source_quote: sourceQuote,
+    })
+    expect(result.summary).toMatchObject({
+      durableMemory: true,
+      userProvenanceRequired: true,
+      citationReady: false,
+    })
   })
 
-  it('database contract re-validates workspace, role=user and exact quote', () => {
+  it('database contract derives auth identity, resolves a real user message and versions/supersedes atomically', () => {
     const migration = readFileSync(
-      new URL('../../../supabase/migrations/20260902173500_harden_agent_project_memory_quote_provenance.sql', import.meta.url),
+      new URL('../../../supabase/migrations/20260902174500_agent_project_memory_trusted_write.sql', import.meta.url),
       'utf8',
     )
-    expect(migration).toContain("message_row.workspace_id = p_workspace_id")
-    expect(migration).toContain("message_row.role = 'user'")
-    expect(migration).toContain('position(v_quote in v_message_text) = 0')
-    expect(migration).toContain("source_type,\n    confirmation_state,\n    confidence")
-    expect(migration).toContain("'user_message',\n    'confirmed',\n    1")
+    expect(migration).toContain('security invoker')
+    expect(migration).toContain('v_owner_id uuid := (select auth.uid())')
+    expect(migration).toContain("message.workspace_id = p_workspace_id")
+    expect(migration).toContain("message.owner_id = v_owner_id")
+    expect(migration).toContain("message.role = 'user'")
+    expect(migration).toContain("pg_catalog.strpos(coalesce(message.text, ''), v_quote) > 0")
     expect(migration).toContain('pg_advisory_xact_lock')
     expect(migration).toContain('supersedes_id')
+    expect(migration).toContain('to authenticated')
+    expect(migration).toContain('from public, anon, service_role')
   })
 })
