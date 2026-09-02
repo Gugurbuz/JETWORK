@@ -18,6 +18,10 @@ const durableCoreEntrySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
   'utf8',
 )
+const publicEntryRouterSource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-v2-entry-router/index.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Agent Controller V2 runtime boundary', () => {
   it('defaults to disabled when rollout configuration is missing', () => {
@@ -48,6 +52,16 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(durableCoreEntrySource).toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')")
     expect(durableCoreEntrySource.indexOf("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'"))
       .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
+  })
+
+  it('bypasses legacy semantic entry routing before any regex classifier runs', () => {
+    expect(publicEntryRouterSource).toContain('if (isAgentControllerV2Enabled())')
+    expect(publicEntryRouterSource).toContain("headers.set('x-jetwork-runtime-route', 'agent-controller-v2')")
+    expect(publicEntryRouterSource).toContain("/functions/v1/openai-assistant-v2-internal")
+    expect(publicEntryRouterSource.indexOf('if (isAgentControllerV2Enabled())'))
+      .toBeLessThan(publicEntryRouterSource.indexOf('const routeDecision = classifyDocumentArtifactRequest(message)'))
+    expect(publicEntryRouterSource.indexOf('if (isAgentControllerV2Enabled())'))
+      .toBeLessThan(publicEntryRouterSource.indexOf('const longContextNeedsReasoning = message.length >= 2_000'))
   })
 
   it('makes semantic preplanning advisory instead of choosing capabilities', async () => {
