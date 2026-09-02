@@ -1,4 +1,8 @@
+import { createEvidenceControllerSession } from '../evidence/controllerSession.ts'
+import type { ControllerCoverageProposal } from '../evidence/runtimeLedger.ts'
+
 export const CONTEXT_TOOLS_VERSION = 'agent-context-tools-v2'
+export const REVIEW_EVIDENCE_COVERAGE_TOOL_NAME = 'review_evidence_coverage'
 
 export const ASSISTANT_CONTEXT_TOOLS = [
   {
@@ -19,6 +23,39 @@ export const ASSISTANT_CONTEXT_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    type: 'function',
+    name: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
+    description: 'Inspect and review the mechanically verified evidence accumulated in the current running turn. Call with aspects=[] to read the current evidence IDs. Then, if useful, call again with your semantic aspect-to-evidence proposal. Runtime validates IDs and returns coverage/gap/conflict critic observations. This tool does not search, select the next capability, or finalize the answer.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        aspects: {
+          type: 'array',
+          minItems: 0,
+          maxItems: 32,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', minLength: 1, maxLength: 160 },
+              label: { type: 'string', minLength: 1, maxLength: 500 },
+              evidenceIds: {
+                type: 'array',
+                maxItems: 24,
+                items: { type: 'string', minLength: 1, maxLength: 160 },
+              },
+              status: { type: 'string', enum: ['covered', 'partial', 'open'] },
+            },
+            required: ['id', 'label', 'evidenceIds', 'status'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['aspects'],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 const TOOL_NAMES = new Set(ASSISTANT_CONTEXT_TOOLS.map(tool => tool.name))
@@ -31,6 +68,90 @@ export interface ContextToolExecution {
   summary: Record<string, unknown>
 }
 
+const cleanCoverageProposal = (value: unknown): ControllerCoverageProposal => {
+  const rows = Array.isArray(value) ? value.slice(0, 32) : []
+  return {
+    aspects: rows.flatMap(raw => {
+      if (!raw || typeof raw !== 'object') return []
+      const row = raw as Record<string, unknown>
+      const id = clean(row.id, 160)
+      const label = clean(row.label, 500)
+      const status = ['covered', 'partial', 'open'].includes(String(row.status))
+        ? String(row.status) as 'covered' | 'partial' | 'open'
+        : 'open'
+      if (!id || !label) return []
+      return [{
+        id,
+        label,
+        status,
+        evidenceIds: Array.isArray(row.evidenceIds)
+          ? [...new Set(row.evidenceIds.map(item => clean(item, 160)).filter(Boolean))].slice(0, 24)
+          : [],
+      }]
+    }),
+  }
+}
+
+async function executeEvidenceReviewTool(input: {
+  client: any
+  workspaceId: string
+  args: Record<string, unknown>
+}): Promise<ContextToolExecution> {
+  const { data, error } = await input.client.rpc('get_current_agent_evidence_sources_v2', {
+    p_workspace_id: input.workspaceId,
+  })
+  if (error) throw new Error(clean(error.message, 1_000) || 'Current-turn evidence read failed.')
+
+  const session = createEvidenceControllerSession('Current user question')
+  for (const raw of Array.isArray(data) ? data : []) {
+    if (!raw || typeof raw !== 'object') continue
+    const row = raw as Record<string, unknown>
+    const toolName = clean(row.tool_name, 120)
+    const resultSummary = row.result_summary && typeof row.result_summary === 'object'
+      ? row.result_summary as Record<string, unknown>
+      : {}
+    const sourceRefs = Array.isArray(row.source_refs)
+      ? row.source_refs.filter(source => source && typeof source === 'object') as Array<Record<string, unknown>>
+      : []
+
+    if (toolName === 'web_search' || toolName === 'gemini_google_search') {
+      session.recordWebSources(sourceRefs.map(source => ({ ...source, sourceType: 'web' })) as any)
+      continue
+    }
+
+    session.recordToolResult({
+      output: '',
+      records: [],
+      sources: sourceRefs as any,
+      summary: resultSummary,
+    } as any)
+  }
+
+  const proposal = cleanCoverageProposal(input.args.aspects)
+  if (proposal.aspects.length) session.applyCoverageProposal(proposal)
+  const observation = session.observation()
+
+  return {
+    output: JSON.stringify({
+      securityNotice: 'JETWORK_EVIDENCE_REVIEW_OBSERVATION. Evidence refs come only from the authenticated user current running turn. Coverage is a controller proposal constrained to those verified refs. The critic never chooses a tool or finalizes the answer.',
+      tool: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
+      ...observation,
+    }),
+    sources: [],
+    summary: {
+      contextObservation: true,
+      evidenceReview: true,
+      citationReady: false,
+      evidenceCount: observation.evidence.length,
+      aspectCount: observation.aspects.length,
+      coverage: observation.critic.coverage,
+      gapCount: observation.critic.gaps.length,
+      conflictCount: observation.critic.conflicts.length,
+      controllerDecisionRequired: true,
+    },
+  }
+}
+
 export async function executeContextTool(input: {
   client: any
   workspaceId: string
@@ -38,6 +159,9 @@ export async function executeContextTool(input: {
   args: Record<string, unknown>
 }): Promise<ContextToolExecution> {
   if (!isContextTool(input.toolName)) throw new Error(`Unknown context tool: ${input.toolName}`)
+  if (input.toolName === REVIEW_EVIDENCE_COVERAGE_TOOL_NAME) {
+    return executeEvidenceReviewTool(input)
+  }
 
   const memoryClass = clean(input.args.memoryClass, 40).toUpperCase()
   const category = clean(input.args.category, 20).toLowerCase()
