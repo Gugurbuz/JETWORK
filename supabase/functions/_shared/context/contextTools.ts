@@ -1,5 +1,8 @@
 import { createEvidenceControllerSession } from '../evidence/controllerSession.ts'
-import type { ControllerCoverageProposal } from '../evidence/runtimeLedger.ts'
+import type {
+  ControllerConflictProposal,
+  ControllerCoverageProposal,
+} from '../evidence/runtimeLedger.ts'
 
 export const CONTEXT_TOOLS_VERSION = 'agent-context-tools-v2'
 export const REVIEW_EVIDENCE_COVERAGE_TOOL_NAME = 'review_evidence_coverage'
@@ -26,7 +29,7 @@ export const ASSISTANT_CONTEXT_TOOLS = [
   {
     type: 'function',
     name: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
-    description: 'Inspect and review the mechanically verified evidence accumulated in the current running turn. Call with aspects=[] to read the current evidence IDs. Then, if useful, call again with your semantic aspect-to-evidence proposal. Runtime validates IDs and returns coverage/gap/conflict critic observations. This tool does not search, select the next capability, or finalize the answer.',
+    description: 'Inspect and review the mechanically verified evidence accumulated in the current running turn. Call with aspects=[] and conflicts=[] to read current evidence IDs. Then, if useful, call again with your semantic aspect-to-evidence and conflict proposals. Runtime validates IDs and returns coverage/gap/conflict critic observations. This tool does not search, select the next capability, or finalize the answer.',
     strict: true,
     parameters: {
       type: 'object',
@@ -51,8 +54,27 @@ export const ASSISTANT_CONTEXT_TOOLS = [
             additionalProperties: false,
           },
         },
+        conflicts: {
+          type: 'array',
+          minItems: 0,
+          maxItems: 16,
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', minLength: 1, maxLength: 240 },
+              evidenceIds: {
+                type: 'array',
+                minItems: 2,
+                maxItems: 24,
+                items: { type: 'string', minLength: 1, maxLength: 160 },
+              },
+            },
+            required: ['key', 'evidenceIds'],
+            additionalProperties: false,
+          },
+        },
       },
-      required: ['aspects'],
+      required: ['aspects', 'conflicts'],
       additionalProperties: false,
     },
   },
@@ -92,6 +114,22 @@ const cleanCoverageProposal = (value: unknown): ControllerCoverageProposal => {
   }
 }
 
+const cleanConflictProposal = (value: unknown): ControllerConflictProposal => {
+  const rows = Array.isArray(value) ? value.slice(0, 16) : []
+  return {
+    conflicts: rows.flatMap(raw => {
+      if (!raw || typeof raw !== 'object') return []
+      const row = raw as Record<string, unknown>
+      const key = clean(row.key, 240)
+      const evidenceIds = Array.isArray(row.evidenceIds)
+        ? [...new Set(row.evidenceIds.map(item => clean(item, 160)).filter(Boolean))].slice(0, 24)
+        : []
+      if (!key || evidenceIds.length < 2) return []
+      return [{ key, evidenceIds }]
+    }),
+  }
+}
+
 async function executeEvidenceReviewTool(input: {
   client: any
   workspaceId: string
@@ -127,13 +165,15 @@ async function executeEvidenceReviewTool(input: {
     } as any)
   }
 
-  const proposal = cleanCoverageProposal(input.args.aspects)
-  if (proposal.aspects.length) session.applyCoverageProposal(proposal)
+  const coverageProposal = cleanCoverageProposal(input.args.aspects)
+  if (coverageProposal.aspects.length) session.applyCoverageProposal(coverageProposal)
+  const conflictProposal = cleanConflictProposal(input.args.conflicts)
+  if (conflictProposal.conflicts.length) session.applyConflictProposal(conflictProposal)
   const observation = session.observation()
 
   return {
     output: JSON.stringify({
-      securityNotice: 'JETWORK_EVIDENCE_REVIEW_OBSERVATION. Evidence refs come only from the authenticated user current running turn. Coverage is a controller proposal constrained to those verified refs. The critic never chooses a tool or finalizes the answer.',
+      securityNotice: 'JETWORK_EVIDENCE_REVIEW_OBSERVATION. Evidence refs come only from the authenticated user current running turn. Coverage/conflicts are controller proposals constrained to those verified refs. The critic never chooses a tool or finalizes the answer.',
       tool: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
       ...observation,
     }),
