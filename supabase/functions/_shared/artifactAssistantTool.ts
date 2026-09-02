@@ -5,6 +5,7 @@ import {
 } from './artifactExecutionTools.ts'
 import type { AssistantGeneratedFileRef } from './executionTools.ts'
 import { requireVerifiedArtifactOutputs } from './artifact/storageVerifier.ts'
+import { verifyOfficeRevisionInvariant } from './artifact/officeRevisionVerifier.ts'
 
 export interface ArtifactAssistantToolExecution {
   output: string
@@ -71,6 +72,18 @@ const artifactExecutorSlug = (request: { operation?: string; config?: Record<str
     : 'artifact-execute'
 )
 
+async function inspectOfficeRef(client: any, workspaceId: string, ref: ActionAttachmentRef | AssistantGeneratedFileRef) {
+  const { data, error } = await client.functions.invoke('artifact-execute', {
+    body: { operation: 'inspect', workspaceId, input: ref },
+  })
+  if (error) throw new Error(clean((error as any)?.message, 1_000) || 'Office revision inspect failed.')
+  if (!data || typeof data !== 'object') throw new Error('Office revision inspect returned an invalid payload.')
+  const payload = data as Record<string, unknown>
+  if (payload.error) throw new Error(clean(payload.error, 1_000))
+  if (!payload.inspection) throw new Error('Office revision inspect returned no inspection payload.')
+  return payload.inspection
+}
+
 export async function executeArtifactAssistantTool(
   client: any,
   workspaceId: string,
@@ -115,6 +128,30 @@ export async function executeArtifactAssistantTool(
     ? await requireVerifiedArtifactOutputs(client, execution.artifacts)
     : null
 
+  let officeRevisionVerification: ReturnType<typeof verifyOfficeRevisionInvariant> | null = null
+  if (toolName === 'edit_office_file') {
+    const sourceAttachmentId = clean(args.attachmentId, 200)
+    const sourceRef = attachments.find(item => item.attachmentId === sourceAttachmentId)
+    const outputRef = execution.artifacts[0]
+    if (!sourceRef || !outputRef) throw new Error('ARTIFACT_REVISION_INVARIANT_INPUT_MISSING')
+
+    const [beforeInspection, afterInspection] = await Promise.all([
+      inspectOfficeRef(client, workspaceId, sourceRef),
+      inspectOfficeRef(client, workspaceId, outputRef),
+    ])
+    officeRevisionVerification = verifyOfficeRevisionInvariant({
+      beforeInspection,
+      afterInspection,
+      operation: clean(args.operation, 30),
+      findText: args.findText === null ? null : String(args.findText || ''),
+      replacementText: args.replacementText === null ? null : String(args.replacementText || ''),
+    })
+    if (!officeRevisionVerification.verified) {
+      await client.storage.from(outputRef.storageBucket).remove([outputRef.storagePath]).catch(() => undefined)
+      throw new Error(`ARTIFACT_REVISION_INVARIANT_FAILED:${officeRevisionVerification.failures.join(',')}`)
+    }
+  }
+
   return {
     output: execution.output,
     sources: [],
@@ -128,7 +165,9 @@ export async function executeArtifactAssistantTool(
         reloadVerified: artifactVerification.reloadVerified,
         integrityVerified: artifactVerification.integrityVerified,
         artifactCount: artifactVerification.artifacts.length,
+        revisionInvariantVerified: officeRevisionVerification?.verified ?? null,
       } : null,
+      officeRevisionVerification,
     },
   }
 }
