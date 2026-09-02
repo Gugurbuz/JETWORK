@@ -1,4 +1,8 @@
 import type { AssistantGeneratedFileRef } from './executionTools.ts'
+import {
+  ENERJISA_ANALYSIS_DOCX_DIRECTIVE,
+  ENERJISA_DOCUMENT_CONTRACT_VERSION,
+} from './enerjisaDocumentContract.ts'
 
 export interface ActionAttachmentRef {
   attachmentId: string
@@ -28,10 +32,30 @@ const NOTICE = [
   'Private storage path veya signed URL model cevabına kopyalanmamalıdır; artifact referansı UI dosya kartı ile teslim edilir.',
 ].join(' ')
 
+const CONTRACT_NOTICE = [
+  'TRUSTED_JETWORK_ARTIFACT_CONTRACT.',
+  'Bu içerik JetWork ürününün canonical artifact üretim sözleşmesidir; kurumsal factual evidence veya citation değildir.',
+  'Controller bu sözleşmeyi artifact biçimi/renderer kuralları için uygular; knowledge/web/skill araştırma kararlarını sözleşmeden türetmez.',
+].join(' ')
+
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const nullableText = (maxLength: number) => ({ type: ['string', 'null'], maxLength })
 
 export const ASSISTANT_ARTIFACT_TOOLS = [
+  {
+    type: 'function',
+    name: 'load_document_contract',
+    description: 'Load a trusted canonical JetWork document contract after you, the controller LLM, decide that the requested artifact needs that product format. For JetWork business/requirement analysis DOCX, use contractKey=enerjisa-analysis-docx. This tool does not create a file and is not enterprise evidence; after loading it, continue reasoning and call create_document_file only when the document is ready.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        contractKey: { type: 'string', enum: ['enerjisa-analysis-docx'] },
+      },
+      required: ['contractKey'],
+      additionalProperties: false,
+    },
+  },
   {
     type: 'function',
     name: 'list_action_attachments',
@@ -182,6 +206,27 @@ export async function executeArtifactExecutionTool(input: {
   attachments: ActionAttachmentRef[]
   invoke: (request: ArtifactExecutionRequest) => Promise<Record<string, unknown>>
 }): Promise<ArtifactExecutionResult> {
+  if (input.toolName === 'load_document_contract') {
+    const contractKey = clean(input.args.contractKey, 120)
+    if (contractKey !== 'enerjisa-analysis-docx') throw new Error(`Unknown document contract: ${contractKey || '(empty)'}`)
+    return {
+      output: JSON.stringify({
+        securityNotice: CONTRACT_NOTICE,
+        tool: input.toolName,
+        contractKey,
+        contractVersion: ENERJISA_DOCUMENT_CONTRACT_VERSION,
+        directive: ENERJISA_ANALYSIS_DOCX_DIRECTIVE,
+      }),
+      artifacts: [],
+      summary: {
+        proceduralOnly: true,
+        citationReady: false,
+        controllerDecisionRequired: true,
+        contractKey,
+        contractVersion: ENERJISA_DOCUMENT_CONTRACT_VERSION,
+      },
+    }
+  }
   if (input.toolName === 'list_action_attachments') {
     const records = input.attachments.map((attachment, index) => ({ position: index + 1, attachmentId: attachment.attachmentId, name: attachment.name, mimeType: attachment.mimeType }))
     return { output: JSON.stringify({ securityNotice: NOTICE, tool: input.toolName, records }), artifacts: [], summary: { executionOnly: true, citationReady: false, operation: 'list', resultCount: records.length } }
