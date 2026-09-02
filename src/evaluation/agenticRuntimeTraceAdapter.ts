@@ -55,7 +55,9 @@ export const adaptAgenticRuntimeTelemetry = (input: AgenticRuntimeTelemetryInput
     if (row.toolName === 'create_document_file') selectedCapabilities.add('create_document_file')
     if (row.toolName === 'record_project_memory') selectedCapabilities.add('project_memory')
     if (row.toolName === 'discover_more_capabilities') selectedCapabilities.add('capability_discovery')
-    if (row.toolName.includes('critic')) selectedCapabilities.add('critic')
+    if (row.toolName === 'review_evidence_coverage' || row.summary?.evidenceReview === true || row.toolName.includes('critic')) {
+      selectedCapabilities.add('critic')
+    }
     if (row.summary?.artifactVerification) selectedCapabilities.add('artifact_verifier')
     if (row.summary?.verifiedKnowledgeEvidence === true || row.summary?.citationReady === true) selectedCapabilities.add('knowledge')
     observations.push(`${row.toolName}:${row.status}`)
