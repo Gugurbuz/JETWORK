@@ -21,16 +21,19 @@ const defaultEnvReader: EnvReader = (name) => {
 /**
  * Canonical Agentic Runtime rollout flag.
  *
- * Production-safe invariant: missing/invalid configuration means OFF. The legacy
- * flag is accepted temporarily so existing preview environments can migrate
- * without silently enabling the new runtime.
+ * Production-safe invariant: only AGENT_CONTROLLER_V2 may enable Controller V2.
+ * Missing or invalid canonical configuration means OFF even if a legacy runtime
+ * flag is still enabled in the environment. This prevents an old setting from
+ * accidentally promoting the new architecture into production.
  */
-export const isAgentControllerV2Enabled = (readEnv: EnvReader = defaultEnvReader): boolean => {
-  const canonical = parseBooleanFlag(readEnv(AGENT_CONTROLLER_V2_FLAG))
-  if (canonical !== null) return canonical
+export const isAgentControllerV2Enabled = (readEnv: EnvReader = defaultEnvReader): boolean => (
+  parseBooleanFlag(readEnv(AGENT_CONTROLLER_V2_FLAG)) === true
+)
 
-  const legacy = parseBooleanFlag(readEnv(LEGACY_AGENT_CONTROLLER_FLAG))
-  if (legacy !== null) return legacy
-
-  return false
-}
+/**
+ * Transitional visibility for the pre-V2 runtime flag. This does not enable V2;
+ * callers may use it only while removing legacy branches and telemetry labels.
+ */
+export const isLegacyAgentControllerEnabled = (readEnv: EnvReader = defaultEnvReader): boolean => (
+  parseBooleanFlag(readEnv(LEGACY_AGENT_CONTROLLER_FLAG)) === true
+)
