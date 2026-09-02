@@ -33,6 +33,22 @@ describe('agentic runtime performance adapter', () => {
     })
   })
 
+  it('reuses the AI Quality Lab primary LLM counters when explicit counts are absent', () => {
+    const metrics = adaptAgenticRuntimePerformanceMetrics({
+      toolCalls: 4,
+      usage: {
+        primary_llm_agent_calls: 3,
+        primary_llm_final_calls: 1,
+        input_tokens: 1_100,
+        output_tokens: 300,
+      },
+    })
+
+    expect(metrics.controllerRounds).toBe(3)
+    expect(metrics.providerCalls).toBe(4)
+    expect(metrics.toolCalls).toBe(4)
+  })
+
   it('accepts end-to-end TTFT only when explicitly measured and leaves unknown counters null', () => {
     const metrics = adaptAgenticRuntimePerformanceMetrics({
       endToEndTtftMs: 1_850,
