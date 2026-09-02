@@ -33,6 +33,8 @@ describe('Agent capability embedding index contract', () => {
     expect(migrationSource).toContain('using hnsw (embedding vector_cosine_ops)')
     expect(migrationSource).toContain('match_assistant_capabilities')
     expect(migrationSource).toContain('limit greatest(1, least(coalesce(p_match_count, 10), 12))')
+    expect(migrationSource).toContain('security invoker')
+    expect(migrationSource).not.toContain('security definer')
     expect(migrationSource).toContain('grant execute on function public.match_assistant_capabilities(vector, integer, text[]) to service_role')
     expect(migrationSource).toContain('revoke all on table public.assistant_capability_index from anon, authenticated')
     expect(migrationSource).not.toContain('grant execute on function public.match_assistant_capabilities(vector, integer, text[]) to authenticated')
