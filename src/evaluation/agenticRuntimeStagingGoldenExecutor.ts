@@ -1,4 +1,5 @@
 import type { AgenticRuntimeDebugReadResult } from './agenticRuntimeDebugReader'
+import { adaptAgenticRuntimePerformanceMetrics } from './agenticRuntimePerformanceAdapter'
 import type { AgenticRuntimeV2LiveExecution, AgenticRuntimeV2ScenarioExecutor } from './runAgenticRuntimeV2Golden'
 import type { AgenticRuntimeV2GoldenScenario } from './agenticRuntimeV2Scenarios'
 import {
@@ -52,16 +53,17 @@ export interface AgenticRuntimeStagingGoldenExecutorConfig {
 
 const normalizeUrl = (value: string) => String(value || '').trim().replace(/\/+$/u, '').toLocaleLowerCase('en-US')
 const finite = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 const boundedRatio = (value: number | null) => value === null ? null : Math.max(0, Math.min(1, value))
 const sumKnown = (values: Array<number | null | undefined>) => {
-  const known = values.filter((value): value is number => Number.isFinite(value))
+  const known = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
   return known.length ? known.reduce((sum, value) => sum + value, 0) : null
 }
 const maxKnown = (values: Array<number | null | undefined>) => {
-  const known = values.filter((value): value is number => Number.isFinite(value))
+  const known = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
   return known.length ? Math.max(...known) : null
 }
 
@@ -144,6 +146,21 @@ export const createAgenticRuntimeStagingGoldenExecutor = (
     const inputTokens = sumKnown(allUsage.map(usage => usageValue(usage, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokenCount'])))
     const outputTokens = sumKnown(allUsage.map(usage => usageValue(usage, ['output_tokens', 'outputTokens', 'completion_tokens', 'candidatesTokenCount'])))
     const costUsd = sumKnown(allUsage.map(usage => usageValue(usage, ['estimated_total_cost_usd', 'estimated_cost_usd', 'cost_usd'])))
+    const agentCalls = sumKnown(allUsage.map(usage => finite(usage.primary_llm_agent_calls)))
+    const finalCalls = sumKnown(allUsage.map(usage => finite(usage.primary_llm_final_calls)))
+    const aggregateUsage: Record<string, number> = {}
+    if (inputTokens !== null) aggregateUsage.input_tokens = inputTokens
+    if (outputTokens !== null) aggregateUsage.output_tokens = outputTokens
+    if (costUsd !== null) aggregateUsage.estimated_total_cost_usd = costUsd
+    if (agentCalls !== null) aggregateUsage.primary_llm_agent_calls = agentCalls
+    if (finalCalls !== null) aggregateUsage.primary_llm_final_calls = finalCalls
+
+    const performance = adaptAgenticRuntimePerformanceMetrics({
+      toolCalls,
+      endToEndTtftMs: maxKnown(turns.map(turn => turn.probe.endToEndTtftMs)),
+      totalLatencyMs: sumKnown(turns.map(turn => turn.probe.totalLatencyMs)),
+      usage: aggregateUsage,
+    })
 
     return {
       telemetry: {
@@ -159,15 +176,7 @@ export const createAgenticRuntimeStagingGoldenExecutor = (
         citationAccuracy: boundedRatio(judge.citationAccuracy),
         retrievalRecall: boundedRatio(judge.retrievalRecall),
         artifactIntegrity: artifactIntegrityFromTurns(scenario, turns),
-        controllerRounds: null,
-        toolCalls,
-        providerCalls: null,
-        ttftMs: maxKnown(turns.map(turn => turn.probe.endToEndTtftMs)),
-        streamOpenToFirstTextMs: null,
-        totalLatencyMs: sumKnown(turns.map(turn => turn.probe.totalLatencyMs)),
-        inputTokens,
-        outputTokens,
-        costUsd,
+        ...performance,
       },
     }
   }
