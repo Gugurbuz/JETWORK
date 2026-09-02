@@ -218,19 +218,19 @@ export const reduceResolvedConversationState = (
 }
 
 /**
- * Only these classes can become durable Project Memory candidates. The caller
- * still owns DB persistence/versioning; this function merely enforces the trust
- * boundary before a write is even considered.
+ * Project Memory is user-owned durable context. Verified technical facts stay in
+ * assistant_verified_facts, whose DB trigger only records successful exact/detail
+ * evidence retrievals. This function therefore never promotes assistant or
+ * verified-evidence prose into project_memory_entries automatically.
  */
 export const durableProjectMemoryCandidates = (candidates: readonly StateUpdateCandidate[]) => candidates
   .map(normalizeCandidate)
   .filter(candidate => {
-    if (!candidate.key || !candidate.value) return false
-    if (candidate.class === 'DECISION') return candidate.source === 'user'
-    if (candidate.class === 'CORRECTION') return candidate.source === 'user'
-    if (candidate.class === 'PROJECT_FACT') {
-      return candidate.source === 'user'
-        || (candidate.source === 'verified_evidence' && unique(candidate.evidenceRefs).length > 0)
+    if (!candidate.key || !candidate.value || candidate.source !== 'user') return false
+    if (candidate.class === 'DECISION') return true
+    if (candidate.class === 'PROJECT_FACT') return true
+    if (candidate.class === 'CORRECTION') {
+      return candidate.correctionTarget === 'decision' || candidate.correctionTarget === 'project_fact'
     }
     return false
   })
