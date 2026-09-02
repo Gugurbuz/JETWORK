@@ -41,7 +41,7 @@ describe('current-turn evidence review context tool v2', () => {
       client,
       workspaceId: 'workspace-1',
       toolName: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
-      args: { aspects: [] },
+      args: { aspects: [], conflicts: [] },
     })
 
     const payload = JSON.parse(result.output)
@@ -56,7 +56,7 @@ describe('current-turn evidence review context tool v2', () => {
       client,
       workspaceId: 'workspace-1',
       toolName: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
-      args: { aspects: [] },
+      args: { aspects: [], conflicts: [] },
     })
     const inspected = JSON.parse(inspection.output)
     const verifiedId = inspected.evidence[0].id
@@ -70,6 +70,7 @@ describe('current-turn evidence review context tool v2', () => {
           { id: 'messages', label: 'Mesajlar', evidenceIds: [verifiedId], status: 'covered' },
           { id: 'conditions', label: 'Koşullar', evidenceIds: ['ev_fabricated'], status: 'covered' },
         ],
+        conflicts: [],
       },
     })
 
@@ -77,5 +78,34 @@ describe('current-turn evidence review context tool v2', () => {
     expect(payload.aspects.find((item: any) => item.id === 'messages').status).toBe('covered')
     expect(payload.aspects.find((item: any) => item.id === 'conditions').status).toBe('open')
     expect(payload.critic.gaps.some((gap: string) => gap.startsWith('Koşullar:'))).toBe(true)
+  })
+
+  it('registers only conflicts backed by at least two verified current-turn evidence IDs', async () => {
+    const inspection = await executeContextTool({
+      client,
+      workspaceId: 'workspace-1',
+      toolName: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
+      args: { aspects: [], conflicts: [] },
+    })
+    const inspected = JSON.parse(inspection.output)
+    const ids = inspected.evidence.map((item: any) => item.id)
+
+    const reviewed = await executeContextTool({
+      client,
+      workspaceId: 'workspace-1',
+      toolName: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
+      args: {
+        aspects: [],
+        conflicts: [
+          { key: 'start_date', evidenceIds: ids },
+          { key: 'fake_conflict', evidenceIds: [ids[0], 'ev_fake'] },
+        ],
+      },
+    })
+
+    const payload = JSON.parse(reviewed.output)
+    expect(payload.critic.conflicts).toContain('start_date')
+    expect(payload.critic.conflicts).not.toContain('fake_conflict')
+    expect(payload.critic.suggestedFocus).toContain('resolve conflict: start_date')
   })
 })
