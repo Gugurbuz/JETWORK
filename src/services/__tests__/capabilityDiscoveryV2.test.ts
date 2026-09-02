@@ -58,23 +58,36 @@ describe('Semantic Capability Discovery v2', () => {
     expect(discoverySource).not.toContain('executeSkillTool')
   })
 
-  it('preserves only the runtime tools declared by a discovered skill', () => {
+  it('keeps semantic skill labels separate from manifest-backed executor tools', () => {
     const registry = [
-      item('skill:knowledge-investigation', 'skill', 'search and verify enterprise knowledge', {
-        declaredTools: ['search_knowledge_catalog', 'get_abap_source', 'get_knowledge_object'],
+      item('skill:sap/method-analysis', 'skill', 'search and verify enterprise SAP code', {
+        declaredTools: ['knowledge', 'code-analysis'],
+        executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_related_objects'],
       }),
     ]
     const candidates = discoverCapabilityCandidates({
-      query: 'verify enterprise knowledge',
+      query: 'verify enterprise SAP code',
       registry,
       topK: 1,
     })
     expect(candidates).toHaveLength(1)
-    expect(candidates[0].declaredTools).toEqual([
+    expect(candidates[0].declaredTools).toEqual(['knowledge', 'code-analysis'])
+    expect(candidates[0].executorTools).toEqual([
       'search_knowledge_catalog',
-      'get_abap_source',
       'get_knowledge_object',
+      'get_related_objects',
     ])
+  })
+
+  it('registers SAP skills with executable knowledge tools from the runtime manifest', () => {
+    const sapSkill = CAPABILITY_REGISTRY.find(candidate => candidate.id === 'skill:sap/method-analysis')
+    expect(sapSkill).toBeTruthy()
+    expect(sapSkill?.metadata.declaredTools).toEqual(expect.arrayContaining(['knowledge', 'code-analysis']))
+    expect(sapSkill?.metadata.executorTools).toEqual(expect.arrayContaining([
+      'search_knowledge_catalog',
+      'get_knowledge_object',
+      'get_related_objects',
+    ]))
   })
 
   it('lets semantic embeddings dominate lexical coincidence when vectors are available', () => {
