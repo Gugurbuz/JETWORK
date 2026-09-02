@@ -7,7 +7,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,33 +20,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-
-      - name: Apply one-time persistent state fix
-        id: state_patch
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          node scripts/apply-persistent-state-fix.mjs
-          if git diff --quiet -- supabase/functions/openai-assistant-core-v2/implementation.ts; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Persist conversation state fix
-        if: steps.state_patch.outputs.changed == 'true'
-        shell: bash
-        env:
-          HEAD_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add supabase/functions/openai-assistant-core-v2/implementation.ts
-          git commit -m "feat: persist compact resolved conversation state"
-          git push origin "HEAD:${HEAD_BRANCH}"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
