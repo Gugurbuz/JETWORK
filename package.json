@@ -30,12 +30,13 @@
     "verify:golden-contract": "vitest run src/evaluation/__tests__/goldenScenarios.test.ts",
     "verify:reasoning-golden": "tsx scripts/verify-reasoning-quality-golden.ts",
     "verify:assistant-runtime": "node scripts/verify-assistant-edge-syntax.mjs && vitest run src/services/__tests__/assistantRuntimeClient.test.ts src/services/__tests__/knowledgeParser.test.ts src/services/__tests__/workspaceRealtimeTransport.test.ts src/testing/assistant/goldenKnowledgeQuestions.test.ts",
-    "evaluate:golden": "tsx scripts/run-golden-evaluation.ts --confirm-live"
+    "evaluate:golden": "tsx scripts/run-golden-evaluation.ts --confirm-live",
+    "evaluate:agentic-staging-performance": "tsx scripts/run-agentic-runtime-v2-staging.ts --confirm-staging"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@supabase/supabase-js": "^2.99.3",
-    "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/typography": "^5.0.4",
     "@tailwindcss/vite": "^4.1.14",
     "@tiptap/extension-color": "^3.20.1",
     "@tiptap/extension-image": "^3.20.1",
@@ -46,8 +47,8 @@
     "@tiptap/extension-table-header": "^3.20.1",
     "@tiptap/extension-table-row": "^3.20.1",
     "@tiptap/extension-text-style": "^3.20.1",
-    "@tiptap/react": "^3.20.1",
-    "@tiptap/starter-kit": "^3.20.1",
+    "@tiptap/react": "^3.20.0",
+    "@tiptap/starter-kit": "^3.20.0",
     "@types/marked": "^5.0.2",
     "@vitejs/plugin-react": "^5.0.4",
     "bpmn-js": "^18.13.1",
