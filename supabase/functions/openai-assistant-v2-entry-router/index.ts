@@ -6,6 +6,7 @@ import {
   isDocumentRevisionRequest,
   isGroundedRequirementRequest,
 } from '../_shared/documentArtifactRouting.ts'
+import { isAgentControllerV2Enabled } from '../_shared/runtime/runtimeFlags.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -72,9 +73,6 @@ async function loadRecentArtifactContext(
     && clean(row.text, 26_000)
     && clean(row.text, 26_000) !== currentUserText
   ))
-  // Short retry/follow-up messages must not replace the substantive requirement
-  // that the artifact is supposed to represent. Prefer the nearest substantial
-  // user input; fall back to the latest distinct user input when none exists.
   const priorUserRow = priorUserRows.find(row => clean(row.text, 26_000).length >= 400) || priorUserRows[0]
   const priorUser = priorUserRow ? clean(priorUserRow.text, 26_000) : ''
   const recentContext = [...rows]
@@ -118,9 +116,6 @@ async function loadPersistedArtifacts(
     p_message_id: messageId,
   })
   if (error) {
-    // The migration can briefly lag the edge deployment during rollout. Never
-    // fail an otherwise valid assistant response just because recovery metadata
-    // is not available yet.
     console.warn('Assistant artifact recovery lookup failed:', error.message)
     return []
   }
@@ -144,7 +139,6 @@ function enrichAssistantSse(
       const forwardFrame = async (frame: string) => {
         if (!frame.trim()) return
         const name = eventName(frame)
-        const data = eventData(frame)
         if (name === 'artifacts') artifactsSeen = true
         if (name === 'completed' && !artifactsSeen) {
           const artifacts = await loadArtifacts().catch(() => [])
@@ -177,6 +171,47 @@ function enrichAssistantSse(
   })
 }
 
+async function forwardControllerV2(input: {
+  supabaseUrl: string
+  anonKey: string
+  authorization: string
+  payload: Record<string, unknown>
+  client: ReturnType<typeof createClient>
+  workspaceId: string
+  messageId: string
+}) {
+  let upstream: Response
+  try {
+    upstream = await fetch(`${input.supabaseUrl}/functions/v1/openai-assistant-v2-internal`, {
+      method: 'POST',
+      headers: {
+        Authorization: input.authorization,
+        apikey: input.anonKey,
+        'Content-Type': 'application/json',
+        'x-client-info': 'jetwork-agent-controller-v2-entry/v1',
+      },
+      body: JSON.stringify(input.payload),
+    })
+  } catch {
+    return jsonResponse({ error: 'Assistant runtime could not be reached.', code: 'ASSISTANT_RUNTIME_UNREACHABLE' }, 502)
+  }
+
+  const headers = new Headers(upstream.headers)
+  headers.set('Access-Control-Allow-Origin', '*')
+  headers.set('Access-Control-Expose-Headers', 'x-jetwork-runtime-route')
+  headers.set('x-jetwork-runtime-route', 'agent-controller-v2')
+
+  const contentType = upstream.headers.get('Content-Type') || upstream.headers.get('content-type') || ''
+  if (!upstream.body || !contentType.includes('text/event-stream')) {
+    return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers })
+  }
+
+  return new Response(
+    enrichAssistantSse(upstream.body, () => loadPersistedArtifacts(input.client, input.workspaceId, input.messageId)),
+    { status: upstream.status, statusText: upstream.statusText, headers },
+  )
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
@@ -203,6 +238,23 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false },
   })
 
+  // P1 invariant: with Controller V2 enabled the entry layer performs no
+  // keyword/regex/length-based semantic routing. Every semantic turn goes to the
+  // full controller runtime, which can itself select knowledge/web/skill/artifact
+  // capabilities. The entire legacy router remains below as rollback behavior
+  // while AGENT_CONTROLLER_V2 is OFF.
+  if (isAgentControllerV2Enabled()) {
+    return forwardControllerV2({
+      supabaseUrl,
+      anonKey,
+      authorization,
+      payload,
+      client,
+      workspaceId,
+      messageId,
+    })
+  }
+
   const routeDecision = classifyDocumentArtifactRequest(message)
   const artifactContext = !routeDecision.artifactRoute
     ? await loadRecentArtifactContext(client, workspaceId, messageId, message)
@@ -219,8 +271,6 @@ Deno.serve(async (req: Request) => {
     && await hasRecentEnerjisaAnalysisDocx(client, workspaceId)
   const enerjisaAnalysisDocx = routeDecision.enerjisaAnalysisDocx || contextualEnerjisaCreation || revisionOfEnerjisaAnalysis
   const groundedRequirement = !enerjisaAnalysisDocx && isGroundedRequirementRequest(message)
-  // Long inputs require the full semantic/capability runtime. Intent is still
-  // resolved inside the semantic orchestrator, not here from business keywords.
   const longContextNeedsReasoning = message.length >= 2_000
   const artifactRoute = routeDecision.artifactRoute || enerjisaAnalysisDocx
   const target = enerjisaAnalysisDocx
@@ -238,10 +288,6 @@ Deno.serve(async (req: Request) => {
       ? { ...payload, message: contextualArtifactMessage }
       : payload
 
-  // Preserve the original user message for normal document generation/revision.
-  // Enerjisa's long template is appended only after semantic intent planning
-  // inside openai-assistant-enerjisa-docx. Requirement-only requests receive a
-  // small grounding guard and are sent through the reasoning runtime.
   const upstreamBody = new TextEncoder().encode(JSON.stringify(upstreamPayload))
 
   let upstream: Response
