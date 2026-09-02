@@ -10,11 +10,20 @@ import {
 
 export const AGENTIC_RUNTIME_STAGING_SUITE_VERSION = 'agentic-runtime-staging-suite-v1'
 
+export interface AgenticRuntimeStagingBeforeTurnInput {
+  scenarioId: string
+  category: AgenticRuntimeV2GoldenScenario['category']
+  turnIndex: number
+  messageId: string
+  message: string
+}
+
 export interface AgenticRuntimeStagingSuiteConfig extends Omit<AgenticRuntimeStagingProbeInput,
   'messageId' | 'message' | 'fetchImpl' | 'now'> {
   scenarios?: readonly AgenticRuntimeV2GoldenScenario[]
   probeTurn?: typeof probeAgenticRuntimeStagingTurn
   messageIdFactory?: (scenarioId: string, turnIndex: number) => string
+  beforeTurn?: (input: AgenticRuntimeStagingBeforeTurnInput) => Promise<void>
 }
 
 const percentile = (values: number[], p: number) => {
@@ -26,17 +35,17 @@ const percentile = (values: number[], p: number) => {
 
 /**
  * Runs every declared golden turn sequentially against staging and returns raw
- * transport/performance observations. This is deliberately not a semantic
- * release judge; P6 still owns task-success/grounding/assertion evaluation.
+ * transport/performance observations. The beforeTurn hook persists the exact
+ * user message before the gateway resolves its current semantic context.
+ * This suite is deliberately not a semantic release judge; P6 still owns
+ * task-success/grounding/assertion evaluation.
  */
 export async function runAgenticRuntimeStagingProbeSuite(
   config: AgenticRuntimeStagingSuiteConfig,
 ) {
   const scenarios = config.scenarios || AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS
   const probeTurn = config.probeTurn || probeAgenticRuntimeStagingTurn
-  const messageIdFactory = config.messageIdFactory || ((scenarioId: string, turnIndex: number) => (
-    `agentic-golden-${scenarioId}-${turnIndex + 1}-${crypto.randomUUID()}`
-  ))
+  const messageIdFactory = config.messageIdFactory || (() => crypto.randomUUID())
   const scenarioResults: Array<{
     scenarioId: string
     category: AgenticRuntimeV2GoldenScenario['category']
@@ -46,6 +55,16 @@ export async function runAgenticRuntimeStagingProbeSuite(
   for (const scenario of scenarios) {
     const turns: AgenticRuntimeStagingProbeResult[] = []
     for (const [turnIndex, message] of scenario.turns.entries()) {
+      const messageId = messageIdFactory(scenario.id, turnIndex)
+      if (config.beforeTurn) {
+        await config.beforeTurn({
+          scenarioId: scenario.id,
+          category: scenario.category,
+          turnIndex,
+          messageId,
+          message,
+        })
+      }
       turns.push(await probeTurn({
         targetSupabaseUrl: config.targetSupabaseUrl,
         productionSupabaseUrl: config.productionSupabaseUrl,
@@ -53,7 +72,7 @@ export async function runAgenticRuntimeStagingProbeSuite(
         accessToken: config.accessToken,
         workspaceId: config.workspaceId,
         model: config.model,
-        messageId: messageIdFactory(scenario.id, turnIndex),
+        messageId,
         message,
       }))
     }
