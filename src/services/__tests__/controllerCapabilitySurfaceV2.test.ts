@@ -34,6 +34,29 @@ describe('controller capability surface v2', () => {
     expect(surface.providerWebVisible).toBe(false)
   })
 
+  it('surfaces only the runtime tools declared by a discovered skill candidate', () => {
+    const surface = buildControllerCapabilitySurface([
+      candidate({
+        id: 'skill:knowledge-investigation',
+        kind: 'skill',
+        category: 'skill',
+        title: 'Knowledge investigation',
+        skillKey: 'knowledge-investigation',
+        declaredTools: ['search_knowledge_catalog', 'get_abap_source', 'get_knowledge_object'],
+      }),
+    ])
+
+    expect(surface.toolNames).toContain('search_knowledge_catalog')
+    expect(surface.toolNames).toContain('get_abap_source')
+    expect(surface.toolNames).toContain('get_knowledge_object')
+    expect(surface.toolNames).not.toContain('get_message_detail')
+    expect(surface.candidates[0]?.declaredTools).toEqual([
+      'search_knowledge_catalog',
+      'get_abap_source',
+      'get_knowledge_object',
+    ])
+  })
+
   it('keeps provider web as a candidate capability instead of globally enabling it', () => {
     const surface = buildControllerCapabilitySurface([
       candidate({ id: 'provider:web_search', kind: 'provider_capability', category: 'web', title: 'Provider web', toolName: 'provider_web' }),
