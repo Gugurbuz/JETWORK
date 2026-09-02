@@ -19,6 +19,7 @@ describe('evidence controller session v2', () => {
 
     const evidenceId = session.observation().evidence[0]?.id
     expect(evidenceId).toMatch(/^ev_/)
+    if (!evidenceId) throw new Error('Expected mechanically verified evidence id.')
 
     session.applyCoverageProposal({
       aspects: [
