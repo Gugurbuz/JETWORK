@@ -108,7 +108,7 @@ describe('Live runtime status and grounding regression', () => {
     expect(providerSource).toContain('allowTools: false');
   });
 
-  it('keeps skills, knowledge and web visible to the controller instead of gating them by advisory intent', () => {
+  it('uses semantic Top-K capability visibility instead of advisory-intent gating or an all-tools surface', () => {
     const runtimeSource = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
@@ -117,16 +117,24 @@ describe('Live runtime status and grounding regression', () => {
       new URL('../../../supabase/functions/_shared/skillTools.ts', import.meta.url),
       'utf8',
     );
+    const surfaceSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url),
+      'utf8',
+    );
 
-    expect(runtimeSource).toContain("ASSISTANT_AGENTIC_CONTROLLER")
-    expect(runtimeSource).toContain('AGENTIC_CONTROLLER_ENABLED || plan.intent')
-    expect(runtimeSource).toContain('AGENTIC_CONTROLLER_ENABLED || (')
-    expect(runtimeSource).toContain('AGENTIC_CONTROLLER_ENABLED || plan.webMode')
-    expect(runtimeSource).toContain('Skills + Knowledge + Web capabilityleri açık')
-    expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24")
-    expect(skillSource).toContain('maxItems: 8')
-    expect(skillSource).toContain('maximum: 12')
-    expect(skillSource).toContain('controllerDecisionRequired: true')
+    expect(runtimeSource).toContain('startControllerCapabilitySession({');
+    expect(runtimeSource).toContain('capabilitySession?.surface.tools || []');
+    expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
+    expect(runtimeSource).toContain('DISCOVER_MORE_CAPABILITIES_TOOL_NAME');
+    expect(runtimeSource).not.toContain('Skills + Knowledge + Web capabilityleri açık');
+    expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
+    expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
+    expect(surfaceSource).toContain('TOP_K_DEFAULT = 10');
+    expect(surfaceSource).toContain('TOP_K_MAX = 12');
+    expect(surfaceSource).toContain('excludeIds: input.session.seenCandidateIds');
+    expect(skillSource).toContain('maxItems: 8');
+    expect(skillSource).toContain('maximum: 12');
+    expect(skillSource).toContain('controllerDecisionRequired: true');
   });
 
   it('treats server-side assistant SSE errors as terminal instead of reconnecting the failed turn', () => {
