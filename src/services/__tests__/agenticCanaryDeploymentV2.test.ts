@@ -13,6 +13,10 @@ const runtimeFlags = readFileSync(
   new URL('../../../supabase/functions/_shared/runtime/runtimeFlags.ts', import.meta.url),
   'utf8',
 )
+const executableBootstrap = bootstrap
+  .split(/\r?\n/u)
+  .filter(line => !line.trimStart().startsWith('//'))
+  .join('\n')
 
 describe('Agentic Runtime V2 canary deployment boot', () => {
   it('uses static imports so hosted Edge Runtime does not require remote dynamic import', () => {
@@ -29,9 +33,9 @@ describe('Agentic Runtime V2 canary deployment boot', () => {
     expect(bootstrap).toContain('const originalEnvGet = Deno.env.get.bind(Deno.env)')
     expect(bootstrap).toContain('Deno.env.get =')
     expect(bootstrap).toContain("key === 'ASSISTANT_AGENTIC_CONTROLLER' ? 'true' : originalEnvGet(key)")
-    expect(bootstrap).not.toContain('Deno.env.set(')
-    expect(bootstrap).not.toContain('req.headers')
-    expect(bootstrap).not.toContain('request.body')
+    expect(executableBootstrap).not.toContain('Deno.env.set(')
+    expect(executableBootstrap).not.toContain('req.headers')
+    expect(executableBootstrap).not.toContain('request.body')
     expect(runtimeFlags).toContain('DENO_DEPLOYMENT_ID')
     expect(runtimeFlags).toContain('8889f9e7-b72b-4549-b793-0045311043d6')
     expect(runtimeFlags).toContain('7806a5b9-17a7-4cae-a15e-c3e2d6ec8eac')
