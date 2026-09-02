@@ -13,6 +13,7 @@ export interface AgenticRuntimeRunMetrics {
   toolCalls: number
   providerCalls: number
   ttftMs: number | null
+  streamOpenToFirstTextMs?: number | null
   totalLatencyMs: number | null
   inputTokens: number | null
   outputTokens: number | null
@@ -97,6 +98,8 @@ export const summarizeAgenticRuntimeV2Scorecard = (
     performance: {
       ttftP50Ms: percentile(runs.map(run => run.ttftMs), 0.50),
       ttftP95Ms: percentile(runs.map(run => run.ttftMs), 0.95),
+      streamOpenToFirstTextP50Ms: percentile(runs.map(run => run.streamOpenToFirstTextMs), 0.50),
+      streamOpenToFirstTextP95Ms: percentile(runs.map(run => run.streamOpenToFirstTextMs), 0.95),
       totalLatencyP50Ms: percentile(runs.map(run => run.totalLatencyMs), 0.50),
       totalLatencyP95Ms: percentile(runs.map(run => run.totalLatencyMs), 0.95),
       inputTokensAvg: average(runs.map(run => run.inputTokens)),
@@ -111,6 +114,6 @@ export const summarizeAgenticRuntimeV2Scorecard = (
     thresholds,
     gates,
     releaseQualityGatePassed: total > 0 && Object.values(gates).every(Boolean),
-    note: 'Latency and cost are measured here but are not release-failing until P7 establishes an accepted baseline/regression budget.',
+    note: 'Latency and cost are measured here but are not release-failing until P7 establishes an accepted baseline/regression budget. streamOpenToFirstTextMs is a stream-layer metric and is not end-to-end TTFT.',
   }
 }
