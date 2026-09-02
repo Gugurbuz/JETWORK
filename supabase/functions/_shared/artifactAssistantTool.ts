@@ -84,6 +84,11 @@ async function inspectOfficeRef(client: any, workspaceId: string, ref: ActionAtt
   return payload.inspection
 }
 
+async function removeGeneratedArtifact(client: any, artifact: AssistantGeneratedFileRef | undefined) {
+  if (!artifact?.storageBucket || !artifact?.storagePath) return
+  await client.storage.from(artifact.storageBucket).remove([artifact.storagePath]).catch(() => undefined)
+}
+
 export async function executeArtifactAssistantTool(
   client: any,
   workspaceId: string,
@@ -133,22 +138,29 @@ export async function executeArtifactAssistantTool(
     const sourceAttachmentId = clean(args.attachmentId, 200)
     const sourceRef = attachments.find(item => item.attachmentId === sourceAttachmentId)
     const outputRef = execution.artifacts[0]
-    if (!sourceRef || !outputRef) throw new Error('ARTIFACT_REVISION_INVARIANT_INPUT_MISSING')
+    if (!sourceRef || !outputRef) {
+      await removeGeneratedArtifact(client, outputRef)
+      throw new Error('ARTIFACT_REVISION_INVARIANT_INPUT_MISSING')
+    }
 
-    const [beforeInspection, afterInspection] = await Promise.all([
-      inspectOfficeRef(client, workspaceId, sourceRef),
-      inspectOfficeRef(client, workspaceId, outputRef),
-    ])
-    officeRevisionVerification = verifyOfficeRevisionInvariant({
-      beforeInspection,
-      afterInspection,
-      operation: clean(args.operation, 30),
-      findText: args.findText === null ? null : String(args.findText || ''),
-      replacementText: args.replacementText === null ? null : String(args.replacementText || ''),
-    })
-    if (!officeRevisionVerification.verified) {
-      await client.storage.from(outputRef.storageBucket).remove([outputRef.storagePath]).catch(() => undefined)
-      throw new Error(`ARTIFACT_REVISION_INVARIANT_FAILED:${officeRevisionVerification.failures.join(',')}`)
+    try {
+      const [beforeInspection, afterInspection] = await Promise.all([
+        inspectOfficeRef(client, workspaceId, sourceRef),
+        inspectOfficeRef(client, workspaceId, outputRef),
+      ])
+      officeRevisionVerification = verifyOfficeRevisionInvariant({
+        beforeInspection,
+        afterInspection,
+        operation: clean(args.operation, 30),
+        findText: args.findText === null ? null : String(args.findText || ''),
+        replacementText: args.replacementText === null ? null : String(args.replacementText || ''),
+      })
+      if (!officeRevisionVerification.verified) {
+        throw new Error(`ARTIFACT_REVISION_INVARIANT_FAILED:${officeRevisionVerification.failures.join(',')}`)
+      }
+    } catch (error) {
+      await removeGeneratedArtifact(client, outputRef)
+      throw error
     }
   }
 
