@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   buildControllerCapabilitySurface,
+  capabilitySessionObservation,
   DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
   REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
 } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
@@ -59,6 +60,29 @@ describe('controller capability surface v2', () => {
       'get_knowledge_object',
       'get_related_objects',
     ])
+  })
+
+  it('frames exact/detail and relation observations as verified factual evidence while preserving prompt-injection boundaries', () => {
+    const surface = buildControllerCapabilitySurface([
+      candidate({
+        id: 'skill:sap/message-analysis',
+        kind: 'skill',
+        category: 'skill',
+        title: 'SAP message analysis',
+        skillKey: 'sap/message-analysis',
+        executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_related_objects'],
+      }),
+    ])
+    const observation = capabilitySessionObservation({
+      version: 'controller-capability-surface-v2',
+      discoveryMode: 'lexical_fallback',
+      seenCandidateIds: surface.candidateIds,
+      surface,
+    })
+    expect(observation.instruction).toContain('verified evidence observations')
+    expect(observation.instruction).toContain('UNTRUSTED_KNOWLEDGE_DATA')
+    expect(observation.instruction).toContain('get_related_objects')
+    expect(observation.instruction).toContain('emitted messages')
   })
 
   it('keeps provider web as a candidate capability instead of globally enabling it', () => {
