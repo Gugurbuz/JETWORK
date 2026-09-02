@@ -1,5 +1,6 @@
 import { ASSISTANT_KNOWLEDGE_TOOLS } from '../assistantTools.ts'
 import { ASSISTANT_SKILL_TOOLS } from '../skillTools.ts'
+import { ASSISTANT_CONTEXT_TOOLS } from '../contextTools.ts'
 import {
   discoverIndexedCapabilities,
   type IndexedCapabilityDiscoveryResult,
@@ -17,6 +18,7 @@ const MAX_SESSION_CANDIDATES = 36
 const runtimeTools = [
   ...(ASSISTANT_SKILL_TOOLS as unknown as RuntimeToolSchema[]),
   ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as RuntimeToolSchema[]),
+  ...(ASSISTANT_CONTEXT_TOOLS as unknown as RuntimeToolSchema[]),
 ]
 const runtimeToolByName = new Map(runtimeTools.map(tool => [tool.name, tool]))
 const ALWAYS_VISIBLE_META_TOOLS = ['load_skills', 'list_capabilities'] as const
