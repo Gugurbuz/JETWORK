@@ -50,7 +50,7 @@ describe('Resolved Conversation State v2 lifecycle', () => {
     expect(corrected.corrections[0].value).toBe('internal canary first')
   })
 
-  it('requires evidence refs before an AI-derived technical fact can become a project fact', () => {
+  it('requires evidence refs before an evidence-derived technical fact can enter resolved state', () => {
     const result = reduceResolvedConversationState(emptyResolvedConversationState(), [
       {
         class: 'PROJECT_FACT',
@@ -95,15 +95,17 @@ describe('Resolved Conversation State v2 lifecycle', () => {
     expect(completed.completed[0].key).toBe('p2-discovery')
   })
 
-  it('filters durable Project Memory candidates before persistence is attempted', () => {
+  it('persists only user-owned Project Memory and leaves verified technical facts in verified-fact memory', () => {
     const durable = durableProjectMemoryCandidates([
       { class: 'DECISION', key: 'a', value: 'A', source: 'user' },
       { class: 'PROJECT_FACT', key: 'b', value: 'B', source: 'verified_evidence', evidenceRefs: ['ev:b'] },
-      { class: 'PROJECT_FACT', key: 'c', value: 'C', source: 'assistant' },
-      { class: 'AI_HYPOTHESIS', key: 'd', value: 'D', source: 'assistant' },
-      { class: 'PROGRESS', key: 'e', value: 'E', source: 'runtime', progressState: 'completed' },
+      { class: 'PROJECT_FACT', key: 'c', value: 'C', source: 'user' },
+      { class: 'CORRECTION', key: 'd', value: 'D', source: 'user', correctionTarget: 'decision' },
+      { class: 'CORRECTION', key: 'e', value: 'E', source: 'user', correctionTarget: 'progress' },
+      { class: 'AI_HYPOTHESIS', key: 'f', value: 'F', source: 'assistant' },
+      { class: 'PROGRESS', key: 'g', value: 'G', source: 'runtime', progressState: 'completed' },
     ])
 
-    expect(durable.map(item => item.key)).toEqual(['a', 'b'])
+    expect(durable.map(item => item.key)).toEqual(['a', 'c', 'd'])
   })
 })
