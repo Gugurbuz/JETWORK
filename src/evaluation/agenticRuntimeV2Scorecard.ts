@@ -9,9 +9,9 @@ export interface AgenticRuntimeRunMetrics {
   citationAccuracy: number | null
   retrievalRecall: number | null
   artifactIntegrity: boolean | null
-  controllerRounds: number
-  toolCalls: number
-  providerCalls: number
+  controllerRounds: number | null
+  toolCalls: number | null
+  providerCalls: number | null
   ttftMs: number | null
   streamOpenToFirstTextMs?: number | null
   totalLatencyMs: number | null
@@ -114,6 +114,6 @@ export const summarizeAgenticRuntimeV2Scorecard = (
     thresholds,
     gates,
     releaseQualityGatePassed: total > 0 && Object.values(gates).every(Boolean),
-    note: 'Latency and cost are measured here but are not release-failing until P7 establishes an accepted baseline/regression budget. streamOpenToFirstTextMs is a stream-layer metric and is not end-to-end TTFT.',
+    note: 'Unknown behavior/performance counts remain null rather than being coerced to zero. Latency and cost are observational until P7 establishes an accepted baseline/regression budget. streamOpenToFirstTextMs is a stream-layer metric and is not end-to-end TTFT.',
   }
 }
