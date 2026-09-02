@@ -13,6 +13,7 @@ import type { AssistantProvider } from './modelProviders.ts'
 import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'
 import type { AssistantActiveOperation } from './operationState.ts'
 import type { ProjectMemoryContextItem } from './projectMemoryContext.ts'
+import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
 
 export const SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
@@ -263,8 +264,46 @@ const buildPrimaryAgentPlan = (input: {
   message: string
   conversation: SemanticContextMessage[]
   priorExecution?: PriorExecutionContext
+  agentControllerV2Enabled?: boolean
 }): ReasoningPlan => {
   const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()
+  const state = buildConversationState({
+    currentMessage,
+    conversation: input.conversation,
+    priorExecution: input.priorExecution,
+  })
+  const controllerV2Enabled = input.agentControllerV2Enabled ?? isAgentControllerV2Enabled()
+
+  if (controllerV2Enabled) {
+    const exactTechnicalEvidenceRequired = extractTechnicalEntities(currentMessage).length > 0
+    return {
+      // P1 invariant: this envelope is context + safety metadata only. It must not
+      // choose a capability, force web/knowledge, or classify a business/domain
+      // route ahead of the active controller LLM.
+      intent: 'analysis',
+      complexity: 'medium',
+      executionMode: 'direct',
+      goal: state.resolvedRequest || currentMessage,
+      knowledgeRequired: false,
+      enterpriseGroundingRequired: exactTechnicalEvidenceRequired,
+      webMode: 'none',
+      verificationRequired: false,
+      creativeMode: false,
+      evidenceQueries: [],
+      promptProfile: 'base',
+      steps: [{
+        id: 'controller-v2-loop',
+        label: 'Controller LLM hedefi değerlendirir ve gerekirse capability seçer',
+        toolHint: 'synthesis',
+        successCriteria: exactTechnicalEvidenceRequired
+          ? 'Exact teknik iddialar doğrulanmış enterprise evidence olmadan kesinleştirilmez; capability seçimini controller yapar.'
+          : 'Capability seçimi ve araştırma derinliği controller LLM tarafından observation sonrası yeniden belirlenir.',
+      }],
+      conversationState: state,
+      orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+    }
+  }
+
   const deepResearchTarget = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(currentMessage))
     ? priorUserRequest(input.conversation)
     : ''
@@ -283,20 +322,12 @@ const buildPrimaryAgentPlan = (input: {
     : deepResearchNeedsKnowledge
       ? { ...routed, knowledgeRequired: true }
       : routed
-  const state = buildConversationState({
-    currentMessage,
-    conversation: input.conversation,
-    priorExecution: input.priorExecution,
-  })
   const executionMode = executionModeFor(route.intent)
   return {
     intent: route.intent,
     complexity: route.complexity,
     executionMode,
     goal: state.resolvedRequest || currentMessage,
-    // The user's supplied requirement/specification text is itself the primary
-    // evidence for analysis. Otherwise respect the deterministic router instead
-    // of forcing every primary-agent turn into knowledge + public web mode.
     knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired,
     enterpriseGroundingRequired: userProvidedRequirements,
     webMode: userProvidedRequirements ? 'none' : route.webMode,
@@ -324,11 +355,6 @@ const mergeCachedConversationState = (
   if (!fresh) return cached
   if (!cached) return fresh
 
-  // A cached semantic plan is continuity cache, never durable memory. Positive
-  // facts/decisions/entities from it can be stale after a user correction, so
-  // fresh state + scoped Project Brain are authoritative. Only negative context
-  // is carried because it prevents the controller from resurrecting an already
-  // rejected hypothesis/scope; current user input still wins on every rebuild.
   return {
     ...fresh,
     rejectedHypotheses: unique([...(fresh.rejectedHypotheses || []), ...(cached.rejectedHypotheses || [])], 6),
@@ -349,8 +375,6 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
       evidenceQueries: [],
       verificationRequired: false,
       enterpriseGroundingRequired: inputPlan.enterpriseGroundingRequired === true,
-      // Gemini keeps provider lock by encoding public web as a native capability
-      // marker. The core must not interpret this as an OpenAI preflight request.
       webMode: providerNativeWeb ? 'none' : inputPlan.webMode,
       steps: [{
         id: 'primary-agent-loop',
@@ -403,12 +427,14 @@ export const normalizeCachedSemanticPlan = (input: {
   currentMessage: string
   conversation: SemanticContextMessage[]
   priorExecution?: PriorExecutionContext
+  agentControllerV2Enabled?: boolean
 }): ReasoningPlan | null => {
   try {
     const fresh = buildPrimaryAgentPlan({
       message: input.currentMessage,
       conversation: input.conversation,
       priorExecution: input.priorExecution,
+      agentControllerV2Enabled: input.agentControllerV2Enabled,
     })
     const cached = input.value && typeof input.value === 'object' ? input.value as ReasoningPlan : null
     if (cached?.conversationState) {
@@ -430,17 +456,21 @@ export async function buildSemanticExecutionPlan(input: {
   workspaceTitle?: string
   attachmentNames?: string[]
   signal?: AbortSignal
+  agentControllerV2Enabled?: boolean
 }): Promise<SemanticOrchestrationResult> {
+  const controllerV2Enabled = input.agentControllerV2Enabled ?? isAgentControllerV2Enabled()
   const plan = applyAgentLoopPolicy(buildPrimaryAgentPlan({
     message: input.message,
     conversation: compactSemanticConversation(input.conversation),
     priorExecution: input.priorExecution,
+    agentControllerV2Enabled: controllerV2Enabled,
   }), input.provider)
   return {
     plan,
     usage: {
       primary_llm_agent_mode: 1,
       semantic_planner_provider_calls_avoided: 1,
+      controller_v2_advisory_plan: controllerV2Enabled ? 1 : 0,
     },
     fallbackUsed: false,
     provider: input.provider,
