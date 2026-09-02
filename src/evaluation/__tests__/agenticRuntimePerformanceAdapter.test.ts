@@ -33,13 +33,16 @@ describe('agentic runtime performance adapter', () => {
     })
   })
 
-  it('accepts end-to-end TTFT only when explicitly measured', () => {
+  it('accepts end-to-end TTFT only when explicitly measured and leaves unknown counters null', () => {
     const metrics = adaptAgenticRuntimePerformanceMetrics({
       endToEndTtftMs: 1_850,
       streamOpenToFirstTextMs: 300,
       usage: { promptTokenCount: 900, candidatesTokenCount: 200, estimated_cost_usd: 0.01 },
     })
 
+    expect(metrics.controllerRounds).toBeNull()
+    expect(metrics.toolCalls).toBeNull()
+    expect(metrics.providerCalls).toBeNull()
     expect(metrics.ttftMs).toBe(1_850)
     expect(metrics.streamOpenToFirstTextMs).toBe(300)
     expect(metrics.inputTokens).toBe(900)
@@ -47,7 +50,7 @@ describe('agentic runtime performance adapter', () => {
     expect(metrics.costUsd).toBe(0.01)
   })
 
-  it('fails measurement values to null instead of coercing invalid telemetry', () => {
+  it('fails invalid measurement values to null instead of coercing them to zero', () => {
     const metrics = adaptAgenticRuntimePerformanceMetrics({
       controllerRounds: -4,
       toolCalls: Number.NaN,
@@ -56,8 +59,9 @@ describe('agentic runtime performance adapter', () => {
       usage: { input_tokens: 'bad', estimated_total_cost_usd: -1 },
     })
 
-    expect(metrics.controllerRounds).toBe(0)
-    expect(metrics.toolCalls).toBe(0)
+    expect(metrics.controllerRounds).toBeNull()
+    expect(metrics.toolCalls).toBeNull()
+    expect(metrics.providerCalls).toBeNull()
     expect(metrics.ttftMs).toBeNull()
     expect(metrics.streamOpenToFirstTextMs).toBeNull()
     expect(metrics.inputTokens).toBeNull()
