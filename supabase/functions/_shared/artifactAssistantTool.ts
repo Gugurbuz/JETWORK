@@ -4,6 +4,7 @@ import {
   type ActionAttachmentRef,
 } from './artifactExecutionTools.ts'
 import type { AssistantGeneratedFileRef } from './executionTools.ts'
+import { requireVerifiedArtifactOutputs } from './artifact/storageVerifier.ts'
 
 export interface ArtifactAssistantToolExecution {
   output: string
@@ -14,6 +15,12 @@ export interface ArtifactAssistantToolExecution {
 
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const ASSISTANT_FILES_BUCKET = 'assistant-files'
+const OUTPUT_ARTIFACT_TOOLS = new Set([
+  'transform_pdf_file',
+  'edit_office_file',
+  'create_document_file',
+  'generate_or_edit_image',
+])
 const ACTIONABLE_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/pdf',
@@ -100,10 +107,28 @@ export async function executeArtifactAssistantTool(
     },
   })
 
+  const requiresOutputArtifact = OUTPUT_ARTIFACT_TOOLS.has(toolName)
+  if (requiresOutputArtifact && !execution.artifacts.length) {
+    throw new Error(`ARTIFACT_EXECUTOR_RETURNED_NO_OUTPUT:${toolName}`)
+  }
+  const artifactVerification = requiresOutputArtifact
+    ? await requireVerifiedArtifactOutputs(client, execution.artifacts)
+    : null
+
   return {
     output: execution.output,
     sources: [],
     artifacts: execution.artifacts,
-    summary: { ...execution.summary, executionOnly: true, citationReady: false },
+    summary: {
+      ...execution.summary,
+      executionOnly: true,
+      citationReady: false,
+      artifactVerification: artifactVerification ? {
+        version: artifactVerification.version,
+        reloadVerified: artifactVerification.reloadVerified,
+        integrityVerified: artifactVerification.integrityVerified,
+        artifactCount: artifactVerification.artifacts.length,
+      } : null,
+    },
   }
 }
