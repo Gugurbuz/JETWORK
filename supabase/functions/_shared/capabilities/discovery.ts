@@ -20,6 +20,7 @@ export interface CapabilityCandidate {
   toolName?: string
   skillKey?: string
   declaredTools?: string[]
+  executorTools?: string[]
   score: number
   semanticScore: number | null
   lexicalScore: number
@@ -78,8 +79,8 @@ const cosineSimilarity = (left: number[] | undefined, right: number[] | undefine
 }
 
 const boundedTopK = (value: number | undefined) => Math.max(1, Math.min(Math.trunc(Number(value) || 10), 12))
-const declaredTools = (item: CapabilityRegistryItem) => Array.isArray(item.metadata?.declaredTools)
-  ? [...new Set(item.metadata.declaredTools.map(value => String(value || '').trim()).filter(Boolean))]
+const metadataStrings = (item: CapabilityRegistryItem, key: string) => Array.isArray(item.metadata?.[key])
+  ? [...new Set((item.metadata[key] as unknown[]).map(value => String(value || '').trim()).filter(Boolean))]
   : undefined
 
 /**
@@ -128,7 +129,8 @@ export const discoverCapabilityCandidates = (input: {
       description: item.description,
       toolName: item.toolName,
       skillKey: item.skillKey,
-      declaredTools: declaredTools(item),
+      declaredTools: metadataStrings(item, 'declaredTools'),
+      executorTools: metadataStrings(item, 'executorTools'),
       score: Number(score.toFixed(6)),
       semanticScore: semantic === null ? null : Number(semantic.toFixed(6)),
       lexicalScore: Number(lexical.toFixed(6)),
