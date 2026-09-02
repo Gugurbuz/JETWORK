@@ -15,6 +15,7 @@ describe('agent runtime telemetry v2', () => {
     tracker.recordToolLatency('search_knowledge_catalog', 900)
     tracker.recordToolLatency('search_knowledge_catalog', 700)
     tracker.mark('final_generation_started', 1800)
+    tracker.mark('first_text_delta', 1950)
     tracker.mark('completed', 2600)
 
     expect(tracker.snapshot()).toEqual({
@@ -24,8 +25,10 @@ describe('agent runtime telemetry v2', () => {
       contextToCapabilityDiscoveryMs: 150,
       capabilityDiscoveryLatencyMs: 150,
       contextToControllerFirstDecisionMs: 400,
-      finalGenerationTtftMs: 1800,
-      streamDurationMs: 800,
+      finalGenerationStartMs: 1800,
+      firstTextDeltaTtftMs: 1950,
+      generationToFirstTextDeltaMs: 150,
+      streamDurationMs: 650,
       totalTurnMs: 2600,
       toolLatencyMs: { search_knowledge_catalog: [900, 700] },
     })
@@ -40,7 +43,10 @@ describe('agent runtime telemetry v2', () => {
     const snapshot = tracker.snapshot()
     expect(snapshot.totalTurnMs).toBe(90)
     expect(snapshot.requestToClaimMs).toBeNull()
-    expect(snapshot.finalGenerationTtftMs).toBeNull()
+    expect(snapshot.finalGenerationStartMs).toBeNull()
+    expect(snapshot.firstTextDeltaTtftMs).toBeNull()
+    expect(snapshot.generationToFirstTextDeltaMs).toBeNull()
+    expect(snapshot.streamDurationMs).toBeNull()
     expect(snapshot.toolLatencyMs).toEqual({})
   })
 })
