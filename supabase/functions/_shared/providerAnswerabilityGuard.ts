@@ -21,6 +21,28 @@ const compactLines = (value: string) => value
   .replace(/\n{3,}/g, '\n\n')
   .trim()
 
+const normalizeMessageNumber = (value: string) => String(Number(value))
+
+/**
+ * Batch preflight may preserve an exact SAP message code when the same segment
+ * contains mechanically matching ABAP MESSAGE syntax. This is not evidence and
+ * does not make the claim trusted; it only avoids deleting a potentially valid
+ * segment before the authoritative grounding boundary verifies it against
+ * citation-ready knowledge evidence.
+ */
+const hasSelfConsistentAbapMessageClaim = (segment: string, identifier: string) => {
+  const code = identifier.match(/^([A-Z][A-Z0-9_]*)-(\d{2,4})$/)
+  if (!code?.[1] || !code?.[2]) return false
+  const expectedClass = code[1].toLocaleUpperCase('en-US')
+  const expectedNumber = normalizeMessageNumber(code[2])
+  for (const match of segment.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+    const actualNumber = normalizeMessageNumber(String(match[1] || ''))
+    const actualClass = String(match[2] || '').toLocaleUpperCase('en-US')
+    if (actualClass === expectedClass && actualNumber === expectedNumber) return true
+  }
+  return false
+}
+
 export type AnswerabilitySanitization = {
   text: string
   removedSegments: number
@@ -55,7 +77,10 @@ export const sanitizeNovelCustomIdentifierClaims = (
     if (!line.trim()) return ['']
     const segments = line.split(/(?<=[.!?;])\s+/u)
     const kept = segments.filter(segment => {
-      const novel = extractCustomTechnicalIdentifiers(segment).filter(identifier => !supplied.has(identifier))
+      const novel = extractCustomTechnicalIdentifiers(segment).filter(identifier => (
+        !supplied.has(identifier)
+        && !hasSelfConsistentAbapMessageClaim(segment, identifier)
+      ))
       if (!novel.length) return true
       novel.forEach(identifier => removed.add(identifier))
       removedSegments += 1
