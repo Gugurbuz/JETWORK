@@ -549,7 +549,7 @@ async function getExactObjects(
   args: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
   const requested = [...new Set((Array.isArray(args.canonicalKeys) ? args.canonicalKeys : [])
-    .map(normalizeCanonicalKey)
+    .map(value => normalizeCanonicalKey(value))
     .filter(Boolean))].slice(0, MAX_BATCH_EXACT_OBJECTS)
   if (!requested.length) throw new Error('canonicalKeys must contain at least one canonical key.')
 
