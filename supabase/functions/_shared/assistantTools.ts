@@ -473,7 +473,7 @@ async function getExactObject(
     name: row.object_name,
     title: row.title,
     summary: row.summary,
-    content: truncateContent(row.content, 18_000),
+    content: truncateContent(row.content, 48_000),
     versionNumber: row.version_number,
     sourceName: row.source_name,
   }
