@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { verifiedToolEvidenceForAnswerability } from '../../../supabase/functions/_shared/modelProvidersBase.ts'
+import { verifiedToolEvidenceForAnswerability } from '../../../supabase/functions/_shared/verifiedAnswerabilityEvidence.ts'
 import { sanitizeNovelCustomIdentifierClaims } from '../../../supabase/functions/_shared/providerAnswerabilityGuard.ts'
 
 const call = (callId: string, name: string) => ({
