@@ -338,5 +338,5 @@ export const shouldFailClosedGroundedAnswer = (input: {
 }) => Boolean(!input.coverage.ok)
 
 export const groundingFailureText = () => (
-  'Bu yanıtta doğrulanması gereken bir ayrıntı için yeterli güvenilir kanıt bulamadım. Doğrulanamayan kısmı kesin bilgi olarak vermiyorum.'
+  'Bu teknik yanıtı güvenli biçimde tamamlayamadım: doğrulanması gereken ayrıntılar için yeterli güvenilir kanıt bulunamadı. Doğrulanamayan kısmı kesin bilgi olarak vermiyorum.'
 )
