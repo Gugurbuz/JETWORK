@@ -1,4 +1,5 @@
 const CUSTOM_TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?(?![\p{L}\p{N}_])/gu
+const CANONICAL_KEY_LITERAL_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const VERIFIED_EVIDENCE_MARKER = 'VERIFIED_KNOWLEDGE_EVIDENCE'
 const FENCED_CODE_BLOCK_PATTERN = /```([A-Za-z0-9_+.-]*)[ \t]*\r?\n?([\s\S]*?)```/g
 
@@ -6,6 +7,9 @@ const canonicalIdentifier = (value: string) => value
   .replace(/\s+/g, '')
   .replace(/=>/g, '/')
   .toLocaleUpperCase('en-US')
+
+const canonicalizeCanonicalKeyLiterals = (value: string) => String(value || '')
+  .replace(CANONICAL_KEY_LITERAL_PATTERN, literal => literal.toLocaleLowerCase('en-US'))
 
 export const extractCustomTechnicalIdentifiers = (text: string): string[] => {
   const values = new Set<string>()
@@ -122,6 +126,11 @@ export type StreamingAnswerabilityStats = {
  * exists, the original text is kept so the existing fail-closed guard can still
  * block it. With verified evidence present, unsafe text is never restored: a
  * changed draft intentionally triggers the grounded-revision pass.
+ *
+ * Canonical knowledge keys are provenance identifiers, not presentation text.
+ * Their namespace/path casing is normalized mechanically at this shared guard
+ * so first drafts, grounded revisions and recovery drafts all serialize the same
+ * literal key. Display notation such as ZCL_FOO=>BAR is intentionally untouched.
  */
 export const sanitizeNovelCustomIdentifierClaims = (
   text: string,
@@ -130,8 +139,9 @@ export const sanitizeNovelCustomIdentifierClaims = (
   const original = String(text || '').trim()
   if (!original) return { text: original, removedSegments: 0, removedIdentifiers: [] }
 
+  const canonicalizedOriginal = canonicalizeCanonicalKeyLiterals(original)
   const hasVerifiedEvidence = requestText.includes(VERIFIED_EVIDENCE_MARKER)
-  const literal = sanitizeLiteralCodeBlocksAgainstVerifiedEvidence(original, requestText)
+  const literal = sanitizeLiteralCodeBlocksAgainstVerifiedEvidence(canonicalizedOriginal, requestText)
   const supplied = new Set(extractCustomTechnicalIdentifiers(requestText))
   const removed = new Set<string>(literal.removedIdentifiers)
   let removedSegments = literal.removedLines
@@ -152,9 +162,9 @@ export const sanitizeNovelCustomIdentifierClaims = (
     return kept.length ? [kept.join(' ')] : []
   })
 
-  const sanitized = compactLines(safeLines.join('\n'))
+  const sanitized = canonicalizeCanonicalKeyLiterals(compactLines(safeLines.join('\n')))
   if (!sanitized || sanitized.length < 24) {
-    if (hasVerifiedEvidence && (removedSegments > 0 || sanitized !== original)) {
+    if (hasVerifiedEvidence && (removedSegments > 0 || sanitized !== canonicalizedOriginal)) {
       return {
         text: sanitized || 'Doğrulanmamış teknik ayrıntı çıkarıldı. Yanıt doğrulanmış kanıtlarla yeniden oluşturulmalıdır.',
         removedSegments,
@@ -162,7 +172,7 @@ export const sanitizeNovelCustomIdentifierClaims = (
       }
     }
     return {
-      text: original,
+      text: canonicalizedOriginal,
       removedSegments,
       removedIdentifiers: [...removed],
     }
