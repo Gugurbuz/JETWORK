@@ -39,4 +39,26 @@ describe('Agent Controller V2 candidate verification protocol', () => {
     expect(policySource).toContain('prefix dahil tam canonical identifierı her item için koru')
     expect(source).toContain('never present a full-limit relation page as exhaustive')
   })
+
+  it('keeps exact function signatures visible and forbids conventional parameter invention', () => {
+    expect(source).toContain('For a function parameter or signature follow-up')
+    expect(source).toContain('Preserve parameter identifiers exactly as verified')
+    expect(source).toContain('compact batch record does not visibly contain those facts')
+    expect(policySource).toContain('I_GPART` yerine alışılmış göründüğü için `IV_GPART')
+    expect(policySource).toContain('IT_VERTRAG` yerine başka bir tablo adı')
+    expect(policySource).toContain('ET_RESULT` yerine model hafızasından bir dönüş alanı yazma')
+    expect(toolsSource).toContain('summary: truncateContent(record.summary, 1_200)')
+    expect(toolsSource).toContain('evidenceExcerpt: truncateContent(record.content, 1_200)')
+  })
+
+  it('exposes authoritative paginated enumeration for all/hepsi catalog requests', () => {
+    expect(manifestSource).toContain("'list_knowledge_catalog'")
+    expect(toolsSource).toContain("name: 'list_knowledge_catalog'")
+    expect(toolsSource).toContain("if (toolName === 'list_knowledge_catalog') return listCatalog")
+    expect(source).toContain('authoritative paginated catalog enumeration for list/count/all/hepsi requests')
+    expect(source).toContain('prefix="message:zcrm_cost"')
+    expect(source).toContain('continue with nextCursor until it is null')
+    expect(policySource).toContain('bounded search sonucunu "hepsi" sanma')
+    expect(policySource).toContain('nextCursor null olana kadar sayfaları tamamla')
+  })
 })
