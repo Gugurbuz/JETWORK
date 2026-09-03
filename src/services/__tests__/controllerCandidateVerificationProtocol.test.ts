@@ -55,6 +55,8 @@ describe('Agent Controller V2 candidate verification protocol', () => {
     expect(manifestSource).toContain("'list_knowledge_catalog'")
     expect(toolsSource).toContain("name: 'list_knowledge_catalog'")
     expect(toolsSource).toContain("if (toolName === 'list_knowledge_catalog') return listCatalog")
+    expect(toolsSource).toContain("output: verifiedToolOutput('list_knowledge_catalog'")
+    expect(toolsSource).not.toContain("output: untrustedToolOutput('list_knowledge_catalog'")
     expect(source).toContain('authoritative paginated catalog enumeration for list/count/all/hepsi requests')
     expect(source).toContain('prefix="message:zcrm_cost"')
     expect(source).toContain('continue with nextCursor until it is null')
