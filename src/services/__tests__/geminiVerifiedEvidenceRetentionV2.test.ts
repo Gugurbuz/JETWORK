@@ -72,7 +72,7 @@ const failingRuntimeSequence: Array<Record<string, unknown>> = [
 
 describe('Gemini V2 verified evidence retention', () => {
   it('retains high-density verified relation evidence before search candidates under protocol budget', () => {
-    const compacted = compactGeminiAgentItems(failingRuntimeSequence)
+    const compacted = compactGeminiAgentItems(failingRuntimeSequence) as Array<Record<string, unknown>>
     const serialized = JSON.stringify(compacted)
 
     expect(serialized).toContain('get_related_objects')
