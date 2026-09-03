@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync('supabase/functions/_shared/capabilities/controllerSurface.ts', 'utf8')
+const policySource = readFileSync('supabase/functions/_shared/agent/controllerPolicy.ts', 'utf8')
 const toolsSource = readFileSync('supabase/functions/_shared/assistantTools.ts', 'utf8')
 const manifestSource = readFileSync('supabase/functions/_shared/capabilityManifest.ts', 'utf8')
 
@@ -26,11 +27,13 @@ describe('Agent Controller V2 candidate verification protocol', () => {
     expect(manifestSource).toContain("'get_knowledge_objects'")
   })
 
-  it('preserves a structured canonical message-code index from the full verified ABAP source', () => {
+  it('preserves and renders a structured canonical message-code index verbatim', () => {
     expect(toolsSource).toContain('[VERIFIED_ABAP_MESSAGE_CODES]')
     expect(toolsSource).toContain('extractAbapMessageCodes')
     expect(toolsSource).toContain('verifiedSignals: abapMessageCodes.length ? { abapMessageCodes } : undefined')
     expect(source).toContain('enumerate every code in that block without omission')
+    expect(policySource).toContain('her canonical itemı final yanıtta birebir ve eksiksiz yaz')
+    expect(policySource).toContain('prefix dahil tam canonical identifierı her item için koru')
     expect(source).toContain('never present a full-limit relation page as exhaustive')
   })
 })
