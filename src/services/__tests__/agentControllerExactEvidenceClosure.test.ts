@@ -30,5 +30,8 @@ describe('Agent Controller V2 exact evidence closure', () => {
     expect(controllerSurfaceSource).toContain('literal canonicalKey exactly as returned')
     expect(controllerSurfaceSource).toContain('never rewrite canonicalKey as `CLASS=>METHOD`')
     expect(controllerSurfaceSource).toContain('`tam implementasyon mevcut değil`')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Canonical provenance preservation bir final-output invariantıdır')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('exact verified `canonicalKey` stringini aynen')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('`ZCL_EXAMPLE=>GET_VALUE`')
   })
 })
