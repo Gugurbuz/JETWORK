@@ -18,9 +18,10 @@ describe('provider answerability canonical-key regression', () => {
       ].join('\n'),
     )
 
+    expect(result.text).toContain('Tam ABAP implementasyon kodu mevcut değildir.')
     expect(result.text).toContain('method:zcl_satilabilir_limit/get_satilabilir_limit')
     expect(result.text).toContain('method:zcl_crm_order_util/get_satilabilir_limit')
     expect(result.text).not.toContain('METHOD:ZCL_SATILABILIR_LIMIT')
-    expect(result.text).toContain('ZCL_CRM_ORDER_UTIL=>GET_SATILABILIR_LIMIT')
+    expect(result.text).not.toContain('ZCL_CRM_ORDER_UTIL=>GET_SATILABILIR_LIMIT')
   })
 })
