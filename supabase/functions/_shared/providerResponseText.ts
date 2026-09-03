@@ -2,16 +2,25 @@ export type ProviderResponseWithOutput = {
   output?: Array<Record<string, unknown>>
 }
 
+const CANONICAL_KEY_LITERAL_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
+
+/** Canonical knowledge keys are storage/provenance identifiers, not display labels. */
+export const canonicalizeProviderCanonicalKeyLiterals = (text: string) => String(text ?? '')
+  .replace(CANONICAL_KEY_LITERAL_PATTERN, value => value.toLocaleLowerCase('en-US'))
+
 /**
  * Provider answerability/grounding guards may rewrite buffered visible text.
  * Keep the normalized provider response in sync with the text emitted to the
  * user so downstream grounding evaluates the same draft that passed preflight.
+ * Canonical knowledge-key literals are normalized mechanically to their
+ * lowercase provenance form; this is serialization integrity, not semantic
+ * routing or identifier inference.
  */
 export const replaceProviderResponseVisibleText = <T extends ProviderResponseWithOutput>(
   response: T,
   text: string,
 ): T => {
-  const safeText = String(text ?? '')
+  const safeText = canonicalizeProviderCanonicalKeyLiterals(String(text ?? ''))
   let assigned = false
 
   const output = (response.output || []).map(item => {
