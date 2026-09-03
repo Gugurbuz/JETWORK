@@ -29,7 +29,7 @@ export interface GroundingCoverageResult {
   messageTextMismatches: Array<{ identifier: string; claimed: string; expected: string }>
 }
 
-const clean = (value: unknown, max = 20_000) => String(value ?? '').trim().slice(0, max)
+const clean = (value: unknown, max = 64_000) => String(value ?? '').trim().slice(0, max)
 const normalizeText = (value: string) => value
   .toLocaleLowerCase('tr-TR')
   .replace(/ı/g, 'i')
