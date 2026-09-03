@@ -252,6 +252,45 @@ const shouldBufferForAnswerabilityGuard = (
   Boolean(plan?.knowledgeRequired) && plan?.enterpriseGroundingRequired !== true
 )
 
+const buildGroundedRevisionItems = (
+  items: Array<Record<string, unknown>>,
+  plan: ReturnType<typeof extractSemanticPlanFromItems>,
+  draft: string,
+  removedIdentifiers: string[],
+) => {
+  const conversational = resolvedProviderItems(items, plan)
+    .filter(item => !['function_call', 'function_call_output'].includes(String(item.type || '')))
+  const verifiedEvidence = verifiedToolEvidenceForAnswerability(items)
+  return [
+    ...conversational,
+    {
+      role: 'user',
+      content: [
+        '[JETWORK_GROUNDED_REVISION_OBSERVATION]',
+        'Önceki taslakta verified evidence dışında kalan teknik identifier bulundu. Bu bir runtime grounding observationıdır; yeni araç çağırma.',
+        removedIdentifiers.length ? `Kaldırılması gereken unsupported identifierlar: ${removedIdentifiers.join(', ')}` : '',
+        verifiedEvidence ? `[VERIFIED_EVIDENCE_FOR_REVISION]\n${verifiedEvidence}\n[END_VERIFIED_EVIDENCE_FOR_REVISION]` : '',
+        `[REJECTED_DRAFT]\n${String(draft || '').slice(0, 4_000)}\n[END_REJECTED_DRAFT]`,
+        'Aynı kullanıcı hedefini yalnız verified evidence ve kullanıcının açıkça verdiği bilgilerle yeniden cevapla. Unsupported identifierları ve bunlara bağlı doğrulanmamış iddiaları çıkar. Verified evidence soruyu doğrudan cevaplıyorsa kullanıcıdan o bilgiyi yeniden isteme. Kanıt gerçekten yetmiyorsa eksikliği açıkça söyle.',
+      ].filter(Boolean).join('\n\n'),
+    },
+  ]
+}
+
+const shouldRunGroundedRevision = (input: {
+  bufferForAnswerability: boolean
+  executedKnowledgeCalls: number
+  firstProviderText: string
+  sanitizedText: string
+  hasFunctionCall: boolean
+}) => Boolean(
+  input.bufferForAnswerability
+  && input.executedKnowledgeCalls > 0
+  && input.firstProviderText.trim()
+  && input.sanitizedText !== input.firstProviderText
+  && !input.hasFunctionCall
+)
+
 export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>>) => legacyIsTrivialConversationalTurn(sanitizeItems(items))
 
 const primaryAgentInstruction = AGENT_CONTROLLER_INSTRUCTION
@@ -326,7 +365,7 @@ export async function requestGeminiResponse(input: {
   const answerability = bufferForAnswerability
     ? sanitizeNovelCustomIdentifierClaims(firstProviderText, answerabilityContext)
     : { text: firstProviderText, removedSegments: 0, removedIdentifiers: [] as string[] }
-  if (bufferForAnswerability && firstProviderText) input.onText(answerability.text)
+  const firstHasFunctionCall = responseHasFunctionCall(firstResponse)
 
   const firstUsage = usageWithGeminiEstimatedCost(String(firstResponse.model || requestedModel), firstResponse.usage, {
     primary_llm_agent_calls: effectiveAllowTools ? 1 : 0,
@@ -342,7 +381,62 @@ export async function requestGeminiResponse(input: {
     } : {}),
   })
 
-  if (responseHasFunctionCall(firstResponse) || responseHasVisibleText(firstResponse)) {
+  if (shouldRunGroundedRevision({
+    bufferForAnswerability,
+    executedKnowledgeCalls,
+    firstProviderText,
+    sanitizedText: answerability.text,
+    hasFunctionCall: firstHasFunctionCall,
+  })) {
+    const revisionInstructions = [
+      providerInstructions,
+      primaryAgentInstruction,
+      baAnalysisInstruction,
+      resolvedConversationInstruction,
+      '[JETWORK GROUNDED REVISION]',
+      'Önceki provider taslağı runtime grounding preflight kontrolünde kısmen reddedildi. Yeni tool çağırma. Mevcut verified evidence ile kullanıcıya doğrudan, kısa ve kanıtlı bir cevap yeniden yaz. Runtime observationında unsupported olarak belirtilen teknik identifierları kullanma. Verified exact evidence kullanıcının istediği bilgiyi zaten içeriyorsa clarification sorma.',
+    ].filter(Boolean).join('\n\n')
+    let revisionProviderText = ''
+    try {
+      const revisionResponse = await legacyRequestGeminiResponse({
+        ...input,
+        model: requestedModel,
+        instructions: revisionInstructions,
+        items: buildGroundedRevisionItems(input.items, plan, firstProviderText, answerability.removedIdentifiers),
+        tools: [],
+        allowTools: false,
+        onText: delta => { revisionProviderText += delta },
+      })
+      assertExplicitGeminiModelPreserved(requestedModel, revisionResponse.model)
+      const revisionAnswerability = sanitizeNovelCustomIdentifierClaims(revisionProviderText, answerabilityContext)
+      const revisionText = revisionAnswerability.text.trim()
+      if (revisionText) {
+        input.onText(revisionText)
+        const revisionUsage = usageWithGeminiEstimatedCost(String(revisionResponse.model || requestedModel), revisionResponse.usage, {
+          primary_llm_agent_calls: 0,
+          primary_llm_final_calls: 1,
+          grounding_preflight_revision_used: 1,
+          grounding_preflight_revision_source_segments_removed: answerability.removedSegments,
+          grounding_preflight_revision_source_identifiers_removed: answerability.removedIdentifiers.length,
+          ...(revisionAnswerability.text !== revisionProviderText ? {
+            grounding_preflight_revision_segments_removed: revisionAnswerability.removedSegments,
+            grounding_preflight_revision_identifiers_removed: revisionAnswerability.removedIdentifiers.length,
+          } : {}),
+        })
+        return {
+          ...revisionResponse,
+          usage: mergeNumericUsage(firstUsage, revisionUsage),
+        }
+      }
+    } catch {
+      // Fail back to the already-sanitized first draft. The downstream authoritative
+      // grounding boundary still decides whether that text is safe to finalize.
+    }
+  }
+
+  if (bufferForAnswerability && firstProviderText) input.onText(answerability.text)
+
+  if (firstHasFunctionCall || responseHasVisibleText(firstResponse)) {
     return { ...firstResponse, usage: firstUsage }
   }
 
