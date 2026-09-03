@@ -75,10 +75,12 @@ const verifiedAbapMessageIdentifiers = (value: unknown) => {
   return identifiers
 }
 
-// ASCII-looking SAP identifiers can appear inside Turkish words when \b treats
-// letters such as Ö/Ş as non-word characters (for example SÖZLEŞME -> ZLE).
-// Unicode letter/number guards make sure an identifier is a standalone token.
+// Response text remains deliberately strict: uppercase-looking standalone tokens
+// only. Verified source code is a different trust domain and may legitimately
+// contain lowercase ABAP identifiers, so it gets a narrower case-insensitive
+// extractor that requires an underscore/path or an exact message-code suffix.
 const TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?(?![\p{L}\p{N}_])/gu
+const VERIFIED_SOURCE_TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:(?:Z[A-Z0-9]*_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?|Z[A-Z0-9_]{2,}-\d{2,4}|CHECK_[A-Z0-9_]+)(?![\p{L}\p{N}_])/giu
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
 const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
@@ -98,6 +100,15 @@ export const extractTechnicalIdentifiers = (text: string): string[] => {
   }
   for (const match of clean(text).matchAll(TECHNICAL_IDENTIFIER_PATTERN)) add(match[0])
   for (const match of clean(text).matchAll(CANONICAL_KEY_PATTERN)) add(match[0])
+  return [...values]
+}
+
+const extractVerifiedSourceTechnicalIdentifiers = (value: unknown): string[] => {
+  const values = new Set<string>()
+  for (const match of clean(value).matchAll(VERIFIED_SOURCE_TECHNICAL_IDENTIFIER_PATTERN)) {
+    const normalized = canonicalIdentifier(match[0])
+    if (normalized) values.add(normalized)
+  }
   return [...values]
 }
 
@@ -162,7 +173,11 @@ const parsedVerifiedRecords = (result: GroundingToolResultLike): Array<Record<st
 const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: GroundingToolResultLike[]) => {
   const supported = new Set<string>()
   const addText = (value: unknown) => {
-    for (const identifier of extractTechnicalIdentifiers(clean(value))) {
+    const identifiers = new Set([
+      ...extractTechnicalIdentifiers(clean(value)),
+      ...extractVerifiedSourceTechnicalIdentifiers(value),
+    ])
+    for (const identifier of identifiers) {
       for (const alias of verifiedIdentifierAliases(identifier)) supported.add(alias)
     }
     for (const identifier of verifiedAbapMessageIdentifiers(value)) supported.add(identifier)
