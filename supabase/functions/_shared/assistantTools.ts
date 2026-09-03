@@ -281,6 +281,34 @@ const normalizeCanonicalKey = (value: unknown, prefix?: string) => {
   return `${prefix}:${cleaned}`
 }
 
+type PendingSearchVerification = {
+  query: string
+  candidateKeys: string[]
+}
+
+const pendingSearchVerificationByClient = new WeakMap<object, PendingSearchVerification>()
+const protocolClientKey = (client: unknown): object | null => (
+  client && (typeof client === 'object' || typeof client === 'function') ? client as object : null
+)
+const currentPendingSearchVerification = (client: unknown) => {
+  const key = protocolClientKey(client)
+  return key ? pendingSearchVerificationByClient.get(key) || null : null
+}
+const clearPendingSearchVerification = (client: unknown) => {
+  const key = protocolClientKey(client)
+  if (key) pendingSearchVerificationByClient.delete(key)
+}
+const setPendingSearchVerification = (client: unknown, query: string, canonicalKeys: unknown[]) => {
+  const key = protocolClientKey(client)
+  if (!key) return
+  const candidateKeys = [...new Set(canonicalKeys.map(value => normalizeCanonicalKey(value)).filter(Boolean))].slice(0, MAX_BATCH_EXACT_OBJECTS)
+  if (!candidateKeys.length) {
+    pendingSearchVerificationByClient.delete(key)
+    return
+  }
+  pendingSearchVerificationByClient.set(key, { query, candidateKeys })
+}
+
 const uniqueSources = (sources: AssistantSourceRef[]) => {
   const seen = new Set<string>()
   return sources.filter(source => {
@@ -338,6 +366,28 @@ async function searchCatalog(
   requestedTypes: unknown,
   limit: number,
 ): Promise<AssistantToolExecution> {
+  const pendingVerification = currentPendingSearchVerification(client)
+  if (pendingVerification?.candidateKeys.length) {
+    return {
+      output: untrustedToolOutput('search_knowledge_catalog', {
+        protocol: 'SEARCH_CANDIDATES_REQUIRE_EXACT_VERIFICATION',
+        pendingQuery: pendingVerification.query,
+        pendingCandidateKeys: pendingVerification.candidateKeys,
+        instruction: 'Do not run another broad search yet. Exact-verify the pending canonical candidates first. Use get_knowledge_objects when multiple pending keys are materially relevant, or get_knowledge_object for a single selected key. After an exact/detail observation, search may continue if still needed.',
+      }),
+      sources: [],
+      summary: {
+        resultCount: pendingVerification.candidateKeys.length,
+        candidateSourceCount: pendingVerification.candidateKeys.length,
+        query,
+        protocolBlocked: true,
+        protocol: 'SEARCH_CANDIDATES_REQUIRE_EXACT_VERIFICATION',
+        pendingCandidateKeys: pendingVerification.candidateKeys,
+        citationReady: false,
+      },
+    }
+  }
+
   const safeTypes = Array.isArray(requestedTypes)
     ? requestedTypes.map(type => cleanString(type, 40)).filter(type => (objectTypes as readonly string[]).includes(type))
     : null
@@ -389,6 +439,7 @@ async function searchCatalog(
     matchedQuery: row.matched_query,
     sourceName: row.source_name,
   }))
+  setPendingSearchVerification(client, query, records.map(record => record.canonicalKey))
   const candidateSources = uniqueSources(rows.map(row => ({
     sourceId: row.source_id ? String(row.source_id) : undefined,
     sourceName: String(row.source_name || 'Kurumsal bilgi kaynağı'),
@@ -498,6 +549,7 @@ async function getExactObject(
   allowedTypes: readonly string[],
   toolName: string,
 ): Promise<AssistantToolExecution> {
+  clearPendingSearchVerification(client)
   const { data, error } = await client.rpc('get_knowledge_object_v2', {
     p_workspace_id: workspaceId,
     p_canonical_key: canonicalKey,
@@ -602,6 +654,7 @@ async function getRelatedObjects(
   workspaceId: string,
   args: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
+  clearPendingSearchVerification(client)
   const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
   const direction = ['outgoing','incoming','both'].includes(String(args.direction)) ? String(args.direction) : 'both'
   const limit = clampLimit(args.limit, 12, 20)
