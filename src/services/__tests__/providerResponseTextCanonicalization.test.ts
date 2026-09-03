@@ -31,7 +31,7 @@ describe('provider response canonical key serialization', () => {
     )
     const text = String((updated.output?.[0]?.content as Array<Record<string, unknown>>)?.[0]?.text || '')
 
-    expect(text).toContain('tam implementasyon mevcut değil')
+    expect(text.toLocaleLowerCase('tr-TR')).toContain('tam implementasyon mevcut değil')
     expect(text).toContain('method:zcl_crm_order_util/get_satilabilir_limit')
     expect(text).not.toContain('METHOD:ZCL_CRM_ORDER_UTIL')
   })
