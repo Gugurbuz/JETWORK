@@ -46,6 +46,7 @@ export const providerForModel = (model: string): AssistantProvider => {
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\n?\[JETWORK_SEMANTIC_PLAN\][\s\S]*?\[END_JETWORK_SEMANTIC_PLAN\]\s*/gi
 const INTERNAL_EVIDENCE_PATTERN = /\n?\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]\s*/gi
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
+const VERIFIED_EVIDENCE_MARKER = 'VERIFIED_KNOWLEDGE_EVIDENCE'
 const KNOWLEDGE_TOOL_NAMES = new Set([
   'search_knowledge_catalog',
   'list_knowledge_catalog',
@@ -199,12 +200,55 @@ const buildNoToolRecoveryItems = (
   return evidenceItem ? [...sanitized, evidenceItem] : sanitized
 }
 
-const answerabilityRequestText = (plan: ReturnType<typeof extractSemanticPlanFromItems>) => [
+const parseVerifiedToolOutput = (value: unknown): string => {
+  const output = typeof value === 'string' ? value : JSON.stringify(value ?? '')
+  if (!output.trim()) return ''
+  try {
+    const parsed = JSON.parse(output)
+    if (
+      parsed?.citationReady === true
+      && String(parsed?.securityNotice || '').includes(VERIFIED_EVIDENCE_MARKER)
+    ) return output
+  } catch { /* ignore malformed output */ }
+  return ''
+}
+
+const derivedAbapMessageCodes = (value: string) => {
+  const codes = new Set<string>()
+  for (const match of value.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+    const number = String(match[1] || '')
+    const messageClass = String(match[2] || '').toLocaleUpperCase('en-US')
+    if (number && messageClass) codes.add(`${messageClass}-${number}`)
+  }
+  return [...codes]
+}
+
+export const verifiedToolEvidenceForAnswerability = (items: Array<Record<string, unknown>>) => {
+  const chunks: string[] = []
+  for (const item of items) {
+    if (String(item.type || '') !== 'function_call_output') continue
+    const output = parseVerifiedToolOutput(item.output)
+    if (!output) continue
+    const derived = derivedAbapMessageCodes(output)
+    chunks.push(output.toLocaleUpperCase('en-US'))
+    if (derived.length) chunks.push(derived.join(' '))
+  }
+  return chunks.join('\n').slice(0, 28_000)
+}
+
+const answerabilityRequestText = (
+  plan: ReturnType<typeof extractSemanticPlanFromItems>,
+  items: Array<Record<string, unknown>>,
+) => [
   String(plan?.conversationState?.resolvedRequest || ''),
   String(plan?.goal || '').replace(PROVIDER_WEB_CAPABILITY_MARKER, ''),
+  verifiedToolEvidenceForAnswerability(items),
 ].filter(Boolean).join('\n')
 
-const shouldBufferForAnswerabilityGuard = (plan: ReturnType<typeof extractSemanticPlanFromItems>) => (
+const shouldBufferForAnswerabilityGuard = (
+  plan: ReturnType<typeof extractSemanticPlanFromItems>,
+  executedKnowledgeCalls: number,
+) => executedKnowledgeCalls > 0 || (
   Boolean(plan?.knowledgeRequired) && plan?.enterpriseGroundingRequired !== true
 )
 
@@ -260,7 +304,8 @@ export async function requestGeminiResponse(input: {
     effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
 
-  const bufferForAnswerability = shouldBufferForAnswerabilityGuard(plan)
+  const bufferForAnswerability = shouldBufferForAnswerabilityGuard(plan, executedKnowledgeCalls)
+  const answerabilityContext = answerabilityRequestText(plan, input.items)
   let firstProviderText = ''
   const firstResponse = await legacyRequestGeminiResponse({
     ...input,
@@ -279,7 +324,7 @@ export async function requestGeminiResponse(input: {
   assertExplicitGeminiModelPreserved(requestedModel, firstResponse.model)
 
   const answerability = bufferForAnswerability
-    ? sanitizeNovelCustomIdentifierClaims(firstProviderText, answerabilityRequestText(plan))
+    ? sanitizeNovelCustomIdentifierClaims(firstProviderText, answerabilityContext)
     : { text: firstProviderText, removedSegments: 0, removedIdentifiers: [] as string[] }
   if (bufferForAnswerability && firstProviderText) input.onText(answerability.text)
 
@@ -325,7 +370,7 @@ export async function requestGeminiResponse(input: {
   })
   assertExplicitGeminiModelPreserved(requestedModel, recoveryResponse.model)
   const recoveryAnswerability = bufferForAnswerability
-    ? sanitizeNovelCustomIdentifierClaims(recoveryProviderText, answerabilityRequestText(plan))
+    ? sanitizeNovelCustomIdentifierClaims(recoveryProviderText, answerabilityContext)
     : { text: recoveryProviderText, removedSegments: 0, removedIdentifiers: [] as string[] }
   if (bufferForAnswerability && recoveryProviderText) input.onText(recoveryAnswerability.text)
   const recoveryUsage = usageWithGeminiEstimatedCost(String(recoveryResponse.model || requestedModel), recoveryResponse.usage, {
