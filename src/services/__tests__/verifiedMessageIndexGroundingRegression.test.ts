@@ -3,13 +3,20 @@ import { evaluateGroundedTechnicalClaims } from '../../../supabase/functions/_sh
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface'
 
 describe('verified ABAP message index grounding regression', () => {
-  it('accepts message codes carried by a verified tool envelope even when compacted records are not object-shaped', () => {
+  it('accepts message codes carried by the mechanically preserved index in a verified exact record', () => {
     const toolResult = {
       output: JSON.stringify({
         securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
         tool: 'get_knowledge_object',
         citationReady: true,
-        records: '[VERIFIED_ABAP_MESSAGE_CODES]\nZCRM_COST-000, ZCRM_COST-164\n[END_VERIFIED_ABAP_MESSAGE_CODES]',
+        records: [{
+          canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+          objectType: 'method',
+          name: 'NINJA_CALCULATE_ONCRM',
+          title: 'NINJA_CALCULATE_ONCRM',
+          summary: 'Verified ABAP method source',
+          content: '[VERIFIED_ABAP_MESSAGE_CODES]\nZCRM_COST-000, ZCRM_COST-164\n[END_VERIFIED_ABAP_MESSAGE_CODES]\nMETHOD ninja_calculate_oncrm.',
+        }],
       }),
       sources: [{
         sourceId: 'source-1',
