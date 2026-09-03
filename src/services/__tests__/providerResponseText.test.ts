@@ -12,7 +12,9 @@ describe('provider response visible-text alignment', () => {
     }
 
     const aligned = replaceProviderResponseVisibleText(response, 'guarded final text')
-    expect((aligned.output?.[0]?.content as Array<Record<string, unknown>>)[0].text).toBe('guarded final text')
+    const output = aligned.output as Array<Record<string, unknown>>
+    const content = output[0].content as Array<Record<string, unknown>>
+    expect(content[0].text).toBe('guarded final text')
   })
 
   it('clears additional provider text parts so stale draft text cannot reach downstream grounding', () => {
@@ -28,20 +30,21 @@ describe('provider response visible-text alignment', () => {
     }
 
     const aligned = replaceProviderResponseVisibleText(response, 'single guarded answer')
-    const content = aligned.output?.[0]?.content as Array<Record<string, unknown>>
+    const output = aligned.output as Array<Record<string, unknown>>
+    const content = output[0].content as Array<Record<string, unknown>>
     expect(content[0].text).toBe('single guarded answer')
     expect(content[1].text).toBe('')
   })
 
   it('preserves function calls while appending guarded text when the response has no message item', () => {
-    const response = {
+    const response: { output: Array<Record<string, unknown>> } = {
       output: [{ type: 'function_call', name: 'search_knowledge_catalog', call_id: 'call-1' }],
     }
 
     const aligned = replaceProviderResponseVisibleText(response, 'guarded answer')
-    expect(aligned.output?.[0]?.type).toBe('function_call')
-    expect(aligned.output?.[1]?.type).toBe('message')
-    const content = aligned.output?.[1]?.content as Array<Record<string, unknown>>
+    expect(aligned.output[0].type).toBe('function_call')
+    expect(aligned.output[1].type).toBe('message')
+    const content = aligned.output[1].content as Array<Record<string, unknown>>
     expect(content[0].text).toBe('guarded answer')
   })
 })
