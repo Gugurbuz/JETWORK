@@ -67,7 +67,7 @@ export const getCapabilityRuntimeStatus = (key: string): CapabilityRuntimeStatus
     return {
       readiness: 'verified',
       mode: 'knowledge',
-      executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_related_objects'],
+      executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_knowledge_objects', 'get_related_objects'],
     }
   }
   if (PROVIDER_FAMILIES.has(family)) {
@@ -106,7 +106,7 @@ export const getCapabilityRuntimeStatus = (key: string): CapabilityRuntimeStatus
   if (family === 'presentation') {
     return EXECUTABLE_PRESENTATION.has(key)
       ? { readiness: 'executable', mode: 'artifact', executorTools: ARTIFACT_TOOLS, note: ['presentation/layout','presentation/theme-preserve'].includes(key) ? 'Generation has deterministic layout; arbitrary existing-deck redesign is intentionally not claimed.' : undefined }
-      : { readiness: 'defined', mode: 'artifact', executorTools: [], note: 'Presentation skill is defined; current PPTX executor does not implement this operation yet.' }
+      : { readiness: 'defined', mode: 'artifact', executorTools: [], note: 'Presentation skill is defined; current PPTX executor does not implement this mutation yet.' }
   }
   if (family === 'image') {
     return EXECUTABLE_IMAGE.has(key)
