@@ -60,6 +60,14 @@ describe('controller capability surface v2', () => {
       'get_knowledge_object',
       'get_related_objects',
     ])
+
+    const searchTool = surface.tools.find(tool => tool.name === 'search_knowledge_catalog')
+    const exactTool = surface.tools.find(tool => tool.name === 'get_knowledge_object')
+    const relationTool = surface.tools.find(tool => tool.name === 'get_related_objects')
+    expect(searchTool?.description).toContain('candidate discovery only')
+    expect(exactTool?.description).toContain('verified evidence')
+    expect(relationTool?.description).toContain('prefer this tool over repeated broad search')
+    expect(relationTool?.description).toContain('emitted messages')
   })
 
   it('frames exact/detail and relation observations as verified factual evidence while preserving prompt-injection boundaries', () => {
