@@ -518,7 +518,7 @@ async function listCatalog(
   })))
 
   return {
-    output: untrustedToolOutput('list_knowledge_catalog', { items, totalCount, nextCursor }),
+    output: verifiedToolOutput('list_knowledge_catalog', { items, totalCount, nextCursor }),
     sources,
     summary: {
       resultCount: items.length,
