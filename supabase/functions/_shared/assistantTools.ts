@@ -628,9 +628,11 @@ async function getExactObjects(
     objectType: cleanString(record.objectType, 40),
     name: cleanString(record.name, 200),
     title: truncateContent(record.title, 260),
-    summary: truncateContent(record.summary, 260),
+    // Batch exact is capped at six records, so keep enough verified detail for
+    // follow-up fields/signatures without exposing the full 48k source payload.
+    summary: truncateContent(record.summary, 1_200),
     verifiedSignals: record.verifiedSignals,
-    evidenceExcerpt: truncateContent(record.content, 220),
+    evidenceExcerpt: truncateContent(record.content, 1_200),
     sourceName: cleanString(record.sourceName, 200),
   })).filter(record => record.canonicalKey)
   const sources = uniqueSources(executions.flatMap(execution => execution.sources))
