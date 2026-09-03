@@ -294,9 +294,19 @@ const currentPendingSearchVerification = (client: unknown) => {
   const key = protocolClientKey(client)
   return key ? pendingSearchVerificationByClient.get(key) || null : null
 }
-const clearPendingSearchVerification = (client: unknown) => {
+const markPendingSearchVerified = (client: unknown, canonicalKeys: unknown[]) => {
   const key = protocolClientKey(client)
-  if (key) pendingSearchVerificationByClient.delete(key)
+  if (!key) return
+  const pending = pendingSearchVerificationByClient.get(key)
+  if (!pending?.candidateKeys.length) return
+  const verified = new Set(canonicalKeys.map(value => normalizeCanonicalKey(value)).filter(Boolean))
+  if (!verified.size) return
+  const candidateKeys = pending.candidateKeys.filter(candidateKey => !verified.has(candidateKey))
+  if (!candidateKeys.length) {
+    pendingSearchVerificationByClient.delete(key)
+    return
+  }
+  pendingSearchVerificationByClient.set(key, { ...pending, candidateKeys })
 }
 const setPendingSearchVerification = (client: unknown, query: string, canonicalKeys: unknown[]) => {
   const key = protocolClientKey(client)
@@ -373,7 +383,7 @@ async function searchCatalog(
         protocol: 'SEARCH_CANDIDATES_REQUIRE_EXACT_VERIFICATION',
         pendingQuery: pendingVerification.query,
         pendingCandidateKeys: pendingVerification.candidateKeys,
-        instruction: 'Do not run another broad search yet. Exact-verify the pending canonical candidates first. Use get_knowledge_objects when multiple pending keys are materially relevant, or get_knowledge_object for a single selected key. After an exact/detail observation, search may continue if still needed.',
+        instruction: 'Do not run another broad search yet. Exact-verify pending canonical candidates first. Use get_knowledge_objects when multiple pending keys are materially relevant, or get_knowledge_object for a selected key. Verifying one key only discharges that key; unresolved candidates remain available for batch verification before another broad search.',
       }),
       sources: [],
       summary: {
@@ -549,7 +559,6 @@ async function getExactObject(
   allowedTypes: readonly string[],
   toolName: string,
 ): Promise<AssistantToolExecution> {
-  clearPendingSearchVerification(client)
   const { data, error } = await client.rpc('get_knowledge_object_v2', {
     p_workspace_id: workspaceId,
     p_canonical_key: canonicalKey,
@@ -558,6 +567,9 @@ async function getExactObject(
   throwIfError(error)
   const row = Array.isArray(data) ? data[0] : data
   if (!row) return { output: untrustedToolOutput(toolName, []), sources: [], summary: { resultCount: 0, canonicalKey, citationReady: false } }
+  const abapMessageCodes = ['class','method','function'].includes(String(row.object_type || ''))
+    ? extractAbapMessageCodes(row.content)
+    : []
   const record = {
     scope: row.scope_type === 'project' ? 'project' : 'global',
     canonicalKey: row.canonical_key,
@@ -565,10 +577,12 @@ async function getExactObject(
     name: row.object_name,
     title: row.title,
     summary: row.summary,
+    verifiedSignals: abapMessageCodes.length ? { abapMessageCodes } : undefined,
     content: truncateContent(withVerifiedAbapMessageIndex(row.content), 48_000),
     versionNumber: row.version_number,
     sourceName: row.source_name,
   }
+  markPendingSearchVerified(client, [row.canonical_key])
   const sources = [{
     sourceId: String(row.source_id),
     sourceName: String(row.source_name),
@@ -579,7 +593,7 @@ async function getExactObject(
   return {
     output: verifiedToolOutput(toolName, [record]),
     sources,
-    summary: { resultCount: 1, canonicalKey, scope: record.scope, citationReady: true },
+    summary: { resultCount: 1, canonicalKey, scope: record.scope, citationReady: true, verifiedSignalCount: abapMessageCodes.length },
   }
 }
 
@@ -615,6 +629,7 @@ async function getExactObjects(
     name: cleanString(record.name, 200),
     title: truncateContent(record.title, 260),
     summary: truncateContent(record.summary, 260),
+    verifiedSignals: record.verifiedSignals,
     evidenceExcerpt: truncateContent(record.content, 220),
     sourceName: cleanString(record.sourceName, 200),
   })).filter(record => record.canonicalKey)
@@ -654,7 +669,6 @@ async function getRelatedObjects(
   workspaceId: string,
   args: Record<string, unknown>,
 ): Promise<AssistantToolExecution> {
-  clearPendingSearchVerification(client)
   const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
   const direction = ['outgoing','incoming','both'].includes(String(args.direction)) ? String(args.direction) : 'both'
   const limit = clampLimit(args.limit, 12, 20)
@@ -669,6 +683,7 @@ async function getRelatedObjects(
     p_limit: limit,
   })
   throwIfError(error)
+  markPendingSearchVerified(client, [canonicalKey])
   const rows = data || []
   const relations = rows.map((row: Record<string, unknown>) => ({
     id: row.relation_id,
