@@ -55,6 +55,13 @@ const canonicalIdentifier = (value: string) => {
     .toLocaleUpperCase('en-US')
 }
 
+const verifiedIdentifierAliases = (identifier: string) => {
+  const aliases = new Set([identifier])
+  const messageCode = identifier.match(/^([A-Z][A-Z0-9_]{2,})-\d{2,4}$/)
+  if (messageCode?.[1]) aliases.add(messageCode[1])
+  return aliases
+}
+
 // ASCII-looking SAP identifiers can appear inside Turkish words when \b treats
 // letters such as Ö/Ş as non-word characters (for example SÖZLEŞME -> ZLE).
 // Unicode letter/number guards make sure an identifier is a standalone token.
@@ -142,7 +149,9 @@ const parsedVerifiedRecords = (result: GroundingToolResultLike): Array<Record<st
 const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: GroundingToolResultLike[]) => {
   const supported = new Set<string>()
   const addText = (value: unknown) => {
-    for (const identifier of extractTechnicalIdentifiers(clean(value))) supported.add(identifier)
+    for (const identifier of extractTechnicalIdentifiers(clean(value))) {
+      for (const alias of verifiedIdentifierAliases(identifier)) supported.add(alias)
+    }
   }
   for (const source of sources) {
     if (source.sourceType === 'web') continue
