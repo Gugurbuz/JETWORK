@@ -67,7 +67,7 @@ describe('Agent Controller V2 candidate verification protocol', () => {
   it('retries a precise search after candidate-verification closure instead of treating protocolBlocked as no-result', () => {
     expect(source).toContain('A protocolBlocked search is not a zero-result search and was not executed')
     expect(source).toContain('retry that blocked query before concluding the object/source is unavailable')
-    expect(source).toContain('if the batch just discharged the candidate set that had caused a more precise current-goal search to be protocolBlocked')
+    expect(source).toContain('If the batch just discharged the candidate set that had caused a more precise current-goal search to be protocolBlocked')
     expect(policySource).toContain('`protocolBlocked=true` bir aramanın boş döndüğü anlamına gelmez')
     expect(policySource).toContain('o hassas queryyi yeniden değerlendir')
     expect(policySource).toContain('kullanıcıdan zaten elindeki identifierı tekrar isteme')
