@@ -12,7 +12,9 @@ describe('Agent Controller V2 candidate verification protocol', () => {
     expect(toolsSource).toContain('pendingSearchVerificationByClient')
     expect(toolsSource).toContain('SEARCH_CANDIDATES_REQUIRE_EXACT_VERIFICATION')
     expect(toolsSource).toContain('protocolBlocked: true')
-    expect(toolsSource).toContain('clearPendingSearchVerification(client)')
+    expect(toolsSource).toContain('markPendingSearchVerified')
+    expect(toolsSource).not.toContain('clearPendingSearchVerification(client)')
+    expect(toolsSource).toContain('pending.candidateKeys.filter(candidateKey => !verified.has(candidateKey))')
   })
 
   it('uses bounded batch exact verification for plural candidate sets', () => {
@@ -24,9 +26,10 @@ describe('Agent Controller V2 candidate verification protocol', () => {
     expect(manifestSource).toContain("'get_knowledge_objects'")
   })
 
-  it('preserves a canonical message-code index from the full verified ABAP source', () => {
+  it('preserves a structured canonical message-code index from the full verified ABAP source', () => {
     expect(toolsSource).toContain('[VERIFIED_ABAP_MESSAGE_CODES]')
     expect(toolsSource).toContain('extractAbapMessageCodes')
+    expect(toolsSource).toContain('verifiedSignals: abapMessageCodes.length ? { abapMessageCodes } : undefined')
     expect(source).toContain('enumerate every code in that block without omission')
     expect(source).toContain('never present a full-limit relation page as exhaustive')
   })
