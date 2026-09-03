@@ -63,4 +63,23 @@ describe('Agent Controller V2 candidate verification protocol', () => {
     expect(policySource).toContain('bounded search sonucunu "hepsi" sanma')
     expect(policySource).toContain('nextCursor null olana kadar sayfaları tamamla')
   })
+
+  it('retries a precise search after candidate-verification closure instead of treating protocolBlocked as no-result', () => {
+    expect(source).toContain('A protocolBlocked search is not a zero-result search and was not executed')
+    expect(source).toContain('retry that blocked query before concluding the object/source is unavailable')
+    expect(source).toContain('if the batch just discharged the candidate set that had caused a more precise current-goal search to be protocolBlocked')
+    expect(policySource).toContain('`protocolBlocked=true` bir aramanın boş döndüğü anlamına gelmez')
+    expect(policySource).toContain('o hassas queryyi yeniden değerlendir')
+    expect(policySource).toContain('kullanıcıdan zaten elindeki identifierı tekrar isteme')
+  })
+
+  it('treats structural knowledge endpoints as identity/relation evidence, not hidden implementation source', () => {
+    expect(source).toContain('Structural knowledge endpoint')
+    expect(source).toContain('canonical identity and relation provenance only, not full implementation source')
+    expect(source).toContain('tam implementasyon mevcut değil')
+    expect(source).toContain('including its lowercase canonical path')
+    expect(policySource).toContain('Structural knowledge endpoint / verified relation provenance')
+    expect(policySource).toContain('lowercase canonical path dahil göster')
+    expect(policySource).toContain('implementation source uydurma')
+  })
 })
