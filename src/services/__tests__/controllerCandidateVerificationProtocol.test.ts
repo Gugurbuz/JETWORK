@@ -9,6 +9,10 @@ describe('Agent Controller V2 candidate verification protocol', () => {
   it('requires exact/detail verification before repeated broad search', () => {
     expect(source).toContain('before another broad search is attempted')
     expect(source).toContain('Do not loop over query/objectTypes variations while an unverified non-empty candidate is available')
+    expect(toolsSource).toContain('pendingSearchVerificationByClient')
+    expect(toolsSource).toContain('SEARCH_CANDIDATES_REQUIRE_EXACT_VERIFICATION')
+    expect(toolsSource).toContain('protocolBlocked: true')
+    expect(toolsSource).toContain('clearPendingSearchVerification(client)')
   })
 
   it('uses bounded batch exact verification for plural candidate sets', () => {
