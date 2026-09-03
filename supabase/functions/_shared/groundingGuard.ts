@@ -62,6 +62,19 @@ const verifiedIdentifierAliases = (identifier: string) => {
   return aliases
 }
 
+const verifiedAbapMessageIdentifiers = (value: unknown) => {
+  const identifiers = new Set<string>()
+  const text = clean(value)
+  for (const match of text.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+    const messageClass = canonicalIdentifier(match[2] || '')
+    const messageNumber = clean(match[1], 8)
+    if (!messageClass || !messageNumber) continue
+    const code = `${messageClass}-${messageNumber}`
+    for (const alias of verifiedIdentifierAliases(code)) identifiers.add(alias)
+  }
+  return identifiers
+}
+
 // ASCII-looking SAP identifiers can appear inside Turkish words when \b treats
 // letters such as Ö/Ş as non-word characters (for example SÖZLEŞME -> ZLE).
 // Unicode letter/number guards make sure an identifier is a standalone token.
@@ -152,6 +165,7 @@ const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: Grou
     for (const identifier of extractTechnicalIdentifiers(clean(value))) {
       for (const alias of verifiedIdentifierAliases(identifier)) supported.add(alias)
     }
+    for (const identifier of verifiedAbapMessageIdentifiers(value)) supported.add(identifier)
   }
   for (const source of sources) {
     if (source.sourceType === 'web') continue
@@ -177,6 +191,7 @@ const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: Grou
           if (!relation || typeof relation !== 'object') continue
           addText((relation as Record<string, unknown>).sourceCanonicalKey)
           addText((relation as Record<string, unknown>).targetCanonicalKey)
+          addText((relation as Record<string, unknown>).evidence)
         }
       }
     } catch { /* ignore malformed output */ }
