@@ -20,6 +20,7 @@ export interface OpenAiCircuitBreakerOptions {
   rateLimitCooldownMs?: number
   providerCooldownMs?: number
   networkCooldownMs?: number
+  requestTimeoutMs?: number
 }
 
 const DEFAULT_QUOTA_COOLDOWN_MS = 5 * 60 * 1000
@@ -27,6 +28,7 @@ const DEFAULT_AUTH_COOLDOWN_MS = 5 * 60 * 1000
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 30 * 1000
 const DEFAULT_PROVIDER_COOLDOWN_MS = 15 * 1000
 const DEFAULT_NETWORK_COOLDOWN_MS = 10 * 1000
+const DEFAULT_REQUEST_TIMEOUT_MS = 25 * 1000
 const OPENAI_HOST = 'api.openai.com'
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error ?? '')
@@ -126,11 +128,49 @@ const logFailureCategory = (
   })
 }
 
+const boundedRequestTimeoutMs = (value: number | undefined) => {
+  const parsed = Number(value ?? DEFAULT_REQUEST_TIMEOUT_MS)
+  if (!Number.isFinite(parsed)) return DEFAULT_REQUEST_TIMEOUT_MS
+  return Math.max(1_000, Math.min(Math.trunc(parsed), 60_000))
+}
+
+const fetchOpenAiWithAttemptTimeout = async (
+  baseFetch: typeof fetch,
+  input: Parameters<typeof fetch>[0],
+  init: RequestInit | undefined,
+  timeoutMs: number,
+) => {
+  const attemptController = new AbortController()
+  const callerSignal = init?.signal
+  const abortFromCaller = () => attemptController.abort(callerSignal?.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+  if (callerSignal?.aborted) abortFromCaller()
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  const timeoutId = setTimeout(() => {
+    attemptController.abort(new DOMException(`OpenAI provider attempt timed out after ${timeoutMs} ms.`, 'TimeoutError'))
+  }, timeoutMs)
+
+  try {
+    return await baseFetch(input, { ...init, signal: attemptController.signal })
+  } catch (error) {
+    if (attemptController.signal.aborted && !callerSignal?.aborted) {
+      const reason = attemptController.signal.reason
+      if (reason instanceof Error) throw reason
+      throw new Error(`OpenAI provider attempt timed out after ${timeoutMs} ms.`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+    callerSignal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
 export function createOpenAiCircuitBreaker(
   baseFetch: typeof fetch,
   options: OpenAiCircuitBreakerOptions = {},
 ) {
   const now = options.now ?? (() => Date.now())
+  const requestTimeoutMs = boundedRequestTimeoutMs(options.requestTimeoutMs)
   let state: OpenAiCircuitState = { blockedUntil: 0, reason: null }
 
   const reset = () => {
@@ -169,7 +209,7 @@ export function createOpenAiCircuitBreaker(
     if (state.blockedUntil <= now()) reset()
 
     try {
-      const response = await baseFetch(input, init)
+      const response = await fetchOpenAiWithAttemptTimeout(baseFetch, input, init, requestTimeoutMs)
       if (response.ok) {
         reset()
         return response
@@ -182,7 +222,8 @@ export function createOpenAiCircuitBreaker(
       return response
     } catch (error) {
       const message = errorText(error)
-      // Caller-driven aborts must never poison provider health.
+      // Caller-driven aborts and bounded provider-attempt timeouts are liveness
+      // guards, not provider-health evidence. They must never poison the circuit.
       if (!/abort|timeout/i.test(message)) {
         const failure = classifyOpenAiFailure(undefined, message, options)
         logFailureCategory(failure.category, failure.cooldownMs)
@@ -202,9 +243,9 @@ export function createOpenAiCircuitBreaker(
 let globalCircuitInstalled = false
 let globalCircuitState: (() => OpenAiCircuitState) | null = null
 
-export function installOpenAiCircuitBreaker(): void {
+export function installOpenAiCircuitBreaker(options: OpenAiCircuitBreakerOptions = {}): void {
   if (globalCircuitInstalled) return
-  const breaker = createOpenAiCircuitBreaker(globalThis.fetch.bind(globalThis))
+  const breaker = createOpenAiCircuitBreaker(globalThis.fetch.bind(globalThis), options)
   globalThis.fetch = breaker.fetch
   globalCircuitState = breaker.getState
   globalCircuitInstalled = true
