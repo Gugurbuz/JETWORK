@@ -1,4 +1,6 @@
 const CUSTOM_TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?(?![\p{L}\p{N}_])/gu
+const VERIFIED_EVIDENCE_MARKER = 'VERIFIED_KNOWLEDGE_EVIDENCE'
+const FENCED_CODE_BLOCK_PATTERN = /```([A-Za-z0-9_+.-]*)[ \t]*\r?\n?([\s\S]*?)```/g
 
 const canonicalIdentifier = (value: string) => value
   .replace(/\s+/g, '')
@@ -22,6 +24,63 @@ const compactLines = (value: string) => value
   .trim()
 
 const normalizeMessageNumber = (value: string) => String(Number(value))
+const normalizeLiteralSourceLine = (value: string) => String(value || '')
+  .toLocaleLowerCase('en-US')
+  .replace(/\s+/g, '')
+
+/**
+ * When verified enterprise evidence is already present, a fenced source-code
+ * line is allowed to survive provider preflight only if that literal line is
+ * present in the verified evidence corpus. This mirrors the DB completion
+ * provenance invariant early enough to trigger grounded revision instead of a
+ * late UNVERIFIED_LITERAL_SOURCE_CODE_LINE transaction failure.
+ */
+const sanitizeLiteralCodeBlocksAgainstVerifiedEvidence = (
+  text: string,
+  requestText: string,
+): { text: string; removedLines: number; removedIdentifiers: string[] } => {
+  const original = String(text || '')
+  if (!original.includes('```') || !requestText.includes(VERIFIED_EVIDENCE_MARKER)) {
+    return { text: original, removedLines: 0, removedIdentifiers: [] }
+  }
+
+  const evidenceCorpus = normalizeLiteralSourceLine(requestText)
+  const removedIdentifiers = new Set<string>()
+  let removedLines = 0
+
+  const sanitized = original.replace(FENCED_CODE_BLOCK_PATTERN, (_full, rawLanguage: string, rawBody: string) => {
+    const language = String(rawLanguage || '')
+    const kept: string[] = []
+    let removedFromBlock = 0
+
+    for (const rawLine of String(rawBody || '').split(/\r?\n/)) {
+      const trimmed = rawLine.trim()
+      if (!trimmed || /^\s*["*]/.test(trimmed)) {
+        kept.push(rawLine)
+        continue
+      }
+
+      const normalized = normalizeLiteralSourceLine(trimmed)
+      if (normalized.length < 3 || evidenceCorpus.includes(normalized)) {
+        kept.push(rawLine)
+        continue
+      }
+
+      removedFromBlock += 1
+      removedLines += 1
+      for (const identifier of extractCustomTechnicalIdentifiers(trimmed)) removedIdentifiers.add(identifier)
+    }
+
+    if (!removedFromBlock) return _full
+    const substantive = kept.some(line => line.trim() && !/^\s*["*]/.test(line.trim()))
+    if (!substantive) {
+      return 'Doğrulanmış kaynakta birebir karşılığı olmayan literal kod satırları gösterilmedi.'
+    }
+    return `\`\`\`${language}\n${kept.join('\n').trim()}\n\`\`\``
+  })
+
+  return { text: compactLines(sanitized), removedLines, removedIdentifiers: [...removedIdentifiers] }
+}
 
 /**
  * Batch preflight may preserve an exact SAP message code when the same segment
@@ -59,8 +118,10 @@ export type StreamingAnswerabilityStats = {
  * Removes only response segments that introduce custom-looking technical
  * identifiers the user did not supply in the current request. This runs before
  * the authoritative grounding boundary; it does not make any identifier
- * trusted. If every useful segment would be removed, the original text is kept
- * so the existing fail-closed guard can still block it.
+ * trusted. If every useful segment would be removed and no verified evidence
+ * exists, the original text is kept so the existing fail-closed guard can still
+ * block it. With verified evidence present, unsafe text is never restored: a
+ * changed draft intentionally triggers the grounded-revision pass.
  */
 export const sanitizeNovelCustomIdentifierClaims = (
   text: string,
@@ -69,11 +130,13 @@ export const sanitizeNovelCustomIdentifierClaims = (
   const original = String(text || '').trim()
   if (!original) return { text: original, removedSegments: 0, removedIdentifiers: [] }
 
+  const hasVerifiedEvidence = requestText.includes(VERIFIED_EVIDENCE_MARKER)
+  const literal = sanitizeLiteralCodeBlocksAgainstVerifiedEvidence(original, requestText)
   const supplied = new Set(extractCustomTechnicalIdentifiers(requestText))
-  const removed = new Set<string>()
-  let removedSegments = 0
+  const removed = new Set<string>(literal.removedIdentifiers)
+  let removedSegments = literal.removedLines
 
-  const safeLines = original.split(/\r?\n/).flatMap(line => {
+  const safeLines = literal.text.split(/\r?\n/).flatMap(line => {
     if (!line.trim()) return ['']
     const segments = line.split(/(?<=[.!?;])\s+/u)
     const kept = segments.filter(segment => {
@@ -91,6 +154,13 @@ export const sanitizeNovelCustomIdentifierClaims = (
 
   const sanitized = compactLines(safeLines.join('\n'))
   if (!sanitized || sanitized.length < 24) {
+    if (hasVerifiedEvidence && (removedSegments > 0 || sanitized !== original)) {
+      return {
+        text: sanitized || 'Doğrulanmamış teknik ayrıntı çıkarıldı. Yanıt doğrulanmış kanıtlarla yeniden oluşturulmalıdır.',
+        removedSegments,
+        removedIdentifiers: [...removed],
+      }
+    }
     return {
       text: original,
       removedSegments,
