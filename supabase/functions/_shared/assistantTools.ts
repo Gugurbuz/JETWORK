@@ -36,6 +36,7 @@ const relationTypes = [
   'DEPENDS_ON','CONNECTS_TO','EXPOSES','CONSUMES','PRODUCES','USES','OWNS','TRIGGERS','RELATES_TO',
 ] as const
 
+const MAX_BATCH_EXACT_OBJECTS = 6
 const nullableArray = (items: Record<string, unknown>) => ({ type: ['array', 'null'], items })
 const nullableInteger = (minimum: number, maximum: number) => ({ type: ['integer', 'null'], minimum, maximum })
 const nullableString = (maxLength: number) => ({ type: ['string', 'null'], maxLength })
@@ -135,6 +136,26 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
       type: 'object',
       properties: { canonicalKey: { type: 'string', minLength: 3, maxLength: 320 } },
       required: ['canonicalKey'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_knowledge_objects',
+    description: 'Verify a bounded set of published catalog candidates by canonical key in one exact/detail call. Use after candidate discovery when a plural or exhaustive factual request has multiple materially relevant candidates. This tool performs exact verification only; it does not search or choose candidates.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        canonicalKeys: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MAX_BATCH_EXACT_OBJECTS,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 3, maxLength: 320 },
+        },
+      },
+      required: ['canonicalKeys'],
       additionalProperties: false,
     },
   },
@@ -451,6 +472,25 @@ async function listCatalog(
   }
 }
 
+const extractAbapMessageCodes = (value: unknown) => {
+  const codes = new Set<string>()
+  const text = String(value ?? '')
+  for (const match of text.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+    const number = String(match[1] || '').padStart(3, '0')
+    const messageClass = String(match[2] || '').toLocaleUpperCase('en-US')
+    if (number && messageClass) codes.add(`${messageClass}-${number}`)
+    if (codes.size >= 80) break
+  }
+  return [...codes]
+}
+
+const withVerifiedAbapMessageIndex = (value: unknown) => {
+  const content = String(value ?? '')
+  const codes = extractAbapMessageCodes(content)
+  if (!codes.length) return content
+  return `[VERIFIED_ABAP_MESSAGE_CODES]\n${codes.join(', ')}\n[END_VERIFIED_ABAP_MESSAGE_CODES]\n${content}`
+}
+
 async function getExactObject(
   client: any,
   workspaceId: string,
@@ -473,7 +513,7 @@ async function getExactObject(
     name: row.object_name,
     title: row.title,
     summary: row.summary,
-    content: truncateContent(row.content, 48_000),
+    content: truncateContent(withVerifiedAbapMessageIndex(row.content), 48_000),
     versionNumber: row.version_number,
     sourceName: row.source_name,
   }
@@ -488,6 +528,72 @@ async function getExactObject(
     output: verifiedToolOutput(toolName, [record]),
     sources,
     summary: { resultCount: 1, canonicalKey, scope: record.scope, citationReady: true },
+  }
+}
+
+const parsedExactRecords = (execution: AssistantToolExecution) => {
+  if (execution.summary?.citationReady !== true) return [] as Array<Record<string, unknown>>
+  try {
+    const parsed = JSON.parse(execution.output)
+    return Array.isArray(parsed?.records)
+      ? parsed.records.filter((item: unknown) => item && typeof item === 'object') as Array<Record<string, unknown>>
+      : []
+  } catch {
+    return [] as Array<Record<string, unknown>>
+  }
+}
+
+async function getExactObjects(
+  client: any,
+  workspaceId: string,
+  args: Record<string, unknown>,
+): Promise<AssistantToolExecution> {
+  const requested = [...new Set((Array.isArray(args.canonicalKeys) ? args.canonicalKeys : [])
+    .map(normalizeCanonicalKey)
+    .filter(Boolean))].slice(0, MAX_BATCH_EXACT_OBJECTS)
+  if (!requested.length) throw new Error('canonicalKeys must contain at least one canonical key.')
+
+  const executions = await Promise.all(requested.map(canonicalKey =>
+    getExactObject(client, workspaceId, canonicalKey, objectTypes, 'get_knowledge_object')
+  ))
+  const records = executions.flatMap(parsedExactRecords).map(record => ({
+    scope: record.scope,
+    canonicalKey: cleanString(record.canonicalKey, 320),
+    objectType: cleanString(record.objectType, 40),
+    name: cleanString(record.name, 200),
+    title: truncateContent(record.title, 260),
+    summary: truncateContent(record.summary, 260),
+    evidenceExcerpt: truncateContent(record.content, 220),
+    sourceName: cleanString(record.sourceName, 200),
+  })).filter(record => record.canonicalKey)
+  const sources = uniqueSources(executions.flatMap(execution => execution.sources))
+  const foundKeys = new Set(records.map(record => String(record.canonicalKey)))
+  const missingCanonicalKeys = requested.filter(canonicalKey => !foundKeys.has(canonicalKey))
+  if (!records.length) {
+    return {
+      output: untrustedToolOutput('get_knowledge_objects', []),
+      sources: [],
+      summary: {
+        requestedCount: requested.length,
+        resultCount: 0,
+        missingCount: missingCanonicalKeys.length,
+        missingCanonicalKeys,
+        citationReady: false,
+        batchExact: true,
+      },
+    }
+  }
+  return {
+    output: verifiedToolOutput('get_knowledge_objects', records),
+    sources,
+    summary: {
+      requestedCount: requested.length,
+      resultCount: records.length,
+      missingCount: missingCanonicalKeys.length,
+      missingCanonicalKeys,
+      citationReady: true,
+      batchExact: true,
+    },
   }
 }
 
@@ -581,6 +687,7 @@ export async function executeAssistantTool(
     if (!canonicalKey) throw new Error('canonicalKey is required.')
     return getExactObject(client, workspaceId, canonicalKey, objectTypes, toolName)
   }
+  if (toolName === 'get_knowledge_objects') return getExactObjects(client, workspaceId, args)
   if (toolName === 'get_related_objects') return getRelatedObjects(client, workspaceId, args)
   if (isContextTool(toolName)) return executeContextTool({ client, workspaceId, toolName, args })
   if (isExecutionTool(toolName)) return executeSpreadsheetAssistantTool(client, workspaceId, toolName, args)
