@@ -61,6 +61,59 @@ describe('provider answerability guard', () => {
     expect(result.removedIdentifiers).toContain('ZCL_FAKE_PERMISSION/CHECK_AUTH')
   })
 
+  it('does not restore an all-unsafe draft when verified evidence exists', () => {
+    const original = 'ZCL_CRM_ORDER_UTIL/GET_SATILABILIRI_LIMIT doğrulanmış metottur.'
+    const result = sanitizeNovelCustomIdentifierClaims(
+      original,
+      [
+        'GET_SATILABILIR_LIMIT implementasyonunu göster',
+        'VERIFIED_KNOWLEDGE_EVIDENCE',
+        'method:zcl_crm_order_util/get_satilabilir_limit',
+      ].join('\n'),
+    )
+
+    expect(result.text).not.toBe(original)
+    expect(result.text).not.toContain('GET_SATILABILIRI_LIMIT')
+    expect(result.removedIdentifiers).toContain('ZCL_CRM_ORDER_UTIL/GET_SATILABILIRI_LIMIT')
+    expect(result.removedSegments).toBeGreaterThan(0)
+  })
+
+  it('removes literal fenced source lines that are absent from verified evidence', () => {
+    const result = sanitizeNovelCustomIdentifierClaims(
+      [
+        'Doğrulanmış yapısal kayıt bulundu.',
+        '```abap',
+        'ZCL_CRM_ORDER_UTIL=>GET_SATILABILIR_LIMIT( ... )',
+        'IV_HEADER_GUID = <FS_ORDERADM_H>-GUID',
+        '```',
+        'Tam implementasyon mevcut değil.',
+      ].join('\n'),
+      [
+        'GET_SATILABILIR_LIMIT ABAP kodu ne',
+        'VERIFIED_KNOWLEDGE_EVIDENCE',
+        '{"canonicalKey":"method:zcl_crm_order_util/get_satilabilir_limit","content":"structural endpoint only"}',
+      ].join('\n'),
+    )
+
+    expect(result.text).toContain('Doğrulanmış yapısal kayıt bulundu.')
+    expect(result.text).toContain('Tam implementasyon mevcut değil.')
+    expect(result.text).not.toContain('ZCL_CRM_ORDER_UTIL=>GET_SATILABILIR_LIMIT( ... )')
+    expect(result.text).not.toContain('IV_HEADER_GUID')
+    expect(result.text).toContain('literal kod satırları gösterilmedi')
+    expect(result.removedSegments).toBeGreaterThanOrEqual(2)
+  })
+
+  it('keeps a fenced literal source line when it exists in verified evidence', () => {
+    const line = 'MESSAGE e111(zcrm_cost).'
+    const result = sanitizeNovelCustomIdentifierClaims(
+      `Doğrulanmış satır:\n\`\`\`abap\n${line}\n\`\`\``,
+      `111 nolu hatanın ABAP kodu\nVERIFIED_KNOWLEDGE_EVIDENCE\n${line}`,
+    )
+
+    expect(result.text).toContain(line)
+    expect(result.removedSegments).toBe(0)
+  })
+
   it('extracts custom technical identifiers without treating ordinary SAP terms as custom ids', () => {
     expect(extractCustomTechnicalIdentifiers('SAP CRM ve CRM_ORDER; ZCRM2-545, ZCL_TEST/CHECK_AUTH')).toEqual([
       'ZCRM2-545',
