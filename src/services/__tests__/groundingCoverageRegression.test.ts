@@ -156,4 +156,46 @@ describe('grounding claim coverage P0', () => {
     expect(coverage.ok).toBe(true)
     expect(coverage.unsupportedIdentifiers).toEqual([])
   })
+
+  it('supports uppercase claims backed by lowercase technical identifiers in verified ABAP source', () => {
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_abap_source',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+          objectType: 'method',
+          content: [
+            'IF ls_selected_line-zzprepayment_day IS INITIAL.',
+            "  IF 1 = 2. MESSAGE e111(zcrm_cost). ENDIF.",
+            "  zcl_crm_ninja_tools=>add_message( iv_msg_number = '111' ).",
+            'ENDIF.',
+            'Bu alan zorunludur.',
+          ].join('\n'),
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+        objectType: 'method',
+        title: 'NINJA_CALCULATE_ONCRM',
+        sourceId: 's-method-lowercase',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+
+    const supported = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: 'ZZPREPAYMENT_DAY kontrol edilir ve ZCL_CRM_NINJA_TOOLS/ADD_MESSAGE çağrılır.',
+    })
+    expect(supported.ok).toBe(true)
+    expect(supported.unsupportedIdentifiers).toEqual([])
+
+    const proseWord = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: 'ZORUNLUDUR teknik bir identifier olarak doğrulandı.',
+    })
+    expect(proseWord.ok).toBe(false)
+    expect(proseWord.unsupportedIdentifiers).toEqual(['ZORUNLUDUR'])
+  })
 })
