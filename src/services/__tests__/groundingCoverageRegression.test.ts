@@ -128,4 +128,32 @@ describe('grounding claim coverage P0', () => {
     expect(unrelated.ok).toBe(false)
     expect(unrelated.unsupportedIdentifiers).toEqual(['ZCRM2'])
   })
+
+  it('derives a verified message code from citation-ready ABAP MESSAGE syntax', () => {
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_abap_source',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+          objectType: 'method',
+          content: "IF 1 = 2. MESSAGE e111(zcrm_cost). ENDIF.",
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+        objectType: 'method',
+        title: 'NINJA_CALCULATE_ONCRM',
+        sourceId: 's-method',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: 'ZCRM_COST-111 için ABAP satırı: MESSAGE e111(zcrm_cost).',
+    })
+    expect(coverage.ok).toBe(true)
+    expect(coverage.unsupportedIdentifiers).toEqual([])
+  })
 })
