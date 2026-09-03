@@ -29,6 +29,30 @@ describe('provider answerability guard', () => {
     expect(result.removedSegments).toBe(0)
   })
 
+  it('keeps a self-consistent ABAP message claim for the authoritative grounding boundary', () => {
+    const result = sanitizeNovelCustomIdentifierClaims(
+      'ZCRM_COST-111 için doğrulanmış ABAP satırı `MESSAGE e111(zcrm_cost)` şeklindedir. Sonuç kaynak kanıtıyla ayrıca doğrulanmalıdır.',
+      '111 nolu hatanın abap kodunu ver',
+    )
+
+    expect(result.text).toContain('ZCRM_COST-111')
+    expect(result.text).toContain('MESSAGE e111(zcrm_cost)')
+    expect(result.removedIdentifiers).toEqual([])
+    expect(result.removedSegments).toBe(0)
+  })
+
+  it('does not preserve a message code when the ABAP MESSAGE syntax points to a different code', () => {
+    const result = sanitizeNovelCustomIdentifierClaims(
+      'Genel kaynak bulundu. ZCRM_COST-111 için satır `MESSAGE e112(zcrm_cost)` şeklindedir. Kaynak ayrıca doğrulanmalıdır.',
+      '111 nolu hatanın abap kodunu ver',
+    )
+
+    expect(result.text).toContain('Genel kaynak bulundu.')
+    expect(result.text).toContain('Kaynak ayrıca doğrulanmalıdır.')
+    expect(result.text).not.toContain('ZCRM_COST-111')
+    expect(result.removedIdentifiers).toContain('ZCRM_COST-111')
+  })
+
   it('keeps an all-unsafe answer intact so the authoritative grounding guard can fail closed', () => {
     const original = 'ZCL_FAKE_PERMISSION/CHECK_AUTH tüm yetki kontrolünü yönetir.'
     const result = sanitizeNovelCustomIdentifierClaims(original, 'Yetki kontrolü nasıl çalışır?')
@@ -77,6 +101,22 @@ describe('provider answerability guard', () => {
     expect(emitted.join('')).toContain('Sonuç yine genel tutulmalıdır.')
     expect(emitted.join('')).not.toContain('ZCRM2-999')
     expect(guard.stats().removedIdentifiers).toEqual(['ZCRM2-999'])
+  })
+
+  it('does not apply the batch ABAP exception to streaming output', () => {
+    const emitted: string[] = []
+    const guard = createStreamingProviderAnswerabilityGuard({
+      requestText: '111 nolu hatanın abap kodunu ver',
+      onText: text => emitted.push(text),
+    })
+
+    guard.push('Genel bilgi güvenlidir. ZCRM_COST-111 için `MESSAGE e111(zcrm_cost)` satırı kullanılır. Güvenli kapanış yapılır.')
+    guard.finish()
+
+    expect(emitted.join('')).toContain('Genel bilgi güvenlidir.')
+    expect(emitted.join('')).toContain('Güvenli kapanış yapılır.')
+    expect(emitted.join('')).not.toContain('ZCRM_COST-111')
+    expect(guard.stats().removedIdentifiers).toContain('ZCRM_COST-111')
   })
 
   it('keeps a safety tail so an identifier split across provider chunks cannot leak', () => {
