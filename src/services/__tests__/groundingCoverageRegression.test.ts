@@ -111,4 +111,21 @@ describe('grounding claim coverage P0', () => {
     })
     expect(coverage.ok).toBe(true)
   })
+
+  it('accepts a verified message class namespace derived from exact message evidence only', () => {
+    const detail = verifiedMessage('ZCRM-114', '&:Kalemlerde farklı Terim-Zaman olamaz.')
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: detail.sources, toolResults: [detail],
+      text: 'ZCRM mesaj sınıfındaki ZCRM-114 doğrulandı.',
+    })
+    expect(coverage.ok).toBe(true)
+    expect(coverage.unsupportedIdentifiers).toEqual([])
+
+    const unrelated = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: detail.sources, toolResults: [detail],
+      text: 'ZCRM2 mesaj sınıfı da doğrulandı.',
+    })
+    expect(unrelated.ok).toBe(false)
+    expect(unrelated.unsupportedIdentifiers).toEqual(['ZCRM2'])
+  })
 })
