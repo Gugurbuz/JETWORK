@@ -85,10 +85,12 @@ describe('OpenAI provider circuit breaker', () => {
       }));
       const breaker = createOpenAiCircuitBreaker(baseFetch as typeof fetch, { requestTimeoutMs: 2_000 });
 
-      const pending = breaker.fetch('https://api.openai.com/v1/responses');
+      const rejection = breaker.fetch('https://api.openai.com/v1/responses').catch(error => error);
       await vi.advanceTimersByTimeAsync(2_001);
 
-      await expect(pending).rejects.toThrow(/OpenAI provider attempt timed out after 2000 ms/i);
+      const error = await rejection;
+      expect(error).toBeInstanceOf(Error);
+      expect(String(error?.message || error)).toMatch(/OpenAI provider attempt timed out after 2000 ms/i);
       expect(breaker.getState()).toEqual({ blockedUntil: 0, reason: null });
       expect(baseFetch).toHaveBeenCalledTimes(1);
     } finally {
