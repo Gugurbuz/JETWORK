@@ -188,6 +188,11 @@ const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: Grou
   }
   for (const result of toolResults) {
     if (!resultHasVerifiedKnowledgeEvidence(result)) continue
+    // Verified tool envelopes may carry mechanically derived identifier indexes
+    // outside parsed record fields. Extract identifiers from the full verified
+    // envelope as a defensive fallback; unverified search outputs never reach
+    // this branch because resultHasVerifiedKnowledgeEvidence is required above.
+    addText(result.output)
     for (const source of result.sources) {
       if (source.sourceType === 'web') continue
       addText(source.canonicalKey)
