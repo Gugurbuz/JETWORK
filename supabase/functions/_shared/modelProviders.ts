@@ -6,6 +6,7 @@ import {
 import { extractSemanticPlanFromItems } from './geminiCostGuard.ts'
 import { runDeterministicGeminiWebResearch } from './deterministicGeminiWebResearch.ts'
 import { createStreamingProviderAnswerabilityGuard } from './providerAnswerabilityGuard.ts'
+import { replaceProviderResponseVisibleText } from './providerResponseText.ts'
 import {
   DEFAULT_OLLAMA_MODEL,
   OLLAMA_MODELS,
@@ -157,16 +158,21 @@ const requestTimedGeminiBase = async (input: {
 }): Promise<NormalizedModelResponse> => {
   const startedAt = performance.now()
   let firstTextAt: number | null = null
+  let emittedText = ''
   const response = await baseRequestGeminiResponse({
     ...input,
     onText: delta => {
       if (firstTextAt == null && delta) firstTextAt = performance.now()
+      if (delta) emittedText += delta
       input.onText(delta)
     },
   })
   const completedAt = performance.now()
+  const alignedResponse = emittedText.trim()
+    ? replaceProviderResponseVisibleText(response, emittedText)
+    : response
   return {
-    ...response,
+    ...alignedResponse,
     usage: mergeNumericUsage(response.usage, {
       gemini_provider_total_ms: Math.max(0, Math.round(completedAt - startedAt)),
       ...(firstTextAt == null ? {} : {
@@ -193,9 +199,13 @@ const requestBaseWithStreamingAnswerability = async (input: {
   const providerPlan = providerLocalStreamingPlan(input.items, plan)
   if (!providerPlan.changed) return requestTimedGeminiBase(input)
 
+  let guardedText = ''
   const guard = createStreamingProviderAnswerabilityGuard({
     requestText: answerabilityRequestText(plan),
-    onText: input.onText,
+    onText: text => {
+      guardedText += text
+      input.onText(text)
+    },
   })
   const response = await requestTimedGeminiBase({
     ...input,
@@ -204,9 +214,12 @@ const requestBaseWithStreamingAnswerability = async (input: {
   })
   guard.finish()
   const stats = guard.stats()
+  const alignedResponse = guardedText.trim()
+    ? replaceProviderResponseVisibleText(response, guardedText)
+    : response
 
   return {
-    ...response,
+    ...alignedResponse,
     usage: mergeNumericUsage(response.usage, {
       answerability_streaming_guard_used: 1,
       answerability_streaming_plan_override_applied: 1,
