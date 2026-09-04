@@ -144,7 +144,7 @@ const shouldUseStreamingAnswerabilityGuard = (plan: ReturnType<typeof extractSem
   Boolean(plan?.knowledgeRequired) && plan?.enterpriseGroundingRequired !== true
 )
 
-const requestTimedGeminiBase = async (input: {
+type GeminiRequestInput = {
   apiKey: string
   model: string
   instructions: string
@@ -155,7 +155,9 @@ const requestTimedGeminiBase = async (input: {
   maxOutputTokens: number
   onText: (text: string) => void
   signal?: AbortSignal
-}): Promise<NormalizedModelResponse> => {
+}
+
+const requestTimedGeminiBase = async (input: GeminiRequestInput): Promise<NormalizedModelResponse> => {
   const startedAt = performance.now()
   let firstTextAt: number | null = null
   let emittedText = ''
@@ -182,18 +184,10 @@ const requestTimedGeminiBase = async (input: {
   }
 }
 
-const requestBaseWithStreamingAnswerability = async (input: {
-  apiKey: string
-  model: string
-  instructions: string
-  items: Array<Record<string, unknown>>
-  tools: ReadonlyArray<Record<string, unknown>>
-  allowTools: boolean
-  allowProviderWeb?: boolean
-  maxOutputTokens: number
-  onText: (text: string) => void
-  signal?: AbortSignal
-}, plan = extractSemanticPlanFromItems(input.items)): Promise<NormalizedModelResponse> => {
+const requestBaseWithStreamingAnswerability = async (
+  input: GeminiRequestInput,
+  plan = extractSemanticPlanFromItems(input.items),
+): Promise<NormalizedModelResponse> => {
   if (!plan || !shouldUseStreamingAnswerabilityGuard(plan)) return requestTimedGeminiBase(input)
 
   const providerPlan = providerLocalStreamingPlan(input.items, plan)
@@ -230,23 +224,60 @@ const requestBaseWithStreamingAnswerability = async (input: {
   }
 }
 
-export async function requestGeminiResponse(input: {
-  apiKey: string
-  model: string
-  instructions: string
-  items: Array<Record<string, unknown>>
-  tools: ReadonlyArray<Record<string, unknown>>
-  allowTools: boolean
-  allowProviderWeb?: boolean
-  maxOutputTokens: number
-  onText: (text: string) => void
-  signal?: AbortSignal
-}): Promise<NormalizedModelResponse> {
+const responseHasFunctionCall = (response: NormalizedModelResponse) => (
+  Array.isArray(response.output) && response.output.some(item => item?.type === 'function_call')
+)
+
+const requestBaseWithEmptyFinalizationRecovery = async (
+  input: GeminiRequestInput,
+  plan = extractSemanticPlanFromItems(input.items),
+): Promise<NormalizedModelResponse> => {
+  let visibleText = ''
+  const first = await requestBaseWithStreamingAnswerability({
+    ...input,
+    onText: delta => {
+      if (delta) visibleText += delta
+      input.onText(delta)
+    },
+  }, plan)
+
+  if (visibleText.trim() || responseHasFunctionCall(first)) return first
+
+  console.warn('JETWORK_GEMINI_EMPTY_FINALIZATION_RETRY', JSON.stringify({ model: input.model }))
+  let retryVisibleText = ''
+  const retry = await requestBaseWithStreamingAnswerability({
+    ...input,
+    instructions: [
+      input.instructions,
+      '[JETWORK EMPTY FINALIZATION RECOVERY]',
+      'No further tools are allowed in this recovery turn.',
+      'Produce a user-visible final answer now using only the verified observations and evidence already present in the supplied items.',
+      'If the evidence is incomplete, state exactly what is verified and what remains unverified. Do not invent technical facts.',
+    ].filter(Boolean).join('\n\n'),
+    tools: [],
+    allowTools: false,
+    allowProviderWeb: false,
+    onText: delta => {
+      if (delta) retryVisibleText += delta
+      input.onText(delta)
+    },
+  }, plan)
+
+  return {
+    ...retry,
+    usage: mergeNumericUsage(first.usage, retry.usage, {
+      gemini_empty_finalization_retry: 1,
+      gemini_empty_finalization_retry_text_emitted: retryVisibleText.trim() ? 1 : 0,
+    }),
+  }
+}
+
+export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   const plan = extractSemanticPlanFromItems(input.items)
   const providerWebRequested = input.allowProviderWeb ?? input.allowTools
   const deterministicDeepResearch = plan?.intent === 'research' && providerWebRequested
 
-  if (!deterministicDeepResearch) return requestBaseWithStreamingAnswerability(input, plan)
+  if (!deterministicDeepResearch) return requestBaseWithEmptyFinalizationRecovery(input, plan)
 
   const target = researchTarget(plan)
   const web = await runDeterministicGeminiWebResearch({
