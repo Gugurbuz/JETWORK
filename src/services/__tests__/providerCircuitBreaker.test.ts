@@ -71,4 +71,30 @@ describe('OpenAI provider circuit breaker', () => {
     await expect(breaker.fetch('https://api.openai.com/v1/responses')).rejects.toThrow(/aborted/i);
     expect(breaker.getState()).toEqual({ blockedUntil: 0, reason: null });
   });
+
+  it('bounds a hanging OpenAI attempt without poisoning provider health', async () => {
+    vi.useFakeTimers();
+    try {
+      const baseFetch = vi.fn((_input: Parameters<typeof fetch>[0], init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }));
+      const breaker = createOpenAiCircuitBreaker(baseFetch as typeof fetch, { requestTimeoutMs: 2_000 });
+
+      const rejection = breaker.fetch('https://api.openai.com/v1/responses').catch(error => error);
+      await vi.advanceTimersByTimeAsync(2_001);
+
+      const error = await rejection;
+      expect(error).toBeInstanceOf(Error);
+      expect(String(error?.message || error)).toMatch(/OpenAI provider attempt timed out after 2000 ms/i);
+      expect(breaker.getState()).toEqual({ blockedUntil: 0, reason: null });
+      expect(baseFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

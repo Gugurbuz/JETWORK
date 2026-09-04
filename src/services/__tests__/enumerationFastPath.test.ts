@@ -1,11 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildEnumerationFastPathDispatch,
   buildOpenAiEnumerationFastPathMarkerItem,
-} from '../../../supabase/functions/_shared/enumerationFastPath';
-import { createOpenAiCircuitBreaker } from '../../../supabase/functions/_shared/providerCircuitBreaker';
-import { executeClassInventoryTool } from '../../../supabase/functions/_shared/classInventoryTool';
+} from '../../../supabase/functions/_shared/enumerationFastPath'
+import { createOpenAiCircuitBreaker } from '../../../supabase/functions/_shared/providerCircuitBreaker'
+import { executeClassInventoryTool } from '../../../supabase/functions/_shared/classInventoryTool'
 
 const semanticItems = (enumerationTarget: Record<string, unknown>) => [{
   role: 'user',
@@ -25,20 +25,20 @@ const semanticItems = (enumerationTarget: Record<string, unknown>) => [{
     }),
     '[END_JETWORK_SEMANTIC_PLAN]',
   ].join('\n'),
-}];
+}]
 
-describe('deterministic enumeration dispatch fast path', () => {
-  it('dispatches broad class inventory directly from the authoritative semantic target', () => {
+describe('legacy deterministic enumeration helper', () => {
+  it('can still dispatch broad class inventory for rollback compatibility', () => {
     const dispatch = buildEnumerationFastPathDispatch(semanticItems({
       tool: 'list_class_inventory',
       objectType: 'class',
       prefix: null,
       cursor: null,
-    }));
-    expect(dispatch).toEqual({ toolName: 'list_class_inventory', arguments: {} });
-  });
+    }))
+    expect(dispatch).toEqual({ toolName: 'list_class_inventory', arguments: {} })
+  })
 
-  it('follows list_knowledge_catalog pagination without asking a model to choose the next tool call', () => {
+  it('follows list_knowledge_catalog pagination inside the isolated helper', () => {
     const items: Array<Record<string, unknown>> = [
       ...semanticItems({ tool: 'list_knowledge_catalog', objectType: 'message', prefix: 'ZCRMCOST', cursor: null }),
       {
@@ -55,7 +55,7 @@ describe('deterministic enumeration dispatch fast path', () => {
           records: { items: [{ canonicalKey: 'message:zcrm_cost-000' }], totalCount: 62, nextCursor: 'message:zcrm_cost-087' },
         }),
       },
-    ];
+    ]
 
     expect(buildEnumerationFastPathDispatch(items)).toEqual({
       toolName: 'list_knowledge_catalog',
@@ -65,8 +65,8 @@ describe('deterministic enumeration dispatch fast path', () => {
         cursor: 'message:zcrm_cost-087',
         limit: 25,
       },
-    });
-  });
+    })
+  })
 
   it('stops dispatching after pagination is complete', () => {
     const items: Array<Record<string, unknown>> = [
@@ -85,17 +85,17 @@ describe('deterministic enumeration dispatch fast path', () => {
           records: { items: [{ canonicalKey: 'message:zcrm_cost-165' }], totalCount: 62, nextCursor: null },
         }),
       },
-    ];
-    expect(buildEnumerationFastPathDispatch(items)).toBeNull();
-  });
+    ]
+    expect(buildEnumerationFastPathDispatch(items)).toBeNull()
+  })
 
-  it('starts a resumed turn from the structured enumeration cursor', () => {
+  it('starts a resumed legacy turn from the structured enumeration cursor', () => {
     const dispatch = buildEnumerationFastPathDispatch(semanticItems({
       tool: 'list_knowledge_catalog',
       objectType: 'message',
       prefix: null,
       cursor: 'message:zcrm_price_key-045',
-    }));
+    }))
     expect(dispatch).toEqual({
       toolName: 'list_knowledge_catalog',
       arguments: {
@@ -104,60 +104,48 @@ describe('deterministic enumeration dispatch fast path', () => {
         cursor: 'message:zcrm_price_key-045',
         limit: 25,
       },
-    });
-  });
+    })
+  })
 
-  it('wires the Gemini fast path before the real provider call', () => {
+  it('is not wired into the active Gemini/OpenAI provider decision layer', () => {
     const providers = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
       'utf8',
-    );
-    expect(providers).toContain('buildEnumerationFastPathDispatch(input.items)');
-    expect(providers).toContain('buildSyntheticEnumerationFunctionCall(enumerationDispatch)');
-    expect(providers).toContain('deterministic_provider_calls_avoided: 1');
-    const dispatchIndex = providers.indexOf('buildEnumerationFastPathDispatch(input.items)');
-    const realProviderIndex = providers.indexOf('legacyRequestGeminiResponse({', dispatchIndex);
-    expect(dispatchIndex).toBeGreaterThan(-1);
-    expect(realProviderIndex).toBeGreaterThan(dispatchIndex);
-  });
+    )
+    expect(providers).not.toContain('buildEnumerationFastPathDispatch(input.items)')
+    expect(providers).not.toContain('buildSyntheticEnumerationFunctionCall(enumerationDispatch)')
+    expect(providers).not.toContain('buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)')
+    expect(providers).toContain('AGENT_CONTROLLER_INSTRUCTION')
+  })
 
-  it('wires the OpenAI marker from the shared provider sanitizer', () => {
-    const providers = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
-      'utf8',
-    );
-    expect(providers).toContain('buildOpenAiEnumerationFastPathMarkerItem(enumerationDispatch)');
-    expect(providers).toContain('const enumerationDispatch = buildEnumerationFastPathDispatch(items)');
-  });
-
-  it('avoids the OpenAI provider call through the installed fetch circuit layer', async () => {
+  it('keeps the legacy circuit helper independently testable without making it a runtime route', async () => {
     const marker = buildOpenAiEnumerationFastPathMarkerItem({
       toolName: 'list_class_inventory',
       arguments: {},
-    });
+    })
     const baseFetch = vi.fn(async () => {
-      throw new Error('provider fetch should not run');
-    }) as unknown as typeof fetch;
-    const breaker = createOpenAiCircuitBreaker(baseFetch);
+      throw new Error('provider fetch should not run')
+    }) as unknown as typeof fetch
+    const breaker = createOpenAiCircuitBreaker(baseFetch)
     const response = await breaker.fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       body: JSON.stringify({ model: 'gpt-5.6-sol', input: [marker], stream: true }),
-    });
-    const body = await response.text();
+    })
+    const body = await response.text()
 
-    expect(response.ok).toBe(true);
-    expect(body).toContain('list_class_inventory');
-    expect(body).toContain('deterministic_provider_calls_avoided');
-    expect(baseFetch).not.toHaveBeenCalled();
-  });
+    expect(response.ok).toBe(true)
+    expect(body).toContain('list_class_inventory')
+    expect(body).toContain('deterministic_provider_calls_avoided')
+    expect(baseFetch).not.toHaveBeenCalled()
+  })
 
-  it('keeps the OpenAI marker contract round-trippable', () => {
+  it('keeps the legacy marker contract round-trippable for rollback only', () => {
     expect(buildOpenAiEnumerationFastPathMarkerItem({
       toolName: 'list_class_inventory',
       arguments: {},
-    }).content).toContain('[JETWORK_ENUMERATION_FAST_PATH]');
-  });
-});
+    }).content).toContain('[JETWORK_ENUMERATION_FAST_PATH]')
+  })
+})
 
 describe('class inventory source badge semantics', () => {
   it('returns one source document for multiple class records parsed from the same inventory file', async () => {
@@ -176,15 +164,15 @@ describe('class inventory source badge semantics', () => {
         }],
         error: null,
       })),
-    };
+    }
 
-    const result = await executeClassInventoryTool(client, 'workspace-1', {});
-    expect(result.summary.totalCount).toBe(2);
-    expect(result.summary.sourceDocumentCount).toBe(1);
+    const result = await executeClassInventoryTool(client, 'workspace-1', {})
+    expect(result.summary.totalCount).toBe(2)
+    expect(result.summary.sourceDocumentCount).toBe(1)
     expect(result.sources).toEqual([{
       sourceId: 'source-1',
       sourceName: 'CRM_Class_Envanteri.md',
       title: 'CRM_Class_Envanteri.md',
-    }]);
-  });
-});
+    }])
+  })
+})

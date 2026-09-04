@@ -4,6 +4,8 @@ import {
   type ActionAttachmentRef,
 } from './artifactExecutionTools.ts'
 import type { AssistantGeneratedFileRef } from './executionTools.ts'
+import { requireVerifiedArtifactOutputs } from './artifact/storageVerifier.ts'
+import { verifyOfficeRevisionInvariant } from './artifact/officeRevisionVerifier.ts'
 
 export interface ArtifactAssistantToolExecution {
   output: string
@@ -14,6 +16,12 @@ export interface ArtifactAssistantToolExecution {
 
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const ASSISTANT_FILES_BUCKET = 'assistant-files'
+const OUTPUT_ARTIFACT_TOOLS = new Set([
+  'transform_pdf_file',
+  'edit_office_file',
+  'create_document_file',
+  'generate_or_edit_image',
+])
 const ACTIONABLE_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/pdf',
@@ -64,6 +72,23 @@ const artifactExecutorSlug = (request: { operation?: string; config?: Record<str
     : 'artifact-execute'
 )
 
+async function inspectOfficeRef(client: any, workspaceId: string, ref: ActionAttachmentRef | AssistantGeneratedFileRef) {
+  const { data, error } = await client.functions.invoke('artifact-execute', {
+    body: { operation: 'inspect', workspaceId, input: ref },
+  })
+  if (error) throw new Error(clean((error as any)?.message, 1_000) || 'Office revision inspect failed.')
+  if (!data || typeof data !== 'object') throw new Error('Office revision inspect returned an invalid payload.')
+  const payload = data as Record<string, unknown>
+  if (payload.error) throw new Error(clean(payload.error, 1_000))
+  if (!payload.inspection) throw new Error('Office revision inspect returned no inspection payload.')
+  return payload.inspection
+}
+
+async function removeGeneratedArtifact(client: any, artifact: AssistantGeneratedFileRef | undefined) {
+  if (!artifact?.storageBucket || !artifact?.storagePath) return
+  await client.storage.from(artifact.storageBucket).remove([artifact.storagePath]).catch(() => undefined)
+}
+
 export async function executeArtifactAssistantTool(
   client: any,
   workspaceId: string,
@@ -100,10 +125,61 @@ export async function executeArtifactAssistantTool(
     },
   })
 
+  const requiresOutputArtifact = OUTPUT_ARTIFACT_TOOLS.has(toolName)
+  if (requiresOutputArtifact && !execution.artifacts.length) {
+    throw new Error(`ARTIFACT_EXECUTOR_RETURNED_NO_OUTPUT:${toolName}`)
+  }
+  const artifactVerification = requiresOutputArtifact
+    ? await requireVerifiedArtifactOutputs(client, execution.artifacts)
+    : null
+
+  let officeRevisionVerification: ReturnType<typeof verifyOfficeRevisionInvariant> | null = null
+  if (toolName === 'edit_office_file') {
+    const sourceAttachmentId = clean(args.attachmentId, 200)
+    const sourceRef = attachments.find(item => item.attachmentId === sourceAttachmentId)
+    const outputRef = execution.artifacts[0]
+    if (!sourceRef || !outputRef) {
+      await removeGeneratedArtifact(client, outputRef)
+      throw new Error('ARTIFACT_REVISION_INVARIANT_INPUT_MISSING')
+    }
+
+    try {
+      const [beforeInspection, afterInspection] = await Promise.all([
+        inspectOfficeRef(client, workspaceId, sourceRef),
+        inspectOfficeRef(client, workspaceId, outputRef),
+      ])
+      officeRevisionVerification = verifyOfficeRevisionInvariant({
+        beforeInspection,
+        afterInspection,
+        operation: clean(args.operation, 30),
+        findText: args.findText === null ? null : String(args.findText || ''),
+        replacementText: args.replacementText === null ? null : String(args.replacementText || ''),
+      })
+      if (!officeRevisionVerification.verified) {
+        throw new Error(`ARTIFACT_REVISION_INVARIANT_FAILED:${officeRevisionVerification.failures.join(',')}`)
+      }
+    } catch (error) {
+      await removeGeneratedArtifact(client, outputRef)
+      throw error
+    }
+  }
+
   return {
     output: execution.output,
     sources: [],
     artifacts: execution.artifacts,
-    summary: { ...execution.summary, executionOnly: true, citationReady: false },
+    summary: {
+      ...execution.summary,
+      executionOnly: true,
+      citationReady: false,
+      artifactVerification: artifactVerification ? {
+        version: artifactVerification.version,
+        reloadVerified: artifactVerification.reloadVerified,
+        integrityVerified: artifactVerification.integrityVerified,
+        artifactCount: artifactVerification.artifacts.length,
+        revisionInvariantVerified: officeRevisionVerification?.verified ?? null,
+      } : null,
+      officeRevisionVerification,
+    },
   }
 }

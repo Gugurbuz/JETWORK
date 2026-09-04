@@ -12,6 +12,8 @@ import {
 import type { AssistantProvider } from './modelProviders.ts'
 import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'
 import type { AssistantActiveOperation } from './operationState.ts'
+import type { ProjectMemoryContextItem } from './projectMemoryContext.ts'
+import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
 
 export const SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
@@ -36,6 +38,7 @@ export interface PriorExecutionContext {
   activeEntities?: string[]
   requestedEvidence?: string[]
   verifiedFactRefs?: string[]
+  projectMemory?: ProjectMemoryContextItem[]
   activeOperation?: AssistantActiveOperation
 }
 
@@ -77,10 +80,10 @@ export const compactSemanticConversation = (messages: SemanticContextMessage[]) 
 
 const REJECTION_PATTERN = /(?:^|\s)(?:hayir|degil|yanlis|reddediyorum|reddettim|no|not|wrong|incorrect)(?:\s|$)/i
 const CORRECTION_PATTERN = /(?:^|\s)(?:aslinda|duzeltiyorum|duzeltme|demek istedigim|correction|actually)(?:\s|$)/i
-const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct)$/i
-const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|more|rest|continue|next)\b/i
+const CONFIRMATION_PATTERN = /^(?:evet|aynen|dogru|tamam|ok|okay|yes|correct|onayliyorum|onayladim|approved|approve)$/i
+const CONTINUATION_PATTERN = /\b(?:devam|devamini|sonraki|kalan|gerisi|digerleri|basla|uygula|tamamla|more|rest|continue|next|start|proceed)\b/i
 const DEEP_RESEARCH_FOLLOW_UP_PATTERN = /(?:bu yaniti|bu cevabi).*(?:daha derin|web|arastir)|(?:daha derin arastir|web uzerinde de arastir)/i
-const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari)\b/i
+const ELLIPTICAL_PATTERN = /^(?:tam kod ver|kodu ver|hata mesaji nedir|mesaj nedir|onu goster|peki|neden|nasil|hangileri|hangi mesajlari|ne yapacagiz simdi|ne yapcaz simdi|simdi ne)\b/i
 const STRUCTURED_REQUIREMENT_NUMBER_PATTERN = /^\s*\d+(?:\.\d+){1,}\s+/gmu
 const STRUCTURED_REQUIREMENT_LANGUAGE_PATTERN = /\b(?:gereksinim[a-z]*|is kurali|servis[a-z]* guncellen[a-z]*|guncellenmelidir|olacaktir|donmelidir|yapilmalidir|mevcutta|proje ile|senaryo)\b/gu
 
@@ -164,53 +167,95 @@ const promptProfileFor = (intent: ReasoningIntent, executionMode: ReasoningExecu
   return 'base'
 }
 
+const projectMemoryDecisionContext = (items: ProjectMemoryContextItem[]) => unique(
+  items
+    .filter(item => ['decision','constraint','requirement','preference','business_rule'].includes(item.category))
+    .map(item => `${item.key}: ${item.value}`),
+  8,
+)
+
+const projectMemoryOpenQuestions = (items: ProjectMemoryContextItem[]) => unique(
+  items
+    .filter(item => item.category === 'open_question')
+    .map(item => `${item.key}: ${item.value}`),
+  8,
+)
+
 const buildConversationState = (input: {
   currentMessage: string
   conversation: SemanticContextMessage[]
   priorExecution?: PriorExecutionContext
 }): ConversationSemanticState => {
   const priorIntent = priorIntentFor(input.priorExecution)
+  const currentNormalized = normalize(input.currentMessage)
+  const priorResolvedRequest = cleanText(input.priorExecution?.resolvedRequest, 1_400)
   const currentEntities = extractTechnicalEntities(input.currentMessage)
   const priorEntities = unique([
     ...(input.priorExecution?.activeEntities || []),
     ...(input.priorExecution?.verifiedFactRefs || []),
     ...priorUserEntities(input.conversation),
   ], 10)
-  const shortFollowUp = normalize(input.currentMessage).split(' ').filter(Boolean).length <= 6
-    && ELLIPTICAL_PATTERN.test(normalize(input.currentMessage))
+  const currentWordCount = currentNormalized.split(' ').filter(Boolean).length
+  const shortFollowUp = currentWordCount <= 8 && ELLIPTICAL_PATTERN.test(currentNormalized)
+  const genericContinuation = Boolean(priorResolvedRequest)
+    && currentWordCount <= 10
+    && (
+      shortFollowUp
+      || CONTINUATION_PATTERN.test(currentNormalized)
+      || CONFIRMATION_PATTERN.test(currentNormalized)
+      || REJECTION_PATTERN.test(currentNormalized)
+      || CORRECTION_PATTERN.test(currentNormalized)
+    )
   const operationContinuation = Boolean(input.priorExecution?.activeOperation?.complete === false)
-    && CONTINUATION_PATTERN.test(normalize(input.currentMessage))
-  const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(input.currentMessage))
+    && CONTINUATION_PATTERN.test(currentNormalized)
+  const deepResearchFollowUp = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(currentNormalized)
   const deepResearchTarget = deepResearchFollowUp ? priorUserRequest(input.conversation) : ''
-  const continuation = Boolean((shortFollowUp && priorEntities.length) || operationContinuation || deepResearchTarget)
+  const continuation = Boolean(
+    genericContinuation
+    || (shortFollowUp && priorEntities.length)
+    || operationContinuation
+    || deepResearchTarget,
+  )
   const activeEntities = unique([
     ...currentEntities,
     ...(continuation ? priorEntities : []),
   ], 10)
   const resolvedRequest = deepResearchTarget
     ? `${deepResearchTarget}\nAraştırma talebi: ${cleanText(input.currentMessage, 700)}`
-    : continuation && activeEntities.length
-      ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
-      : cleanText(input.currentMessage, 900)
-  const retainedContext = input.conversation
-    .slice(-4)
-    .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
-    .filter(Boolean)
+    : genericContinuation && priorResolvedRequest
+      ? `${priorResolvedRequest}\nKullanıcının yeni hamlesi: ${cleanText(input.currentMessage, 700)}`
+      : continuation && activeEntities.length
+        ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
+        : cleanText(input.currentMessage, 900)
+  const retainedContext = [
+    ...(genericContinuation && priorResolvedRequest
+      ? [`resolved_task: ${cleanText(priorResolvedRequest.replace(/\s+/g, ' '), 600)}`]
+      : []),
+    ...input.conversation
+      .slice(-4)
+      .map(item => cleanText(`${item.role}: ${item.content.replace(/\s+/g, ' ')}`, 420))
+      .filter(Boolean),
+  ].slice(-5)
+  const projectMemory = input.priorExecution?.projectMemory || []
 
   return {
     continuation,
-    topic: activeEntities[0] || cleanText(input.currentMessage, 300),
+    topic: activeEntities[0]
+      || (genericContinuation && priorResolvedRequest ? cleanText(priorResolvedRequest, 300) : cleanText(input.currentMessage, 300)),
     userMove: userMoveFor(input.currentMessage, continuation),
     operationMove: operationContinuation ? 'continue' : 'none',
     priorIntent: priorIntent === 'simple_answer' ? 'none' : priorIntent,
     rejectedHypotheses: collectRejectedHypotheses(input.conversation, input.currentMessage),
     rejectedScopes: [],
     retainedContext,
-    openQuestions: [],
+    openQuestions: projectMemoryOpenQuestions(projectMemory),
     resolvedRequest,
     activeEntities,
-    requestedEvidence: requestedEvidenceFor(input.currentMessage),
-    userDecisions: [],
+    requestedEvidence: unique([
+      ...requestedEvidenceFor(input.currentMessage),
+      ...(continuation ? input.priorExecution?.requestedEvidence || [] : []),
+    ], 8),
+    userDecisions: projectMemoryDecisionContext(projectMemory),
     verifiedFactRefs: unique(input.priorExecution?.verifiedFactRefs || [], 12),
   }
 }
@@ -219,8 +264,46 @@ const buildPrimaryAgentPlan = (input: {
   message: string
   conversation: SemanticContextMessage[]
   priorExecution?: PriorExecutionContext
+  agentControllerV2Enabled?: boolean
 }): ReasoningPlan => {
   const currentMessage = routingSurfaceFromMessage(input.message).current || input.message.trim()
+  const state = buildConversationState({
+    currentMessage,
+    conversation: input.conversation,
+    priorExecution: input.priorExecution,
+  })
+  const controllerV2Enabled = input.agentControllerV2Enabled ?? isAgentControllerV2Enabled()
+
+  if (controllerV2Enabled) {
+    const exactTechnicalEvidenceRequired = extractTechnicalEntities(currentMessage).length > 0
+    return {
+      // P1 invariant: this envelope is context + safety metadata only. It must not
+      // choose a capability, force web/knowledge, or classify a business/domain
+      // route ahead of the active controller LLM.
+      intent: 'analysis',
+      complexity: 'medium',
+      executionMode: 'direct',
+      goal: state.resolvedRequest || currentMessage,
+      knowledgeRequired: false,
+      enterpriseGroundingRequired: exactTechnicalEvidenceRequired,
+      webMode: 'none',
+      verificationRequired: false,
+      creativeMode: false,
+      evidenceQueries: [],
+      promptProfile: 'base',
+      steps: [{
+        id: 'controller-v2-loop',
+        label: 'Controller LLM hedefi değerlendirir ve gerekirse capability seçer',
+        toolHint: 'synthesis',
+        successCriteria: exactTechnicalEvidenceRequired
+          ? 'Exact teknik iddialar doğrulanmış enterprise evidence olmadan kesinleştirilmez; capability seçimini controller yapar.'
+          : 'Capability seçimi ve araştırma derinliği controller LLM tarafından observation sonrası yeniden belirlenir.',
+      }],
+      conversationState: state,
+      orchestratorVersion: SEMANTIC_ORCHESTRATOR_VERSION,
+    }
+  }
+
   const deepResearchTarget = DEEP_RESEARCH_FOLLOW_UP_PATTERN.test(normalize(currentMessage))
     ? priorUserRequest(input.conversation)
     : ''
@@ -239,20 +322,12 @@ const buildPrimaryAgentPlan = (input: {
     : deepResearchNeedsKnowledge
       ? { ...routed, knowledgeRequired: true }
       : routed
-  const state = buildConversationState({
-    currentMessage,
-    conversation: input.conversation,
-    priorExecution: input.priorExecution,
-  })
   const executionMode = executionModeFor(route.intent)
   return {
     intent: route.intent,
     complexity: route.complexity,
     executionMode,
     goal: state.resolvedRequest || currentMessage,
-    // The user's supplied requirement/specification text is itself the primary
-    // evidence for analysis. Otherwise respect the deterministic router instead
-    // of forcing every primary-agent turn into knowledge + public web mode.
     knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired,
     enterpriseGroundingRequired: userProvidedRequirements,
     webMode: userProvidedRequirements ? 'none' : route.webMode,
@@ -279,11 +354,11 @@ const mergeCachedConversationState = (
 ): ConversationSemanticState | undefined => {
   if (!fresh) return cached
   if (!cached) return fresh
+
   return {
     ...fresh,
     rejectedHypotheses: unique([...(fresh.rejectedHypotheses || []), ...(cached.rejectedHypotheses || [])], 6),
     rejectedScopes: unique([...(fresh.rejectedScopes || []), ...(cached.rejectedScopes || [])], 6),
-    verifiedFactRefs: unique([...(fresh.verifiedFactRefs || []), ...(cached.verifiedFactRefs || [])], 12),
   }
 }
 
@@ -300,8 +375,6 @@ export const applyAgentLoopPolicy = (inputPlan: ReasoningPlan, provider: Assista
       evidenceQueries: [],
       verificationRequired: false,
       enterpriseGroundingRequired: inputPlan.enterpriseGroundingRequired === true,
-      // Gemini keeps provider lock by encoding public web as a native capability
-      // marker. The core must not interpret this as an OpenAI preflight request.
       webMode: providerNativeWeb ? 'none' : inputPlan.webMode,
       steps: [{
         id: 'primary-agent-loop',
@@ -354,12 +427,14 @@ export const normalizeCachedSemanticPlan = (input: {
   currentMessage: string
   conversation: SemanticContextMessage[]
   priorExecution?: PriorExecutionContext
+  agentControllerV2Enabled?: boolean
 }): ReasoningPlan | null => {
   try {
     const fresh = buildPrimaryAgentPlan({
       message: input.currentMessage,
       conversation: input.conversation,
       priorExecution: input.priorExecution,
+      agentControllerV2Enabled: input.agentControllerV2Enabled,
     })
     const cached = input.value && typeof input.value === 'object' ? input.value as ReasoningPlan : null
     if (cached?.conversationState) {
@@ -381,17 +456,21 @@ export async function buildSemanticExecutionPlan(input: {
   workspaceTitle?: string
   attachmentNames?: string[]
   signal?: AbortSignal
+  agentControllerV2Enabled?: boolean
 }): Promise<SemanticOrchestrationResult> {
+  const controllerV2Enabled = input.agentControllerV2Enabled ?? isAgentControllerV2Enabled()
   const plan = applyAgentLoopPolicy(buildPrimaryAgentPlan({
     message: input.message,
     conversation: compactSemanticConversation(input.conversation),
     priorExecution: input.priorExecution,
+    agentControllerV2Enabled: controllerV2Enabled,
   }), input.provider)
   return {
     plan,
     usage: {
       primary_llm_agent_mode: 1,
       semantic_planner_provider_calls_avoided: 1,
+      controller_v2_advisory_plan: controllerV2Enabled ? 1 : 0,
     },
     fallbackUsed: false,
     provider: input.provider,

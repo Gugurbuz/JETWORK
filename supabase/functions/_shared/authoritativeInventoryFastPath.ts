@@ -1,6 +1,7 @@
 import type { ReasoningPlan } from './reasoningEngine.ts'
+import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
 
-export const AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION = 'authoritative-inventory-fast-path-v1'
+export const AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION = 'authoritative-inventory-fast-path-v2-legacy-only'
 
 const normalize = (value: string) => value
   .toLocaleLowerCase('tr-TR')
@@ -30,8 +31,18 @@ export const isAuthoritativeBroadClassInventoryRequest = (message: string): bool
   return tokens.every(token => ALLOWED_TOKENS.has(token))
 }
 
-export const buildAuthoritativeInventoryFastPlan = (message: string): ReasoningPlan | null => {
+export const buildAuthoritativeInventoryFastPlan = (
+  message: string,
+  options: { agentControllerV2Enabled?: boolean } = {},
+): ReasoningPlan | null => {
+  const agentControllerV2Enabled = options.agentControllerV2Enabled ?? isAgentControllerV2Enabled()
+
+  // P1 invariant: when the Agentic Controller is active, semantic fast paths
+  // cannot select a capability before the controller LLM. Keep this helper only
+  // as a legacy-runtime compatibility path until rollout is complete.
+  if (agentControllerV2Enabled) return null
   if (!isAuthoritativeBroadClassInventoryRequest(message)) return null
+
   const current = String(message || '').trim().slice(0, 700)
   return {
     intent: 'analysis',
@@ -40,7 +51,7 @@ export const buildAuthoritativeInventoryFastPlan = (message: string): ReasoningP
     goal: [
       current,
       '[JETWORK_INVENTORY_TARGET] tool=list_class_inventory; objectType=class; prefix=null.',
-      'Bu talep exhaustive class inventory kapsamındadır. Semantic planner çağrısı yapılmadan authoritative inventory capabilitysi doğrudan kullanılmalıdır.',
+      'Bu talep legacy runtime authoritative inventory capabilitysi üzerinden işlenir.',
     ].filter(Boolean).join('\n'),
     knowledgeRequired: true,
     webMode: 'none',
@@ -52,11 +63,11 @@ export const buildAuthoritativeInventoryFastPlan = (message: string): ReasoningP
         id: 'enumerate-inventory',
         label: 'class envanteri kayıtlarını eksiksiz getir',
         toolHint: 'knowledge',
-        successCriteria: 'Authoritative list_class_inventory capabilitysi doğrudan çalışır.',
+        successCriteria: 'Legacy authoritative list_class_inventory capabilitysi çalışır.',
       },
       {
         id: 'finalize-inventory',
-        label: 'Envanter sonucunu deterministik olarak sun',
+        label: 'Envanter sonucunu sun',
         toolHint: 'synthesis',
         successCriteria: 'Tam belgelenmiş ve referans verilen class kayıtları eksiksiz ayrıştırılır.',
       },

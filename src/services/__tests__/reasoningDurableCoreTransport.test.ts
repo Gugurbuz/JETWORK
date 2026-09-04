@@ -25,8 +25,9 @@ describe('Reasoning Engine durable core transport lifecycle', () => {
     expect(entrypointSource).not.toContain('.abortRun = () => {}');
   });
 
-  it('does not execute or display a deterministic knowledge preflight for an adaptive plan with empty evidence queries', () => {
-    expect(source).toContain('if (plan.knowledgeRequired && plan.evidenceQueries.length > 0)');
+  it('keeps deterministic knowledge preflight behind the legacy rollback guard', () => {
+    expect(source).toContain('if (!AGENTIC_CONTROLLER_ENABLED && plan.knowledgeRequired && plan.evidenceQueries.length > 0)');
     expect(source).toContain("await collectKnowledge(plan.evidenceQueries, plan, 'preflight')");
+    expect(source).toContain('knowledgePreflightAttempted = true');
   });
 });

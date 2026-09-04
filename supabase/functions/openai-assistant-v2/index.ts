@@ -19,6 +19,7 @@ import {
 import { compactSemanticContextMessage } from '../_shared/conversationMemory.ts'
 import { applyConversationScopeInventoryPolicy } from '../_shared/conversationScopePolicy.ts'
 import { normalizeAssistantActiveOperation } from '../_shared/operationState.ts'
+import { selectProjectMemoryContext } from '../_shared/projectMemoryContext.ts'
 import {
   AUTHORITATIVE_INVENTORY_FAST_PATH_VERSION,
   buildAuthoritativeInventoryFastPlan,
@@ -237,6 +238,7 @@ async function loadSemanticContext(input: {
   anonKey: string
   workspaceId: string
   messageId: string
+  currentMessage: string
 }) {
   const client = createClient(input.supabaseUrl, input.anonKey, {
     global: { headers: { Authorization: input.authorization } }, auth: { persistSession: false },
@@ -252,7 +254,7 @@ async function loadSemanticContext(input: {
     throw workspaceResult.error || new Error('Workspace access denied for semantic context.')
   }
   const currentCreatedAt = String(currentResult.data.created_at)
-  const [messagesResult, priorContextResult] = await Promise.all([
+  const [messagesResult, priorContextResult, projectMemoryResult] = await Promise.all([
     client.from('messages')
       .select('id,role,text,created_at')
       .eq('workspace_id', input.workspaceId)
@@ -265,10 +267,18 @@ async function loadSemanticContext(input: {
       p_before: currentCreatedAt,
       p_exclude_message_id: input.messageId,
     }),
+    client.from('project_memory_entries')
+      .select('memory_key,value,category,source_type,confirmation_state,memory_version,valid_from,updated_at')
+      .eq('workspace_id', input.workspaceId)
+      .order('valid_from', { ascending: false })
+      .limit(80),
   ])
   if (messagesResult.error) throw messagesResult.error
   if (priorContextResult.error) {
     console.warn('Prior execution context could not be loaded for semantic context:', priorContextResult.error.message)
+  }
+  if (projectMemoryResult.error) {
+    console.warn('Project Brain context could not be loaded; continuing without durable memory:', projectMemoryResult.error.message)
   }
   const conversation: SemanticContextMessage[] = [...(messagesResult.data || [])]
     .reverse()
@@ -281,22 +291,28 @@ async function loadSemanticContext(input: {
   const previousRun = priorContextResult.data && typeof priorContextResult.data === 'object' && !Array.isArray(priorContextResult.data)
     ? priorContextResult.data as Record<string, unknown>
     : undefined
-  const priorExecution: PriorExecutionContext | undefined = previousRun ? {
-    messageId: cleanString(previousRun.messageId, 240),
-    intent: cleanString(previousRun.intent, 80),
-    complexity: cleanString(previousRun.complexity, 40),
-    knowledgeUsed: previousRun.knowledgeUsed === true,
-    webUsed: previousRun.webUsed === true,
-    toolCallCount: Number(previousRun.toolCallCount || 0),
-    responseModel: cleanString(previousRun.responseModel, 120),
-    provider: cleanString(previousRun.provider, 40),
-    artifactStatus: cleanString(previousRun.artifactStatus, 80),
-    artifactOperation: cleanString(previousRun.artifactOperation, 80),
-    resolvedRequest: cleanString(previousRun.resolvedRequest, 900) || undefined,
-    activeEntities: cleanStringArray(previousRun.activeEntities, 10, 180),
-    requestedEvidence: cleanStringArray(previousRun.requestedEvidence, 8, 120),
-    verifiedFactRefs: cleanStringArray(previousRun.verifiedFactRefs, 12, 320),
-    activeOperation: normalizeAssistantActiveOperation(previousRun.activeOperation),
+  const projectMemory = selectProjectMemoryContext(
+    projectMemoryResult.error ? [] : (projectMemoryResult.data || []),
+    [input.currentMessage, cleanString(previousRun?.resolvedRequest, 1_400)].filter(Boolean).join('\n'),
+    12,
+  )
+  const priorExecution: PriorExecutionContext | undefined = previousRun || projectMemory.length ? {
+    messageId: cleanString(previousRun?.messageId, 240),
+    intent: cleanString(previousRun?.intent, 80),
+    complexity: cleanString(previousRun?.complexity, 40),
+    knowledgeUsed: previousRun?.knowledgeUsed === true,
+    webUsed: previousRun?.webUsed === true,
+    toolCallCount: Number(previousRun?.toolCallCount || 0),
+    responseModel: cleanString(previousRun?.responseModel, 120),
+    provider: cleanString(previousRun?.provider, 40),
+    artifactStatus: cleanString(previousRun?.artifactStatus, 80),
+    artifactOperation: cleanString(previousRun?.artifactOperation, 80),
+    resolvedRequest: cleanString(previousRun?.resolvedRequest, 900) || undefined,
+    activeEntities: cleanStringArray(previousRun?.activeEntities, 10, 180),
+    requestedEvidence: cleanStringArray(previousRun?.requestedEvidence, 8, 120),
+    verifiedFactRefs: cleanStringArray(previousRun?.verifiedFactRefs, 12, 320),
+    projectMemory,
+    activeOperation: normalizeAssistantActiveOperation(previousRun?.activeOperation),
   } : undefined
   const currentCreatedAtMs = Date.parse(currentCreatedAt)
   const previousStartedAtMs = Date.parse(String(previousRun?.startedAt || ''))
@@ -471,7 +487,7 @@ serve(async req => {
   const semanticStartedAtMs = Date.now()
   let context
   try {
-    context = await loadSemanticContext({ authorization, supabaseUrl, anonKey, workspaceId, messageId })
+    context = await loadSemanticContext({ authorization, supabaseUrl, anonKey, workspaceId, messageId, currentMessage })
   } catch (contextError) {
     console.error('Semantic context could not be loaded:', errorMessage(contextError))
     return jsonResponse({ error: 'Konuşma bağlamı hazırlanamadı. Lütfen tekrar deneyin.', code: 'SEMANTIC_CONTEXT_UNAVAILABLE' }, 503)
@@ -658,6 +674,7 @@ serve(async req => {
     priorIntent: semantic.plan.conversationState?.priorIntent,
     topic: semantic.plan.conversationState?.topic,
     rejectedScopes: semantic.plan.conversationState?.rejectedScopes?.length || 0,
+    projectMemoryItems: context.priorExecution?.projectMemory?.length || 0,
     enumerationTool: semantic.plan.enumerationTarget?.tool,
     enumerationObjectType: semantic.plan.enumerationTarget?.objectType,
     enumerationCursor: semantic.plan.enumerationTarget?.cursor,

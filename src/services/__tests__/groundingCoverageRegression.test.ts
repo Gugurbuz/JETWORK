@@ -111,4 +111,132 @@ describe('grounding claim coverage P0', () => {
     })
     expect(coverage.ok).toBe(true)
   })
+
+  it('accepts a verified message class namespace derived from exact message evidence only', () => {
+    const detail = verifiedMessage('ZCRM-114', '&:Kalemlerde farklı Terim-Zaman olamaz.')
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: detail.sources, toolResults: [detail],
+      text: 'ZCRM mesaj sınıfındaki ZCRM-114 doğrulandı.',
+    })
+    expect(coverage.ok).toBe(true)
+    expect(coverage.unsupportedIdentifiers).toEqual([])
+
+    const unrelated = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: detail.sources, toolResults: [detail],
+      text: 'ZCRM2 mesaj sınıfı da doğrulandı.',
+    })
+    expect(unrelated.ok).toBe(false)
+    expect(unrelated.unsupportedIdentifiers).toEqual(['ZCRM2'])
+  })
+
+  it('derives a verified message code from citation-ready ABAP MESSAGE syntax', () => {
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_abap_source',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+          objectType: 'method',
+          content: "IF 1 = 2. MESSAGE e111(zcrm_cost). ENDIF.",
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+        objectType: 'method',
+        title: 'NINJA_CALCULATE_ONCRM',
+        sourceId: 's-method',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: 'ZCRM_COST-111 için ABAP satırı: MESSAGE e111(zcrm_cost).',
+    })
+    expect(coverage.ok).toBe(true)
+    expect(coverage.unsupportedIdentifiers).toEqual([])
+  })
+
+  it('accepts an exhaustive canonical message-code list carried by verified ABAP signals', () => {
+    const codes = [
+      '000','001','002','003','007','011','013','014','015','016','017','018','035','039','083',
+      '084','085','086','087','088','089','090','091','092','093','094','096','098','104','111','119',
+      '120','123','124','125','134','137','138','142','143','154','155','156','163','164',
+    ].map(number => `ZCRM_COST-${number}`)
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_knowledge_object',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+          objectType: 'method',
+          verifiedSignals: { abapMessageCodes: codes },
+          content: `[VERIFIED_ABAP_MESSAGE_CODES]\n${codes.join(', ')}\n[END_VERIFIED_ABAP_MESSAGE_CODES]`,
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+        objectType: 'method',
+        title: 'NINJA_CALCULATE_ONCRM',
+        sourceId: 's-method-exhaustive',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+    const coverage = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: codes.join(', '),
+    })
+    expect(coverage.ok).toBe(true)
+    expect(coverage.unsupportedIdentifiers).toEqual([])
+
+    const invented = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: `${codes.join(', ')}, ZCRM_COST-999`,
+    })
+    expect(invented.ok).toBe(false)
+    expect(invented.unsupportedIdentifiers).toContain('ZCRM_COST-999')
+  })
+
+  it('supports uppercase claims backed by lowercase technical identifiers in verified ABAP source', () => {
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_abap_source',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+          objectType: 'method',
+          content: [
+            'IF ls_selected_line-zzprepayment_day IS INITIAL.',
+            "  IF 1 = 2. MESSAGE e111(zcrm_cost). ENDIF.",
+            "  zcl_crm_ninja_tools=>add_message( iv_msg_number = '111' ).",
+            'ENDIF.',
+            'Bu alan zorunludur.',
+          ].join('\n'),
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:unscoped_class/ninja_calculate_oncrm',
+        objectType: 'method',
+        title: 'NINJA_CALCULATE_ONCRM',
+        sourceId: 's-method-lowercase',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+
+    const supported = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: 'ZZPREPAYMENT_DAY kontrol edilir ve ZCL_CRM_NINJA_TOOLS/ADD_MESSAGE çağrılır.',
+    })
+    expect(supported.ok).toBe(true)
+    expect(supported.unsupportedIdentifiers).toEqual([])
+
+    const proseWord = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: true }, sources: method.sources, toolResults: [method],
+      text: 'ZORUNLUDUR teknik bir identifier olarak doğrulandı.',
+    })
+    expect(proseWord.ok).toBe(false)
+    expect(proseWord.unsupportedIdentifiers).toEqual(['ZORUNLUDUR'])
+  })
 })

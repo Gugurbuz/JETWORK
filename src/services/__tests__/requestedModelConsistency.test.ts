@@ -43,7 +43,7 @@ describe('assistant requested model consistency', () => {
     expect(coreSource).toContain('configuredModel,');
     expect(coreSource).toContain('responseModel,');
     expect(coreSource).toContain(
-      'evidence_summary: { requestedModel: input.requestedModel, configuredModel: input.configuredModel },',
+      'evidence_summary: { requestedModel: input.requestedModel, configuredModel: input.configuredModel, controllerMode: AGENTIC_CONTROLLER_ENABLED },',
     );
   });
 

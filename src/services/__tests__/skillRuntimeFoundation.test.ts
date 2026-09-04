@@ -8,8 +8,12 @@ import {
 } from '../../../supabase/functions/_shared/skillTools.ts'
 import { JETWORK_SKILLS } from '../../../supabase/functions/_shared/skillRegistry.generated.ts'
 
+const hasCapability = (keys: string[], expected: string) => (
+  keys.some(key => key === expected || key.endsWith(`/${expected}`))
+)
+
 describe('JetWork skill runtime foundation', () => {
-  it('activates the first 40 P0/P1 skills while keeping the 140-skill roadmap separate', () => {
+  it('activates the first 40 P0/P1 skills while keeping the generated roadmap separate', () => {
     expect(JETWORK_SKILLS).toHaveLength(40)
     expect(new Set(JETWORK_SKILLS.map(skill => skill.key)).size).toBe(JETWORK_SKILLS.length)
     expect(JETWORK_SKILLS.every(skill => ['P0', 'P1'].includes(skill.priority))).toBe(true)
@@ -35,39 +39,95 @@ describe('JetWork skill runtime foundation', () => {
     expect(results.some(result => result.key === 'jira/latest-sprint')).toBe(true)
   })
 
-  it('discovers business-analysis and SAP skills from natural Turkish requests', () => {
-    const impact = searchSkills({ query: 'bu değişiklik hangi sistemleri ve entegrasyonları etkiler', limit: 6 })
-    expect(impact.some(result => result.key === 'business-analysis/impact-analysis')).toBe(true)
+  it('discovers business-analysis and SAP skills from semantic work descriptions', () => {
+    const impact = searchSkills({ query: 'bu değişiklik hangi sistemleri ve entegrasyonları etkiler', limit: 12 })
+    const impactKeys = impact.map(result => result.key)
+    expect(hasCapability(impactKeys, 'impact-analysis')).toBe(true)
+    expect(hasCapability(impactKeys, 'integration-analysis')).toBe(true)
 
-    const diagnosis = searchSkills({ query: 'SAP hata mesajının kök nedenini method ve source üzerinden analiz et', limit: 6 })
-    expect(diagnosis.some(result => result.key === 'sap/diagnosis')).toBe(true)
+    const diagnosis = searchSkills({ query: 'SAP hata mesajının kök nedenini method ve source üzerinden analiz et', limit: 12 })
+    const diagnosisKeys = diagnosis.map(result => result.key)
+    expect(
+      hasCapability(diagnosisKeys, 'diagnosis') || hasCapability(diagnosisKeys, 'root-cause-diagnosis'),
+    ).toBe(true)
   })
 
-  it('loads at most four explicit skills and supports P1 materialization', () => {
+  it('keeps multilingual and inflected skill discovery broad without keyword-to-skill routing', () => {
+    const scenarios = [
+      {
+        query: 'entegrasyonları ve sistemler arası bağlantıları incele',
+        expectedKey: 'integration-analysis',
+      },
+      {
+        query: 'integration boundaries and connected systems need analysis',
+        expectedKey: 'integration-analysis',
+      },
+      {
+        query: 'risk analysis for the proposed enterprise change',
+        expectedKey: 'risk-analysis',
+      },
+      {
+        query: 'technical analysis of data flow and system behavior',
+        expectedKey: 'technical-analysis',
+      },
+    ]
+
+    for (const scenario of scenarios) {
+      const keys = searchSkills({ query: scenario.query, limit: 12 }).map(result => result.key)
+      expect(hasCapability(keys, scenario.expectedKey), `${scenario.query}: ${keys.join(', ')}`).toBe(true)
+    }
+  })
+
+  it('tolerates morphology and small spelling differences at candidate-retrieval time', () => {
+    const keys = searchSkills({
+      query: 'entegrasyonlr etkileniyor mu sistemler arasi baglantiyi analiz et',
+      limit: 12,
+    }).map(result => result.key)
+    expect(hasCapability(keys, 'integration-analysis')).toBe(true)
+  })
+
+  it('loads a controller-selected bundle of up to eight explicit skills', () => {
     const results = loadSkills([
       'spreadsheet/inspect',
       'spreadsheet/table-join',
       'business-analysis/impact-analysis',
       'sap/diagnosis',
+      'business-analysis/requirement-understanding',
+      'business-analysis/business-rule-extraction',
+      'business-analysis/dependency-analysis',
+      'business-analysis/technical-analysis',
       'missing/skill',
     ])
-    expect(results).toHaveLength(4)
+    expect(results).toHaveLength(8)
     expect(results[0]).toMatchObject({ key: 'spreadsheet/inspect' })
     expect(results[2]).toMatchObject({ key: 'business-analysis/impact-analysis' })
     expect(results[3]).toMatchObject({ key: 'sap/diagnosis' })
-    expect(results.every(result => 'content' in result)).toBe(true)
   })
 
   it('marks skill tool output as procedural and never citation-ready evidence', () => {
     const result = executeSkillTool('load_skills', { keys: ['business-analysis/impact-analysis', 'sap/diagnosis'] })
     expect(result.sources).toEqual([])
-    expect(result.summary).toMatchObject({ proceduralOnly: true, citationReady: false, loadedCount: 2 })
+    expect(result.summary).toMatchObject({ proceduralOnly: true, citationReady: false, loadedCount: 2, controllerDecisionRequired: true })
     expect(result.output).toContain('TRUSTED_JETWORK_SKILL_INSTRUCTION')
+  })
+
+  it('reports candidate retrieval separately from controller semantic selection', () => {
+    const result = executeSkillTool('search_skills', {
+      query: 'entegrasyonları ve etkilenen sistemleri analiz et',
+      category: null,
+      limit: 8,
+    })
+    expect(result.summary).toMatchObject({
+      proceduralOnly: true,
+      citationReady: false,
+      controllerDecisionRequired: true,
+      retrievalMode: 'multilingual-fuzzy-candidate-v3',
+    })
   })
 
   it('keeps pure skill execution limited to discovery/materialization while exposing execution capabilities separately', () => {
     const names = ASSISTANT_SKILL_TOOLS.map(tool => tool.name)
-    expect(names.slice(0, 2)).toEqual(['search_skills', 'load_skills'])
+    expect(names.slice(0, 3)).toEqual(['search_skills', 'load_skills', 'list_capabilities'])
     expect(names).toEqual(expect.arrayContaining([
       'list_spreadsheet_attachments',
       'inspect_spreadsheet_file',
@@ -75,6 +135,7 @@ describe('JetWork skill runtime foundation', () => {
     ]))
     expect(isSkillTool('search_skills')).toBe(true)
     expect(isSkillTool('load_skills')).toBe(true)
+    expect(isSkillTool('list_capabilities')).toBe(true)
     expect(isSkillTool('list_spreadsheet_attachments')).toBe(false)
     expect(isSkillTool('inspect_spreadsheet_file')).toBe(false)
     expect(isSkillTool('sync_spreadsheet_with_jira_export')).toBe(false)

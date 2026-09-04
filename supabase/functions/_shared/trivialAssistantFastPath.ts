@@ -1,7 +1,9 @@
+import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
+
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v8-noisy-current-turn'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v9-legacy-only'
 export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
 const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
 
@@ -91,6 +93,7 @@ export interface TrivialAssistantFastPathInput {
   message: string
   model: string
   attachmentCount: number
+  agentControllerV2Enabled?: boolean
 }
 
 export interface TrivialAssistantFastPathResult {
@@ -118,6 +121,9 @@ export const deterministicTrivialResponseForMessage = (message: string): string 
 }
 
 export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPathInput): boolean => {
+  const agentControllerV2Enabled = input.agentControllerV2Enabled ?? isAgentControllerV2Enabled()
+  if (agentControllerV2Enabled) return false
+
   const model = cleanString(input.model, 80)
   if (!model) return false
   if (model !== 'auto' && !GEMINI_FAST_PATH_MODELS.has(model) && !OPENAI_FAST_PATH_MODELS.has(model)) return false
@@ -125,15 +131,9 @@ export const shouldUseTrivialAssistantFastPath = (input: TrivialAssistantFastPat
   const normalized = normalizeConversationText(input.message)
   if (!normalized) return false
 
-  // Exact trivial turns and low-risk clarification handshakes are latency-sensitive
-  // and context-free by definition. The clarification lane is intentionally narrow:
-  // it only matches messages that announce a request/question without supplying the
-  // substantive details needed for analysis. Once details exist, semantic/core routing
-  // remains authoritative.
-  // A narrow noisy-extension lane also isolates a casual phrase followed by one opaque
-  // alphabetic token. It intentionally rejects attachments, technical identifiers and
-  // multi-word substantive requests, so enterprise/RAG routing remains authoritative.
-  // Stale attachment state must not force exact context-free turns through orchestration.
+  // Legacy-only latency path. Controller V2 must receive every semantic turn,
+  // including greetings and acknowledgements, so this classifier cannot become
+  // a hidden pre-controller intent router during rollout.
   return TRIVIAL_CONVERSATION_PATTERN.test(normalized)
     || LOW_RISK_CLARIFICATION_HANDSHAKE_PATTERN.test(normalized)
     || isNoisyConversationalExtension(normalized, input.attachmentCount)

@@ -60,14 +60,15 @@ describe('dynamic evidence-gap finalization', () => {
     expect(coverage.unsupportedIdentifiers).toContain('ZCRM2-545')
   })
 
-  it('instructs the primary model to describe evidence gaps dynamically rather than using technical boilerplate', () => {
-    const providerSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
+  it('lets the controller describe and investigate evidence gaps dynamically', () => {
+    const policySource = readFileSync(
+      new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url),
       'utf8',
     )
 
-    expect(providerSource).toContain('cevabı kullanıcının gerçek sorusuna göre dinamik kur')
-    expect(providerSource).toContain('Konu teknik değilse teknik terminoloji kullanma')
-    expect(providerSource).toContain('Hiç güvenilir kayıt bulunmaması ile kayıt bulunup')
+    expect(policySource).toContain('Exact teknik identifier içeren kurumsal iddialarda exact-technical-evidence kuralını koru')
+    expect(policySource).toContain('Bir arama boş döndüğünde bunu otomatik bitiş sinyali sayma')
+    expect(policySource).toContain('Tool sonucu yalnız bir observationdır')
+    expect(policySource).toContain('belirsizlikler ve gerekiyorsa sonraki aksiyonu ver')
   })
 })

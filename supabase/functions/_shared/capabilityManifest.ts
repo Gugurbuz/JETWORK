@@ -67,7 +67,7 @@ export const getCapabilityRuntimeStatus = (key: string): CapabilityRuntimeStatus
     return {
       readiness: 'verified',
       mode: 'knowledge',
-      executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_related_objects'],
+      executorTools: ['search_knowledge_catalog', 'list_knowledge_catalog', 'get_knowledge_object', 'get_knowledge_objects', 'get_related_objects'],
     }
   }
   if (PROVIDER_FAMILIES.has(family)) {
@@ -101,12 +101,12 @@ export const getCapabilityRuntimeStatus = (key: string): CapabilityRuntimeStatus
   if (family === 'document') {
     return EXECUTABLE_DOCUMENT.has(key)
       ? { readiness: 'executable', mode: 'artifact', executorTools: ARTIFACT_TOOLS, note: key === 'document/style-preserve' ? 'Existing OOXML package is preserved for exact text edits; complex layout redesign is not claimed.' : undefined }
-      : { readiness: 'defined', mode: 'artifact', executorTools: [], note: 'Document skill is defined; current DOCX executor does not implement this operation yet.' }
+      : { readiness: 'defined', mode: 'artifact', executorTools: [], note: 'Document skill is defined; current DOCX executor does not implement this mutation yet.' }
   }
   if (family === 'presentation') {
     return EXECUTABLE_PRESENTATION.has(key)
       ? { readiness: 'executable', mode: 'artifact', executorTools: ARTIFACT_TOOLS, note: ['presentation/layout','presentation/theme-preserve'].includes(key) ? 'Generation has deterministic layout; arbitrary existing-deck redesign is intentionally not claimed.' : undefined }
-      : { readiness: 'defined', mode: 'artifact', executorTools: [], note: 'Presentation skill is defined; current PPTX executor does not implement this operation yet.' }
+      : { readiness: 'defined', mode: 'artifact', executorTools: [], note: 'Presentation skill is defined; current PPTX executor does not implement this mutation yet.' }
   }
   if (family === 'image') {
     return EXECUTABLE_IMAGE.has(key)

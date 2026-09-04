@@ -9,6 +9,7 @@ import { compactSemanticContextMessage } from '../_shared/conversationMemory.ts'
 import { normalizeAssistantActiveOperation } from '../_shared/operationState.ts'
 import {
   applyEnerjisaAnalysisDocxProfile,
+  DOCUMENT_FILE_EXECUTOR_TOOL,
   type DocumentArtifactRouteDecision,
 } from '../_shared/documentArtifactRouting.ts'
 
@@ -170,6 +171,11 @@ Deno.serve(async (req: Request) => {
       : [],
   })
 
+  // This endpoint is deterministic only about the explicitly requested artifact:
+  // the final deliverable is an Enerjisa DOCX. Research, skill selection, evidence
+  // gathering, web use, re-planning and self-review remain controller-LLM decisions.
+  // The semantic plan is retained as advisory context instead of being overwritten
+  // with a fixed knowledge-only pipeline.
   const plan = {
     ...semantic.plan,
     intent: 'document' as const,
@@ -179,45 +185,14 @@ Deno.serve(async (req: Request) => {
     creativeMode: false,
     enumerationTarget: undefined,
     goal: semantic.plan.conversationState?.resolvedRequest || message,
-    knowledgeRequired: true,
-    enterpriseGroundingRequired: true,
-    webMode: 'none' as const,
-    verificationRequired: false,
-    evidenceQueries: [
-      clean(`Kurumsal mevcut durum, benzer ürün/süreç, etkilenen sistemler, sistem sahipliği, entegrasyon ve veri kaynakları: ${message}`, 1_800),
-    ],
-    steps: [
-      {
-        id: 'research-enterprise-current-state',
-        label: 'JetWork kurumsal kaynaklarında mevcut süreç, benzer ürünler ve iş kurallarını araştır',
-        toolHint: 'knowledge' as const,
-        successCriteria: 'Kurumsal kaynaklar gerçekten aranır; bulunan kanıtlar ile kullanıcı talebi birbirinden ayrılır.',
-      },
-      {
-        id: 'analyze-system-impact',
-        label: 'Etkilenen sistemler, sistem sahipliği, entegrasyon sınırları ve veri kaynakları için etki analizi yap',
-        toolHint: 'knowledge' as const,
-        successCriteria: 'Etkilenen sistemler ve sistem sahipliği kanıta dayanır; çözülemeyen sistem kararları [AÇIK KONU] olarak bırakılır.',
-      },
-      {
-        id: 'synthesize-enerjisa-analysis',
-        label: 'Talep dokümanı ile doğrulanmış kurumsal kanıtları birleştirerek Enerjisa iş analizini sentezle',
-        toolHint: 'synthesis' as const,
-        successCriteria: 'Bilinmeyen detaylar uydurulmaz; kritik belirsizlikler karar gerektiren soru veya [AÇIK KONU] olarak işaretlenir.',
-      },
-      {
-        id: 'create-docx-artifact',
-        label: 'Enerjisa İş Analizi şablonunu gerçek DOCX artifact olarak üret',
-        toolHint: 'synthesis' as const,
-        successCriteria: 'create_document_file başarılı olur ve tool_output DOCX artifact döner.',
-      },
-    ],
-    orchestratorVersion: 'enerjisa-analysis-docx-postplan-v1',
+    artifactRequired: true,
+    artifactPreferredTool: DOCUMENT_FILE_EXECUTOR_TOOL,
+    orchestratorVersion: 'enerjisa-analysis-docx-controller-v2',
   }
 
   // Critical ordering: semantic intent is resolved from the ORIGINAL user message first.
-  // The long Enerjisa template is appended only after planning, so headings such as
-  // "Fonksiyonel Gereksinimler" can never be mistaken for a function-inventory request.
+  // The canonical Enerjisa contract is appended only after planning, so its headings
+  // cannot be mistaken for a function-inventory request or a semantic routing signal.
   const profiledMessage = applyEnerjisaAnalysisDocxProfile(message, routeDecision)
   const coreMessage = attachSemanticPlan(profiledMessage, plan)
   const corePayload = {
@@ -233,7 +208,7 @@ Deno.serve(async (req: Request) => {
         Authorization: authorization,
         apikey: anonKey,
         'Content-Type': 'application/json',
-        'x-client-info': 'jetwork-enerjisa-analysis-docx-postplan/v1',
+        'x-client-info': 'jetwork-enerjisa-analysis-docx-controller/v2',
       },
       body: JSON.stringify(corePayload),
     })
@@ -245,6 +220,6 @@ Deno.serve(async (req: Request) => {
   const headers = new Headers(upstream.headers)
   headers.set('Access-Control-Allow-Origin', '*')
   headers.set('Access-Control-Expose-Headers', 'x-jetwork-document-profile')
-  headers.set('x-jetwork-document-profile', 'enerjisa-analysis-docx-postplan-v1')
+  headers.set('x-jetwork-document-profile', 'enerjisa-analysis-docx-controller-v2')
   return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers })
 })

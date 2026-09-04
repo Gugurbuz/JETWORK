@@ -29,7 +29,7 @@ export interface GroundingCoverageResult {
   messageTextMismatches: Array<{ identifier: string; claimed: string; expected: string }>
 }
 
-const clean = (value: unknown, max = 20_000) => String(value ?? '').trim().slice(0, max)
+const clean = (value: unknown, max = 64_000) => String(value ?? '').trim().slice(0, max)
 const normalizeText = (value: string) => value
   .toLocaleLowerCase('tr-TR')
   .replace(/ı/g, 'i')
@@ -55,10 +55,32 @@ const canonicalIdentifier = (value: string) => {
     .toLocaleUpperCase('en-US')
 }
 
-// ASCII-looking SAP identifiers can appear inside Turkish words when \b treats
-// letters such as Ö/Ş as non-word characters (for example SÖZLEŞME -> ZLE).
-// Unicode letter/number guards make sure an identifier is a standalone token.
+const verifiedIdentifierAliases = (identifier: string) => {
+  const aliases = new Set([identifier])
+  const messageCode = identifier.match(/^([A-Z][A-Z0-9_]{2,})-\d{2,4}$/)
+  if (messageCode?.[1]) aliases.add(messageCode[1])
+  return aliases
+}
+
+const verifiedAbapMessageIdentifiers = (value: unknown) => {
+  const identifiers = new Set<string>()
+  const text = clean(value)
+  for (const match of text.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+    const messageClass = canonicalIdentifier(match[2] || '')
+    const messageNumber = clean(match[1], 8)
+    if (!messageClass || !messageNumber) continue
+    const code = `${messageClass}-${messageNumber}`
+    for (const alias of verifiedIdentifierAliases(code)) identifiers.add(alias)
+  }
+  return identifiers
+}
+
+// Response text remains deliberately strict: uppercase-looking standalone tokens
+// only. Verified source code is a different trust domain and may legitimately
+// contain lowercase ABAP identifiers, so it gets a narrower case-insensitive
+// extractor that requires an underscore/path or an exact message-code suffix.
 const TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{2,4})?|CHECK_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?(?![\p{L}\p{N}_])/gu
+const VERIFIED_SOURCE_TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:(?:Z[A-Z0-9]*_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?|Z[A-Z0-9_]{2,}-\d{2,4}|CHECK_[A-Z0-9_]+)(?![\p{L}\p{N}_])/giu
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
 const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
@@ -78,6 +100,15 @@ export const extractTechnicalIdentifiers = (text: string): string[] => {
   }
   for (const match of clean(text).matchAll(TECHNICAL_IDENTIFIER_PATTERN)) add(match[0])
   for (const match of clean(text).matchAll(CANONICAL_KEY_PATTERN)) add(match[0])
+  return [...values]
+}
+
+const extractVerifiedSourceTechnicalIdentifiers = (value: unknown): string[] => {
+  const values = new Set<string>()
+  for (const match of clean(value).matchAll(VERIFIED_SOURCE_TECHNICAL_IDENTIFIER_PATTERN)) {
+    const normalized = canonicalIdentifier(match[0])
+    if (normalized) values.add(normalized)
+  }
   return [...values]
 }
 
@@ -142,7 +173,14 @@ const parsedVerifiedRecords = (result: GroundingToolResultLike): Array<Record<st
 const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: GroundingToolResultLike[]) => {
   const supported = new Set<string>()
   const addText = (value: unknown) => {
-    for (const identifier of extractTechnicalIdentifiers(clean(value))) supported.add(identifier)
+    const identifiers = new Set([
+      ...extractTechnicalIdentifiers(clean(value)),
+      ...extractVerifiedSourceTechnicalIdentifiers(value),
+    ])
+    for (const identifier of identifiers) {
+      for (const alias of verifiedIdentifierAliases(identifier)) supported.add(alias)
+    }
+    for (const identifier of verifiedAbapMessageIdentifiers(value)) supported.add(identifier)
   }
   for (const source of sources) {
     if (source.sourceType === 'web') continue
@@ -150,6 +188,11 @@ const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: Grou
   }
   for (const result of toolResults) {
     if (!resultHasVerifiedKnowledgeEvidence(result)) continue
+    // Verified tool envelopes may carry mechanically derived identifier indexes
+    // outside parsed record fields. Extract identifiers from the full verified
+    // envelope as a defensive fallback; unverified search outputs never reach
+    // this branch because resultHasVerifiedKnowledgeEvidence is required above.
+    addText(result.output)
     for (const source of result.sources) {
       if (source.sourceType === 'web') continue
       addText(source.canonicalKey)
@@ -168,6 +211,7 @@ const verifiedIdentifierSet = (sources: GroundingSourceLike[], toolResults: Grou
           if (!relation || typeof relation !== 'object') continue
           addText((relation as Record<string, unknown>).sourceCanonicalKey)
           addText((relation as Record<string, unknown>).targetCanonicalKey)
+          addText((relation as Record<string, unknown>).evidence)
         }
       }
     } catch { /* ignore malformed output */ }
@@ -314,5 +358,5 @@ export const shouldFailClosedGroundedAnswer = (input: {
 }) => Boolean(!input.coverage.ok)
 
 export const groundingFailureText = () => (
-  'Bu yanıtta doğrulanması gereken bir ayrıntı için yeterli güvenilir kanıt bulamadım. Doğrulanamayan kısmı kesin bilgi olarak vermiyorum.'
+  'Bu teknik yanıtı güvenli biçimde tamamlayamadım: doğrulanması gereken ayrıntılar için yeterli güvenilir kanıt bulunamadı. Doğrulanamayan kısmı kesin bilgi olarak vermiyorum.'
 )
