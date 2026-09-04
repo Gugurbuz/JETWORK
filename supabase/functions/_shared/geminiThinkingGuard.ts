@@ -1,5 +1,8 @@
 const GEMINI_HOST = 'generativelanguage.googleapis.com'
-const GEMINI_FLASH_MODEL_PATH = '/models/gemini-3.5-flash:generateContent'
+const GEMINI_FLASH_MODEL_PATHS = [
+  '/models/gemini-3.5-flash:generateContent',
+  '/models/gemini-3.5-flash:streamGenerateContent',
+] as const
 const COST_GUARD_MARKER = '[JETWORK_COST_GUARD]'
 
 const requestUrl = (input: Parameters<typeof fetch>[0]): string => {
@@ -25,7 +28,8 @@ const systemInstructionText = (body: Record<string, unknown>) => {
 const isGeminiFlashGenerateContent = (url: string) => {
   try {
     const parsed = new URL(url)
-    return parsed.hostname === GEMINI_HOST && parsed.pathname.endsWith(GEMINI_FLASH_MODEL_PATH)
+    return parsed.hostname === GEMINI_HOST
+      && GEMINI_FLASH_MODEL_PATHS.some(path => parsed.pathname.endsWith(path))
   } catch {
     return false
   }
