@@ -16,9 +16,9 @@ export interface ResolvedConversationContextOptions {
   relevantOlderUserItems?: number
 }
 
-const DEFAULT_HISTORY_CHARACTERS = 16_000
-const DEFAULT_RECENT_ITEMS = 8
-const DEFAULT_RELEVANT_OLDER_USER_ITEMS = 5
+const DEFAULT_HISTORY_CHARACTERS = 12_000
+const DEFAULT_RECENT_ITEMS = 6
+const DEFAULT_RELEVANT_OLDER_USER_ITEMS = 3
 
 const cleanText = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
 
@@ -123,15 +123,15 @@ export const buildResolvedConversationInstruction = (seed: ResolvedConversationC
   const lines = [
     '[JETWORK RESOLVED CONVERSATION STATE - NOT EVIDENCE]',
     'Bu blok yalnız konuşma/görev sürekliliği içindir; kurumsal gerçek veya citation değildir.',
-    seed.resolvedRequest ? `Aktif çözülmüş talep: ${cleanText(seed.resolvedRequest, 1_500)}` : '',
-    seed.topic ? `Aktif konu: ${cleanText(seed.topic, 400)}` : '',
-    seed.activeEntities?.length ? `Aktif varlıklar: ${seed.activeEntities.map(value => cleanText(value, 180)).filter(Boolean).slice(0, 12).join(', ')}` : '',
-    seed.userDecisions?.length ? `Kullanıcı kararları/kısıtları: ${seed.userDecisions.map(value => cleanText(value, 320)).filter(Boolean).slice(0, 8).join(' | ')}` : '',
-    seed.rejectedScopes?.length ? `Artık kapsam dışı/reddedilmiş kapsamlar: ${seed.rejectedScopes.map(value => cleanText(value, 260)).filter(Boolean).slice(0, 8).join(' | ')}` : '',
-    seed.rejectedHypotheses?.length ? `Reddedilmiş önceki hipotezler: ${seed.rejectedHypotheses.map(value => cleanText(value, 260)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
-    seed.openQuestions?.length ? `Açık konular: ${seed.openQuestions.map(value => cleanText(value, 260)).filter(Boolean).slice(0, 8).join(' | ')}` : '',
-    seed.retainedContext?.length ? `Korunan yakın bağlam: ${seed.retainedContext.map(value => cleanText(value, 320)).filter(Boolean).slice(-6).join(' | ')}` : '',
-    seed.verifiedFactRefs?.length ? `Önceki doğrulanmış kanıt referansları (iddia değil): ${seed.verifiedFactRefs.map(value => cleanText(value, 220)).filter(Boolean).slice(0, 12).join(', ')}` : '',
+    seed.resolvedRequest ? `Aktif çözülmüş talep: ${cleanText(seed.resolvedRequest, 1_200)}` : '',
+    seed.topic ? `Aktif konu: ${cleanText(seed.topic, 320)}` : '',
+    seed.activeEntities?.length ? `Aktif varlıklar: ${seed.activeEntities.map(value => cleanText(value, 160)).filter(Boolean).slice(0, 10).join(', ')}` : '',
+    seed.userDecisions?.length ? `Kullanıcı kararları/kısıtları: ${seed.userDecisions.map(value => cleanText(value, 280)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
+    seed.rejectedScopes?.length ? `Artık kapsam dışı/reddedilmiş kapsamlar: ${seed.rejectedScopes.map(value => cleanText(value, 240)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
+    seed.rejectedHypotheses?.length ? `Reddedilmiş önceki hipotezler: ${seed.rejectedHypotheses.map(value => cleanText(value, 240)).filter(Boolean).slice(0, 5).join(' | ')}` : '',
+    seed.openQuestions?.length ? `Açık konular: ${seed.openQuestions.map(value => cleanText(value, 240)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
+    seed.retainedContext?.length ? `Korunan yakın bağlam: ${seed.retainedContext.map(value => cleanText(value, 280)).filter(Boolean).slice(-4).join(' | ')}` : '',
+    seed.verifiedFactRefs?.length ? `Önceki doğrulanmış kanıt referansları (iddia değil): ${seed.verifiedFactRefs.map(value => cleanText(value, 200)).filter(Boolean).slice(0, 10).join(', ')}` : '',
     'Yeni kullanıcı mesajı ve kullanıcı düzeltmeleri eski sohbetten üstündür. Reddedilmiş kapsam/hipotezleri kullanıcı yeniden istemedikçe geri getirme. Teknik/kurumsal iddialar için bu blok yerine gerçek knowledge/web kanıtı kullan.',
     '[END JETWORK RESOLVED CONVERSATION STATE]',
   ].filter(Boolean)
@@ -167,7 +167,7 @@ export const compactResolvedConversationItems = (
     .filter(index => index >= 0)
   const recentIndices = new Set(conversationalIndices.slice(-recentConversationItems))
   const terms = seedTerms(seed)
-  const entities = (seed.activeEntities || []).map(value => cleanText(value, 180)).filter(Boolean)
+  const entities = (seed.activeEntities || []).map(value => cleanText(value, 160)).filter(Boolean)
 
   const rankedOlderUsers = history
     .map((item, index) => ({ item, index, score: relevanceScore(item, terms, entities) }))
@@ -186,11 +186,11 @@ export const compactResolvedConversationItems = (
       : 0
     const role = itemRole(item)
     const compacted = role === 'assistant'
-      ? withCompactedContent(item, 900)
+      ? withCompactedContent(item, 700)
       : role === 'user'
-        ? withCompactedContent(item, 2_400)
+        ? withCompactedContent(item, 1_800)
         : control
-          ? withCompactedContent(item, 4_000)
+          ? withCompactedContent(item, 3_000)
           : item
     return { index, selected, score, compacted, cost: itemCharacterCost(compacted), protected: control || recent }
   }).filter(candidate => candidate.selected)
