@@ -12,6 +12,7 @@ import './ai-native.css';
 import './mobile-workspace-nav.css';
 import './assistant-runtime-ui.css';
 import './assistant-work-indicator.css';
+import './assistant-mobile-clean.css';
 
 installAssistantTransportRecovery();
 installAssistantTtftBrowserTelemetry();
