@@ -9,31 +9,53 @@ export interface IndexedCapabilityDiscoveryResult {
   fallbackReason?: string
 }
 
+const DISCOVERY_CACHE_TTL_MS = 120_000
+const DISCOVERY_FALLBACK_CACHE_TTL_MS = 10_000
+const DISCOVERY_CACHE_MAX = 64
+
+interface DiscoveryCacheEntry {
+  expiresAt: number
+  promise: Promise<IndexedCapabilityDiscoveryResult>
+}
+
+const discoveryCache = new Map<string, DiscoveryCacheEntry>()
+
 const clean = (value: unknown, max = 1_000) => String(value ?? '').trim().slice(0, max)
 const metadataStrings = (value: unknown) => Array.isArray(value)
   ? [...new Set(value.map(item => clean(item, 300)).filter(Boolean))]
   : undefined
 
-export async function discoverIndexedCapabilities(input: {
-  client: any
-  geminiApiKey?: string
+const discoveryCacheKey = (input: {
   query: string
   topK?: number
   excludeIds?: readonly string[]
-}): Promise<IndexedCapabilityDiscoveryResult> {
-  const query = clean(input.query, 2_000)
-  if (!query) return { candidates: [], mode: 'lexical_fallback', fallbackReason: 'empty_query' }
+}) => JSON.stringify([
+  input.query,
+  Math.max(1, Math.trunc(Number(input.topK) || 10)),
+  [...new Set(input.excludeIds || [])].map(value => clean(value, 300)).filter(Boolean).sort(),
+  CAPABILITY_REGISTRY_VERSION,
+])
 
-  if (!input.geminiApiKey) {
-    return {
-      candidates: discoverCapabilityCandidates({ query, topK: input.topK, excludeIds: input.excludeIds }),
-      mode: 'lexical_fallback',
-      fallbackReason: 'embedding_provider_unavailable',
-    }
+const pruneDiscoveryCache = (now: number) => {
+  for (const [key, entry] of discoveryCache) {
+    if (entry.expiresAt <= now) discoveryCache.delete(key)
   }
+  while (discoveryCache.size >= DISCOVERY_CACHE_MAX) {
+    const oldestKey = discoveryCache.keys().next().value as string | undefined
+    if (!oldestKey) break
+    discoveryCache.delete(oldestKey)
+  }
+}
 
+const runIndexedDiscovery = async (input: {
+  client: any
+  geminiApiKey: string
+  query: string
+  topK?: number
+  excludeIds?: readonly string[]
+}): Promise<IndexedCapabilityDiscoveryResult> => {
   try {
-    const queryEmbedding = await embedCapabilityQuery(input.geminiApiKey, query)
+    const queryEmbedding = await embedCapabilityQuery(input.geminiApiKey, input.query)
     const rows = await matchIndexedCapabilities({
       client: input.client,
       queryEmbedding,
@@ -65,15 +87,63 @@ export async function discoverIndexedCapabilities(input: {
     })
     if (candidates.length) return { candidates, mode: 'embedding_index' }
     return {
-      candidates: discoverCapabilityCandidates({ query, topK: input.topK, excludeIds: input.excludeIds }),
+      candidates: discoverCapabilityCandidates({ query: input.query, topK: input.topK, excludeIds: input.excludeIds }),
       mode: 'lexical_fallback',
       fallbackReason: 'embedding_index_empty',
     }
   } catch (error) {
     return {
-      candidates: discoverCapabilityCandidates({ query, topK: input.topK, excludeIds: input.excludeIds }),
+      candidates: discoverCapabilityCandidates({ query: input.query, topK: input.topK, excludeIds: input.excludeIds }),
       mode: 'lexical_fallback',
       fallbackReason: error instanceof Error ? clean(error.message, 500) : 'embedding_index_failed',
     }
   }
+}
+
+export async function discoverIndexedCapabilities(input: {
+  client: any
+  geminiApiKey?: string
+  query: string
+  topK?: number
+  excludeIds?: readonly string[]
+}): Promise<IndexedCapabilityDiscoveryResult> {
+  const query = clean(input.query, 2_000)
+  if (!query) return { candidates: [], mode: 'lexical_fallback', fallbackReason: 'empty_query' }
+
+  if (!input.geminiApiKey) {
+    return {
+      candidates: discoverCapabilityCandidates({ query, topK: input.topK, excludeIds: input.excludeIds }),
+      mode: 'lexical_fallback',
+      fallbackReason: 'embedding_provider_unavailable',
+    }
+  }
+
+  const now = Date.now()
+  const key = discoveryCacheKey({ query, topK: input.topK, excludeIds: input.excludeIds })
+  const cached = discoveryCache.get(key)
+  if (cached && cached.expiresAt > now) return cached.promise
+  if (cached) discoveryCache.delete(key)
+
+  pruneDiscoveryCache(now)
+  const entry: DiscoveryCacheEntry = {
+    expiresAt: now + DISCOVERY_CACHE_TTL_MS,
+    promise: Promise.resolve({ candidates: [], mode: 'lexical_fallback' }),
+  }
+  entry.promise = runIndexedDiscovery({
+    client: input.client,
+    geminiApiKey: input.geminiApiKey,
+    query,
+    topK: input.topK,
+    excludeIds: input.excludeIds,
+  }).then(result => {
+    entry.expiresAt = Date.now() + (result.mode === 'embedding_index'
+      ? DISCOVERY_CACHE_TTL_MS
+      : DISCOVERY_FALLBACK_CACHE_TTL_MS)
+    return result
+  }).catch(error => {
+    discoveryCache.delete(key)
+    throw error
+  })
+  discoveryCache.set(key, entry)
+  return entry.promise
 }
