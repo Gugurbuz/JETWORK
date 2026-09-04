@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyGeminiThinkingGuardBody } from '../../../supabase/functions/_shared/geminiThinkingGuard';
 
 const flashUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent';
+const flashStreamUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse';
 
 describe('Gemini bounded final synthesis thinking guard', () => {
   it('adds minimal thinking only to cost-guard no-tool final synthesis', () => {
@@ -17,6 +18,19 @@ describe('Gemini bounded final synthesis thinking guard', () => {
     expect((result.generationConfig as any).thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
   });
 
+  it('also applies minimal thinking to the streaming Gemini endpoint', () => {
+    const body = {
+      systemInstruction: { parts: [{ text: '[JETWORK_COST_GUARD] Araştırma tamamlandı.' }] },
+      contents: [{ role: 'user', parts: [{ text: 'kanıt' }] }],
+      generationConfig: { maxOutputTokens: 1200 },
+    };
+
+    const result = applyGeminiThinkingGuardBody(flashStreamUrl, body);
+
+    expect(result).not.toBe(body);
+    expect((result.generationConfig as any).thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+  });
+
   it('does not change tool-enabled agent calls', () => {
     const body = {
       systemInstruction: { parts: [{ text: '[JETWORK_COST_GUARD] Araştırma tamamlandı.' }] },
@@ -24,7 +38,7 @@ describe('Gemini bounded final synthesis thinking guard', () => {
       generationConfig: {},
     };
 
-    expect(applyGeminiThinkingGuardBody(flashUrl, body)).toBe(body);
+    expect(applyGeminiThinkingGuardBody(flashStreamUrl, body)).toBe(body);
   });
 
   it('preserves an explicit thinking policy', () => {
@@ -33,7 +47,7 @@ describe('Gemini bounded final synthesis thinking guard', () => {
       generationConfig: { thinkingConfig: { thinkingLevel: 'low' } },
     };
 
-    expect(applyGeminiThinkingGuardBody(flashUrl, body)).toBe(body);
+    expect(applyGeminiThinkingGuardBody(flashStreamUrl, body)).toBe(body);
   });
 
   it('does not change unrelated Gemini calls', () => {
@@ -42,6 +56,6 @@ describe('Gemini bounded final synthesis thinking guard', () => {
       generationConfig: {},
     };
 
-    expect(applyGeminiThinkingGuardBody(flashUrl, body)).toBe(body);
+    expect(applyGeminiThinkingGuardBody(flashStreamUrl, body)).toBe(body);
   });
 });
