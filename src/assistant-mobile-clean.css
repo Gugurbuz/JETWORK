@@ -1,0 +1,86 @@
+/* Mobile conversation cleanup.
+ * Keep runtime telemetry available to the app, but do not surface internal
+ * controller/tool vocabulary in the primary user flow.
+ */
+@media (max-width: 767px) {
+  /* Give the fixed composer enough real scroll clearance, including iOS safe area. */
+  .chat-scroll-container {
+    padding-bottom: calc(12.5rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Active work state: one branded topline + one calm user-facing status. */
+  .assistant-work__details--live {
+    width: auto !important;
+    max-width: calc(100vw - 4.5rem) !important;
+    margin: 0.05rem 0 0 2rem !important;
+    border-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  .assistant-work__details--live .assistant-work__activity-list {
+    display: none !important;
+  }
+
+  .assistant-work__details--live::after {
+    content: 'Bilgi ve kaynaklar inceleniyor…';
+    display: block;
+    color: var(--theme-text-muted);
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+
+  /* Completed work should settle into a quiet single-line receipt. The answer
+     itself is the primary content; detailed runtime chronology belongs to
+     diagnostics, not the mobile conversation. */
+  .assistant-work--completed .assistant-work__summary {
+    min-height: 1.8rem !important;
+    gap: 0.4rem !important;
+    pointer-events: none;
+    font-size: 0.72rem !important;
+    opacity: 0.82;
+  }
+
+  .assistant-work--completed .assistant-work__chevron,
+  .assistant-work--completed .assistant-work__details,
+  .assistant-work__source-facts,
+  .assistant-work__follow-ups {
+    display: none !important;
+  }
+
+  /* The answer has its own compact source disclosure below the prose, so avoid
+     a second source counter before the answer. */
+  .assistant-work--completed {
+    margin-bottom: 0.2rem;
+  }
+
+  /* Long SAP/ABAP identifiers must wrap instead of becoming a full-width grey
+     slab or forcing horizontal scrolling. */
+  [data-testid="chat-message"][data-message-role="model"] .prose :not(pre) > code {
+    display: inline;
+    max-width: 100%;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  [data-testid="chat-message"][data-message-role="model"] .prose pre {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Reduce the gap between work receipt and the actual answer. */
+  [data-message-role="model"] > .flex.flex-col.gap-3.mt-1 {
+    gap: 0.55rem !important;
+  }
+
+  /* Keep model prose comfortably inside the viewport. */
+  [data-testid="chat-message"][data-message-role="model"],
+  [data-testid="chat-message"][data-message-role="model"] .prose {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
