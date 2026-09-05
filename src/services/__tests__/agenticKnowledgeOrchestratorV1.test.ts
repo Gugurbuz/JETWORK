@@ -9,12 +9,20 @@ const assistantRuntimeV5 = readFileSync(
   new URL('../../../supabase/functions/_shared/assistantToolsAgenticRuntimeV5.ts', import.meta.url),
   'utf8',
 )
+const modelProviderV5 = readFileSync(
+  new URL('../../../supabase/functions/_shared/modelProvidersAgenticRuntimeV5.ts', import.meta.url),
+  'utf8',
+)
 const xlsxCreateRuntime = readFileSync(
   new URL('../../../supabase/functions/agentic-spreadsheet-create/index.ts', import.meta.url),
   'utf8',
 )
 const controllerSurface = readFileSync(
   new URL('../../../supabase/functions/_shared/capabilities/controllerSurfaceAgenticRuntime.ts', import.meta.url),
+  'utf8',
+)
+const controllerSurfaceV3 = readFileSync(
+  new URL('../../../supabase/functions/_shared/capabilities/controllerSurfaceAgenticRuntimeV3.ts', import.meta.url),
   'utf8',
 )
 const controllerPolicy = readFileSync(
@@ -39,6 +47,12 @@ describe('Agentic Knowledge Orchestrator v1', () => {
     expect(controllerSurface).toContain('Do not manage search/list/get/relation micro-protocols yourself')
   })
 
+  it('keeps explicit comparison identifiers in one shared research call', () => {
+    expect(controllerSurfaceV3).toContain('Preserve every explicit technical identifier')
+    expect(controllerSurfaceV3).toContain('ONE research_knowledge call')
+    expect(controllerSurfaceV3).toContain('do not replace them with a generic discovery request first')
+  })
+
   it('supports one execution for DOCX and XLSX generated from the same analysis state', () => {
     expect(assistantRuntime).toContain("ARTIFACT_BUNDLE_TOOL_NAME = 'create_artifact_bundle'")
     expect(assistantRuntime).toContain("baseExecuteAssistantTool(client, workspaceId, 'create_document_file'")
@@ -54,6 +68,14 @@ describe('Agentic Knowledge Orchestrator v1', () => {
     expect(assistantRuntimeV5).toContain('Unsupported enterprise identifiers')
     expect(assistantRuntimeV5).toContain('evidenceByWorkspace.set')
     expect(assistantRuntimeV5).toContain('mechanicalCoverageComplete === true')
+  })
+
+  it('recovers blank post-knowledge controller rounds without reopening completed research', () => {
+    expect(modelProviderV5).toContain("KNOWLEDGE_TOOL_NAME = 'research_knowledge'")
+    expect(modelProviderV5).toContain('MAX_BLANK_CONTINUATION_RECOVERY_ATTEMPTS = 2')
+    expect(modelProviderV5).toContain('withoutCompletedKnowledgeTool')
+    expect(modelProviderV5).toContain('research_knowledge is intentionally unavailable in this recovery round')
+    expect(modelProviderV5).toContain('controller_completed_knowledge_tool_hidden')
   })
 
   it('uses the dedicated XLSX creator and requires verified outputs before artifact completion', () => {
