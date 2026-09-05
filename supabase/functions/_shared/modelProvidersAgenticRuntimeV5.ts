@@ -3,8 +3,10 @@ import { requestGeminiResponse as requestGeminiResponseV4 } from 'https://cdn.js
 
 const KNOWLEDGE_COMPLETION_MARKER = 'JETWORK_KNOWLEDGE_DEPENDENCY_COMPLETE'
 const KNOWLEDGE_TOOL_NAME = 'research_knowledge'
+const ARTIFACT_BUNDLE_TOOL_NAME = 'create_artifact_bundle'
 const CONTINUATION_MODEL = 'gemini-3.1-pro-preview'
 const MAX_BLANK_CONTINUATION_RECOVERY_ATTEMPTS = 2
+const MAX_ARTIFACT_PREFLIGHT_REPAIRS = 3
 
 const outputText = (item: Record<string, unknown>) => (
   String(item.type || '') === 'function_call_output'
@@ -49,19 +51,58 @@ const recentExecutionFailure = (items: Array<Record<string, unknown>>) => (
   [...items].reverse().map(outputText).find(text => /(?:VALIDATION_FAILED|_FAILED|error)/i.test(text)) || ''
 )
 
+const enterpriseIdentifiers = (value: string) => {
+  const found = new Set<string>()
+  const upper = value.toLocaleUpperCase('en-US')
+  for (const match of upper.matchAll(/\bZ(?=[A-Z0-9_]*[_0-9])[A-Z0-9_]{2,}(?:-\d{2,6})?\b/g)) found.add(match[0])
+  for (const match of upper.matchAll(/\b[A-Z][A-Z0-9_]{2,}-\d{2,6}\b/g)) found.add(match[0])
+  return [...found]
+}
+
+const verifiedEvidenceIdentifiers = (items: Array<Record<string, unknown>>) => {
+  const found = new Set<string>()
+  for (const item of items) {
+    const text = outputText(item)
+    if (!text.includes(KNOWLEDGE_COMPLETION_MARKER)) continue
+    for (const identifier of enterpriseIdentifiers(text)) found.add(identifier)
+  }
+  return [...found].sort()
+}
+
+const artifactCallArgumentsText = (call: Record<string, unknown>) => (
+  typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments ?? '')
+)
+
+const unsupportedArtifactIdentifiers = (response: any, allowed: Set<string>) => {
+  const unsupported = new Set<string>()
+  for (const call of functionCalls(response) as Array<Record<string, unknown>>) {
+    if (String(call.name || '') !== ARTIFACT_BUNDLE_TOOL_NAME) continue
+    for (const identifier of enterpriseIdentifiers(artifactCallArgumentsText(call))) {
+      if (!allowed.has(identifier)) unsupported.add(identifier)
+    }
+  }
+  return [...unsupported].sort()
+}
+
 const continuationInstructions = (
   input: any,
   remainingNames: string[],
   latestFailure: string,
+  allowedIdentifiers: string[],
   attempt = 0,
+  rejectedIdentifiers: string[] = [],
 ) => [
   String(input.instructions || ''),
   '[JETWORK VERIFIED-KNOWLEDGE CONTINUATION]',
   'Verified enterprise knowledge is already complete for the current task. research_knowledge is intentionally unavailable because that dependency is complete.',
   `Continue from the SAME task/evidence state using only the remaining declared capabilities: ${remainingNames.join(', ') || 'none'}. Do not restart research.`,
   'For enterprise technical content, treat the verified function_call_output evidence as the closed factual vocabulary for this continuation. Copy identifiers exactly from that evidence. Do not introduce a plausible-looking message code, function, table, ticket, class, method or other enterprise identifier unless it appears verbatim in the verified evidence. If a detail is not evidenced, omit it or state that it was not verified.',
+  `Verified enterprise identifier closed set for this turn: ${allowedIdentifiers.slice(0, 160).join(', ') || '(none)'}.`,
+  rejectedIdentifiers.length
+    ? `[JETWORK PRE-EXECUTION EVIDENCE GUARD] Your previous create_artifact_bundle candidate was rejected BEFORE execution because these identifiers were not in verified evidence: ${rejectedIdentifiers.join(', ')}. Regenerate the artifact arguments now. Use only identifiers from the verified closed set above; do not substitute other plausible identifiers.`
+    : '',
   latestFailure
-    ? 'A previous execution capability returned a validation/execution error. Read that function_call_output, correct only the invalid arguments using the already verified evidence, and retry the required execution capability. Never invent replacement enterprise identifiers.'
+    ? 'A previous executed capability returned a validation/execution error. Read that function_call_output, correct only the invalid arguments using the already verified evidence, and retry the required execution capability. Never invent replacement enterprise identifiers.'
     : '',
   'Re-evaluate the remaining user goal yourself. If a declared execution capability is still required, call it with complete arguments. If no execution remains, produce the final user-visible answer. Do not describe internal recovery.',
   attempt > 1
@@ -69,36 +110,61 @@ const continuationInstructions = (
     : '',
 ].filter(Boolean).join('\n\n')
 
+async function requestVerifiedContinuation(input: any, items: Array<Record<string, unknown>>) {
+  const declaredTools = Array.isArray(input.tools) ? input.tools as Array<Record<string, unknown>> : []
+  const remainingTools = withoutCompletedKnowledgeTool(declaredTools)
+  const remainingNames = remainingTools.map(schemaName).filter(Boolean)
+  const latestFailure = recentExecutionFailure(items)
+  const allowedIdentifiers = verifiedEvidenceIdentifiers(items)
+  const allowedSet = new Set(allowedIdentifiers)
+  let rejectedIdentifiers: string[] = []
+  let response: any = null
+
+  for (let repair = 0; repair <= MAX_ARTIFACT_PREFLIGHT_REPAIRS; repair += 1) {
+    response = await requestGeminiResponseV4({
+      ...input,
+      model: CONTINUATION_MODEL,
+      tools: remainingTools,
+      allowTools: remainingTools.length > 0 && input.allowTools !== false,
+      instructions: continuationInstructions(input, remainingNames, latestFailure, allowedIdentifiers, 0, rejectedIdentifiers),
+    })
+    const unsupported = unsupportedArtifactIdentifiers(response, allowedSet)
+    if (!unsupported.length) {
+      return {
+        ...response,
+        usage: mergeUsage(response?.usage, {
+          controller_verified_knowledge_continuation_to_pro: 1,
+          controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
+          controller_artifact_preflight_repairs: repair,
+        }),
+      }
+    }
+    rejectedIdentifiers = unsupported
+  }
+
+  return {
+    ...response,
+    usage: mergeUsage(response?.usage, {
+      controller_verified_knowledge_continuation_to_pro: 1,
+      controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
+      controller_artifact_preflight_repairs: MAX_ARTIFACT_PREFLIGHT_REPAIRS,
+      controller_artifact_preflight_exhausted: 1,
+    }),
+  }
+}
+
 export async function requestGeminiResponse(input: any): Promise<any> {
   const items = Array.isArray(input.items) ? input.items as Array<Record<string, unknown>> : []
-  const completedKnowledge = knowledgeComplete(items)
+  if (!knowledgeComplete(items)) return requestGeminiResponseV4(input)
 
-  if (!completedKnowledge) return requestGeminiResponseV4(input)
+  let response = await requestVerifiedContinuation(input, items)
+  if (visibleText(response) || functionCalls(response).length) return response
 
   const declaredTools = Array.isArray(input.tools) ? input.tools as Array<Record<string, unknown>> : []
   const remainingTools = withoutCompletedKnowledgeTool(declaredTools)
   const remainingNames = remainingTools.map(schemaName).filter(Boolean)
   const latestFailure = recentExecutionFailure(items)
-
-  // Quality-first controller boundary: once verified knowledge is complete, use the
-  // stronger controller for synthesis/execution selection. This does not choose a
-  // capability; it only upgrades the LLM making the semantic decision while the
-  // completed research dependency is mechanically unavailable.
-  let response = await requestGeminiResponseV4({
-    ...input,
-    model: CONTINUATION_MODEL,
-    tools: remainingTools,
-    allowTools: remainingTools.length > 0 && input.allowTools !== false,
-    instructions: continuationInstructions(input, remainingNames, latestFailure),
-  })
-  response = {
-    ...response,
-    usage: mergeUsage(response?.usage, {
-      controller_verified_knowledge_continuation_to_pro: 1,
-      controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
-    }),
-  }
-  if (visibleText(response) || functionCalls(response).length) return response
+  const allowedIdentifiers = verifiedEvidenceIdentifiers(items)
 
   for (let attempt = 1; attempt <= MAX_BLANK_CONTINUATION_RECOVERY_ATTEMPTS; attempt += 1) {
     const recovered = await requestGeminiResponseV4({
@@ -106,7 +172,7 @@ export async function requestGeminiResponse(input: any): Promise<any> {
       model: CONTINUATION_MODEL,
       tools: remainingTools,
       allowTools: remainingTools.length > 0 && input.allowTools !== false,
-      instructions: continuationInstructions(input, remainingNames, latestFailure, attempt + 1),
+      instructions: continuationInstructions(input, remainingNames, latestFailure, allowedIdentifiers, attempt + 1),
     })
     response = {
       ...recovered,
