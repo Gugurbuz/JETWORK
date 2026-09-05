@@ -1,4 +1,4 @@
-import { GoogleGenAI } from 'npm:@google/genai@1.52.0'
+import { GoogleGenAI } from 'npm:@google/genai@2.21.0'
 
 export const OPENAI_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
 export const GEMINI_MODELS = new Set([
@@ -6,9 +6,10 @@ export const GEMINI_MODELS = new Set([
   'gemini-3.1-pro-preview',
   'gemini-3.1-flash-lite-preview',
   'gemini-3.5-flash',
+  'gemini-3.8-flash',
 ])
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash'
 export const GEMINI_SUBSTANTIVE_MODEL = 'gemini-3.1-pro-preview'
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const GEMINI_RETRY_DELAYS_MS = [350] as const
@@ -455,7 +456,7 @@ export async function requestGeminiResponse(input: {
   if (artifactSynthesis) {
     config.thinkingConfig = { thinkingLevel: 'low' }
   } else if (finalSynthesis && executionModel === DEFAULT_GEMINI_MODEL) {
-    config.thinkingConfig = { thinkingLevel: 'minimal' }
+    config.thinkingConfig = { thinkingLevel: 'medium' }
   }
   if (input.allowTools) {
     const declarations = input.tools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters }))
@@ -496,6 +497,7 @@ export async function requestGeminiResponse(input: {
     }
     delete recoveryConfig.tools
     delete recoveryConfig.toolConfig
+    recoveryConfig.thinkingConfig = { thinkingLevel: 'medium' }
     const recoveryResponse = await generateGeminiAttempt({
       ai,
       model: DEFAULT_GEMINI_MODEL,
