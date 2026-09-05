@@ -236,15 +236,13 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                             onChange={(event) => setModel(event.target.value)}
                             className="w-full rounded-md border border-theme-border bg-theme-surface px-3 py-2 text-sm text-theme-text outline-none transition-colors focus:border-theme-primary"
                           >
-                            <option value="auto">Otomatik — OpenAI, gerekirse Gemini (Önerilen)</option>
+                            <option value="auto">Otomatik — OpenAI veya Gemini 3.8 Flash (Önerilen)</option>
                             <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>
                             <option value="gpt-5.6">OpenAI GPT-5.6</option>
-                            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite — Ekonomik</option>
-                            <option value="gemini-3.5-flash">Gemini 3.5 Flash — Dengeli</option>
-                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview — Karmaşık / yüksek maliyet</option>
+                            <option value="gemini-3.8-flash">Gemini 3.8 Flash — Google</option>
                           </select>
                           <p className="mt-2 text-xs text-theme-text-muted">
-                            Cost Guard araştırma ve tool kararlarını otomatik olarak düşük maliyetli Flash-Lite modeliyle yürütür; seçtiğiniz güçlü model yalnız gerektiğinde nihai sentez için kullanılır.
+                            Son kullanıcıya açık tek Gemini modeli 3.8 Flash'tır. Eski Gemini seçimleri otomatik olarak 3.8 Flash'a taşınır.
                           </p>
                         </div>
                       ) : (
@@ -255,12 +253,10 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                             onChange={(e) => setModel(e.target.value)}
                             className="w-full bg-theme-surface border border-theme-border focus:border-theme-primary rounded-md px-3 py-2 text-sm text-theme-text outline-none transition-colors"
                           >
-                            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite (Ekonomik)</option>
-                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Dengeli)</option>
-                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview (Karmaşık Görevler)</option>
+                            <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
                           </select>
                           <p className="text-xs text-theme-text-muted mt-2">
-                            Flash-Lite yüksek hacimli günlük kullanım için en düşük maliyetli seçenektir; Pro yalnız gerçekten karmaşık sentezlerde tercih edilmelidir.
+                            Legacy çalışma yolunda da tek kullanılabilir Gemini modeli 3.8 Flash'tır.
                           </p>
                         </div>
                       )}
