@@ -1,15 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Cpu } from 'lucide-react';
-import { useSettingsStore } from '../store/useSettingsStore';
+import { PUBLIC_GEMINI_MODEL, useSettingsStore } from '../store/useSettingsStore';
 import { cn } from '../lib/utils';
 
 const OPTIONS = [
   { value: 'auto', label: 'Otomatik', detail: 'JetWork en uygun modeli seçer' },
   { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', detail: 'OpenAI' },
   { value: 'gpt-5.6', label: 'GPT-5.6', detail: 'OpenAI' },
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', detail: 'Google' },
-  { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', detail: 'Google' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', detail: 'Google' },
+  { value: PUBLIC_GEMINI_MODEL, label: 'Gemini 3.8 Flash', detail: 'Google' },
   { value: 'ollama:qwen3:4b-instruct', label: 'Qwen3 4B (Local)', detail: 'Ollama • self-hosted' },
 ];
 
