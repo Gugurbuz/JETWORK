@@ -68,14 +68,17 @@ describe('Agentic Knowledge Orchestrator v1', () => {
     expect(assistantRuntimeV5).toContain('Unsupported enterprise identifiers')
     expect(assistantRuntimeV5).toContain('evidenceByWorkspace.set')
     expect(assistantRuntimeV5).toContain('mechanicalCoverageComplete === true')
+    expect(assistantRuntimeV5).toContain("ASCII tail of Turkish words")
   })
 
-  it('recovers blank post-knowledge controller rounds without reopening completed research', () => {
+  it('uses a stronger controller after verified knowledge without reopening completed research', () => {
     expect(modelProviderV5).toContain("KNOWLEDGE_TOOL_NAME = 'research_knowledge'")
     expect(modelProviderV5).toContain('MAX_BLANK_CONTINUATION_RECOVERY_ATTEMPTS = 2')
     expect(modelProviderV5).toContain('withoutCompletedKnowledgeTool')
-    expect(modelProviderV5).toContain('research_knowledge is intentionally unavailable in this recovery round')
+    expect(modelProviderV5).toContain('research_knowledge is intentionally unavailable because that dependency is complete')
+    expect(modelProviderV5).toContain('controller_verified_knowledge_continuation_to_pro')
     expect(modelProviderV5).toContain('controller_completed_knowledge_tool_hidden')
+    expect(modelProviderV5).toContain('closed factual vocabulary')
   })
 
   it('uses the dedicated XLSX creator and requires verified outputs before artifact completion', () => {
