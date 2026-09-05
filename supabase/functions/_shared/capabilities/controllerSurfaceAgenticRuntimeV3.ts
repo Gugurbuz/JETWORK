@@ -31,6 +31,11 @@ const HIDDEN_NEW_FILE_MICRO_TOOLS = new Set([
   'load_document_contract',
 ])
 
+const knowledgeToolSchema = {
+  ...HIGH_LEVEL_KNOWLEDGE_TOOL,
+  description: 'High-level JetWork enterprise knowledge capability. Preserve every explicit technical identifier from the user current request verbatim in request and/or entities, and submit all explicitly requested comparison targets together in ONE research_knowledge call. Do not begin an exact-identifier comparison with a generic discovery query that drops those identifiers. The runtime handles canonical resolution, semantic candidate retrieval, exact verification, provenance reconciliation and bounded relation expansion internally. Use the returned verified evidence bundle for reasoning; do not decompose normal knowledge work into search/list/get micro-tools.',
+}
+
 const artifactBundleSchema = {
   ...ARTIFACT_BUNDLE_TOOL,
   description: 'High-level final artifact engine for NEW DOCX and/or XLSX deliverables. If the user requests Word, Excel, or both from an analysis, use this capability directly after evidence/reasoning is ready. Populate document and spreadsheet together when both were requested. Do not discover document contracts or call low-level create_document_file/create_spreadsheet_file first; this runtime handles those execution details and verification internally.',
@@ -38,14 +43,10 @@ const artifactBundleSchema = {
 
 const sanitizeTools = (tools: any[]) => tools.filter(tool => !HIDDEN_NEW_FILE_MICRO_TOOLS.has(String(tool?.name || '')))
 
-const ensureTool = (tools: any[], schema: any) => (
-  tools.some(tool => tool?.name === schema.name) ? tools : [...tools, schema]
-)
-
 const normalizeSurface = (surface: ControllerCapabilitySurface): ControllerCapabilitySurface => {
   let tools = sanitizeTools([...surface.tools])
-  tools = ensureTool(tools, HIGH_LEVEL_KNOWLEDGE_TOOL as any)
-  tools = tools.filter(tool => tool?.name !== artifactBundleSchema.name)
+  tools = tools.filter(tool => tool?.name !== knowledgeToolSchema.name && tool?.name !== artifactBundleSchema.name)
+  tools.push(knowledgeToolSchema as any)
   tools.push(artifactBundleSchema as any)
   return {
     ...surface,
@@ -91,6 +92,7 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
     visibleToolNames: ensured.surface.toolNames,
     instruction: [
       String(base.instruction || ''),
+      'For exact technical identifiers, preserve all explicitly requested targets in the same research_knowledge call; do not replace them with a generic discovery request first.',
       'New DOCX/XLSX creation is intentionally exposed as one high-level create_artifact_bundle capability. Low-level new-file creation and document-contract micro tools are hidden from the controller surface.',
       'When both Word and Excel are requested from the same analysis, create_artifact_bundle must receive both outputs in the same call.',
     ].filter(Boolean).join(' '),
