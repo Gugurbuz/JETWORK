@@ -11,15 +11,16 @@ const providerSource = readFileSync(
 )
 
 describe('deterministic Gemini Deep Research executor', () => {
-  it('forces Google Search via Interactions API tool_choice any', () => {
+  it('forces Google Search via Gemini 3.8 Flash Interactions API tool_choice any', () => {
     const request = buildDeterministicGeminiWebRequest({
       query: 'CHECK_ZTKS hangi mesajları üretiyor?',
       complexity: 'high',
     }) as any
 
-    expect(request.model).toBe('gemini-3.5-flash')
+    expect(request.model).toBe('gemini-3.8-flash')
     expect(request.tools).toEqual([{ type: 'google_search', search_types: ['web_search'] }])
     expect(request.generation_config.tool_choice).toBe('any')
+    expect(request.generation_config.thinking_level).toBe('low')
     expect(request.store).toBe(false)
     expect(request.background).toBe(false)
   })
