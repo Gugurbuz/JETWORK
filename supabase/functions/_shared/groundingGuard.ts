@@ -85,6 +85,7 @@ const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interfac
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
 const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
 const EVIDENCE_GAP_CONTRADICTION_PATTERN = /\b(?:ama|ancak|fakat|buna\s+ragmen|however|but|nevertheless)\b/i
+const EXACT_MESSAGE_TEXT_REQUEST_PATTERN = /(?:mesaj\s*metn(?:i|ini|leri|lerini)?|mesaj(?:ın|in)\s+tam\s+metn(?:i|ini)|tam\s+mesaj\s*metn(?:i|ini)|exact\s+message\s+text|message\s+text)/i
 
 export const enterpriseGroundingRequiredForPlan = (plan: GroundingPlanLike): boolean => (
   typeof plan.enterpriseGroundingRequired === 'boolean'
@@ -126,6 +127,8 @@ const EXACT_TECHNICAL_FACT_REQUEST_PATTERN = /(?:hangi\s+(?:mesaj(?:lar)?|hata(?
 const exactTechnicalFactLookupRequested = (text: string, identifiers: Set<string>) => (
   identifiers.size > 0 && EXACT_TECHNICAL_FACT_REQUEST_PATTERN.test(normalizeText(text))
 )
+
+const exactMessageTextRequested = (text: string) => EXACT_MESSAGE_TEXT_REQUEST_PATTERN.test(normalizeText(text))
 
 const evidenceGapIdentifiers = (text: string) => {
   const identifiers = new Set<string>()
@@ -238,7 +241,10 @@ const messageTitleMap = (sources: GroundingSourceLike[], toolResults: GroundingT
   return titles
 }
 
-const exactMessageClaims = (text: string): Array<{ identifier: string; claimed: string }> => {
+const exactMessageClaims = (
+  text: string,
+  options: { includeInlineClaims?: boolean } = {},
+): Array<{ identifier: string; claimed: string }> => {
   const lines = clean(text).split(/\r?\n/)
   const claims: Array<{ identifier: string; claimed: string }> = []
   let activeMessage = ''
@@ -250,6 +256,7 @@ const exactMessageClaims = (text: string): Array<{ identifier: string; claimed: 
       claims.push({ identifier: activeMessage, claimed: stripMessageDecorators(labeled[1]) })
       continue
     }
+    if (options.includeInlineClaims !== true) continue
     const inline = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?([A-Z][A-Z0-9_]{2,}-\d{2,4})(?:\*\*)?\s*(?:—|–|:)\s*(.+)$/)
     if (inline?.[1] && inline?.[2]) {
       claims.push({ identifier: canonicalIdentifier(inline[1]), claimed: stripMessageDecorators(inline[2]) })
@@ -281,8 +288,13 @@ export const evaluateGroundedTechnicalClaims = (input: {
   const responseIdentifiers = extractTechnicalIdentifiers(input.text)
   const suppliedText = clean(input.currentUserText, 32_000) || suppliedRequestText(input.plan)
   const suppliedIdentifiers = new Set(extractTechnicalIdentifiers(suppliedText))
-  const responseMessageClaims = exactMessageClaims(input.text)
-  const suppliedMessageClaims = exactMessageClaims(suppliedText)
+  const verifyInlineMessageText = exactMessageTextRequested(suppliedText)
+  // A message code plus an explanatory phrase is not automatically a claim that
+  // the phrase is the exact T100/message text. Inline text becomes strict only
+  // when the user explicitly asks for the message text. Explicit `Mesaj Metni:`
+  // labels remain strict in every mode.
+  const responseMessageClaims = exactMessageClaims(input.text, { includeInlineClaims: verifyInlineMessageText })
+  const suppliedMessageClaims = exactMessageClaims(suppliedText, { includeInlineClaims: true })
   const novelResponseIdentifiers = responseIdentifiers.filter(identifier => !suppliedIdentifiers.has(identifier))
   const novelExactMessageClaims = responseMessageClaims.filter(claim => !suppliedExactClaim(claim, suppliedMessageClaims))
   const explicitEnterpriseGrounding = enterpriseGroundingRequiredForPlan(input.plan)
