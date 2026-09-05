@@ -26,8 +26,16 @@ export {
 
 export type AssistantProvider = 'openai' | 'gemini' | 'ollama'
 
+export const PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'
+export const DEFAULT_GEMINI_MODEL = PUBLIC_GEMINI_MODEL
+export const GEMINI_MODELS = new Set([PUBLIC_GEMINI_MODEL])
+
 export const providerForModel = (model: string): AssistantProvider => (
-  isOllamaModel(model) ? 'ollama' : baseProviderForModel(model)
+  isOllamaModel(model)
+    ? 'ollama'
+    : GEMINI_MODELS.has(model)
+      ? 'gemini'
+      : baseProviderForModel(model)
 )
 
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
