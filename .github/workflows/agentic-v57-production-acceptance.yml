@@ -1,0 +1,155 @@
+name: Agentic v57 Production Acceptance
+
+on:
+  push:
+    branches:
+      - agentic-runtime/knowledge-orchestrator-v1
+    paths:
+      - 'supabase/functions/assistant-primary-agent-core-canary/**'
+      - 'supabase/functions/_shared/assistantToolsAgenticRuntimeV5.ts'
+      - 'supabase/functions/_shared/modelProvidersAgenticRuntimeV5.ts'
+      - 'supabase/functions/agentic-spreadsheet-create/**'
+      - 'scripts/run-agentic-v57-production-canary.ts'
+      - 'src/services/__tests__/agenticKnowledgeOrchestratorV1.test.ts'
+      - '.github/workflows/agentic-v57-production-acceptance.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentic-v57-production-acceptance
+  cancel-in-progress: true
+
+env:
+  SUPABASE_PROJECT_REF: bpbbvjigostgrssnduhk
+  VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+  VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+  REASONING_CANARY_ENDPOINT: openai-assistant-v2
+
+jobs:
+  verify-deploy-accept:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Require deployment and E2E credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "SUPABASE_ACCESS_TOKEN is not configured" && exit 1)
+          test -n "$E2E_USERNAME" || (echo "E2E_USERNAME is not configured" && exit 1)
+          test -n "$E2E_PASSWORD" || (echo "E2E_PASSWORD is not configured" && exit 1)
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify v57 code before deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run lint
+          pnpm exec vitest run src/services/__tests__/agenticKnowledgeOrchestratorV1.test.ts
+          pnpm run verify:reasoning-golden
+          pnpm run verify:ai-ba-engine
+          pnpm run verify:ai-turn-decision
+          pnpm run verify:deep-ba-assistant
+          pnpm run verify:product-runtime
+          pnpm run verify:document-quality
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.98.0
+
+      - name: Deploy self-contained XLSX creator
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy agentic-spreadsheet-create \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --use-api
+
+      - name: Deploy Agentic Runtime v57 canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase functions deploy assistant-primary-agent-core-canary \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --use-api \
+            --import-map supabase/functions/assistant-primary-agent-core-canary/import_map.json
+          sleep 5
+
+      - name: Run exact production acceptance and rollback on failure
+        id: acceptance
+        shell: bash
+        run: |
+          set -uo pipefail
+          pnpm exec tsx scripts/run-agentic-v57-production-canary.ts 2>&1 | tee v57-acceptance.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -eq 0 ]; then
+            echo "accepted=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "v57 acceptance failed; rolling assistant-primary-agent-core-canary back to known v56 runtime" | tee -a v57-acceptance.log
+          rm -rf supabase/functions/assistant-primary-agent-core-canary
+          mkdir -p supabase/functions/assistant-primary-agent-core-canary
+
+          cat > supabase/functions/assistant-primary-agent-core-canary/index.ts <<'EOF'
+          import 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/openai-assistant-core-v2/canary.ts'
+          EOF
+          cat > supabase/functions/assistant-primary-agent-core-canary/modelProvidersAgenticRuntime.ts <<'EOF'
+          export * from 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@7777e9abca289639090a8f5ab0722de33cf3fbcc/supabase/functions/_shared/modelProvidersAgenticRuntimeV5.ts'
+          EOF
+          cat > supabase/functions/assistant-primary-agent-core-canary/assistantToolsAgenticRuntimeV4.ts <<'EOF'
+          export * from 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@7777e9abca289639090a8f5ab0722de33cf3fbcc/supabase/functions/_shared/assistantToolsAgenticRuntimeV4.ts'
+          EOF
+          cat > supabase/functions/assistant-primary-agent-core-canary/controllerSurfaceAgenticRuntimeV3.ts <<'EOF'
+          export * from 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@7777e9abca289639090a8f5ab0722de33cf3fbcc/supabase/functions/_shared/capabilities/controllerSurfaceAgenticRuntimeV3.ts'
+          EOF
+          cat > supabase/functions/assistant-primary-agent-core-canary/agentControllerPolicyAgenticRuntimeV2.ts <<'EOF'
+          export * from 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@7777e9abca289639090a8f5ab0722de33cf3fbcc/supabase/functions/_shared/agentControllerPolicyAgenticRuntimeV2.ts'
+          EOF
+          cat > supabase/functions/assistant-primary-agent-core-canary/groundingGuardFixed.ts <<'EOF'
+          export * from 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@3bbc3573338ba990025304f79a9a5626f680d0d2/supabase/functions/_shared/groundingGuard.ts'
+          EOF
+          cp supabase/functions/assistant-primary-agent-core-canary/groundingGuardFixed.ts /tmp/grounding-placeholder.ts
+          cat > supabase/functions/assistant-primary-agent-core-canary/geminiThinkingGuardFixed.ts <<'EOF'
+          const GEMINI_HOST='generativelanguage.googleapis.com';const PATHS=['/models/gemini-3.5-flash:generateContent','/models/gemini-3.5-flash:streamGenerateContent'];const MARKER='[JETWORK_COST_GUARD]';const u=(i:any)=>typeof i==='string'?i:i instanceof URL?i.toString():i.url;const obj=(v:any)=>v&&typeof v==='object'&&!Array.isArray(v)?v:null;export function applyGeminiThinkingGuardBody(url:string,body:Record<string,unknown>){try{const p=new URL(url);if(p.hostname!==GEMINI_HOST||!PATHS.some(x=>p.pathname.endsWith(x))||!JSON.stringify(body.systemInstruction??'').includes(MARKER)||Array.isArray(body.tools)&&body.tools.length)return body;const g=obj(body.generationConfig)||{};if(obj(g.thinkingConfig))return body;return{...body,generationConfig:{...g,thinkingConfig:{thinkingLevel:'minimal'}}}}catch{return body}}export function installGeminiFinalSynthesisThinkingGuard(){const f=globalThis.fetch.bind(globalThis);globalThis.fetch=(async(i:any,n?:RequestInit)=>{if(typeof n?.body!=='string')return f(i,n);let b:any;try{b=JSON.parse(n.body)}catch{return f(i,n)}const g=applyGeminiThinkingGuardBody(u(i),b);return g===b?f(i,n):f(i,{...n,body:JSON.stringify(g)})}) as typeof fetch}
+          EOF
+          cat > supabase/functions/assistant-primary-agent-core-canary/import_map.json <<'EOF'
+          {"imports":{"@google/genai":"npm:@google/genai@1.52.0","https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/modelProviders.ts":"./modelProvidersAgenticRuntime.ts","https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/geminiThinkingGuard.ts":"./geminiThinkingGuardFixed.ts","https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/groundingGuard.ts":"./groundingGuardFixed.ts","https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/assistantTools.ts":"./assistantToolsAgenticRuntimeV4.ts","https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/capabilities/controllerSurface.ts":"./controllerSurfaceAgenticRuntimeV3.ts","https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/agentControllerPolicy.ts":"./agentControllerPolicyAgenticRuntimeV2.ts"}}
+          EOF
+
+          supabase functions deploy assistant-primary-agent-core-canary \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            --use-api \
+            --import-map supabase/functions/assistant-primary-agent-core-canary/import_map.json
+          echo "accepted=false" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload production acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentic-v57-production-acceptance-${{ github.sha }}
+          path: v57-acceptance.log
+          if-no-files-found: warn
+          retention-days: 3
