@@ -38,7 +38,7 @@ const knowledgeToolSchema = {
 
 const artifactBundleSchema = {
   ...ARTIFACT_BUNDLE_TOOL,
-  description: 'High-level final artifact engine for NEW DOCX and/or XLSX deliverables. If the user requests Word, Excel, or both from an analysis, use this capability directly after evidence/reasoning is ready. Populate document and spreadsheet together when both were requested. Do not discover document contracts or call low-level create_document_file/create_spreadsheet_file first; this runtime handles those execution details and verification internally.',
+  description: 'High-level final artifact engine for NEW DOCX and/or XLSX deliverables. If the user requests Word, Excel, or both from an analysis, use this capability directly after evidence/reasoning is ready. Populate document and spreadsheet together when both were requested. Every enterprise identifier and factual technical claim placed in artifact arguments must come from the verified shared evidence already returned by research_knowledge; never invent a plausible identifier. If this tool returns ARTIFACT_GROUNDING_VALIDATION_FAILED, correct the artifact arguments using the existing verified evidence and retry create_artifact_bundle. Do not rerun completed research unless the evidence itself is incomplete. Do not discover document contracts or call low-level create_document_file/create_spreadsheet_file first; this runtime handles those execution details and verification internally.',
 }
 
 const sanitizeTools = (tools: any[]) => tools.filter(tool => !HIDDEN_NEW_FILE_MICRO_TOOLS.has(String(tool?.name || '')))
@@ -95,6 +95,7 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
       'For exact technical identifiers, preserve all explicitly requested targets in the same research_knowledge call; do not replace them with a generic discovery request first.',
       'New DOCX/XLSX creation is intentionally exposed as one high-level create_artifact_bundle capability. Low-level new-file creation and document-contract micro tools are hidden from the controller surface.',
       'When both Word and Excel are requested from the same analysis, create_artifact_bundle must receive both outputs in the same call.',
+      'Artifact factual identifiers must be copied from verified evidence. On ARTIFACT_GROUNDING_VALIDATION_FAILED, correct the arguments from that evidence and retry the same artifact capability instead of reopening completed research.',
     ].filter(Boolean).join(' '),
   }
 }
