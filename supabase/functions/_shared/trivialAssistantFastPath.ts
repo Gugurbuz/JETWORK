@@ -3,18 +3,20 @@ import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
 const GEMINI_GENERATE_CONTENT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v9-legacy-only'
-export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'
-const DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'
+export const TRIVIAL_FAST_PATH_ENGINE_VERSION = 'trivial-fast-path-v10-gemini-38-only'
+export const TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.8-flash'
 
 const OPENAI_FAST_PATH_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
 const GEMINI_FAST_PATH_MODELS = new Set([
+  'gemini-3.8-flash',
   'gemini-3-flash-preview',
   'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash-lite',
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
-  TRIVIAL_GEMINI_LATENCY_MODEL,
-  DEPRECATED_GEMINI_FLASH_LITE_PREVIEW,
+  'gemini-3.6-flash',
+  'gemini-3.7-flash',
 ])
 
 export type TrivialFastPathProvider = 'openai' | 'gemini'
@@ -109,9 +111,7 @@ export const providerForTrivialFastPathModel = (model: string): TrivialFastPathP
 )
 
 export const executionModelForTrivialFastPathModel = (model: string): string => (
-  model === 'auto' || model === 'gemini-3.1-pro-preview' || model === DEPRECATED_GEMINI_FLASH_LITE_PREVIEW
-    ? TRIVIAL_GEMINI_LATENCY_MODEL
-    : model
+  model === 'auto' || GEMINI_FAST_PATH_MODELS.has(model) ? TRIVIAL_GEMINI_LATENCY_MODEL : model
 )
 
 export const deterministicTrivialResponseForMessage = (message: string): string | null => {
@@ -225,11 +225,9 @@ async function requestGeminiTrivialResponse(input: {
   model: string
   message: string
 }): Promise<TrivialAssistantFastPathResult> {
-  const thinkingLevel = input.model === TRIVIAL_GEMINI_LATENCY_MODEL || input.model === 'gemini-3.5-flash-lite'
-    ? 'minimal'
-    : 'low'
+  const executionModel = TRIVIAL_GEMINI_LATENCY_MODEL
   const response = await fetch(
-    `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`,
+    `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(executionModel)}:generateContent`,
     {
       method: 'POST',
       headers: {
@@ -247,7 +245,7 @@ async function requestGeminiTrivialResponse(input: {
         generationConfig: {
           maxOutputTokens: 160,
           thinkingConfig: {
-            thinkingLevel,
+            thinkingLevel: 'low',
           },
         },
       }),
@@ -270,7 +268,7 @@ async function requestGeminiTrivialResponse(input: {
     : {}
   return {
     text: visibleText,
-    model: input.model,
+    model: executionModel,
     provider: 'gemini',
     usage: {
       input_tokens: Number(metadata.promptTokenCount || 0),
@@ -313,7 +311,7 @@ export async function requestTrivialAssistantResponse(input: {
     }
     return requestGeminiTrivialResponse({
       apiKey: input.geminiApiKey,
-      model: executionModelForTrivialFastPathModel(input.model),
+      model: TRIVIAL_GEMINI_LATENCY_MODEL,
       message: input.message,
     })
   }
