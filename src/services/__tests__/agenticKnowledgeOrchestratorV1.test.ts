@@ -5,6 +5,10 @@ const assistantRuntime = readFileSync(
   new URL('../../../supabase/functions/_shared/assistantToolsAgenticRuntime.ts', import.meta.url),
   'utf8',
 )
+const assistantRuntimeV5 = readFileSync(
+  new URL('../../../supabase/functions/_shared/assistantToolsAgenticRuntimeV5.ts', import.meta.url),
+  'utf8',
+)
 const controllerSurface = readFileSync(
   new URL('../../../supabase/functions/_shared/capabilities/controllerSurfaceAgenticRuntime.ts', import.meta.url),
   'utf8',
@@ -38,6 +42,23 @@ describe('Agentic Knowledge Orchestrator v1', () => {
     expect(assistantRuntime).toContain('sharedAnalysisState: true')
     expect(assistantRuntime).toContain('allOutputsVerified')
     expect(controllerSurface).toContain('ARTIFACT_BUNDLE_TOOL')
+  })
+
+  it('fails closed when artifact enterprise identifiers are not present in shared verified evidence', () => {
+    expect(assistantRuntimeV5).toContain('ARTIFACT_GROUNDING_EVIDENCE_MISSING')
+    expect(assistantRuntimeV5).toContain('ARTIFACT_GROUNDING_VALIDATION_FAILED')
+    expect(assistantRuntimeV5).toContain('Unsupported enterprise identifiers')
+    expect(assistantRuntimeV5).toContain('evidenceByWorkspace.set')
+    expect(assistantRuntimeV5).toContain('mechanicalCoverageComplete === true')
+  })
+
+  it('uses the dedicated XLSX creator and requires verified outputs before artifact completion', () => {
+    expect(assistantRuntimeV5).toContain("client.functions.invoke('agentic-spreadsheet-create'")
+    expect(assistantRuntimeV5).toContain("qa.reloaded !== true || qa.workbookReadable !== true")
+    expect(assistantRuntimeV5).toContain('artifactVerification: { reloadVerified: true, integrityVerified: true')
+    expect(assistantRuntimeV5).toContain("throw new Error('ARTIFACT_BUNDLE_VERIFICATION_FAILED')")
+    expect(assistantRuntimeV5).toContain("ARTIFACT_COMPLETION_MARKER = 'JETWORK_ARTIFACT_DEPENDENCY_COMPLETE'")
+    expect(assistantRuntimeV5).toContain('artifactGroundingVerified: true')
   })
 
   it('keeps semantic decisions with the controller and retrieval mechanics in runtime', () => {
