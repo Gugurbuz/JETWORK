@@ -38,7 +38,10 @@ const prune = () => {
 
 const enterpriseIdentifiers = (value: string) => {
   const found = new Set<string>()
-  for (const match of value.matchAll(/\bZ[A-Z0-9_]{2,}(?:-\d{2,5})?\b/g)) found.add(match[0])
+  // ABAP/customer identifiers that start with Z normally contain an underscore or digit.
+  // Requiring that signal prevents Unicode word-boundary false positives such as the
+  // ASCII tail of Turkish words (e.g. ÖZELLİKLER -> ZELLIKLER, ÜZERİNDE -> ZERINDE).
+  for (const match of value.matchAll(/\bZ(?=[A-Z0-9_]*[_0-9])[A-Z0-9_]{2,}(?:-\d{2,5})?\b/g)) found.add(match[0])
   for (const match of value.matchAll(/\b[A-Z][A-Z0-9_]{2,}-\d{2,6}\b/g)) found.add(match[0])
   return [...found]
 }
