@@ -30,6 +30,7 @@ jobs:
   verify-deploy-accept:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    environment: production
     env:
       E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
@@ -39,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "SUPABASE_ACCESS_TOKEN is not configured" && exit 1)
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "SUPABASE_ACCESS_TOKEN is not configured in repository or production environment scope" && exit 1)
           test -n "$E2E_USERNAME" || (echo "E2E_USERNAME is not configured" && exit 1)
           test -n "$E2E_PASSWORD" || (echo "E2E_PASSWORD is not configured" && exit 1)
 
@@ -130,7 +131,6 @@ jobs:
           cat > supabase/functions/assistant-primary-agent-core-canary/groundingGuardFixed.ts <<'EOF'
           export * from 'https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@3bbc3573338ba990025304f79a9a5626f680d0d2/supabase/functions/_shared/groundingGuard.ts'
           EOF
-          cp supabase/functions/assistant-primary-agent-core-canary/groundingGuardFixed.ts /tmp/grounding-placeholder.ts
           cat > supabase/functions/assistant-primary-agent-core-canary/geminiThinkingGuardFixed.ts <<'EOF'
           const GEMINI_HOST='generativelanguage.googleapis.com';const PATHS=['/models/gemini-3.5-flash:generateContent','/models/gemini-3.5-flash:streamGenerateContent'];const MARKER='[JETWORK_COST_GUARD]';const u=(i:any)=>typeof i==='string'?i:i instanceof URL?i.toString():i.url;const obj=(v:any)=>v&&typeof v==='object'&&!Array.isArray(v)?v:null;export function applyGeminiThinkingGuardBody(url:string,body:Record<string,unknown>){try{const p=new URL(url);if(p.hostname!==GEMINI_HOST||!PATHS.some(x=>p.pathname.endsWith(x))||!JSON.stringify(body.systemInstruction??'').includes(MARKER)||Array.isArray(body.tools)&&body.tools.length)return body;const g=obj(body.generationConfig)||{};if(obj(g.thinkingConfig))return body;return{...body,generationConfig:{...g,thinkingConfig:{thinkingLevel:'minimal'}}}}catch{return body}}export function installGeminiFinalSynthesisThinkingGuard(){const f=globalThis.fetch.bind(globalThis);globalThis.fetch=(async(i:any,n?:RequestInit)=>{if(typeof n?.body!=='string')return f(i,n);let b:any;try{b=JSON.parse(n.body)}catch{return f(i,n)}const g=applyGeminiThinkingGuardBody(u(i),b);return g===b?f(i,n):f(i,{...n,body:JSON.stringify(g)})}) as typeof fetch}
           EOF
