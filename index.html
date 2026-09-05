@@ -15,6 +15,20 @@
       .chat-scroll-container [title^="gemini-"] {
         display: none !important;
       }
+
+      /* Migration guard: stale legacy model selectors can still exist in old UI
+         surfaces while the canonical selector is CompactModelControl/Settings.
+         Never expose those stale Gemini choices to end users. */
+      select:has(option[value="gemini-3-flash-preview"]),
+      select:has(option[value="gemini-3.1-pro-preview"]),
+      select:has(option[value="gemini-3.1-flash-lite-preview"]),
+      select:has(option[value="gemini-3.1-flash-lite"]),
+      select:has(option[value="gemini-3.5-flash"]),
+      select:has(option[value="gemini-3.5-flash-lite"]),
+      select:has(option[value="gemini-3.6-flash"]),
+      select:has(option[value="gemini-3.7-flash"]) {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
