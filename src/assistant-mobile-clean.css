@@ -5,7 +5,7 @@
 @media (max-width: 767px) {
   /* Give the fixed composer enough real scroll clearance, including iOS safe area. */
   .chat-scroll-container {
-    padding-bottom: calc(12.5rem + env(safe-area-inset-bottom)) !important;
+    padding: 1.35rem 1.25rem calc(11.75rem + env(safe-area-inset-bottom)) !important;
   }
 
   /* Active work state: one branded topline + one calm user-facing status. */
@@ -26,18 +26,34 @@
     display: block;
     color: var(--theme-text-muted);
     font-size: 0.76rem;
-    line-height: 1.45;
+    line-height: 1.4;
   }
 
-  /* Completed work should settle into a quiet single-line receipt. The answer
-     itself is the primary content; detailed runtime chronology belongs to
-     diagnostics, not the mobile conversation. */
+  /* Completed work settles into a quiet receipt. */
+  .assistant-work--completed {
+    margin-bottom: 0.45rem;
+  }
+
   .assistant-work--completed .assistant-work__summary {
-    min-height: 1.8rem !important;
-    gap: 0.4rem !important;
+    min-height: 1.55rem !important;
+    gap: 0.32rem !important;
     pointer-events: none;
+    color: var(--theme-text-muted) !important;
     font-size: 0.72rem !important;
-    opacity: 0.82;
+    font-weight: 520 !important;
+    opacity: 0.78;
+  }
+
+  .assistant-work--completed .assistant-work__logo-stage {
+    width: 1.2rem !important;
+    height: 1.2rem !important;
+    flex-basis: 1.2rem !important;
+  }
+
+  .assistant-work--completed .assistant-work__logo,
+  .assistant-work--completed .assistant-work__summary .assistant-work__logo {
+    width: 1.05rem !important;
+    height: 1.05rem !important;
   }
 
   .assistant-work--completed .assistant-work__chevron,
@@ -47,22 +63,58 @@
     display: none !important;
   }
 
-  /* The answer has its own compact source disclosure below the prose, so avoid
-     a second source counter before the answer. */
-  .assistant-work--completed {
-    margin-bottom: 0.2rem;
+  /* Answer typography: compact, readable, and clearly primary. */
+  [data-testid="chat-message"][data-message-role="model"],
+  [data-testid="chat-message"][data-message-role="model"] .prose {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: 0.96rem !important;
+    line-height: 1.56 !important;
   }
 
-  /* Long SAP/ABAP identifiers must wrap instead of becoming a full-width grey
-     slab or forcing horizontal scrolling. */
+  [data-testid="chat-message"][data-message-role="model"] .prose p {
+    margin: 0.28em 0 0.68em !important;
+  }
+
+  [data-testid="chat-message"][data-message-role="model"] .prose ul,
+  [data-testid="chat-message"][data-message-role="model"] .prose ol {
+    margin: 0.48em 0 0.72em !important;
+    padding-left: 1.2rem !important;
+  }
+
+  [data-testid="chat-message"][data-message-role="model"] .prose li {
+    margin: 0.32em 0 !important;
+    padding-left: 0.08rem !important;
+  }
+
+  [data-testid="chat-message"][data-message-role="model"] .prose li::marker {
+    color: color-mix(in srgb, var(--theme-text-muted) 72%, transparent);
+    font-size: 0.8em;
+  }
+
+  [data-testid="chat-message"][data-message-role="model"] .prose strong {
+    font-weight: 650 !important;
+  }
+
+  /* Inline identifiers should read as code, not as fragmented grey pills. */
   [data-testid="chat-message"][data-message-role="model"] .prose :not(pre) > code {
-    display: inline;
+    display: inline !important;
     max-width: 100%;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    color: color-mix(in srgb, var(--theme-text) 92%, var(--theme-text-muted)) !important;
+    font-size: 0.88em !important;
+    font-weight: 600 !important;
+    line-height: inherit !important;
     white-space: normal !important;
     overflow-wrap: anywhere;
     word-break: break-word;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
+    box-decoration-break: slice;
+    -webkit-box-decoration-break: slice;
   }
 
   [data-testid="chat-message"][data-message-role="model"] .prose pre {
@@ -73,14 +125,67 @@
 
   /* Reduce the gap between work receipt and the actual answer. */
   [data-message-role="model"] > .flex.flex-col.gap-3.mt-1 {
-    gap: 0.55rem !important;
+    gap: 0.45rem !important;
   }
 
-  /* Keep model prose comfortably inside the viewport. */
-  [data-testid="chat-message"][data-message-role="model"],
-  [data-testid="chat-message"][data-message-role="model"] .prose {
-    min-width: 0;
-    max-width: 100%;
-    overflow-wrap: anywhere;
+  /* Source disclosure is useful, but should not look like a debug banner. */
+  [data-testid="chat-message"][data-message-role="model"] details {
+    margin-top: 0.85rem !important;
+    border-top: 0 !important;
+    padding-top: 0 !important;
+  }
+
+  [data-testid="chat-message"][data-message-role="model"] details > summary {
+    min-height: 2rem;
+    padding: 0.3rem 0 !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    color: var(--theme-text-muted) !important;
+    font-size: 0.76rem !important;
+    font-weight: 560 !important;
+    opacity: 0.82;
+  }
+
+  /* The jump-to-latest control belongs next to the composer, not in the middle
+     of the answer. Scope to the current Tailwind class used by ChatPanel. */
+  [data-testid="workspace-chat-surface"] button.fixed.bottom-32 {
+    right: 1rem !important;
+    left: auto !important;
+    bottom: calc(9.25rem + env(safe-area-inset-bottom)) !important;
+    width: 2.3rem !important;
+    height: 2.3rem !important;
+    padding: 0 !important;
+    transform: none !important;
+    border: 1px solid color-mix(in srgb, var(--theme-border) 78%, transparent) !important;
+    background: color-mix(in srgb, var(--theme-surface) 92%, transparent) !important;
+    color: var(--theme-text) !important;
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.14) !important;
+    backdrop-filter: blur(12px);
+  }
+
+  [data-testid="workspace-chat-surface"] button.fixed.bottom-32 svg {
+    width: 1rem !important;
+    height: 1rem !important;
+  }
+
+  /* Make the mobile composer less dominant while preserving touch targets. */
+  [data-testid="workspace-chat-surface"] > div > div:has(form [data-testid="chat-input"]) {
+    padding: 0.45rem 0.75rem max(0.7rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  form:has([data-testid="chat-input"]) > div.relative.flex.flex-col {
+    border-radius: 1.35rem !important;
+  }
+
+  [data-testid="chat-input"] {
+    min-height: 2.8rem !important;
+    max-height: 6rem !important;
+    padding: 0.72rem 0.9rem 0.2rem !important;
+    font-size: 0.94rem !important;
+    line-height: 1.4 !important;
+  }
+
+  form:has([data-testid="chat-input"]) > div.relative.flex.flex-col > div:last-child {
+    padding: 0.18rem 0.45rem 0.45rem !important;
   }
 }
