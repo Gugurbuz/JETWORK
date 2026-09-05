@@ -49,16 +49,56 @@ const recentExecutionFailure = (items: Array<Record<string, unknown>>) => (
   [...items].reverse().map(outputText).find(text => /(?:VALIDATION_FAILED|_FAILED|error)/i.test(text)) || ''
 )
 
+const continuationInstructions = (
+  input: any,
+  remainingNames: string[],
+  latestFailure: string,
+  attempt = 0,
+) => [
+  String(input.instructions || ''),
+  '[JETWORK VERIFIED-KNOWLEDGE CONTINUATION]',
+  'Verified enterprise knowledge is already complete for the current task. research_knowledge is intentionally unavailable because that dependency is complete.',
+  `Continue from the SAME task/evidence state using only the remaining declared capabilities: ${remainingNames.join(', ') || 'none'}. Do not restart research.`,
+  'For enterprise technical content, treat the verified function_call_output evidence as the closed factual vocabulary for this continuation. Copy identifiers exactly from that evidence. Do not introduce a plausible-looking message code, function, table, ticket, class, method or other enterprise identifier unless it appears verbatim in the verified evidence. If a detail is not evidenced, omit it or state that it was not verified.',
+  latestFailure
+    ? 'A previous execution capability returned a validation/execution error. Read that function_call_output, correct only the invalid arguments using the already verified evidence, and retry the required execution capability. Never invent replacement enterprise identifiers.'
+    : '',
+  'Re-evaluate the remaining user goal yourself. If a declared execution capability is still required, call it with complete arguments. If no execution remains, produce the final user-visible answer. Do not describe internal recovery.',
+  attempt > 1
+    ? 'The previous continuation attempt also produced neither a visible answer nor an executable capability. Resolve the remaining task now instead of returning an empty response.'
+    : '',
+].filter(Boolean).join('\n\n')
+
 export async function requestGeminiResponse(input: any): Promise<any> {
   const items = Array.isArray(input.items) ? input.items as Array<Record<string, unknown>> : []
-  let response = await requestGeminiResponseV4(input)
-  if (!knowledgeComplete(items) || visibleText(response) || functionCalls(response).length) return response
+  const completedKnowledge = knowledgeComplete(items)
+
+  if (!completedKnowledge) return requestGeminiResponseV4(input)
 
   const declaredTools = Array.isArray(input.tools) ? input.tools as Array<Record<string, unknown>> : []
   const remainingTools = withoutCompletedKnowledgeTool(declaredTools)
   const remainingNames = remainingTools.map(schemaName).filter(Boolean)
   const latestFailure = recentExecutionFailure(items)
-  let recoveryUsage: Record<string, number> = {}
+
+  // Quality-first controller boundary: once verified knowledge is complete, use the
+  // stronger controller for synthesis/execution selection. This does not choose a
+  // capability; it only upgrades the LLM making the semantic decision while the
+  // completed research dependency is mechanically unavailable.
+  let response = await requestGeminiResponseV4({
+    ...input,
+    model: CONTINUATION_MODEL,
+    tools: remainingTools,
+    allowTools: remainingTools.length > 0 && input.allowTools !== false,
+    instructions: continuationInstructions(input, remainingNames, latestFailure),
+  })
+  response = {
+    ...response,
+    usage: mergeUsage(response?.usage, {
+      controller_verified_knowledge_continuation_to_pro: 1,
+      controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
+    }),
+  }
+  if (visibleText(response) || functionCalls(response).length) return response
 
   for (let attempt = 1; attempt <= MAX_BLANK_CONTINUATION_RECOVERY_ATTEMPTS; attempt += 1) {
     const recovered = await requestGeminiResponseV4({
@@ -66,31 +106,17 @@ export async function requestGeminiResponse(input: any): Promise<any> {
       model: CONTINUATION_MODEL,
       tools: remainingTools,
       allowTools: remainingTools.length > 0 && input.allowTools !== false,
-      instructions: [
-        String(input.instructions || ''),
-        '[JETWORK CONTROLLER CONTINUATION RECOVERY]',
-        'Verified enterprise knowledge is already complete for the current task. research_knowledge is intentionally unavailable in this recovery round because that dependency is complete.',
-        `Continue from the SAME task/evidence state using only the remaining declared capabilities: ${remainingNames.join(', ') || 'none'}. Do not restart research.`,
-        latestFailure
-          ? 'A previous execution capability returned a validation/execution error. Read that function_call_output, correct only the invalid arguments using the already verified evidence, and retry the required execution capability. Never invent replacement enterprise identifiers.'
-          : '',
-        'Re-evaluate the remaining user goal yourself. If a declared execution capability is still required, call it with complete arguments. If no execution remains, produce the final user-visible answer. Do not describe internal recovery.',
-        attempt > 1
-          ? 'The previous continuation attempt also produced neither a visible answer nor an executable capability. Resolve the remaining task now instead of returning an empty response.'
-          : '',
-      ].filter(Boolean).join('\n\n'),
+      instructions: continuationInstructions(input, remainingNames, latestFailure, attempt + 1),
     })
-
-    recoveryUsage = mergeUsage(recoveryUsage, {
-      controller_blank_continuation_escalation: 1,
-      controller_blank_continuation_escalated_to_pro: 1,
-      controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
-      controller_execution_failure_visible_to_recovery: latestFailure ? 1 : 0,
-    }) || {}
-
     response = {
       ...recovered,
-      usage: mergeUsage(recovered?.usage, recoveryUsage),
+      usage: mergeUsage(recovered?.usage, {
+        controller_verified_knowledge_continuation_to_pro: 1,
+        controller_blank_continuation_escalation: attempt,
+        controller_blank_continuation_escalated_to_pro: attempt,
+        controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
+        controller_execution_failure_visible_to_recovery: latestFailure ? 1 : 0,
+      }),
     }
     if (visibleText(response) || functionCalls(response).length) return response
   }
