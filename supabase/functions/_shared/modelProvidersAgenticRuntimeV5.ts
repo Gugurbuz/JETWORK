@@ -45,6 +45,10 @@ const withoutCompletedKnowledgeTool = (tools: Array<Record<string, unknown>>) =>
   tools.filter(tool => schemaName(tool) !== KNOWLEDGE_TOOL_NAME)
 )
 
+const recentExecutionFailure = (items: Array<Record<string, unknown>>) => (
+  [...items].reverse().map(outputText).find(text => /(?:VALIDATION_FAILED|_FAILED|error)/i.test(text)) || ''
+)
+
 export async function requestGeminiResponse(input: any): Promise<any> {
   const items = Array.isArray(input.items) ? input.items as Array<Record<string, unknown>> : []
   let response = await requestGeminiResponseV4(input)
@@ -53,6 +57,7 @@ export async function requestGeminiResponse(input: any): Promise<any> {
   const declaredTools = Array.isArray(input.tools) ? input.tools as Array<Record<string, unknown>> : []
   const remainingTools = withoutCompletedKnowledgeTool(declaredTools)
   const remainingNames = remainingTools.map(schemaName).filter(Boolean)
+  const latestFailure = recentExecutionFailure(items)
   let recoveryUsage: Record<string, number> = {}
 
   for (let attempt = 1; attempt <= MAX_BLANK_CONTINUATION_RECOVERY_ATTEMPTS; attempt += 1) {
@@ -66,6 +71,9 @@ export async function requestGeminiResponse(input: any): Promise<any> {
         '[JETWORK CONTROLLER CONTINUATION RECOVERY]',
         'Verified enterprise knowledge is already complete for the current task. research_knowledge is intentionally unavailable in this recovery round because that dependency is complete.',
         `Continue from the SAME task/evidence state using only the remaining declared capabilities: ${remainingNames.join(', ') || 'none'}. Do not restart research.`,
+        latestFailure
+          ? 'A previous execution capability returned a validation/execution error. Read that function_call_output, correct only the invalid arguments using the already verified evidence, and retry the required execution capability. Never invent replacement enterprise identifiers.'
+          : '',
         'Re-evaluate the remaining user goal yourself. If a declared execution capability is still required, call it with complete arguments. If no execution remains, produce the final user-visible answer. Do not describe internal recovery.',
         attempt > 1
           ? 'The previous continuation attempt also produced neither a visible answer nor an executable capability. Resolve the remaining task now instead of returning an empty response.'
@@ -77,6 +85,7 @@ export async function requestGeminiResponse(input: any): Promise<any> {
       controller_blank_continuation_escalation: 1,
       controller_blank_continuation_escalated_to_pro: 1,
       controller_completed_knowledge_tool_hidden: declaredTools.length - remainingTools.length,
+      controller_execution_failure_visible_to_recovery: latestFailure ? 1 : 0,
     }) || {}
 
     response = {
