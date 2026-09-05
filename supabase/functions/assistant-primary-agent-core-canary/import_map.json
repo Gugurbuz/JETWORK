@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "@google/genai": "npm:@google/genai@1.52.0",
+    "https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/modelProviders.ts": "./modelProvidersAgenticRuntime.ts",
+    "https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/geminiThinkingGuard.ts": "./geminiThinkingGuardFixed.ts",
+    "https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/groundingGuard.ts": "./groundingGuardFixed.ts",
+    "https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/assistantTools.ts": "./assistantToolsAgenticRuntimeV5.ts",
+    "https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/capabilities/controllerSurface.ts": "./controllerSurfaceAgenticRuntimeV3.ts",
+    "https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@9a3e67f1a18169339ead06a86d93adc8ec242137/supabase/functions/_shared/agentControllerPolicy.ts": "./agentControllerPolicyAgenticRuntimeV2.ts"
+  }
+}
