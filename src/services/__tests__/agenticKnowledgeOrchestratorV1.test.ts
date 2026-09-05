@@ -9,6 +9,10 @@ const assistantRuntimeV5 = readFileSync(
   new URL('../../../supabase/functions/_shared/assistantToolsAgenticRuntimeV5.ts', import.meta.url),
   'utf8',
 )
+const xlsxCreateRuntime = readFileSync(
+  new URL('../../../supabase/functions/agentic-spreadsheet-create/index.ts', import.meta.url),
+  'utf8',
+)
 const controllerSurface = readFileSync(
   new URL('../../../supabase/functions/_shared/capabilities/controllerSurfaceAgenticRuntime.ts', import.meta.url),
   'utf8',
@@ -59,6 +63,16 @@ describe('Agentic Knowledge Orchestrator v1', () => {
     expect(assistantRuntimeV5).toContain("throw new Error('ARTIFACT_BUNDLE_VERIFICATION_FAILED')")
     expect(assistantRuntimeV5).toContain("ARTIFACT_COMPLETION_MARKER = 'JETWORK_ARTIFACT_DEPENDENCY_COMPLETE'")
     expect(assistantRuntimeV5).toContain('artifactGroundingVerified: true')
+  })
+
+  it('keeps the create-only XLSX executor self-contained, authenticated and reload-verified', () => {
+    expect(xlsxCreateRuntime).toContain("from 'npm:@office-kit/xlsx@0.9.0/io'")
+    expect(xlsxCreateRuntime).toContain('client.auth.getUser()')
+    expect(xlsxCreateRuntime).toContain(".from('workspaces')")
+    expect(xlsxCreateRuntime).toContain('loadWorkbook(fromArrayBuffer(bytes))')
+    expect(xlsxCreateRuntime).toContain('workbookReadable: true')
+    expect(xlsxCreateRuntime).toContain("storageBucket: ASSISTANT_FILES_BUCKET")
+    expect(xlsxCreateRuntime).not.toContain('raw.githubusercontent.com/Gugurbuz/JETWORK')
   })
 
   it('keeps semantic decisions with the controller and retrieval mechanics in runtime', () => {
