@@ -51,7 +51,7 @@ describe('production regression: trivial latency and primary-agent evidence boun
       provider: 'openai', model: 'gpt-5.6-sol', message: 'ZCRM2-545 hangi koşulda alınır?', conversation: [],
     });
     const gemini = await buildSemanticExecutionPlan({
-      provider: 'gemini', model: 'gemini-3.1-pro-preview', message: 'ZCRM2-545 hangi koşulda alınır?', conversation: [],
+      provider: 'gemini', model: 'gemini-3.8-flash', message: 'ZCRM2-545 hangi koşulda alınır?', conversation: [],
     });
 
     for (const result of [openAi, gemini]) {
@@ -76,14 +76,14 @@ describe('production regression: trivial latency and primary-agent evidence boun
     expect(toolBudgetForPlan(plan)).toBe(0);
   });
 
-  it('keeps an exact greeting on the cheap path for auto model and ignores stale attachment count', () => {
+  it('keeps an exact greeting on the legacy low-latency path and normalizes auto to Gemini 3.8 Flash', () => {
     expect(shouldUseTrivialAssistantFastPath({
       message: 'selam',
       model: 'auto',
       attachmentCount: 2,
     })).toBe(true);
     expect(providerForTrivialFastPathModel('auto')).toBe('gemini');
-    expect(executionModelForTrivialFastPathModel('auto')).toBe('gemini-3.1-flash-lite');
+    expect(executionModelForTrivialFastPathModel('auto')).toBe('gemini-3.8-flash');
   });
 
   it('does not classify an actual technical question as a trivial greeting', () => {
