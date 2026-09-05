@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { GoogleGenAI } from "npm:@google/genai@1.52.0"
+import { GoogleGenAI } from "npm:@google/genai@2.21.0"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
