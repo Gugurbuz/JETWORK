@@ -1,15 +1,21 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { GoogleGenAI, ThinkingLevel } from "npm:@google/genai@1.52.0"
+import { GoogleGenAI } from "npm:@google/genai@1.52.0"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const allowedModels = new Set([
+const GEMINI_38_MODEL = 'gemini-3.8-flash'
+const migratableLegacyModels = new Set([
   'gemini-3-flash-preview',
   'gemini-3.1-pro-preview',
   'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.7-flash',
 ])
 
 function hasUnsupportedSchemaReference(value: unknown): boolean {
@@ -60,9 +66,6 @@ serve(async (req) => {
         status: 401,
       })
     }
-    // Anonymous Supabase users are intentionally supported by the product's
-    // guest mode. The verified user session still prevents unauthenticated
-    // callers from consuming the paid model endpoint.
     await authResponse.body?.cancel()
 
     const contentLength = Number(req.headers.get('content-length') || 0)
@@ -81,7 +84,11 @@ serve(async (req) => {
       tools,
       toolConfig,
     } = await req.json()
-    if (!allowedModels.has(model)) throw new Error('Requested model is not allowed.')
+    const requestedModel = String(model || '').trim()
+    if (requestedModel !== GEMINI_38_MODEL && !migratableLegacyModels.has(requestedModel)) {
+      throw new Error('Requested model is not allowed.')
+    }
+    const executionModel = GEMINI_38_MODEL
     const supportedResponseSchema = isSupportedGeminiSchema(responseSchema) ? responseSchema : null
     
     const apiKey = Deno.env.get('GEMINI_API_KEY')
@@ -94,7 +101,7 @@ serve(async (req) => {
     const config: any = {
       systemInstruction: systemInstruction,
       responseMimeType: supportedResponseSchema ? "application/json" : "text/plain",
-      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+      thinkingConfig: { thinkingLevel: 'medium' },
     }
 
     if (supportedResponseSchema) {
@@ -112,7 +119,7 @@ serve(async (req) => {
     }
 
     const responseStream = await ai.models.generateContentStream({
-      model: model,
+      model: executionModel,
       contents: contents,
       config: config
     })
@@ -139,11 +146,12 @@ serve(async (req) => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'x-jetwork-gemini-model': executionModel,
       },
     })
   } catch (error) {
     console.error("Function error:", error)
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
     })
