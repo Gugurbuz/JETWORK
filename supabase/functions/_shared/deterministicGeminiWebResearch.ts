@@ -1,5 +1,5 @@
 const GEMINI_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions'
-export const DETERMINISTIC_GEMINI_WEB_MODEL = 'gemini-3.5-flash'
+export const DETERMINISTIC_GEMINI_WEB_MODEL = 'gemini-3.8-flash'
 
 export interface DeterministicWebSource {
   title: string
@@ -15,7 +15,7 @@ export interface DeterministicGeminiWebResult {
   usage?: Record<string, number>
 }
 
-const MODEL_PRICING = { input: 1.5, output: 9 } as const
+const MODEL_PRICING = { input: 0.75, output: 3.75 } as const
 
 export const buildDeterministicGeminiWebRequest = (input: {
   query: string
@@ -32,7 +32,7 @@ export const buildDeterministicGeminiWebRequest = (input: {
   tools: [{ type: 'google_search', search_types: ['web_search'] }],
   generation_config: {
     max_output_tokens: input.complexity === 'high' ? 1_800 : 1_200,
-    thinking_level: input.complexity === 'high' ? 'low' : 'minimal',
+    thinking_level: 'low',
     tool_choice: 'any',
   },
   stream: false,
