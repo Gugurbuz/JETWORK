@@ -24,8 +24,8 @@ const conflictHotfixMigration = readFileSync(
   new URL('../../../supabase/migrations/20260809102000_trivial_fast_path_turn_id_conflict_hotfix.sql', import.meta.url),
   'utf8',
 );
-const completionModelAllowlistMigration = readFileSync(
-  new URL('../../../supabase/migrations/20260812002000_allow_trivial_fast_path_latency_models.sql', import.meta.url),
+const gemini38Migration = readFileSync(
+  new URL('../../../supabase/migrations/20260906015000_gemini_38_trivial_fast_path.sql', import.meta.url),
   'utf8',
 );
 
@@ -36,7 +36,6 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).toContain("model !== 'auto'");
     expect(helperSource).not.toContain("model === 'auto' || input.attachmentCount > 0");
     expect(helperSource).toContain("model === 'auto' || GEMINI_FAST_PATH_MODELS.has(model)");
-    expect(helperSource).toContain("model === 'auto' || model === 'gemini-3.1-pro-preview'");
     expect(shouldUseTrivialAssistantFastPath({
       message: 'merhaba',
       model: 'auto',
@@ -89,13 +88,14 @@ describe('trivial assistant server fast path', () => {
     expect(gatewaySource).not.toContain("from '../_shared/modelProviders.ts'");
   });
 
-  it('routes trivial Gemini Pro, auto, and retired preview execution to stable Flash Lite', () => {
-    expect(helperSource).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'");
-    expect(helperSource).toContain("DEPRECATED_GEMINI_FLASH_LITE_PREVIEW = 'gemini-3.1-flash-lite-preview'");
-    expect(helperSource).toContain("model === 'auto' || model === 'gemini-3.1-pro-preview'");
-    expect(helperSource).toContain('executionModelForTrivialFastPathModel(input.model)');
-    expect(helperSource).toContain('model: input.model');
+  it('normalizes auto and every legacy Gemini alias to Gemini 3.8 Flash', () => {
+    expect(helperSource).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.8-flash'");
+    expect(helperSource).toContain("'gemini-3.1-pro-preview'");
+    expect(helperSource).toContain("'gemini-3.5-flash'");
+    expect(helperSource).toContain("model === 'auto' || GEMINI_FAST_PATH_MODELS.has(model)");
+    expect(helperSource).toContain('model: executionModel');
     expect(helperSource).toContain("provider: 'gemini'");
+    expect(gemini38Migration).toContain("when p_model = 'auto' or p_model like 'gemini-%' then 'gemini-3.8-flash'");
   });
 
   it('uses the Gemini REST API directly so non-deterministic trivial turns do not load the Google SDK', () => {
@@ -106,10 +106,11 @@ describe('trivial assistant server fast path', () => {
     expect(helperSource).not.toContain('requestGeminiResponse');
   });
 
-  it('keeps Gemini greeting tuning cheap only on the legacy lane', () => {
+  it('uses a supported low thinking level on Gemini 3.8 only on the legacy lane', () => {
     expect(helperSource).toContain('maxOutputTokens: 160');
     expect(helperSource).toContain('thinkingConfig: {');
-    expect(helperSource).toContain("? 'minimal'");
+    expect(helperSource).toContain("thinkingLevel: 'low'");
+    expect(helperSource).not.toContain("? 'minimal'");
     expect(shouldUseTrivialAssistantFastPath({
       message: 'merhaba',
       model: 'auto',
@@ -161,11 +162,14 @@ describe('trivial assistant server fast path', () => {
     expect(conflictHotfixMigration).not.toContain('on conflict (turn_id) do update');
   });
 
-  it('allows every runtime trivial fast-path response model at DB completion', () => {
-    expect(completionModelAllowlistMigration).toContain("'gemini-3.1-flash-lite'");
-    expect(completionModelAllowlistMigration).toContain("'gemini-3.5-flash'");
-    expect(completionModelAllowlistMigration).toContain("'gemini-3.5-flash-lite'");
-    expect(completionModelAllowlistMigration).toContain("invalid_fast_path_completion");
-    expect(completionModelAllowlistMigration).not.toContain("'auto'");
+  it('allows only current runtime response models at DB completion', () => {
+    const completionStart = gemini38Migration.indexOf('create or replace function public.complete_trivial_assistant_turn');
+    const completion = gemini38Migration.slice(completionStart);
+    expect(completion).toContain("'gemini-3.8-flash'");
+    expect(completion).toContain("'gpt-5.6-sol'");
+    expect(completion).toContain("'gpt-5.6'");
+    expect(completion).toContain('invalid_fast_path_completion');
+    expect(completion).not.toContain("'auto'");
+    expect(completion).not.toContain("'gemini-3.5-flash'");
   });
 });
