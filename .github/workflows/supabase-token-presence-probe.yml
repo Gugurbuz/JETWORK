@@ -1,0 +1,37 @@
+name: Supabase Token Presence Probe
+
+on:
+  push:
+    branches:
+      - agentic-runtime/knowledge-orchestrator-v1
+    paths:
+      - '.github/workflows/supabase-token-presence-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      TOKEN_ACCESS: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      TOKEN_GENERIC: ${{ secrets.SUPABASE_TOKEN }}
+      TOKEN_CLI: ${{ secrets.SUPABASE_CLI_TOKEN }}
+      TOKEN_PAT: ${{ secrets.SUPABASE_PAT }}
+      TOKEN_PERSONAL: ${{ secrets.SUPABASE_PERSONAL_ACCESS_TOKEN }}
+    steps:
+      - name: Report credential presence without values
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for item in TOKEN_ACCESS TOKEN_GENERIC TOKEN_CLI TOKEN_PAT TOKEN_PERSONAL; do
+            if [ -n "${!item:-}" ]; then
+              echo "$item=present"
+              found=1
+            else
+              echo "$item=missing"
+            fi
+          done
+          test "$found" -eq 1 || (echo 'No supported Supabase deploy credential alias is available in repository/production Actions scope.' && exit 1)
