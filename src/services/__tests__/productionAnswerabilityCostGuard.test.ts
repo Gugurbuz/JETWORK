@@ -5,8 +5,12 @@ const providerBaseSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
   'utf8',
 )
-const providerWrapperSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+const interactionsSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  'utf8',
+)
+const coreSource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
   'utf8',
 )
 const semanticSource = readFileSync(
@@ -17,10 +21,12 @@ const semanticSource = readFileSync(
 describe('production answerability + cost guard wiring', () => {
   it('keeps exact-identifier safety without deterministic catalog routing', () => {
     expect(providerBaseSource).toContain('sanitizeNovelCustomIdentifierClaims')
-    expect(providerBaseSource).toContain('answerabilityRequestText')
     expect(providerBaseSource).not.toContain('findEmptyMessageDetailNeedingCatalogCheck')
     expect(providerBaseSource).not.toContain('cost_guard_exact_identifier_catalog_dispatch')
-    expect(providerBaseSource).not.toContain("name: 'search_knowledge_catalog'")
+    expect(coreSource).toContain('evaluateGroundedTechnicalClaims')
+    expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
+    expect(coreSource).toContain('groundingFailureText()')
+    expect(interactionsSource).not.toContain("name: 'search_knowledge_catalog'")
   })
 
   it('requires internal evidence for structured BA requirements without forcing provider web', () => {
@@ -30,12 +36,14 @@ describe('production answerability + cost guard wiring', () => {
     expect(semanticSource).not.toContain("webMode: userProvidedRequirements ? 'none' : 'if_internal_insufficient'")
   })
 
-  it('keeps custom-id answerability protection while emitting safe Gemini segments incrementally', () => {
-    expect(providerBaseSource).toContain('sanitizeNovelCustomIdentifierClaims')
-    expect(providerBaseSource).toContain('shouldBufferForAnswerabilityGuard')
-    expect(providerWrapperSource).toContain('createStreamingProviderAnswerabilityGuard')
-    expect(providerWrapperSource).toContain('requestBaseWithStreamingAnswerability')
-    expect(providerWrapperSource).toContain('onText: delta => guard.push(delta)')
-    expect(providerWrapperSource).toContain('answerability_streaming_guard_used')
+  it('streams Gemini Interactions deltas while keeping final exact-claim answerability at the core boundary', () => {
+    expect(interactionsSource).toContain('stream: true')
+    expect(interactionsSource).toContain("eventType === 'step.delta'")
+    expect(interactionsSource).toContain('input.onText(delta.text)')
+    expect(interactionsSource).toContain('normalizeUsageWithTiming')
+    expect(coreSource).toContain('const canLiveStreamProviderText = activeProvider === \'gemini\'')
+    expect(coreSource).toContain('hasExactCustomIdentifierInRequest')
+    expect(coreSource).toContain("sendEvent(controller, encoder, 'text_delta'")
+    expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
   })
 })
