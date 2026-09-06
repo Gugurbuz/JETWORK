@@ -99,8 +99,10 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
       state,
       completed_at: timestamp(),
     }
+    const completesTool = activeTool?.event_id === activeActivity.event_id
     activeActivity = null
-    return frame('agent_activity', completed)
+    if (completesTool) activeTool = null
+    return frame(completesTool ? 'tool_complete' : 'agent_activity', completed)
   }
 
   const startActivity = (input: Omit<PublicAgentWorkEvent, 'event_id' | 'sequence' | 'started_at' | 'state'>) => {
@@ -132,7 +134,6 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
     const eventName = clean(parsed.eventName, 80)
     const payload = parsed.payload
     if (!eventName || !payload || parsed.data === '[DONE]') return input
-
     if (eventName === 'text_delta') return input
 
     if (eventName === 'status') {
@@ -194,10 +195,7 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
       return `${prefix}${frame('warning', { ...warningEvent, state: 'failed' })}${input}`
     }
 
-    if (eventName === 'tool_start' || eventName === 'tool_complete' || eventName === 'artifact' || eventName === 'warning' || eventName === 'final' || eventName === 'agent_activity') {
-      return input
-    }
-
+    if (eventName === 'tool_start' || eventName === 'tool_complete' || eventName === 'artifact' || eventName === 'warning' || eventName === 'final' || eventName === 'agent_activity') return input
     return input
   }
 
