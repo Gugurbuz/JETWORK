@@ -40,7 +40,6 @@ jobs:
           pnpm test -- --reporter=verbose 2>&1 | tee unit-test-output.txt
       - name: Reasoning golden
         id: golden
-        if: steps.unit.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -56,7 +55,7 @@ jobs:
             reasoning-golden-output.txt
           if-no-files-found: ignore
       - name: Enforce tests
-        if: steps.unit.outcome != 'success' || (steps.golden.outcome != 'success' && steps.unit.outcome == 'success')
+        if: steps.unit.outcome != 'success' || steps.golden.outcome != 'success'
         run: exit 1
       - name: Production build
         run: pnpm build
