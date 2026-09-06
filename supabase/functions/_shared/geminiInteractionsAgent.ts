@@ -206,6 +206,7 @@ export const buildGeminiInteractionsRequest = (input: GeminiInteractionsRequest)
       thinking_level: thinkingLevel(input.workMode),
       ...(tools.length ? { tool_choice: 'validated' } : {}),
     },
+    stream: true,
     store: true,
     background: false,
   }
@@ -325,10 +326,194 @@ export const normalizeGeminiInteraction = (
   }
 }
 
+type SseEnvelope = {
+  event?: string
+  data: string
+}
+
+const parseSseFrames = (buffer: string, flush = false): { frames: SseEnvelope[]; remainder: string } => {
+  const frames: SseEnvelope[] = []
+  let cursor = 0
+  const separator = /\r?\n\r?\n/g
+  let match: RegExpExecArray | null
+  while ((match = separator.exec(buffer)) !== null) {
+    const raw = buffer.slice(cursor, match.index)
+    const lines = raw.split(/\r?\n/)
+    const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+    const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).replace(/^ /, '')).join('\n')
+    if (data) frames.push({ event, data })
+    cursor = match.index + match[0].length
+  }
+  let remainder = buffer.slice(cursor)
+  if (flush && remainder.trim()) {
+    const lines = remainder.split(/\r?\n/)
+    const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+    const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).replace(/^ /, '')).join('\n')
+    if (data) frames.push({ event, data })
+    remainder = ''
+  }
+  return { frames, remainder }
+}
+
+type StreamingStep = {
+  index: number
+  step: Record<string, unknown>
+  text: string
+  argumentsText: string
+  annotations: Array<Record<string, unknown>>
+}
+
+const finalizeStreamingStep = (builder: StreamingStep): Record<string, unknown> => {
+  const type = String(builder.step.type || '')
+  if (type === 'function_call') {
+    return {
+      ...builder.step,
+      arguments: builder.argumentsText.trim()
+        ? parseArguments(builder.argumentsText)
+        : (builder.step.arguments && typeof builder.step.arguments === 'object' ? builder.step.arguments : {}),
+    }
+  }
+  if (type === 'model_output') {
+    const existing = annotationsAndText(builder.step)
+    const text = `${existing.text}${builder.text}`
+    return {
+      ...builder.step,
+      content: text ? [{ type: 'text', text, annotations: [...existing.annotations, ...builder.annotations] }] : [],
+    }
+  }
+  return builder.step
+}
+
+const normalizeUsageWithTiming = (
+  response: GeminiInteractionsNormalizedResponse,
+  startedAt: number,
+  firstTextAt: number | null,
+) => ({
+  ...response,
+  usage: {
+    ...(response.usage || {}),
+    gemini_provider_total_ms: Math.max(0, Math.round(performance.now() - startedAt)),
+    ...(firstTextAt == null ? {} : {
+      gemini_provider_first_text_ms: Math.max(0, Math.round(firstTextAt - startedAt)),
+    }),
+  },
+})
+
+const requestStreamingInteraction = async (
+  response: Response,
+  input: GeminiInteractionsRequest,
+  startedAt: number,
+): Promise<GeminiInteractionsNormalizedResponse> => {
+  if (!response.body) throw new Error('Gemini Interactions API returned an empty stream.')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const builders = new Map<number, StreamingStep>()
+  const completedSteps: Array<Record<string, unknown>> = []
+  let buffer = ''
+  let interaction: Record<string, unknown> = { model: GEMINI_INTERACTIONS_MODEL, status: 'in_progress' }
+  let firstTextAt: number | null = null
+
+  const handleFrame = (frame: SseEnvelope) => {
+    if (!frame.data || frame.data === '[DONE]') return
+    const event = JSON.parse(frame.data) as Record<string, unknown>
+    const eventType = String(event.event_type || frame.event || '')
+
+    if (eventType === 'interaction.created') {
+      const created = event.interaction && typeof event.interaction === 'object' && !Array.isArray(event.interaction)
+        ? event.interaction as Record<string, unknown>
+        : {}
+      interaction = { ...interaction, ...created }
+      return
+    }
+
+    if (eventType === 'interaction.status_update') {
+      interaction.status = String(event.status || interaction.status || 'in_progress')
+      return
+    }
+
+    if (eventType === 'step.start') {
+      const index = Number(event.index)
+      const step = event.step && typeof event.step === 'object' && !Array.isArray(event.step)
+        ? event.step as Record<string, unknown>
+        : {}
+      if (Number.isFinite(index)) builders.set(index, { index, step, text: '', argumentsText: '', annotations: [] })
+      return
+    }
+
+    if (eventType === 'step.delta') {
+      const index = Number(event.index)
+      const builder = builders.get(index)
+      const delta = event.delta && typeof event.delta === 'object' && !Array.isArray(event.delta)
+        ? event.delta as Record<string, unknown>
+        : {}
+      if (!builder) return
+      const deltaType = String(delta.type || '')
+      if (deltaType === 'text' && typeof delta.text === 'string') {
+        if (firstTextAt == null && delta.text) firstTextAt = performance.now()
+        builder.text += delta.text
+        if (Array.isArray(delta.annotations)) {
+          builder.annotations.push(...delta.annotations.filter(item => item && typeof item === 'object') as Array<Record<string, unknown>>)
+        }
+        input.onText(delta.text)
+      } else if (deltaType === 'arguments_delta' && typeof delta.arguments === 'string') {
+        builder.argumentsText += delta.arguments
+      } else if (deltaType === 'google_search_call' && delta.arguments && typeof delta.arguments === 'object') {
+        builder.step = { ...builder.step, arguments: delta.arguments }
+      }
+      return
+    }
+
+    if (eventType === 'step.stop') {
+      const index = Number(event.index)
+      const builder = builders.get(index)
+      if (!builder) return
+      completedSteps.push(finalizeStreamingStep(builder))
+      builders.delete(index)
+      return
+    }
+
+    if (eventType === 'interaction.completed') {
+      const completed = event.interaction && typeof event.interaction === 'object' && !Array.isArray(event.interaction)
+        ? event.interaction as Record<string, unknown>
+        : {}
+      interaction = { ...interaction, ...completed }
+      return
+    }
+
+    if (eventType === 'error' || eventType === 'interaction.failed') {
+      const error = event.error && typeof event.error === 'object' && !Array.isArray(event.error)
+        ? event.error as Record<string, unknown>
+        : {}
+      throw new Error(String(error.message || event.message || 'Gemini Interactions stream failed.'))
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const parsed = parseSseFrames(buffer)
+    buffer = parsed.remainder
+    parsed.frames.forEach(handleFrame)
+  }
+  buffer += decoder.decode()
+  parseSseFrames(buffer, true).frames.forEach(handleFrame)
+
+  // A truncated stream should not silently lose an in-flight step.
+  for (const builder of [...builders.values()].sort((a, b) => a.index - b.index)) {
+    completedSteps.push(finalizeStreamingStep(builder))
+  }
+
+  const normalized = normalizeGeminiInteraction({ ...interaction, steps: completedSteps })
+  return normalizeUsageWithTiming(normalized, startedAt, firstTextAt)
+}
+
 export async function requestGeminiInteractionsResponse(
   input: GeminiInteractionsRequest,
 ): Promise<GeminiInteractionsNormalizedResponse> {
   const body = buildGeminiInteractionsRequest(input)
+  const startedAt = performance.now()
   const response = await fetch(GEMINI_INTERACTIONS_URL, {
     method: 'POST',
     signal: input.signal,
@@ -339,20 +524,31 @@ export async function requestGeminiInteractionsResponse(
     body: JSON.stringify(body),
   })
 
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>
   if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as Record<string, unknown>
     const error = payload.error && typeof payload.error === 'object' && !Array.isArray(payload.error)
       ? payload.error as Record<string, unknown>
       : {}
     throw new Error(String(error.message || `Gemini Interactions API returned ${response.status}.`))
   }
 
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType.includes('text/event-stream')) {
+    return requestStreamingInteraction(response, input, startedAt)
+  }
+
+  // Defensive fallback for proxies/tests that return a buffered Interaction.
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>
   const normalized = normalizeGeminiInteraction(payload)
+  let firstTextAt: number | null = null
   for (const item of normalized.output || []) {
     if (item.type !== 'message' || !Array.isArray(item.content)) continue
     for (const part of item.content as Array<Record<string, unknown>>) {
-      if (part.type === 'output_text' && typeof part.text === 'string' && part.text) input.onText(part.text)
+      if (part.type === 'output_text' && typeof part.text === 'string' && part.text) {
+        if (firstTextAt == null) firstTextAt = performance.now()
+        input.onText(part.text)
+      }
     }
   }
-  return normalized
+  return normalizeUsageWithTiming(normalized, startedAt, firstTextAt)
 }
