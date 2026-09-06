@@ -12,6 +12,22 @@ export interface IndexedCapabilityDiscoveryResult {
 const DISCOVERY_CACHE_TTL_MS = 120_000
 const DISCOVERY_FALLBACK_CACHE_TTL_MS = 10_000
 const DISCOVERY_CACHE_MAX = 64
+const FOUNDATIONAL_SURFACE_VERSION = 'foundational-evidence-surface-v1'
+
+// P1/P2 invariant: semantic Top-K narrows specialist candidates, but it must not
+// remove the controller's basic evidence domains. These entries are capability
+// options only; they do not choose or execute a tool. Keeping them available
+// prevents an embedding miss from becoming a hidden semantic gate (for example,
+// a current public-information request losing web access because provider:web_search
+// ranked 11th).
+const FOUNDATIONAL_CAPABILITY_IDS = [
+  'provider:web_search',
+  'tool:search_knowledge_catalog',
+  'tool:list_knowledge_catalog',
+  'tool:get_knowledge_object',
+  'tool:get_knowledge_objects',
+  'tool:get_related_objects',
+] as const
 
 interface DiscoveryCacheEntry {
   expiresAt: number
@@ -25,6 +41,46 @@ const metadataStrings = (value: unknown) => Array.isArray(value)
   ? [...new Set(value.map(item => clean(item, 300)).filter(Boolean))]
   : undefined
 
+const foundationalCandidate = (id: string): CapabilityCandidate | null => {
+  const item = capabilityById(id)
+  if (!item) return null
+  return {
+    id: item.id,
+    kind: item.kind,
+    category: item.category,
+    title: item.title,
+    description: item.description,
+    toolName: item.toolName,
+    skillKey: item.skillKey,
+    declaredTools: metadataStrings(item.metadata?.declaredTools),
+    executorTools: metadataStrings(item.metadata?.executorTools),
+    // Foundation membership is not a relevance score. Zero keeps ranked Top-K
+    // ordering truthful while still exposing the capability to the controller.
+    score: 0,
+    semanticScore: null,
+    lexicalScore: 0,
+    registryVersion: CAPABILITY_REGISTRY_VERSION,
+    discoveryVersion: 'capability-discovery-v2',
+  }
+}
+
+const withFoundationalCapabilities = (
+  candidates: CapabilityCandidate[],
+  excludeIds?: readonly string[],
+): CapabilityCandidate[] => {
+  const excluded = new Set(excludeIds || [])
+  const seen = new Set(candidates.map(candidate => candidate.id))
+  const merged = [...candidates]
+  for (const id of FOUNDATIONAL_CAPABILITY_IDS) {
+    if (excluded.has(id) || seen.has(id)) continue
+    const candidate = foundationalCandidate(id)
+    if (!candidate) continue
+    merged.push(candidate)
+    seen.add(id)
+  }
+  return merged
+}
+
 const discoveryCacheKey = (input: {
   query: string
   topK?: number
@@ -34,6 +90,7 @@ const discoveryCacheKey = (input: {
   Math.max(1, Math.trunc(Number(input.topK) || 10)),
   [...new Set(input.excludeIds || [])].map(value => clean(value, 300)).filter(Boolean).sort(),
   CAPABILITY_REGISTRY_VERSION,
+  FOUNDATIONAL_SURFACE_VERSION,
 ])
 
 const pruneDiscoveryCache = (now: number) => {
@@ -85,15 +142,26 @@ const runIndexedDiscovery = async (input: {
         discoveryVersion: 'capability-discovery-v2',
       }
     })
-    if (candidates.length) return { candidates, mode: 'embedding_index' }
+    if (candidates.length) {
+      return {
+        candidates: withFoundationalCapabilities(candidates, input.excludeIds),
+        mode: 'embedding_index',
+      }
+    }
     return {
-      candidates: discoverCapabilityCandidates({ query: input.query, topK: input.topK, excludeIds: input.excludeIds }),
+      candidates: withFoundationalCapabilities(
+        discoverCapabilityCandidates({ query: input.query, topK: input.topK, excludeIds: input.excludeIds }),
+        input.excludeIds,
+      ),
       mode: 'lexical_fallback',
       fallbackReason: 'embedding_index_empty',
     }
   } catch (error) {
     return {
-      candidates: discoverCapabilityCandidates({ query: input.query, topK: input.topK, excludeIds: input.excludeIds }),
+      candidates: withFoundationalCapabilities(
+        discoverCapabilityCandidates({ query: input.query, topK: input.topK, excludeIds: input.excludeIds }),
+        input.excludeIds,
+      ),
       mode: 'lexical_fallback',
       fallbackReason: error instanceof Error ? clean(error.message, 500) : 'embedding_index_failed',
     }
@@ -108,11 +176,20 @@ export async function discoverIndexedCapabilities(input: {
   excludeIds?: readonly string[]
 }): Promise<IndexedCapabilityDiscoveryResult> {
   const query = clean(input.query, 2_000)
-  if (!query) return { candidates: [], mode: 'lexical_fallback', fallbackReason: 'empty_query' }
+  if (!query) {
+    return {
+      candidates: withFoundationalCapabilities([], input.excludeIds),
+      mode: 'lexical_fallback',
+      fallbackReason: 'empty_query',
+    }
+  }
 
   if (!input.geminiApiKey) {
     return {
-      candidates: discoverCapabilityCandidates({ query, topK: input.topK, excludeIds: input.excludeIds }),
+      candidates: withFoundationalCapabilities(
+        discoverCapabilityCandidates({ query, topK: input.topK, excludeIds: input.excludeIds }),
+        input.excludeIds,
+      ),
       mode: 'lexical_fallback',
       fallbackReason: 'embedding_provider_unavailable',
     }
