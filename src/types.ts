@@ -1,3 +1,5 @@
+import type { AgentWorkEvent } from './services/agentWorkTypes';
+
 export type MessageRole = 'user' | 'model';
 
 export interface PromptSettings {
@@ -102,6 +104,8 @@ export interface Message {
   groundingUrls?: { uri: string; title: string }[];
   knowledgeSources?: AssistantKnowledgeSource[];
   thinkingText?: string;
+  /** Public operational chronology only; never private chain-of-thought. */
+  workEvents?: AgentWorkEvent[];
   attachments?: MessageAttachment[];
   reactions?: Reaction[];
   documentSnapshot?: DocumentData;
