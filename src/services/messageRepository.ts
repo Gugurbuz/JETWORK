@@ -4,7 +4,11 @@ import type { Message } from '../types';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { persistAssistantToolAttachments } from './assistantFileRepository';
 import { encodeAgentWorkEnvelope } from './agentWorkPersistence';
-import { getAgentWorkLiveSnapshot, resetAgentWorkLiveSnapshot } from './agentWorkLiveStream';
+import {
+  getAgentWorkLiveSnapshot,
+  registerPersistedAgentWorkEvents,
+  resetAgentWorkLiveSnapshot,
+} from './agentWorkLiveStream';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
   let attachments = message.attachments;
@@ -134,6 +138,12 @@ export async function saveAiMessage(
   const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, persistableMessage, ownerId));
   if (error) throw error;
   if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+    // Atomically hand the just-persisted canonical chronology to the completed
+    // message view before clearing the transient turn snapshot. This prevents a
+    // final render from falling back to reported:/observed: compatibility rows.
+    if (currentWorkEvents.length) {
+      registerPersistedAgentWorkEvents(message.createdAt, currentWorkEvents);
+    }
     // Persistence has copied the authoritative public chronology into the message
     // envelope. Clear the transient singleton so a retry/new turn cannot briefly
     // render the previous turn while waiting for its first canonical event.
