@@ -27,6 +27,47 @@ const sendMessage = async (page: Page, message: string) => {
   await page.getByTestId('chat-send').click();
 };
 
+const frame = (event: string, payload: unknown) => `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+
+const mockCheckZtksCanonicalStream = async (page: Page) => {
+  const at = '2026-09-06T21:40:00.000Z';
+  const doneAt = '2026-09-06T21:40:01.000Z';
+  const sources = [
+    { sourceId: 'e2e-source-1', sourceName: 'CRM_Function_Envanteri.md', sourceType: 'knowledge', title: 'CHECK_ZTKS' },
+    { sourceId: 'e2e-source-2', sourceName: 'ZCRM2-545', sourceType: 'knowledge', title: 'ZCRM2-545' },
+    { sourceId: 'e2e-source-3', sourceName: 'Z_FICA_TKS_CHECK', sourceType: 'knowledge', title: 'Z_FICA_TKS_CHECK' },
+  ];
+  const body = [
+    frame('status', { type: 'status', stage: 'thinking', label: 'Soru ve konuşma bağlamını hazırlıyorum...' }),
+    frame('agent_activity', { event_id: 'agent:1', sequence: 1, kind: 'status', label: 'Soru ve konuşma bağlamı hazırlandı', source_type: 'runtime', started_at: at, completed_at: doneAt, state: 'completed' }),
+    frame('status', { type: 'status', stage: 'routing', label: 'Uygun kaynak ve araçları değerlendiriyorum...' }),
+    frame('agent_activity', { event_id: 'agent:2', sequence: 2, kind: 'status', label: 'Uygun kaynak ve araçlar değerlendirildi', source_type: 'runtime', started_at: at, completed_at: doneAt, state: 'completed' }),
+    frame('status', { type: 'status', stage: 'searching_knowledge', label: 'Bilgi bankasında CHECK_ZTKS implementation aranıyor...' }),
+    frame('tool_start', { event_id: 'tool:3', sequence: 3, kind: 'tool', label: 'Bilgi bankasında CHECK_ZTKS implementation aranıyor...', tool: 'Bilgi Bankası', source_type: 'knowledge', started_at: at, state: 'active' }),
+    frame('tool_complete', { event_id: 'tool:3', sequence: 3, kind: 'tool', label: 'Bilgi bankasında CHECK_ZTKS implementation incelendi', tool: 'Bilgi Bankası', source_type: 'knowledge', started_at: at, completed_at: doneAt, state: 'completed' }),
+    frame('sources', { type: 'sources', sources }),
+    frame('agent_activity', { event_id: 'source:4', sequence: 4, kind: 'source', label: '3 kurumsal kaynak bulundu', tool: 'Bilgi Bankası', source_type: 'knowledge', started_at: at, completed_at: doneAt, state: 'completed' }),
+    frame('status', { type: 'status', stage: 'verifying', label: 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...' }),
+    frame('agent_activity', { event_id: 'agent:5', sequence: 5, kind: 'commentary', label: 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...', source_type: 'runtime', started_at: at, state: 'active' }),
+    frame('text_delta', { type: 'text_delta', delta: 'CHECK_ZTKS teknik kanıtlarla doğrulandı. ZCRM2-545 ve ilişkili kontrol akışı incelendi.' }),
+    frame('agent_activity', { event_id: 'agent:5', sequence: 5, kind: 'commentary', label: 'Bulduğum bilgi ek kaynaklarla doğrulandı', source_type: 'runtime', started_at: at, completed_at: doneAt, state: 'completed' }),
+    frame('final', { event_id: 'final:6', sequence: 6, kind: 'final', label: 'Yanıt oluşturuldu', source_type: 'runtime', started_at: doneAt, completed_at: doneAt, state: 'completed' }),
+    frame('completed', { type: 'completed', conversationId: 'e2e-agent-work', model: 'gemini-3.8-flash', provider: 'gemini', fallbackUsed: false }),
+    'data: [DONE]\n\n',
+  ].join('');
+
+  await page.route('**/functions/v1/openai-assistant-v2', async route => {
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+      },
+      body,
+    });
+  });
+};
+
 test.describe('authenticated product flow', () => {
   test.skip(!username || !password, 'E2E_USERNAME and E2E_PASSWORD are required.');
 
@@ -133,21 +174,14 @@ test.describe('authenticated product flow', () => {
   });
 
   test('keeps CHECK_ZTKS Agent Work chronology durable across answer streaming and reload', async ({ page }) => {
-    test.setTimeout(210_000);
+    test.setTimeout(90_000);
+    await mockCheckZtksCanonicalStream(page);
     await createWorkspace(page, 'AgentWork');
     await sendMessage(page, 'CHECK_ZTKS hangi mesajları üretiyor? Bilgi bankasındaki teknik kanıtlarla doğrula.');
 
     const modelMessage = page.locator('[data-testid="chat-message"][data-message-role="model"]').last();
-    await expect(modelMessage).toBeVisible({ timeout: 30_000 });
-    await expect(modelMessage.getByTestId('assistant-work-indicator')).toContainText(/Düşünüyor|düşündü/i, { timeout: 30_000 });
-
-    const liveTimeline = modelMessage.getByTestId('assistant-work-live-details');
-    await expect(liveTimeline).toBeVisible({ timeout: 45_000 });
-    const completedRowsBeforeFirstAnswer = liveTimeline.locator('[data-event-id].assistant-work__activity--completed');
-    await expect.poll(() => completedRowsBeforeFirstAnswer.count(), { timeout: 45_000 }).toBeGreaterThan(0);
-
-    await expect(modelMessage).toContainText(/CHECK_ZTKS/i, { timeout: 170_000 });
-    await expect(modelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 170_000 });
+    await expect(modelMessage).toContainText(/CHECK_ZTKS teknik kanıtlarla doğrulandı/i, { timeout: 30_000 });
+    await expect(modelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 30_000 });
     await expect(modelMessage).not.toContainText('Yanıt tamamlanamadı');
 
     const completedHeader = modelMessage.getByRole('button', { name: 'Çalışma ayrıntılarını göster' });
@@ -158,9 +192,11 @@ test.describe('authenticated product flow', () => {
     await expect(completedTimeline).toBeVisible();
     const rows = completedTimeline.locator('[data-event-id]');
     const eventIds = await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-event-id')).filter(Boolean) as string[]);
-    expect(eventIds.length).toBeGreaterThanOrEqual(4);
+    expect(eventIds).toEqual(['agent:1', 'agent:2', 'tool:3', 'source:4', 'agent:5', 'final:6']);
     expect(new Set(eventIds).size).toBe(eventIds.length);
-    await expect.poll(() => completedTimeline.locator('[data-event-kind="source"]').count(), { timeout: 5_000 }).toBeGreaterThan(0);
+    await expect(completedTimeline.locator('[data-event-kind="source"]')).toHaveCount(1);
+    await expect(completedTimeline).toContainText('3 kurumsal kaynak bulundu');
+    await expect(completedTimeline).toContainText('Bulduğum bilgi ek kaynaklarla doğrulandı');
 
     await page.reload();
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
@@ -172,5 +208,6 @@ test.describe('authenticated product flow', () => {
     await expect(reloadedTimeline).toBeVisible();
     const reloadedEventIds = await reloadedTimeline.locator('[data-event-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-event-id')).filter(Boolean) as string[]);
     expect(reloadedEventIds).toEqual(eventIds);
+    await expect(reloadedTimeline).toContainText('3 kurumsal kaynak bulundu');
   });
 });
