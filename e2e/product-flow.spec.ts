@@ -160,7 +160,7 @@ test.describe('authenticated product flow', () => {
     const eventIds = await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-event-id')).filter(Boolean) as string[]);
     expect(eventIds.length).toBeGreaterThanOrEqual(4);
     expect(new Set(eventIds).size).toBe(eventIds.length);
-    await expect(completedTimeline.locator('[data-event-kind="source"]')).toHaveCount(1, { timeout: 5_000 }).catch(() => undefined);
+    await expect.poll(() => completedTimeline.locator('[data-event-kind="source"]').count(), { timeout: 5_000 }).toBeGreaterThan(0);
 
     await page.reload();
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
