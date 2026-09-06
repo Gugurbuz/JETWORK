@@ -1,0 +1,67 @@
+name: Agent Work Browser Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Preview URL to verify with the authenticated CHECK_ZTKS browser acceptance
+        required: true
+        default: https://jetwork-git-feat-agent-work-timeline-v1-gugurbuzs-projects.vercel.app
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-work-browser-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-ztks-agent-work:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CI: 'true'
+      E2E_BASE_URL: ${{ inputs.base_url }}
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require authenticated browser credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${E2E_USERNAME}" || { echo 'E2E_USERNAME secret is required'; exit 1; }
+          test -n "${E2E_PASSWORD}" || { echo 'E2E_PASSWORD secret is required'; exit 1; }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run CHECK_ZTKS Agent Work browser acceptance
+        run: pnpm test:e2e --grep "keeps CHECK_ZTKS Agent Work chronology durable"
+
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-work-browser-acceptance-${{ github.sha }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 3
