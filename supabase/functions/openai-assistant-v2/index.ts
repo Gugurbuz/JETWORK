@@ -57,8 +57,8 @@ const USER_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_USER_REQUESTS_PER_
 const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQUESTS_PER_MINUTE', 30, 1, 240)
 const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite'
 const LEGACY_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
-const GEMINI_PRO_MODEL = 'gemini-3.1-pro-preview'
-const DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'
+const GEMINI_PRO_MODEL = 'gemini-3.8-flash'
+const DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol'
 const AUTO_PROVIDER_CIRCUIT_BREAKER_MS = 5 * 60 * 1000
 const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
@@ -336,7 +336,7 @@ async function loadSemanticContext(input: {
 }
 
 const substantiveModel = (requestedModel: string) => (
-  requestedModel === LEGACY_GEMINI_FLASH_LITE_MODEL ? GEMINI_FLASH_LITE_MODEL : requestedModel
+  requestedModel.startsWith('gemini-') ? DEFAULT_GEMINI_RUNTIME_MODEL : requestedModel
 )
 const orchestrationProvider = (requestedModel: string, openAiKey?: string) => {
   if (requestedModel === 'auto') return openAiKey ? 'openai' as const : 'gemini' as const
@@ -440,7 +440,7 @@ serve(async req => {
   catch { return jsonResponse({ error: 'Request body could not be read.' }, 400) }
   const parsedBody = parseGatewayBody(body)
   const messageId = cleanString(parsedBody?.messageId, 200)
-  const requestedModel = cleanString(parsedBody?.model, 80) || 'auto'
+  const requestedModel = cleanString(parsedBody?.model, 80) || DEFAULT_GEMINI_RUNTIME_MODEL
   logLatency('ASSISTANT_GATEWAY_REQUEST', { traceId, messageId, requestedModel, gatewayVersion: 'v3' })
 
   try {

@@ -116,7 +116,7 @@ describe('Gemini cost and primary-agent boundaries', () => {
   })
 
   it('keeps Auto provider fallback wiring intact while execution is normalized at the provider boundary', () => {
-    expect(gatewaySource).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'")
+    expect(gatewaySource).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'")
     expect(gatewaySource).toContain('preferGeminiAuto')
     expect(gatewaySource).toContain('AUTO_PROVIDER_CIRCUIT_BREAKER_MS')
     expect(publicProviderSource).toContain('model: PUBLIC_GEMINI_MODEL')
