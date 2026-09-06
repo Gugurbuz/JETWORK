@@ -1,0 +1,86 @@
+name: Agent Work Browser Acceptance
+
+# Final release gate: canonical Agent Work chronology must survive browser reload unchanged.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/agent-work-timeline-v1
+    paths:
+      - .github/workflows/agent-work-browser-acceptance.yml
+      - e2e/product-flow.spec.ts
+      - src/components/ChatPanel.tsx
+      - src/components/AssistantWorkIndicator.tsx
+      - src/components/AgentWorkHeader.tsx
+      - src/components/AgentWorkTimeline.tsx
+      - src/services/agentActivityReducer.ts
+      - src/services/agentWorkLiveStream.ts
+      - src/services/agentWorkPersistence.ts
+      - src/services/assistantTransportRecovery.ts
+      - src/services/messageRepository.ts
+      - src/services/sseParser.ts
+      - src/store/useMessageStore.ts
+      - src/store/__tests__/useMessageStoreAgentWorkPersistence.test.ts
+      - supabase/functions/_shared/agentWorkSseAdapter.ts
+      - supabase/functions/_shared/safeStreamSink.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-work-browser-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-ztks-agent-work:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CI: 'true'
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+      VITE_REASONING_ENGINE_V2: 'true'
+      VITE_SINGLE_ASSISTANT_RUNTIME: 'true'
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require authenticated browser credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${E2E_USERNAME}" || { echo 'E2E_USERNAME secret is required'; exit 1; }
+          test -n "${E2E_PASSWORD}" || { echo 'E2E_PASSWORD secret is required'; exit 1; }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run CHECK_ZTKS Agent Work browser persistence acceptance
+        run: pnpm test:e2e --grep "keeps CHECK_ZTKS Agent Work chronology durable"
+
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-work-browser-acceptance-${{ github.sha }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 3

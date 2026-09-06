@@ -367,6 +367,7 @@ const MessageItem = memo(({
                   phaseLabel={msg.phaseLabel}
                   knowledgeSources={sourceView.knowledgeSources}
                   groundingUrls={sourceView.groundingUrls}
+                  workEvents={msg.workEvents}
                   isStopped={isStopped}
                   onStop={msg.isTyping && isLastMessage ? onStopGeneration : undefined}
                   onFollowUp={!msg.isTyping && isLastMessage ? onFollowUp : undefined}
