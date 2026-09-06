@@ -1,0 +1,138 @@
+.assistant-work__topline--button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.assistant-work__topline--button:hover .assistant-work__label,
+.assistant-work__topline--button:focus-visible .assistant-work__label {
+  filter: brightness(1.06);
+}
+
+.assistant-work__topline--button:focus-visible,
+.assistant-work__history-toggle:focus-visible {
+  border-radius: 0.3rem;
+  outline: 2px solid color-mix(in srgb, var(--theme-primary) 65%, transparent);
+  outline-offset: 3px;
+}
+
+.assistant-work__activity--tool,
+.assistant-work__activity--source {
+  position: relative;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.08rem 0;
+}
+
+.assistant-work__tool-icon {
+  display: inline-flex;
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 1.05rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.04rem;
+  color: color-mix(in srgb, var(--theme-primary) 78%, var(--theme-text-muted));
+}
+
+.assistant-work__tool-icon svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.assistant-work__activity-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
+.assistant-work__activity-copy strong {
+  color: color-mix(in srgb, var(--theme-text) 82%, var(--theme-text-muted));
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.assistant-work__activity-copy span {
+  color: inherit;
+  font-size: 0.71rem;
+  line-height: 1.4;
+}
+
+.assistant-work__activity--tool > .assistant-work__activity-icon,
+.assistant-work__activity--source > .assistant-work__activity-icon {
+  margin-left: 0.1rem;
+}
+
+.assistant-work__activity--failed {
+  color: #dc2626;
+}
+
+.assistant-work__activity--pending {
+  color: var(--theme-text-muted);
+}
+
+.assistant-work__activity--pending .assistant-work__activity-icon,
+.assistant-work__activity--active .assistant-work__activity-icon {
+  color: var(--theme-primary);
+}
+
+.assistant-work__activity--pending .assistant-work__activity-icon svg,
+.assistant-work__activity--active .assistant-work__activity-icon svg {
+  animation: assistant-work-active-spin 1s linear infinite;
+}
+
+.assistant-work__history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  border: 0;
+  background: transparent;
+  margin: 0 0 0.45rem;
+  padding: 0.08rem 0;
+  color: var(--theme-text-muted);
+  font-size: 0.69rem;
+  font-weight: 570;
+  cursor: pointer;
+}
+
+.assistant-work__history-toggle:hover {
+  color: var(--theme-text);
+}
+
+.assistant-work__history-toggle svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.assistant-work__history-toggle--close {
+  margin: 0.48rem 0 0;
+}
+
+@media (max-width: 640px) {
+  .assistant-work__activity--tool,
+  .assistant-work__activity--source {
+    gap: 0.42rem;
+  }
+
+  .assistant-work__activity-copy strong {
+    font-size: 0.66rem;
+  }
+
+  .assistant-work__activity-copy span {
+    font-size: 0.7rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-work__activity--pending .assistant-work__activity-icon svg,
+  .assistant-work__activity--active .assistant-work__activity-icon svg {
+    animation-duration: 2.4s;
+    animation-timing-function: steps(12, end);
+  }
+}
