@@ -6,7 +6,6 @@ import type {
 } from './agentWorkTypes';
 
 const PREFIX = 'jetwork-agent-work:v1:';
-const MAX_EVENTS = 128;
 const EVENT_STATES = new Set<AgentWorkEventState>(['pending', 'active', 'completed', 'warning', 'failed']);
 const EVENT_KINDS = new Set<AgentWorkEventKind>(['agent', 'tool', 'source', 'artifact', 'warning', 'final']);
 const SOURCE_TYPES = new Set<AgentWorkSourceType>(['knowledge', 'web', 'media', 'github', 'vercel', 'artifact', 'runtime']);
@@ -46,16 +45,15 @@ const sanitizeEvent = (value: unknown): AgentWorkEvent | null => {
 };
 
 export function encodeAgentWorkEnvelope(workEvents: AgentWorkEvent[] = [], rawResponse?: string): string | undefined {
-  const bounded = workEvents
-    .slice(-MAX_EVENTS)
+  const sanitized = workEvents
     .map(sanitizeEvent)
     .filter((event): event is AgentWorkEvent => Boolean(event))
     .sort((a, b) => a.sequence - b.sequence);
-  if (!bounded.length) return rawResponse;
+  if (!sanitized.length) return rawResponse;
 
   const envelope: AgentWorkEnvelope = {
     version: 1,
-    workEvents: bounded,
+    workEvents: sanitized,
     rawResponse: rawResponse || undefined,
   };
   return `${PREFIX}${JSON.stringify(envelope)}`;
@@ -73,7 +71,6 @@ export function decodeAgentWorkEnvelope(value?: string | null): {
     if (!parsed || typeof parsed !== 'object' || Number(parsed.version) !== 1) return null;
     const events = Array.isArray(parsed.workEvents)
       ? parsed.workEvents
-        .slice(-MAX_EVENTS)
         .map(sanitizeEvent)
         .filter((event): event is AgentWorkEvent => Boolean(event))
         .sort((a, b) => a.sequence - b.sequence)
