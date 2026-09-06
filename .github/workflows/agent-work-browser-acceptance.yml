@@ -7,6 +7,17 @@ on:
       - feat/agent-work-timeline-v1
     paths:
       - .github/workflows/agent-work-browser-acceptance.yml
+      - e2e/product-flow.spec.ts
+      - src/components/AssistantWorkIndicator.tsx
+      - src/components/AgentWorkHeader.tsx
+      - src/components/AgentWorkTimeline.tsx
+      - src/services/agentActivityReducer.ts
+      - src/services/agentWorkLiveStream.ts
+      - src/services/agentWorkPersistence.ts
+      - src/services/messageRepository.ts
+      - src/services/sseParser.ts
+      - supabase/functions/_shared/agentWorkSseAdapter.ts
+      - supabase/functions/_shared/safeStreamSink.ts
 
 permissions:
   contents: read
