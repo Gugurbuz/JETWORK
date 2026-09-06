@@ -111,6 +111,7 @@ At the latest PR #212 hardening pass:
 - the focused live-like runner is implemented;
 - unauthenticated staging gateway access remains correctly rejected with HTTP 401;
 - a gzip/data-URL module loader was proven in isolated staging and the temporary diagnostic was disabled immediately afterwards;
+- the materialized public staging entry/router bundle has been deployed with JWT verification preserved; internal/core staging transport is intentionally not claimed complete until the materialized bundle deployment is fully verified;
 - live İYS provider execution remains blocked until `AGENTIC_GOLDEN_ANON_KEY` and `AGENTIC_GOLDEN_ACCESS_TOKEN` are available to the manual staging workflow.
 
 This environment block does **not** satisfy the live release gate. Production must remain unchanged until the authenticated staging run passes.
@@ -121,10 +122,11 @@ Do not merge/deploy to production from this branch until:
 
 1. CI typecheck/build/unit/golden tests are green on the final head SHA.
 2. Materialized Edge deployment artifacts contain no private JETWORK raw runtime import.
-3. Authenticated staging Agent Controller V2 run passes the exact İYS regression and paraphrase invariants.
-4. Staging confirms `providerWebVisible=true` without a web keyword/regex route and the controller actually selects fresh web evidence for the current-web golden scenario.
-5. Staging verifies the core receives the neutral Controller V2 plan rather than a legacy fallback plan.
-6. Candidate-only search output is not accepted as verified evidence.
-7. Grounding recovery/re-plan occurs before terminal fail-closed when budget remains.
-8. Grounding safety regressions remain green.
-9. Staging canary is verified before any production routing change.
+3. The full public/internal/core materialized bundle topology is verified in staging.
+4. Authenticated staging Agent Controller V2 run passes the exact İYS regression and paraphrase invariants.
+5. Staging confirms `providerWebVisible=true` without a web keyword/regex route and the controller actually selects fresh web evidence for the current-web golden scenario.
+6. Staging verifies the core receives the neutral Controller V2 plan rather than a legacy fallback plan.
+7. Candidate-only search output is not accepted as verified evidence.
+8. Grounding recovery/re-plan occurs before terminal fail-closed when budget remains.
+9. Grounding safety regressions remain green.
+10. Staging canary is verified before any production routing change.
