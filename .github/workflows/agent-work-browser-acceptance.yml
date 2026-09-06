@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/agent-work-browser-acceptance.yml
       - e2e/product-flow.spec.ts
+      - src/components/ChatPanel.tsx
       - src/components/AssistantWorkIndicator.tsx
       - src/components/AgentWorkHeader.tsx
       - src/components/AgentWorkTimeline.tsx
