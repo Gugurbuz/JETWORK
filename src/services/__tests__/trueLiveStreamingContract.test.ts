@@ -8,7 +8,7 @@ const legacyProviderSource = readFileSync(
   'utf8',
 )
 const interactionsSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
   'utf8',
 )
 const coreSource = readFileSync(
@@ -59,13 +59,16 @@ describe('true live assistant streaming contract', () => {
     expect(legacyProviderSource).toContain('for await (const chunk of stream')
   })
 
-  it('streams active Gemini 3.8 Interactions text incrementally without moving semantic answerability into the provider wrapper', () => {
+  it('streams active Gemini 3.8 Interactions text and real provider-tool lifecycle incrementally', () => {
     expect(interactionsSource).toContain('stream: true')
     expect(interactionsSource).toContain("eventType === 'step.delta'")
     expect(interactionsSource).toContain("deltaType === 'text'")
     expect(interactionsSource).toContain('builder.text += delta.text')
     expect(interactionsSource).toContain('input.onText(delta.text)')
+    expect(interactionsSource).toContain('input.onStepEvent?.')
     expect(interactionsSource).toContain('gemini_provider_first_text_ms')
+    expect(interactionsSource).toContain('gemini_previous_interaction_used')
+    expect(coreSource).toContain("sendEvent(controller, encoder, 'provider_step'")
     expect(coreSource).toContain('evaluateGroundedTechnicalClaims')
     expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
   })
