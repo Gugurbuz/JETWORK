@@ -235,17 +235,16 @@ export function AssistantWorkIndicator({
   const previousSnapshotRef = useRef<string[]>(initialSnapshot);
   const sequenceRef = useRef(Math.max(0, ...events.map(event => event.sequence)));
   const sourceCountRef = useRef({ knowledge: knowledgeSourceCount, web: webSourceCount });
-  const canonicalInitializedRef = useRef(Boolean(canonicalWorkEvents.length));
   const composerStopTarget = useComposerStopTarget(isActive, onStop);
 
   useEffect(() => {
     if (!canonicalWorkEvents.length) return;
-    setEvents(previous => {
-      const base = canonicalInitializedRef.current ? previous : [];
-      canonicalInitializedRef.current = true;
-      return canonicalWorkEvents.reduce(reduceAgentActivityEvents, base);
-    });
-    sequenceRef.current = Math.max(sequenceRef.current, ...canonicalWorkEvents.map(event => event.sequence));
+    // Canonical sources expose a complete ordered snapshot, not a delta. Once
+    // canonical events exist they replace every compatibility-derived row so
+    // reported:/observed: fallback events can never leak into the public history.
+    const canonicalOnly = canonicalWorkEvents.reduce(reduceAgentActivityEvents, [] as AgentWorkEvent[]);
+    setEvents(canonicalOnly);
+    sequenceRef.current = Math.max(0, ...canonicalOnly.map(event => event.sequence));
   }, [canonicalWorkEvents]);
 
   useEffect(() => {
