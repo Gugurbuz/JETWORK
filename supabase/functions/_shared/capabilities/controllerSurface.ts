@@ -112,7 +112,7 @@ export interface ControllerCapabilitySession {
   surface: ControllerCapabilitySurface
 }
 
-export const buildControllerCapabilitySurface = (): ControllerCapabilitySurface => {
+export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly unknown[]): ControllerCapabilitySurface => {
   // The model sees every registered JetWork tool. Runtime does not pre-select a
   // subset from the user's text and does not append per-tool workflow guidance.
   const tools = uniqueTools([
