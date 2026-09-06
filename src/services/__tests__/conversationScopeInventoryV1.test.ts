@@ -133,10 +133,11 @@ describe('Conversation Scope & Inventory Intelligence v1', () => {
     expect(sql).toContain('to authenticated');
   });
 
-  it('keeps the selected Gemini model instead of hidden Flash-Lite to Pro promotion', () => {
+  it('normalizes every Gemini selection to the production 3.8 runtime model', () => {
     const gateway = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url), 'utf8');
     const providers = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url), 'utf8');
-    expect(gateway).toContain("requestedModel === LEGACY_GEMINI_FLASH_LITE_MODEL ? GEMINI_FLASH_LITE_MODEL : requestedModel");
+    expect(gateway).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'");
+    expect(gateway).toContain("requestedModel.startsWith('gemini-') ? DEFAULT_GEMINI_RUNTIME_MODEL : requestedModel");
     expect(gateway).not.toContain('requestedModel === GEMINI_FLASH_LITE_MODEL ? GEMINI_PRO_MODEL');
     expect(providers).toContain('model: requestedModel');
     expect(providers).toContain('primary_llm_agent_calls');
