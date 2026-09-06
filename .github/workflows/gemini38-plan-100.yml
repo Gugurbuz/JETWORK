@@ -26,7 +26,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Apply plan-100 patch
-        run: node scripts/apply-gemini38-plan-100.mjs
+        run: |
+          node scripts/fix-gemini38-plan-100-patcher.mjs
+          node scripts/apply-gemini38-plan-100.mjs
       - name: Typecheck
         run: pnpm lint
       - name: Full unit suite
