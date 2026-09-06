@@ -31,8 +31,33 @@ jobs:
           node scripts/fix-gemini38-generated.mjs
       - name: Typecheck
         run: pnpm lint
-      - name: Unit and golden tests
-        run: pnpm test && pnpm verify:reasoning-golden
+      - name: Unit tests
+        id: unit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test -- --reporter=verbose 2>&1 | tee unit-test-output.txt
+      - name: Reasoning golden
+        id: golden
+        if: steps.unit.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm verify:reasoning-golden 2>&1 | tee reasoning-golden-output.txt
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini38-plan-diagnostics-${{ github.run_id }}
+          path: |
+            unit-test-output.txt
+            reasoning-golden-output.txt
+          if-no-files-found: ignore
+      - name: Enforce tests
+        if: steps.unit.outcome != 'success' || (steps.golden.outcome != 'success' && steps.unit.outcome == 'success')
+        run: exit 1
       - name: Production build
         run: pnpm build
       - name: Commit verified patch
