@@ -55,8 +55,12 @@ jobs:
             reasoning-golden-output.txt
           if-no-files-found: ignore
       - name: Enforce tests
-        if: steps.unit.outcome != 'success' || steps.golden.outcome != 'success'
-        run: exit 1
+        if: always()
+        shell: bash
+        run: |
+          echo "unit=${{ steps.unit.outcome }} golden=${{ steps.golden.outcome }}"
+          test "${{ steps.unit.outcome }}" = "success"
+          test "${{ steps.golden.outcome }}" = "success"
       - name: Production build
         run: pnpm build
       - name: Commit verified patch
