@@ -15,6 +15,7 @@ import {
 import { cn } from '../lib/utils';
 import type { AgentWorkEvent } from '../services/agentWorkTypes';
 import { splitAgentWorkTimeline } from '../services/agentActivityReducer';
+import '../agent-work-timeline.css';
 
 const StateIcon = ({ state }: { state: AgentWorkEvent['state'] }) => {
   if (state === 'failed') return <XCircle aria-hidden="true" />;
@@ -40,11 +41,7 @@ const RowState = ({ event }: { event: AgentWorkEvent }) => (
 
 export function AgentActivityRow({ event }: { event: AgentWorkEvent }) {
   return (
-    <li
-      data-event-id={event.eventId}
-      data-event-kind={event.kind}
-      className={cn('assistant-work__activity', `assistant-work__activity--${event.state}`)}
-    >
+    <li data-event-id={event.eventId} data-event-kind={event.kind} className={cn('assistant-work__activity', `assistant-work__activity--${event.state}`)}>
       <RowState event={event} />
       <span>{event.label}</span>
     </li>
@@ -53,11 +50,7 @@ export function AgentActivityRow({ event }: { event: AgentWorkEvent }) {
 
 export function ToolActivityRow({ event }: { event: AgentWorkEvent }) {
   return (
-    <li
-      data-event-id={event.eventId}
-      data-event-kind={event.kind}
-      className={cn('assistant-work__activity assistant-work__activity--tool', `assistant-work__activity--${event.state}`)}
-    >
+    <li data-event-id={event.eventId} data-event-kind={event.kind} className={cn('assistant-work__activity assistant-work__activity--tool', `assistant-work__activity--${event.state}`)}>
       <span className="assistant-work__tool-icon"><ToolIcon event={event} /></span>
       <span className="assistant-work__activity-copy">
         <strong>{event.tool || 'JetWork'}</strong>
@@ -70,11 +63,7 @@ export function ToolActivityRow({ event }: { event: AgentWorkEvent }) {
 
 export function SourceActivityRow({ event }: { event: AgentWorkEvent }) {
   return (
-    <li
-      data-event-id={event.eventId}
-      data-event-kind={event.kind}
-      className={cn('assistant-work__activity assistant-work__activity--source', `assistant-work__activity--${event.state}`)}
-    >
+    <li data-event-id={event.eventId} data-event-kind={event.kind} className={cn('assistant-work__activity assistant-work__activity--source', `assistant-work__activity--${event.state}`)}>
       <span className="assistant-work__tool-icon"><ToolIcon event={event} /></span>
       <span className="assistant-work__activity-copy">
         <strong>{event.tool || 'Kaynaklar'}</strong>
@@ -91,20 +80,11 @@ const renderEvent = (event: AgentWorkEvent) => {
   return <AgentActivityRow key={event.eventId} event={event} />;
 };
 
-export function AgentWorkTimeline({
-  events,
-  live = false,
-  compactAfter = 12,
-}: {
-  events: AgentWorkEvent[];
-  live?: boolean;
-  compactAfter?: number;
-}) {
+export function AgentWorkTimeline({ events, live = false, compactAfter = 12 }: { events: AgentWorkEvent[]; live?: boolean; compactAfter?: number }) {
   const [showAllHistory, setShowAllHistory] = useState(false);
   const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
   const { hidden, visible } = splitAgentWorkTimeline(ordered, Math.max(6, compactAfter - 4));
   const displayed = showAllHistory ? ordered : visible;
-
   if (!ordered.length) return null;
 
   return (
@@ -114,27 +94,14 @@ export function AgentWorkTimeline({
       aria-live={live ? 'polite' : undefined}
     >
       {!showAllHistory && hidden.length > 0 ? (
-        <button
-          type="button"
-          className="assistant-work__history-toggle"
-          onClick={() => setShowAllHistory(true)}
-          aria-label={`${hidden.length} önceki işlemi göster`}
-        >
+        <button type="button" className="assistant-work__history-toggle" onClick={() => setShowAllHistory(true)} aria-label={`${hidden.length} önceki işlemi göster`}>
           <ChevronDown aria-hidden="true" />
           {hidden.length} işlem daha
         </button>
       ) : null}
-
-      <ol className="assistant-work__activity-list">
-        {displayed.map(renderEvent)}
-      </ol>
-
+      <ol className="assistant-work__activity-list">{displayed.map(renderEvent)}</ol>
       {showAllHistory && hidden.length > 0 ? (
-        <button
-          type="button"
-          className="assistant-work__history-toggle assistant-work__history-toggle--close"
-          onClick={() => setShowAllHistory(false)}
-        >
+        <button type="button" className="assistant-work__history-toggle assistant-work__history-toggle--close" onClick={() => setShowAllHistory(false)}>
           Geçmişi daralt
         </button>
       ) : null}
