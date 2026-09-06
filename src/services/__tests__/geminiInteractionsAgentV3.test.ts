@@ -78,7 +78,7 @@ describe('Gemini Interactions Agent V3', () => {
       ],
     })
 
-    expect(request.previous_interaction_id).toBe('int_123')
+    expect('previous_interaction_id' in request ? request.previous_interaction_id : undefined).toBe('int_123')
     expect(request.input).toEqual([{
       type: 'function_result',
       name: 'search_knowledge_catalog',
