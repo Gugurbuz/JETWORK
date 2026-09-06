@@ -2,7 +2,7 @@
 
 **Belge türü:** Ürün + UX/UI + Runtime + Mimari Uygulama Planı  
 **Tarih:** 06.09.2026  
-**Durum:** Uygulama planı / production hardening  
+**Durum:** Revizyon 3 — native-first uygulama planı / production hardening
 **Hedef model:** `gemini-3.8-flash`  
 **Ana mimari referans:** `JETWORK_Agentic_Runtime_Teknik_Master_Plan`  
 **Temel ilke:** **LLM decides → Runtime executes/guards → Observation returns → LLM re-plans**
@@ -110,6 +110,8 @@ Dolayısıyla hedef **“3.8 modeline geçtik”** değil, **“3.8 özellikleri
 ## 3. Değişmeyecek Mimari Kurallar
 
 Gemini 3.8 güçlü olduğu için JetWork runtime'ına yeni bir ikinci semantik beyin eklenmeyecek.
+
+**Karar sahibi Gemini'dir:** Kullanıcı niyetini yorumlama, araç seçimi, planı değiştirme, kanıt yeterliliği ve kullanıcıya açıklama kararlarını aktif Gemini controller verir. JETWORK Agent bu modelin çalıştığı uygulama sınırıdır; ikinci planner değildir. SDK'nın izinli native AFC döngüsü mekanik yürütmeyi üstlenebilir; yetki ve kalıcı iş yaşam döngüsü JETWORK'te kalır. Ayrıntılı sorumluluk matrisi §38, ara mesaj deneyimi §39 ve kabul testleri §40'tadır.
 
 ### Kural 1 — Tek semantik otorite
 
@@ -241,7 +243,7 @@ kullanacaktır.
 
 Gemini 3.8'in structured output kabiliyeti JetWork için kritik bir avantajdır.
 
-Controller serbest metin ile “sanırım tool çağırmalıyım” demek yerine valid JSON contract döndürmelidir.
+Controller'ın yürütülebilir kararları tipli ve doğrulanmış sözleşmeye dönüştürülmelidir. Native function calling/AFC kullanıldığında SDK'nın function call sözleşmesi bu ihtiyacı karşılayabilir; aynı kararı ayrıca JSON ürettirmek için ikinci model çağrısı yapılmaz. Aşağıdaki JSON, manuel controller yolu için önerilen uygulama sözleşmesidir. Public ara mesajlar ve final metni yürütme kararından ayrı kanallarda taşınır.
 
 ### Önerilen controller schema
 
@@ -382,7 +384,9 @@ Bu bir “hangi capability?” kararı değildir; kullanıcı tarafından açık
 
 UI provider iç reasoning'ini veya chain-of-thought'u göstermez.
 
-Gösterilecek yapılandırılmış status örnekleri:
+Asistan ayrıca doğal dilde başlangıç, ara bulgu, yaklaşım değişikliği ve engel mesajları gönderir. Bu mesajların içeriğine Gemini, gerçek sonuçları esas alarak karar verir. Yalnız animasyon veya durum etiketi yeterli değildir. Mesajlar konuşmada saklanır; final yanıttan ayrı tutulur. Zamanlama, event sözleşmesi, örnek konuşma ve yeniden bağlanma davranışı §39'da tanımlıdır.
+
+Runtime'ın gerçek olaylara dayanarak gösterebileceği yapılandırılmış status örnekleri:
 
 ```text
 Kaynaklar taranıyor
@@ -1209,7 +1213,7 @@ Beklenti:
 ## G1 — Controller Native Structured Output
 
 - [ ] Controller decision schema tanımla.
-- [ ] Gemini response schema ile enforce et.
+- [ ] Manuel controller yolunda Gemini response schema ile enforce et; native function calling/AFC yolunda aynı kararı tekrar ürettirmeden tipli call sözleşmesini doğrula.
 - [ ] Parse failure recovery tanımla.
 - [ ] Runtime semantic fallback parser'ı oluşturma.
 - [ ] Structured telemetry ekle.
@@ -1271,7 +1275,8 @@ Beklenti:
 
 - [ ] Auto default 3.8.
 - [ ] Work mode UI.
-- [ ] Structured status feed.
+- [ ] Structured status feed ve Gemini kaynaklı public ara mesajlar.
+- [ ] Commentary/final ayrımı, kalıcılık, reconnect sırası ve iptal davranışı (§39–40).
 - [ ] Evidence/source panel iyileştirme.
 - [ ] Multimodal upload status.
 - [ ] Provider failure transparency.
@@ -1375,7 +1380,8 @@ Gemini 3.8'in JetWork production default'u olarak “tamamlandı” sayılması 
 
 - [ ] Auto = 3.8.
 - [ ] Hızlı/Dengeli/Derin anlaşılır.
-- [ ] Status messages structured.
+- [ ] Status messages structured; doğal ara mesajlar gerçek bulgulara bağlı.
+- [ ] R31-01–R31-12 iletişim ve karar sahipliği kabul testleri başarılı.
 - [ ] Source/evidence görünür.
 - [ ] Provider failure açık.
 - [ ] Multimodal upload flow anlaşılır.
@@ -1471,3 +1477,335 @@ Gemini 3.8 intelligence
 birleşimidir.
 
 **Hedef:** Gemini 3.8'i yalnız API'ye bağlamak değil; JetWork'ü 3.8'in native yeteneklerini doğru kullanan, kanıtlı, agentic ve production-grade enterprise çalışma platformuna dönüştürmektir.
+
+
+---
+
+## 29. Native-first yeniden kullanım envanteri
+
+Bu revizyonun ana uygulama kuralı: önce mevcut kod yolu, sonra resmi SDK, yalnız kanıtlanmış boşluk için özel kod. Yeni bağımlılık veya servis eklemek varsayılan değildir.
+
+| Alan | Hazır kullanacağımız parça | JETWORK'e özgü küçük ek | Yeniden yazılmayacak |
+|---|---|---|---|
+| Streaming | SDK generateContentStream / Chat stream | Mevcut SSE event map, cancel ve replay | Google stream parser |
+| Multi-turn | SDK Chat ve desteklenen history API | Context'ten başlatma, güvenli checkpoint | Yeni konuşma SDK'sı |
+| Native AFC | Sabit sürümün desteklenen Chat/tool mekanizması | Yetkili tool callback bağlantısı | İkinci planner veya bağımsız agent framework |
+| Manuel tool çağrısı | SDK Content/FunctionResponse tipleri | Mevcut Agent execution döngüsü | Yeni function-call protokolü |
+| Google Search | Native built-in tool | Veri paylaşımı izni, kaynak UI | Arama motoru/crawler |
+| URL Context | Native built-in tool | Onaylı URL ve erişim sonucu | Genel web scraper |
+| Python hesaplama | Native code execution | Girdi referansı, sonuç doğrulama | Yeni sandbox kümesi |
+| JSON | Native response schema | İş kuralları ve kaynak doğrulama | JSON'u prompt/regex ile onarma motoru |
+| Medya | SDK Part/FileData ve native işleme | Yetkili dosya erişimi, source locator | Genel OCR/video parçalama sistemi |
+| Artifact | Mevcut renderer/verifier/worker | Aynı analizden bundle ve revision bağlantısı | Gemini ile Office ZIP formatını üretme |
+| Kalıcılık | Mevcut turn/job/outbox/lease | Gerekli state referansları | İkinci workflow altyapısı |
+
+### 29.1 SDK/endpoint uyumluluk kararı
+
+JavaScript SDK README'si AFC'nin sonraki ana sürümde doğrudan Models.generateContent/stream yerine Chats modülünden kullanılacağına ilişkin uyarı içeriyor. Bu nedenle “en yeni SDK'yı kur” teslim kriteri değildir.
+
+Uygulama başlamadan tek uyumluluk kaydı hazırlanır:
+
+- repository SHA ve deploy SHA,
+- gerçek Deno/runtime sürümü,
+- tam `@google/genai` sürümü ve lockfile,
+- Developer API veya Enterprise/Vertex seçimi,
+- API sürümü, bölge, model kimliği,
+- streaming, AFC, custom tool hook, cancellation, multimodal response ve built-in tool kombinasyonları,
+- her satır için `verified / unsupported / not_tested` ve test kanıtı.
+
+Node desteği, Deno uyumluluğunun kanıtı sayılmaz. Notebook'taki Python paket sürümü TypeScript sürümüne çevrilmez. Kimlik doğrulama ve veri yerleşimi farklı API'ler arasında sessiz geçiş yapılmaz. Özellik SDK'da yoksa yalnız o özellik için belgelenmiş REST kaçış yolu değerlendirilir; bütün adaptör REST olarak yeniden yazılmaz.
+
+## 30. Native AFC ve manuel kontrol karar tablosu
+
+| İş türü | Tercih | Zorunlu kontrol | Kullanıcı deneyimi |
+|---|---|---|---|
+| Kısa, salt okunur kurumsal araştırma | Hook'ları doğrulanmış native AFC | Her kaynak erişiminde workspace yetkisi, tur/bütçe limiti | Araştırma adımları ve kaynaklı sonuç |
+| Google Search / URL Context | Native built-in tool | Çağrı öncesi izin ve dışarı gönderilen içerik kontrolü | Web kaynaklı sonuç |
+| Story taslağı / test listesi | Native structured output | Şema + domain validation | Düzenlenebilir taslak |
+| Jira/SAP dış yazma | Mevcut Agent/Execution onay yolu | Hedef, işlem payload'ı, approval, idempotency | Önizleme → onay → gerçek sonuç |
+| Çok dosyalı artifact | Mevcut durable artifact job | Kanıt, render, verify, persist | Dosya paketi kartı |
+| Uzun medya işi | Mevcut job; worker içinde native SDK | Checkpoint, lease, maliyet ve iptal | Ekran kapansa da izlenebilir iş |
+| SDK'da callback kontrolü eksik | Mevcut manuel Agent döngüsü | Aynı Execution kapıları | Aynı UI; yeni kullanıcı modu yok |
+
+Native AFC ve manuel yol aynı turn içinde birbirinden bağımsız plan yapmaz. Native döngü seçilmişse Agent sınırları ve tool bağlarını kurar; model önerileri callback üzerinden yürür. Onay/durable sınırında döngü durur ve iş checkpoint edilir. Kontrol edilemeyen callback'i çalıştırıp sonradan audit etmek kabul edilmez.
+
+Built-in Search ve code execution, JETWORK custom callback'i değildir. Her Google iç adımını yakalayabildiğimizi varsaymayız. Politika her adımda ayrı insan onayı istiyorsa o built-in açılmaz. Özel tool sonuçlarındaki kurumsal sırların web sorgusuna taşınmaması için hassas araştırma ile web araştırması ayrı, minimize edilmiş çağrılarda yapılabilir.
+
+### 30.1 V2 mimarisiyle uyum
+
+V2 §8.4 döngüyü Agent/Kernel sınırında tutar. Native SDK'nın mekanik döngüsünü bu sınırdan kullanmak hedeflenir; provider adaptörünün iş kararı sahibi olması hedeflenmez. SDK entegrasyonu karar/observation kayıtlarını veya yetkili Execution sınırını atlıyorsa mevcut mimariyle uyumlu kabul edilmez. Böyle bir değişiklik ayrı ADR ve mimari onayı gerektirir. Bu plan ana mimari belgesini sessizce geçersiz kılmaz.
+
+## 31. Streaming, multi-turn ve async ayrıntıları
+
+### 31.1 Streaming kabul sözleşmesi
+
+1. Backend turn kimliğini oluşturur; UI bunu tek mesaj kimliğine bağlar.
+2. SDK native stream iterator'ı tüketilir; görünür text, tool hazırlığı ve completion ayrılır.
+3. Sadece public event'ler mevcut Gateway SSE üzerinden gönderilir.
+4. Kaynak metadata'sı metinden sonra gelirse aynı mesajın citation alanı güncellenir; metin yeniden üretilmez.
+5. Ağ kesilirse mevcut turn'e bağlanılır; sadece reconnect için yeni ücretli generation başlatılmaz.
+6. Kullanıcı durdurduğunda provider çağrısına iptal aktarılır; destek yoksa yeni execution engellenir ve kalan işin durumu açıkça raporlanır.
+7. Partial yanıt `completed` sayılmaz. Safety, token limit ve transport hatası ayrı bitiş nedenleridir.
+
+TTFT, ilk durum event'i değil ilk görünür cevap tokenidir. Durum göstergesini hızlandırmak model TTFT iyileşmesi olarak raporlanmaz. Grounding kontrolü gerektiren yanıtta henüz doğrulanmamış iddialar kesin sonuç gibi stream edilmez; gerekli durumda ilgili cevap bölümü doğrulama sonrasına bırakılır.
+
+### 31.2 Multi-turn yaşam döngüsü
+
+- Kalıcı konuşma kaydı: JETWORK DB.
+- Modele sunulan bağlam: recent + resolved state + ilgili memory/evidence.
+- Aktif Gemini oturumu: native Chat; bütün geçmişi tekrar büyüten ikinci kayıt sistemi değil.
+- Provider state: Chat content/signature/opaque video continuation; sunucuda tenant, conversation, model ve SDK sürümüne bağlı.
+- Yeniden başlatma: sadece SDK'nın desteklediği history/export mekanizmasıyla hydrate; canlı Chat nesnesi JSON'a çevrilip saklanmaz.
+- Provider değişimi: normal konuşma ve kaynaklar taşınır; Gemini opaque state diğer modele verilmez.
+- State süresi dolması: aynı kaynaktan kontrollü yeniden başlatma; sınırsız reprocess yok.
+
+Checkpoint kaydı şifreleme, erişim kontrolü ve retention politikasına tabidir. UI/loglara raw thought metni veya opaque token yazılmaz. Kullanıcı kaynak erişimini kaybettiğinde eski checkpoint'in bu kaynağı kullanmaya devam etmesi engellenir.
+
+### 31.3 Async API ile durable job ayrımı
+
+Python `client.aio` örneği bloklamayan çağrıyı gösterir; TypeScript'te Promise/await ve stream iterator kullanılır. Bunlar queue, crash recovery veya tamamlanma garantisi değildir.
+
+İş, ölçülen çalışma süresi Edge deadline'ını aşabilecekse veya kullanıcı bağlantısından bağımsız devam etmesi gerekiyorsa mevcut durable job'a alınır. Sırf await kullanıldığı için job yaratılmaz. Worker içinde de aynı native SDK kullanılır.
+
+Önerilen job durumları mevcut state machine'e eşlenir: queued, running, awaiting_approval, verifying, completed, failed, cancelled. Gerçek oran bilinmiyorsa sahte yüzde gösterilmez. Yeniden deneme aynı idempotency anahtarını ve tamamlanan output referanslarını kullanır; tamamlanan dış yazma tekrarlanmaz.
+
+## 32. Multimodal tool response — öncelikli ürün paketi
+
+Bu özellik yalnız kullanıcının dosya yüklemesi değildir: kurumsal kaynak aracı görseli kendisi bulur ve modelin incelemesine sunar.
+
+**Senaryo:** “Teklif kaydındaki bu kontrol hangi ekranda ve hangi koşulda çalışıyor?”
+
+1. Model mevcut enterprise research aracını seçer.
+2. Araç, yetkili kaynaklar içinden method açıklaması ve ilgili ekran görselini bulur.
+3. Sonuç, kısa metin + source/version ref + MIME doğrulanmış görsel part olarak SDK'ya verilir.
+4. Gemini metin ve görseli birlikte inceler. Kaynakta görünmeyen alan adı/koşul uydurulmaz.
+5. UI açıklama yanında “İlgili ekran” kartını açar; kaynak versiyonu ve varsa doğrulanmış bölge gösterilir.
+
+**Önemli sınırlar:** SDK/API'nin gerçekten desteklediği modality ve URI erişimi kullanılır. JETWORK'ün imzalı URL'sinin Google tarafından okunabileceği varsayılmaz; gerekirse onaylı upload/file yolu seçilir. Model erişimiyle son kullanıcının preview yetkisi ayrı ayrı kontrol edilir. Dosya uzantısı ile MIME çelişirse çağrı yapılmaz.
+
+Modelin yorumladığı görsel, UI'da gösterilen sürümle aynı content hash'e bağlıdır. Bounding box veya timestamp desteklenmiyorsa sahte locator yerine dosya düzeyi kaynak gösterilir. Görsel çıkarmak için bütün kurumsal arşiv Google'a gönderilmez; ilgili kaynaklar seçilir.
+
+## 33. Structured output, system instructions ve parametreler
+
+### 33.1 Structured output ürün şemaları
+
+| Şema | Örnek alanlar | UI | Ek doğrulama |
+|---|---|---|---|
+| StoryDraft | title, description, acceptanceCriteria, openQuestions, sourceRefs | Story kartı ve düzenleme | Kabul kriterlerinin kaynak/istekle ilişkisi |
+| TestCaseSet | preconditions, steps, expectedResult, requirementRefs | Test tablosu | Gereksinim kapsamı ve yinelenen testler |
+| Comparison | columns, rows, cellSourceRefs, unknowns | Karşılaştırma tablosu | Kanıtsız hücrenin bilinmiyor olması |
+| MeetingFindings | decisions, actions, owners, dueDates, locators | Karar/aksiyon kartları | Söylenmemiş sorumlu/tarih null |
+| ArtifactDraft | sections, tables, evidenceSnapshotId | Belge önizlemesi | Mevcut artifact validator/verifier |
+
+Python Pydantic modeli örnektir; JETWORK TypeScript'te mevcut validator/JSON schema altyapısı kullanılır. Format geçerli olması içerik doğruluğu değildir. Bozuk veya kesilmiş JSON tamamlanmış kart olarak gösterilmez. Gerekirse bütçe içinde sınırlı düzeltme çağrısı yapılır; başarısızlık kullanıcı girdisini silmez.
+
+### 33.2 System instruction yönetimi
+
+Tek versiyonlu temel instruction, workspace politikası ve görev için gerekli talimatlar mevcut prompt yönetiminden derlenir. Her katmana aynı uzun metin kopyalanmaz. Kaynak dosyadaki talimat system instruction'a yükseltilmez. Persona ve dil davranışı izin/yetkilendirme yerine geçmez. Yeni process veya Chat hydrate edildiğinde gerekli system instruction yeniden sağlanır; sağlayıcıda kendiliğinden sonsuza kadar kaldığı varsayılmaz.
+
+### 33.3 Token, maliyet ve safety
+
+- Native countTokens büyük/limit sınırındaki girdilerde preflight için kullanılır; her küçük mesaja ek ücretli round-trip eklenmez.
+- computeTokens desteği endpoint bazında doğrulanır; production kritik yolu için zorunlu değildir.
+- Faturalanan gerçek kullanım response usage üzerinden kaydedilir. Thinking/cached/media alanları varsa korunur; bulunmayan alan sıfır gerçek tüketim gibi sunulmaz.
+- Birim token fiyatı ile başarılı işin toplam maliyeti ayrıdır. “Aynı fiyat sınıfı” toplam maliyetin aynı olacağını kanıtlamaz.
+- Safety kategorileri model/endpoint desteğine göre allowlist edilir; notebook'taki tüm enum'lar körlemesine gönderilmez.
+- Safety block, boş yanıt, token limit ve ağ hatası farklı kullanıcı mesajları ve metrikler üretir. Safety engeli sınırsız retry veya başka modelle aşılmaz.
+
+## 34. UI/UX ayrıntılı davranış ve hata durumları
+
+| Yüzey | Başarılı akış | Hata/belirsizlik | Kullanıcı kontrolü |
+|---|---|---|---|
+| Composer | Dosya/URL + amaç; Auto varsayılan | Desteksiz MIME/süre/limit çağrı öncesi görünür | Dosyayı kaldır, amacı değiştir |
+| Çalışma göstergesi | Mevcut logo/animasyon + gerçek adımlar | Kaynak erişilemiyor / işlem kesildi | Durdur; uygun durumda yeniden dene |
+| Kaynak kartı | Kaynak türü, sürüm, konum, alıntı | Kanıt yok veya çelişki var | Kaynağı aç; başka kaynak ekle |
+| Structured kart | Düzenlenebilir story/test/karşılaştırma | Eksik alan açık konu olarak görünür | Düzelt, kabul et, dışa aktar |
+| Multimodal kart | Görsel/PDF/ses/video önizlemesi | Süresi dolmuş bağlantı için yeniden yetkilendirme | Kaynak konumuna git |
+| Onay kartı | Hedef ve değişiklik payload'ı | Yetki yoksa çalıştırma yok | Onayla / reddet; payload değişirse yeni onay |
+| Job kartı | Durum ve doğrulanmış çıktılar | Kısmi çıktı, retryable/kalıcı hata ayrımı | İptal, kaldığı yerden dene |
+| Teknik ayrıntı | Gerçek model, süre, çağrı sayısı | Ölçüm eksikse açık işaret | Yetkili kullanıcı trace referansını açar |
+
+Google Search Suggestion HTML'i tüm uygulamanın DOM'una kontrolsüz yerleştirilmez. Resmi görünüm/tıklama şartlarını koruyan izole render yüzeyi ve güvenlik testi kullanılır. Provider HTML'i kaynak metniyle birleştirilmez.
+
+Erişilebilirlik: Klavye ile kart/onay/kaynak işlemleri; ekran okuyucu için aşama değişiminde ölçülü aria-live; her token veya saniyede anons yok. Mobilde tablolar yatay kayabilir ve kaynaklar açılır panelde gösterilir. Mevcut JetWork animasyonu korunur; reduced-motion tercihi desteklenir. Bu çalışma genel tasarım yenilemesi değildir.
+
+## 35. Teslim paketleri, bağımlılıklar ve kabul kanıtı
+
+Bu paketler §22'deki G0–G8 işlerini kullanıcı değeri üzerinden gruplar; ayrı platform projeleri değildir. Uygulama aşağıdaki kullanıcı değeri taşıyan paketlerle teslim edilir.
+
+| Paket | İşler | Mevcut dosya/modül hedefleri | Bağımlılık | Kabul kanıtı |
+|---|---|---|---|---|
+| A — Native temel | G0/G1/G2/G3; model doğrulama, SDK pin, stream, mod | platform/intelligence, model registry, CompactModelControl, ChatPanel | Doğru branch/SHA | Gerçek stream, iptal, 3 düşünme seviyesi ve tek model seçimi |
+| B — Akıllı kaynaklı işler | G1/G3 + G5 web kısmı; tool bağlantıları, JSON, kaynak UI | platform/agent, Execution public contract, mevcut knowledge/web araçları, AssistantWorkIndicator | A; AFC uyumluluk sonucu | Kaynak arama → takip tool → kaynaklı cevap; aynı senaryo manuel fallback'te |
+| C — Görsel kanıt | G4 + multimodal function response | Context attachments, knowledge kaynak ref, FileViewer, ChatPanel | B'nin source sözleşmesi | Kaynaktan görsel bul → model incele → aynı görseli kullanıcı aç |
+| D — Hesaplama ve çıktı | G3/G4 compute + mevcut artifact bundle | Intelligence built-in tool, artifact renderer/verifier/worker | A/B; veri paylaşımı politikası | Doğru hesap + doğrulanmış dosya; kod hatası ayrı rapor |
+| E — Uzun medya | G4/G6; native video + mevcut jobs | runtime-worker, Context state, media locator UI | C; durable checkpoint | Takip sorusu, worker restart, cancel ve timestamp doğruluğu |
+| F — Kontrollü yaygınlaştırma | G8; golden suite/canary | QualityLabPage, evaluation, Telemetry, rollout config | Yayına açılacak paketin testleri | Exact SHA scorecard ve denenmiş rollback |
+
+Modelin genel sohbet varsayılanı olması E paketinin bitmesini zorunlu kılmaz; doğrulanmış özelliklerle kapsamı sınırlı yayın yapılabilir. Ancak bunu “tüm entegrasyon tamamlandı” diye raporlamayız. Sonraki özellikler kendi flag ve kabul kapısıyla açılır.
+
+Dosya hedefleri mevcut ağaca göre öneridir. Uygulayıcı yeni versiyon-wrapper dosyaları yaratmaz; aktif import yolunu doğrular ve ilgili mevcut modülü genişletir. Bu doküman dosya hedeflerindeki kodların değiştirildiğini belirtmez.
+
+## 36. Genişletilmiş doğrulama senaryoları
+
+| ID | Senaryo | Beklenen sonuç |
+|---|---|---|
+| N01 | Native AFC iki ardışık salt-okunur tool çağrısı | Her çağrıda yetki/bütçe kontrolü; tek semantik döngü |
+| N02 | AFC sırasında izin iptali | İkinci tool çalışmaz; eski kaynak state'i sızıntı üretmez |
+| N03 | SDK upgrade: Models → Chats AFC davranışı | Contract testi farkı yakalar; upgrade otomatik production'a gitmez |
+| N04 | Çok büyük streamed tool argümanı | Tamamlanmadan execution yok; argüman UI/loga sızmaz |
+| N05 | Chat instance kaybı | Desteklenen history ile restore; kullanıcı mesajı yinelenmez |
+| N06 | Provider değişimi | Gemini opaque state diğer provider'a gönderilmez |
+| N07 | Kurumsal tool görsel döndürür | Model ve UI aynı sürümü kullanır; MIME/hash uyumlu |
+| N08 | Kaynak görseline yetki yok | Ne model ne kullanıcı yetkisiz dosyayı alır |
+| N09 | Geçerli JSON, yanlış iş bilgisi | Domain/evidence kontrolü reddeder veya açık konu yapar |
+| N10 | Google Search metadata geç gelir | Citation mevcut yanıta eklenir; duplicate cevap oluşmaz |
+| N11 | Built-in search ile hassas bağlam | Dışarı çıkmasına izin verilmeyen veri sorguya taşınmaz |
+| N12 | Native hesaplama başarısız | Başarılı sonuç iddiası yok; bounded recovery veya hata |
+| N13 | Worker aynı işi iki kere teslim alır | Aynı dış yazma/çıktı tekrar üretilmez veya çifte publish edilmez |
+| N14 | Video locator medya dışında | Kaynak referansı reddedilir; uydurma zaman kodu gösterilmez |
+| N15 | Native tool kombinasyonu desteklenmiyor | Çağrı öncesi capability check; açık sınırlama, sessiz başka provider yok |
+| N16 | Kullanıcı yalnız biçim revizyonu ister | İçerik ve evidence korunur; yeniden araştırma zorlanmaz |
+| N17 | Yeni kaynak eski bulguyu değiştirir | Yeni immutable snapshot; eski çıktının kaynağı korunur |
+| N18 | Native async çağrıda bağlantı kapanır | Job olmayan iş durable tamamlandı diye gösterilmez |
+| N19 | Mobil/reduced-motion/klavye testi | İş durumu ve kontroller animasyondan bağımsız anlaşılır |
+| N20 | Kaynakta cevap yok | Dürüst boşluk; yakın SAP kodundan uydurma cevap yok |
+
+P7 ölçümlerinde Master Plan'daki on span adı aynen korunur: request_to_claim, claim_to_context, context_to_controller, capability_discovery_latency, controller_decision_latency, tool_latency, replan_latency, final_generation_ttft, stream_duration, total_turn. Native SDK iç adımı ölçülemiyorsa ölçüm yok olarak raporlanır; sıfır süre atanmaz.
+
+Golden suite aynı input/source sürümleri, aynı SHA ve aynı kalite rubric'i ile karşılaştırılır. Önerilen ilk set: 10 kurumsal retrieval, 5 follow-up, 5 web/URL, 5 structured çıktı, 5 multimodal, 5 hesaplama/artifact, 5 hata/yetki senaryosu. Tekrarlı koşum sayısı ve örneklem büyüklüğü raporlanır; küçük örneklemden güvenilir P95 iddiası çıkarılmaz. Güvenlik invariant'ı ihlali veya yetkisiz yazma doğrudan durdurma nedenidir.
+
+## 37. Uygulama öncesi açık kararlar ve doküman kabul listesi
+
+| Açık konu | Varsayılan yaklaşım | Kapanış kanıtı |
+|---|---|---|
+| Etkin deploy hangi SHA'yı çalıştırıyor? | §2'deki mevcut 3.8 entegrasyonunu koru; tekrar ekleme | Çalışan deployment'ın model registry/runtime/SHA kanıtı |
+| Hangi JS SDK sürümü? | Tam sürüm pin; sürüm yükseltmeyi ayrı tut | Deno ve AFC contract test raporu |
+| Native AFC uygun mu? | Hook/iptal/bütçe sağlanırsa kullan | N01–N04 geçişi |
+| Hangi Google endpoint/bölge? | Mevcut onaylı veri işleme konumu | Endpoint/auth/region kaydı |
+| Multimodal tool dosyası nasıl taşınır? | Mevcut storage + desteklenen provider file yolu | Yetki, MIME ve erişim testi |
+| Native video sınırları ve preview erişimi? | Ayrı flag; endpoint'e özgü doğrulama | Limit/continuation contract testleri |
+| Hangi özellikler ilk yayında? | A+B; hazırsa C/D, E ayrı | Özellik bazında scorecard |
+
+Bu revizyonun tamamlanma ölçütü doküman kapsamıdır: native yeniden kullanım kararları, SDK/endpoint belirsizlikleri, V2 sınırları, UI durumları, testler ve teslim bağımlılıkları tarif edildi. Uygulamanın tamamlanma ölçütü ise §25 ve §40'tır; doküman güncellemesi kod/test/deploy tamamlandı anlamına gelmez.
+
+## 38. Kesin sorumluluk kararı: Gemini düşünür ve karar verir
+
+Bu bölümdeki kararlar Revizyon 3'ün bağlayıcı ürün niyetidir. “Agent”, ayrı bir LLM planner veya Gemini'yi anahtar kelimelerle yöneten deterministik beyin anlamına gelmez. JETWORK Agent, Gemini'nin araçları ve bağlamı kullanarak çalıştığı uygulama katmanıdır. Bu karar Gemini yolu için geçerlidir; kullanıcının açık başka provider seçimini geçersiz kılmaz.
+
+| Karar / sorumluluk | Sahibi | Uygulama sınırı |
+|---|---|---|
+| Kullanıcı ne istiyor? | Gemini | Talep/context üzerinden anlamlandırma |
+| Hangi araca/kaynağa ihtiyaç var? | Gemini | Yetkili adaylar arasından seçim; keyword zorlaması yok |
+| Sonraki adım ne, plan değişmeli mi? | Gemini | Tool sonuçlarına göre re-plan |
+| Kaynaklar yeterli mi, eksik soru sorulmalı mı? | Gemini | Kanıt ve validation observation'ları üzerinden karar |
+| Kullanıcıya ne zaman, ne anlatılmalı? | Gemini | Public iletişim talimatları ve gerçek bulgular içinde |
+| Final yanıt veya artifact talebi | Gemini | İşin gerçekte tamamlandığına ilişkin sistem kayıtlarıyla sınırlı |
+| Kaynağa/işleme erişim yetkisi | Sunucu politikası | Model izin yaratamaz veya yükseltemez |
+| Riskli dış değişikliğin onayı | Kullanıcı / yetkili onay akışı | Tam hedef ve payload onayı |
+| Şema, deadline, bütçe, tekrar çalıştırma kontrolü | Yürütme altyapısı | Mekanik kontrol; semantik plan üretmez |
+| Kalıcı state, resume, output verification | Hazır veya mevcut workflow/artifact altyapısı | Kayıtlı ve test edilebilir garanti |
+
+Evidence kontrolü kaynak referansı, şema, sürüm veya kanıt eksikliği observation'ı üretir. Bu bir ret ise sistem işlemi durdurabilir; hangi yeni kaynağın aranacağına veya kullanıcıya hangi açıklamanın yapılacağına Gemini karar verir. Yetki reddi model tarafından aşılamaz.
+
+Her kullanıcı isteğinin önce başka bir planner'a, ardından Gemini'ye aynı işi planlatmak için gönderilmesi yasaktır. Kurumsal kimlik eşleştirmesi retrieval içinde veri işlemi olabilir; “faturadar geçiyorsa şu tool zorunlu” gibi konuşma seviyesinde semantik yönlendirme değildir. Native AFC veya mevcut manuel loop seçimi kullanıcı niyetini yeniden yorumlayan ikinci beyin kurmaz.
+
+## 39. Public çalışma iletişimi: ara mesajlı asistan deneyimi
+
+### 39.1 Amaç ve içerik ayrımı
+
+Hedef, kullanıcının iş boyunca asistanla iletişimde kalmasıdır. Sadece dönen logo, “Düşünüyor” veya tool adı listesi yeterli değildir. Asistan gerektiğinde kısa mesaj atar, ne yaptığını ve bunun kullanıcı açısından anlamını açıklar; en sonunda kendi başına anlaşılır final yanıtı verir.
+
+| İçerik | Örnek | Gösterim / saklama |
+|---|---|---|
+| Başlangıç niyeti | “Önce ilgili methodu bulacağım; sonra ürettiği mesajları inceleyeceğim.” | Public commentary; konuşmada saklanır |
+| Ara bulgu | “Methodu buldum; bağlı mesajların bir bölümü başka kaynakta. Onları da inceliyorum.” | Gerçek observation'a dayanır; public commentary |
+| Kısa karar açıklaması | “Kaynaklar farklı sürümlere ait; sonucu sürüm bazında ayıracağım.” | Public gerekçe özeti; ham düşünce zinciri değil |
+| Engel / sınır | “Bu kaynağa erişim iznim yok. Erişebildiğim kaynaklarla devam edebilirim.” | Public commentary veya kullanıcı girdisi isteği |
+| Sistem durumu | “İş kuyrukta; henüz başlamadı.” | Runtime tarafından açıkça sistem durumu olarak |
+| Final yanıt | Bulgular, kaynaklar, açık konular ve varsa dosyalar | Ayrı final mesaj |
+| Ham özel reasoning / signature | İç muhakeme tokenleri veya opaque provider state | Kullanıcı iletişim kanalı değildir; UI/log dışında |
+
+Özel reasoning'i göstermeme kuralı, kullanıcıya gerekçe veya çalışma açıklaması vermeme anlamına gelmez. “Ne yapıyorum / ne buldum / neden yaklaşımı değiştirdim / ne eksik?” soruları kısa ve anlaşılır biçimde yanıtlanır. Gizli düşünce zinciri dökümü istenmez. Kaynakla desteklenmeyen ara bulgu yayımlanmaz; belirsiz bulgu açıkça geçici olarak belirtilir.
+
+### 39.2 Mesaj zamanlaması
+
+- Basit selamlaşma veya tek adımlı kısa cevapta gereksiz başlangıç mesajı yok; doğrudan final.
+- Araç veya uzun iş başlamadan önce, uygunsa bir kısa başlangıç mesajı.
+- Anlamlı yeni bulgu, yaklaşım değişikliği, kullanıcı kararı veya engel oluştuğunda kısa ara mesaj.
+- Her tool çağrısı için otomatik aynı cümle üretilmez; kullanıcıyı ilgilendiren değişim esas alınır.
+- Uzun sessizlikte runtime gerçek bekleme durumunu gösterebilir. Bu Gemini'nin düşüncesiymiş gibi yazılmaz; sahte bulgu veya yüzde eklenmez.
+- Önerilen gözlemlenebilirlik hedefi: uzun işlerde 30–60 saniyeyi aşan sessizlik izlenir. Bu, her 30 saniyede ayrı LLM çağrısı veya zorunlu metin üretme zamanlayıcısı değildir.
+- Ara mesaj 1–3 kısa cümle olmalı; tüm plan veya geçmiş her seferinde tekrarlanmamalı.
+- Final yanıt ara mesajlar okunmadan anlaşılmalı; ancak gereksiz işlem günlüğüne dönüşmemeli.
+
+### 39.3 Üretim ve taşıma
+
+Native SDK seçilen sürümde pre-tool public text/status kanalını güvenilir biçimde destekliyorsa doğrudan o yol kullanılır. Desteklemiyorsa Agent'e ince bir `report_progress` aracı sunulması önerilir. Bu isim JETWORK sözleşmesi önerisidir, Google'ın hazır API alanı değildir.
+
+Önerilen giriş: `kind: start | finding | plan_change | blocked`, kısa `message`, varsa `sourceRefs`. Bu araç yalnız public event kaydeder; veri sorgulamaz, dış sistem değiştirmez, izin vermez ve ikinci LLM çağrısı yapmaz. Execution zamanlaması veya SDK tur sınırı maliyeti contract testte ölçülür. Yalnız UI'ı konuşturmak için ayrı narrator modeli kurulmaz.
+
+Modelin “bulundu/tamamlandı” gibi ifadeleri ilgili execution sonucundan sonra gelmelidir. Denetim ikinci serbest metin planner ile değil, id/ref/state doğrulamasıyla yapılır. Sonuç iddiası henüz kanıtlanamıyorsa finalleştirilmez; Gemini'ye observation döner.
+
+Önerilen public taşıma sözleşmesi mevcut event tipleriyle birleştirilir:
+
+```ts
+type AssistantPublicUpdate = {
+  runId: string
+  turnId: string
+  messageId: string
+  sequence: number
+  kind: 'start' | 'finding' | 'plan_change' | 'blocked'
+  text: string
+  sourceRefs?: string[]
+  createdAt: string
+}
+```
+
+Sözleşme `assistant.commentary` olarak veya eşdeğer mevcut event ile taşınabilir. Final delta'ları ayrı messageId/type altında kalır. Native SDK text'inin public commentary mi final mi olduğu belirlenemiyorsa içerik regex'le tahmin edilmez; açık status aracı veya desteklenen typed kanal tercih edilir.
+
+### 39.4 UI ve kalıcılık
+
+- Ara mesajlar sohbet akışında JetWork AI kimliğiyle, sade ve okunabilir görünür. Teknik debug modalına saklanmaz.
+- Gerçek tool durumları mevcut AssistantWorkIndicator içinde kalabilir; aynı açıklama iki yerde tekrar edilmez.
+- Final geldiğinde ara mesajlar silinmez; isteğe bağlı “Çalışma sırasında” grubunda daraltılabilir. Final baskın görünür.
+- Public mesajlar sequence/messageId üzerinden deduplicate edilir ve yeniden bağlanmada sırası korunur.
+- Kullanıcı durdurduğunda önceki ara mesajlar korunur; final yoksa tamamlandı görünümü verilmez.
+- UI erken mesajı final yanıt olarak DB'ye yazmaz. Run tamamlanması ile ara mesaj gönderilmesi farklı olaylardır.
+- Ara mesajlar aynı konuşmanın erişim/retention politikasına tabidir. Secrets, erişilemeyen kaynak adları veya başka tenant bilgisi içermez.
+- Onay gerektiğinde yalnız ara mesaj atıp beklenmez; açık, etkileşimli approval/input durumu oluşturulur.
+
+### 39.5 Örnek uçtan uca konuşma
+
+**Kullanıcı:** “Bu methodun ürettiği mesajları bul, ardından test senaryolarını çıkar.”
+
+**Başlangıç:** “Önce methodun kaynak kodunu ve bağlı mesajları inceleyeceğim. Testleri bulduğum koşullara göre hazırlayacağım.”
+
+**Ara bulgu — yalnız tool sonucu geldikten sonra:** “Method bulundu, ancak mesaj açıklamalarının bir kısmı referans verilen katalogda. Kataloğu da kontrol ediyorum.”
+
+**Yaklaşım değişikliği — gerçekten çelişki varsa:** “Kod ile açıklama dokümanı farklı sürümlere ait. Doğrulanmış davranışı ve açık kalan farkı ayrı göstereceğim.”
+
+**Final:** Kaynaklarla eşlenmiş mesajlar, test adımları/beklenen sonuçlar ve doğrulanamayan noktalar. Dosya istenmişse ancak render/verify/persist sonrasında indirme kartı.
+
+Bu cümleler örneklerdir; üretimde sabit sırayla oynatılan senaryo metni değildir. Hangi adımın gerekli olduğuna ve hangi public açıklamanın anlamlı olduğuna Gemini karar verir.
+
+## 40. Revizyon 3 teslim ve kabul kriterleri
+
+Paket A'ya public message taşıma/kalıcılık, Paket B'ye Gemini kaynaklı ara açıklamalar eklenir. Ayrı platform, ikinci planner veya narrator servisi kurulmaz.
+
+| Test | Beklenen kanıt |
+|---|---|
+| R31-01 — Basit mesaj | Gereksiz plan/ara mesaj olmadan doğal final |
+| R31-02 — Çok adımlı araştırma | Başlangıç + gerçek bulgu/plan değişikliği + bağımsız anlaşılır final |
+| R31-03 — Karar sahipliği | Tool seçimi Gemini çıktısına dayanır; başka planner/keyword yönlendirmesi yok |
+| R31-04 — Execution reddi | Yetkisiz işlem çalışmaz; Gemini reddi açıklayıp izinli sonraki adımı seçer |
+| R31-05 — Commentary/final ayrımı | Ara mesaj final delta'larına karışmaz ve turn'ü tamamlamaz |
+| R31-06 — Reload/reconnect | Public ara mesajlar sıralı, eksiksiz ve tekrarsız geri gelir |
+| R31-07 — Durdurma | Önceki mesajlar korunur; sonraki execution durur; sahte tamamlanma yok |
+| R31-08 — Reasoning ayrımı | Kullanıcıya kısa gerekçe görünür; raw thought/signature sızmaz |
+| R31-09 — Uzun bekleme | Gerçek sistem durumu gösterilir; zamanlayıcı uydurma model mesajı üretmez |
+| R31-10 — Maliyet | Commentary için ayrı narrator çağrısı yok; varsa status tool tur maliyeti raporlanır |
+| R31-11 — Eksik kanıt | Ara/final mesaj bilinmeyeni açıkça belirtir; kaynak/işlem uydurmaz |
+| R31-12 — Yeni kullanıcı girdisi | Mevcut konuşma sırası korunur; eski plan yeni talebe rağmen körlemesine devam etmez |
+
+İletişim gecikmesi ayrıca ölçülür: ilk public update süresi ve anlamlı güncellemeler arasındaki bekleme. Bunlar P7 `final_generation_ttft` yerine kullanılamaz. Başarı, yalnız daha sık mesaj göstermek değil; doğru karar, anlaşılır iletişim, kaynak doğruluğu ve tamamlanan iştir.
