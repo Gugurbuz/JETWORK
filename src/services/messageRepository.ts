@@ -3,6 +3,7 @@ import { nowIso } from '../lib/mapping';
 import type { Message } from '../types';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { persistAssistantToolAttachments } from './assistantFileRepository';
+import { encodeAgentWorkEnvelope } from './agentWorkPersistence';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
   let attachments = message.attachments;
@@ -31,13 +32,15 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
       }
     : null;
   const hidesPrivateRuntimeTelemetry = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && message.role === 'model';
+  const persistedRawResponse = hidesPrivateRuntimeTelemetry
+    ? encodeAgentWorkEnvelope(message.workEvents || [], message.rawResponse)
+    : message.rawResponse;
 
   // Keep this list aligned with public.messages. UI-only fields must never reach PostgREST:
   // an unknown column makes the complete message write fail with HTTP 400.
-  // The single runtime exposes only bounded operational activity labels in thinkingText;
-  // private chain-of-thought is never placed there. Persist that safe summary and the total
-  // elapsed time so "Nasıl hazırlandı?" remains available after a reload. Provider routing
-  // metadata stays private.
+  // Agent Work chronology is intentionally persisted in a versioned envelope inside the
+  // existing raw_response column so rollout requires no schema mutation. The envelope contains
+  // only public operational events; private reasoning/provider telemetry never enters it.
   const candidates: Record<string, unknown> = {
     id: message.id,
     workspace_id: workspaceId,
@@ -65,7 +68,7 @@ function toMessagePayload(workspaceId: string, message: Message, ownerId?: strin
     token_count: message.tokenCount,
     thinking_time: message.thinkingTime,
     owner_id: ownerId ?? message.ownerId,
-    raw_response: message.rawResponse,
+    raw_response: persistedRawResponse,
     reply_to_id: message.replyToId,
     knowledge_sources: message.knowledgeSources,
     is_error: message.isError === true,
