@@ -50,6 +50,7 @@ export const providerForModel = (model: string): AssistantProvider => (
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 const UNTRUSTED_EVIDENCE_PATTERN = /\[UNTRUSTED_EVIDENCE\]\s*([\s\S]*?)\s*\[END_UNTRUSTED_EVIDENCE\]/i
 const INTERNAL_SEMANTIC_PLAN_PATTERN = /\[JETWORK_SEMANTIC_PLAN\]\s*([\s\S]*?)\s*\[END_JETWORK_SEMANTIC_PLAN\]/i
+const VERIFIED_KNOWLEDGE_EVIDENCE_MARKER = 'VERIFIED_KNOWLEDGE_EVIDENCE'
 
 const mergeNumericUsage = (...values: Array<Record<string, number> | undefined>): Record<string, number> => {
   const merged: Record<string, number> = {}
@@ -293,8 +294,98 @@ const requestBaseWithEmptyFinalizationRecovery = async (
   }
 }
 
+const itemsContainVerifiedKnowledgeEvidence = (items: Array<Record<string, unknown>>) => {
+  for (const item of items) {
+    if (String(item.type || '') !== 'function_call_output') continue
+    const output = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
+    if (!output.includes(VERIFIED_KNOWLEDGE_EVIDENCE_MARKER)) continue
+    try {
+      const parsed = JSON.parse(output)
+      if (parsed?.citationReady === true) return true
+    } catch {
+      // Verified tool envelopes can be compacted/annotated. The marker alone is
+      // accepted only together with an explicit citationReady literal.
+      if (/"citationReady"\s*:\s*true/u.test(output)) return true
+    }
+  }
+  return false
+}
+
+const shouldRunEnterpriseEvidenceReplan = (input: {
+  request: GeminiRequestInput
+  plan: ReturnType<typeof extractSemanticPlanFromItems>
+  response: NormalizedModelResponse
+  visibleText: string
+}) => Boolean(
+  input.plan?.enterpriseGroundingRequired === true
+  && input.request.allowTools
+  && input.request.tools.length > 0
+  && input.visibleText.trim()
+  && !responseHasFunctionCall(input.response)
+  && !itemsContainVerifiedKnowledgeEvidence(input.request.items)
+)
+
+/**
+ * Mechanical grounding recovery for Controller V2.
+ *
+ * When authoritative enterprise evidence is required but the controller attempts
+ * to finalize before any citation-ready enterprise observation exists, the first
+ * draft is withheld and the same controller model gets one structured recovery
+ * observation with the SAME capability surface. Runtime does not select a tool;
+ * the LLM may choose knowledge, web, discovery, another visible capability, or
+ * (after reconsideration) an evidence-gap final. The downstream fail-closed
+ * grounding guard remains authoritative if the retry still lacks support.
+ */
+const requestBaseWithEnterpriseEvidenceReplan = async (
+  input: GeminiRequestInput,
+  plan = extractSemanticPlanFromItems(input.items),
+): Promise<NormalizedModelResponse> => {
+  if (plan?.enterpriseGroundingRequired !== true || !input.allowTools || input.tools.length === 0) {
+    return requestBaseWithEmptyFinalizationRecovery(input, plan)
+  }
+
+  let withheldText = ''
+  const first = await requestBaseWithEmptyFinalizationRecovery({
+    ...input,
+    onText: delta => { if (delta) withheldText += delta },
+  }, plan)
+
+  if (!shouldRunEnterpriseEvidenceReplan({ request: input, plan, response: first, visibleText: withheldText })) {
+    if (withheldText) input.onText(withheldText)
+    return first
+  }
+
+  console.warn('JETWORK_GEMINI_ENTERPRISE_GROUNDING_REPLAN', JSON.stringify({
+    model: PUBLIC_GEMINI_MODEL,
+    visibleTools: input.tools.length,
+  }))
+
+  let retryText = ''
+  const retry = await requestBaseWithEmptyFinalizationRecovery({
+    ...input,
+    instructions: [
+      input.instructions,
+      '[JETWORK GROUNDING RECOVERY REPLAN OBSERVATION]',
+      'Önceki final taslak kullanıcıya gönderilmedi: bu turn authoritative enterprise evidence gerektiriyor ve henüz citation-ready enterprise evidence yok.',
+      'Bu observation bir tool seçimi değildir. Kullanıcı hedefini ve mevcut observationları yeniden değerlendir; sıradaki capability/tool kararını yine sen ver.',
+      'Search sonucu candidate-only ise onu kanıt sayma. Pending canonical candidate varsa exact/detail doğrulama protokolünü tamamla. Güncel dış doğrulama değerliyse görünür web capabilitysini seçebilirsin.',
+      'Mekanik bütçe bitmeden yalnız aynı doğrulanmamış finali tekrar etme. Ek araştırmanın artık değer üretmeyeceğine karar verirsen kanıt açığını açıkça belirten dürüst bir final üret.',
+    ].filter(Boolean).join('\n\n'),
+    onText: delta => { if (delta) retryText += delta },
+  }, plan)
+
+  if (retryText) input.onText(retryText)
+  return {
+    ...retry,
+    usage: mergeNumericUsage(first.usage, retry.usage, {
+      grounding_controller_replan_retry: 1,
+      grounding_controller_replan_withheld_first_draft: withheldText.trim() ? 1 : 0,
+    }),
+  }
+}
+
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   // Provider-native web is exposed as a capability. The active Gemini controller
   // decides whether to use Google Search; no semantic intent gate executes web first.
-  return requestBaseWithEmptyFinalizationRecovery(input, extractSemanticPlanFromItems(input.items))
+  return requestBaseWithEnterpriseEvidenceReplan(input, extractSemanticPlanFromItems(input.items))
 }
