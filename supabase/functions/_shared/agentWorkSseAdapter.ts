@@ -13,6 +13,12 @@ export interface PublicAgentWorkEvent {
   state: PublicAgentWorkState
 }
 
+interface PublicSourceSummary {
+  label: string
+  sourceType: 'knowledge' | 'web' | 'media' | 'runtime'
+  tool: string
+}
+
 const clean = (value: unknown, max = 1_000) => String(value ?? '').trim().slice(0, max)
 const frame = (eventName: string, payload: unknown) => `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`
 
@@ -52,14 +58,34 @@ const publicLabel = (value: unknown, completed = false) => {
     .replace(/oluşturuluyor/giu, 'oluşturuldu')
 }
 
-const sourceSummary = (payload: Record<string, unknown>) => {
+const sourceSummary = (payload: Record<string, unknown>): PublicSourceSummary | null => {
   const sources = Array.isArray(payload.sources) ? payload.sources as Record<string, unknown>[] : []
-  const knowledge = sources.filter(source => clean(source.sourceType || source.source_type, 40) !== 'web').length
-  const web = sources.filter(source => clean(source.sourceType || source.source_type, 40) === 'web').length
-  if (knowledge > 0 && web > 0) return `${knowledge} kurumsal ve ${web} web kaynağı bulundu`
-  if (knowledge > 0) return `${knowledge} kurumsal kaynak bulundu`
-  if (web > 0) return `${web} web kaynağı bulundu`
-  return ''
+  let knowledge = 0
+  let web = 0
+  let media = 0
+  for (const source of sources) {
+    const sourceType = clean(source.sourceType || source.source_type, 40)
+    if (sourceType === 'web') web += 1
+    else if (sourceType === 'media') media += 1
+    else if (sourceType === 'knowledge' || !sourceType) knowledge += 1
+  }
+
+  const categories = Number(knowledge > 0) + Number(web > 0) + Number(media > 0)
+  if (categories === 0) return null
+  if (categories === 1 && knowledge > 0) return { label: `${knowledge} kurumsal kaynak bulundu`, sourceType: 'knowledge', tool: 'Bilgi Bankası' }
+  if (categories === 1 && web > 0) return { label: `${web} web kaynağı bulundu`, sourceType: 'web', tool: 'Web' }
+  if (categories === 1 && media > 0) return { label: `${media} kullanıcı medyası incelendi`, sourceType: 'media', tool: 'Medya' }
+
+  const parts = [
+    knowledge > 0 ? `${knowledge} kurumsal kaynak` : '',
+    web > 0 ? `${web} web kaynağı` : '',
+    media > 0 ? `${media} kullanıcı medyası` : '',
+  ].filter(Boolean)
+  return {
+    label: `${parts.join(' · ')} incelendi`,
+    sourceType: 'runtime',
+    tool: 'Kaynaklar',
+  }
 }
 
 const sourceTypeForStage = (stage: string) => {
@@ -169,10 +195,9 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
         if (activeActivity?.event_id === activeTool.event_id) activeActivity = null
         activeTool = null
       }
-      const label = sourceSummary(payload)
-      if (!label) return `${prefix}${input}`
-      const sourceType = /web kaynağı/iu.test(label) && !/kurumsal/iu.test(label) ? 'web' : 'knowledge'
-      const sourceEvent = completedEvent({ kind: 'source', label, tool: sourceType === 'web' ? 'Web' : 'Bilgi Bankası', source_type: sourceType })
+      const summary = sourceSummary(payload)
+      if (!summary) return `${prefix}${input}`
+      const sourceEvent = completedEvent({ kind: 'source', label: summary.label, tool: summary.tool, source_type: summary.sourceType })
       return `${prefix}${frame('sources', { ...payload, event_id: sourceEvent.event_id, sequence: sourceEvent.sequence, label: sourceEvent.label, source_type: sourceEvent.source_type, started_at: sourceEvent.started_at, completed_at: sourceEvent.completed_at, state: sourceEvent.state })}${frame('agent_activity', sourceEvent)}`
     }
 
