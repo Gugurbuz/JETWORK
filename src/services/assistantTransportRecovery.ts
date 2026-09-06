@@ -271,12 +271,24 @@ export const installAssistantTransportRecovery = (): void => {
     while (true) {
       try {
         response = await originalFetch(input, init);
-        break;
       } catch (error) {
         if (signal?.aborted) throw abortError(signal);
         if (!isTransientAssistantTransportError(error)) throw error;
         await waitWithSignal(signal);
+        continue;
       }
+
+      // A duplicate/replayed request can arrive while the durable turn or its
+      // semantic plan is still running. Treat that as transport-level recovery,
+      // not as a user-visible assistant failure. Keep replaying the same
+      // idempotent messageId until the committed response is available (or the
+      // caller aborts/times out).
+      const busyCode = await responseBusyCode(response);
+      if (response.status === 409 && RECOVERABLE_BUSY_CODES.has(busyCode)) {
+        await waitWithSignal(signal);
+        continue;
+      }
+      break;
     }
 
     if (!response.ok || !response.body) return response;
