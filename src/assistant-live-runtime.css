@@ -44,7 +44,7 @@
      hard-coded “Bilgi ve kaynaklar inceleniyor…” sentence. */
   .assistant-work__details--live .assistant-work__activity-list {
     display: flex !important;
-    gap: 0.38rem !important;
+    gap: 0.32rem !important;
     margin: 0 !important;
     padding: 0 !important;
   }
@@ -54,26 +54,27 @@
     display: none !important;
   }
 
-  /* Keep the live feed compact on a phone: preserve the current activity and
-     the immediately preceding observation, while the component still retains
-     the complete bounded activity history for completion details. */
+  /* Keep every real event in the current turn visible. Completed steps remain
+     in the chronology when a new active step arrives; only their visual weight
+     is reduced. The component already bounds/deduplicates the runtime history. */
   .assistant-work__details--live .assistant-work__activity {
-    display: none !important;
+    display: flex !important;
     align-items: flex-start;
     gap: 0.45rem;
     color: var(--theme-text-muted);
-    font-size: 0.78rem;
-    line-height: 1.42;
+    font-size: 0.76rem;
+    line-height: 1.38;
     overflow-wrap: anywhere;
   }
 
-  .assistant-work__details--live .assistant-work__activity:nth-last-child(-n+2) {
-    display: flex !important;
+  .assistant-work__details--live .assistant-work__activity--completed {
+    opacity: 0.58;
   }
 
   .assistant-work__details--live .assistant-work__activity--active {
     color: color-mix(in srgb, var(--theme-text) 82%, var(--theme-text-muted));
     font-weight: 520;
+    opacity: 1;
   }
 
   .assistant-work__details--live .assistant-work__activity-icon {
@@ -88,8 +89,8 @@
     height: 0.78rem;
   }
 
-  /* Once text deltas arrive the answer remains the visual focus; live work
-     stays compact above it instead of turning into a second transcript. */
+  /* Once text deltas arrive the answer remains the visual focus; work history
+     stays compact above it, but completed events are never hidden. */
   [data-testid="chat-message"][data-message-role="model"] .assistant-work__details--live {
     max-width: min(100%, 31rem) !important;
   }
