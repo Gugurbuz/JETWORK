@@ -36,18 +36,20 @@ describe('Gemini provider-agnostic controller routing', () => {
     expect(providerSource).not.toContain('budgetFilteredTools');
   });
 
-  it('keeps procedural, knowledge and provider web capabilities available for LLM selection', () => {
+  it('keeps visible capabilities as controller options rather than deterministic routes', () => {
     expect(providerSource).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
     expect(providerSource).toContain('tools: effectiveAllowTools ? input.tools : []');
     expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION');
-    expect(controllerSource).toContain('Knowledge, web, skill ve artifact capabilityleri arasındaki seçimi');
+    expect(controllerSource).toContain('capability ve tool yüzeyi seçeneklerdir')
+    expect(controllerSource).toContain('hangi kaynağın kullanılacağına')
   });
 
-  it('treats empty searches as observations instead of deterministic stop signals', () => {
+  it('treats empty or insufficient observations as model-owned re-plan input, not deterministic stop signals', () => {
     expect(providerSource).not.toContain('MAX_EMPTY_KNOWLEDGE_SEARCHES');
     expect(providerSource).not.toContain('emptyKnowledgeSearches >= MAX_EMPTY_KNOWLEDGE_SEARCHES');
     expect(providerSource).not.toContain('gemini_empty_knowledge_forced_synthesis');
-    expect(controllerSource).toContain('Bir arama boş döndüğünde bunu otomatik bitiş sinyali sayma');
+    expect(controllerSource).toContain('Her tool observationından sonra kullanıcı hedefini yeniden değerlendir')
+    expect(controllerSource).toContain('yetersizse re-plan et')
   });
 
   it('does not use exact-identifier misses to bypass controller reasoning', () => {
