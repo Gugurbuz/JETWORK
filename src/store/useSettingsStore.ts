@@ -15,9 +15,9 @@ export interface SettingsState {
 export const PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash';
 
 const normalizeSelectableModel = (model: string | null | undefined): string => {
-  const normalized = String(model || 'auto').trim();
+  const normalized = String(model || PUBLIC_GEMINI_MODEL).trim();
   if (normalized.startsWith('gemini-')) return PUBLIC_GEMINI_MODEL;
-  return normalized || 'auto';
+  return normalized || PUBLIC_GEMINI_MODEL;
 };
 
 const readLocalSetting = (key: string): string | null => {
