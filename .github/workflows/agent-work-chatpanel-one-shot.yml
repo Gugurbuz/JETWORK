@@ -1,0 +1,57 @@
+name: Agent Work ChatPanel One-shot Patch
+
+on:
+  push:
+    branches:
+      - feat/agent-work-timeline-v1
+    paths:
+      - .github/workflows/agent-work-chatpanel-one-shot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feat/agent-work-timeline-v1
+          fetch-depth: 0
+
+      - name: Apply exact canonical workEvents wiring
+        shell: python
+        run: |
+          from pathlib import Path
+
+          chat = Path('src/components/ChatPanel.tsx')
+          text = chat.read_text(encoding='utf-8')
+          old = """                  groundingUrls={sourceView.groundingUrls}\n                  isStopped={isStopped}\n"""
+          new = """                  groundingUrls={sourceView.groundingUrls}\n                  workEvents={msg.workEvents}\n                  isStopped={isStopped}\n"""
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one ChatPanel target, found {text.count(old)}')
+          chat.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          workflow = Path('.github/workflows/agent-work-browser-acceptance.yml')
+          workflow_text = workflow.read_text(encoding='utf-8')
+          watch = '      - src/components/ChatPanel.tsx\n'
+          anchor = '      - src/components/AssistantWorkIndicator.tsx\n'
+          if watch not in workflow_text:
+              if anchor not in workflow_text:
+                  raise SystemExit('Browser gate path anchor not found')
+              workflow_text = workflow_text.replace(anchor, watch + anchor, 1)
+              workflow.write_text(workflow_text, encoding='utf-8')
+
+          Path('.github/workflows/agent-work-chatpanel-one-shot.yml').unlink()
+
+      - name: Commit exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'jetwork-ci'
+          git config user.email 'jetwork-ci@users.noreply.github.com'
+          git add src/components/ChatPanel.tsx .github/workflows/agent-work-browser-acceptance.yml .github/workflows/agent-work-chatpanel-one-shot.yml
+          git diff --cached --check
+          git commit -m 'fix(agent-work): render persisted canonical events directly'
+          git push origin HEAD:feat/agent-work-timeline-v1
