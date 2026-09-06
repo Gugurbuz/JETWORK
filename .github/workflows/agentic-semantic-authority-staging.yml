@@ -1,0 +1,114 @@
+name: Agentic Semantic Authority Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentic-semantic-authority-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staging-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AGENTIC_GOLDEN_STAGING_URL: https://bdcttzoiquhfgasnfvtr.supabase.co
+      AGENTIC_GOLDEN_PRODUCTION_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      AGENTIC_GOLDEN_ANON_KEY: ${{ secrets.AGENTIC_GOLDEN_ANON_KEY }}
+      AGENTIC_GOLDEN_ACCESS_TOKEN: ${{ secrets.AGENTIC_GOLDEN_ACCESS_TOKEN }}
+      AGENTIC_GOLDEN_WORKSPACE_ID: staging-golden-workspace
+      AGENTIC_GOLDEN_MODEL: gemini-3.8-flash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize private-repo Edge runtime bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/agentic-staging evaluation/bundles
+          cat > .tmp/agentic-staging/public.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-v2-entry-router/index.ts')
+          EOF
+          cat > .tmp/agentic-staging/internal.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-v2/index.ts')
+          EOF
+          cat > .tmp/agentic-staging/core.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-core-v2/index.ts')
+          EOF
+          for target in public internal core; do
+            pnpm dlx esbuild@0.25.12 ".tmp/agentic-staging/${target}.ts" \
+              --bundle \
+              --format=esm \
+              --platform=neutral \
+              --target=es2022 \
+              --external:'https://*' \
+              --external:'http://*' \
+              --external:'npm:*' \
+              --external:'jsr:*' \
+              --external:'@google/genai' \
+              --outfile="evaluation/bundles/${target}.mjs"
+          done
+          grep -R "raw.githubusercontent.com/Gugurbuz/JETWORK" evaluation/bundles && exit 1 || true
+          wc -c evaluation/bundles/*.mjs
+
+      - name: Upload materialized staging runtime bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentic-staging-runtime-bundles-${{ github.sha }}
+          path: evaluation/bundles/*.mjs
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Detect live staging auth
+        id: staging_auth
+        shell: bash
+        run: |
+          if [[ -n "${AGENTIC_GOLDEN_ANON_KEY}" && -n "${AGENTIC_GOLDEN_ACCESS_TOKEN}" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run isolated IYS semantic-authority gate
+        if: steps.staging_auth.outputs.available == 'true'
+        run: >-
+          pnpm tsx scripts/run-agentic-semantic-authority-staging.ts
+          --confirm-staging
+          --output evaluation/results/agentic-semantic-authority-staging.json
+
+      - name: Record blocked live staging gate
+        if: steps.staging_auth.outputs.available != 'true'
+        shell: bash
+        run: |
+          mkdir -p evaluation/results
+          printf '%s\n' '{"passed":false,"blocked":true,"reason":"missing_github_actions_staging_auth","required":["AGENTIC_GOLDEN_ANON_KEY","AGENTIC_GOLDEN_ACCESS_TOKEN"]}' > evaluation/results/agentic-semantic-authority-staging.json
+
+      - name: Upload semantic-authority evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentic-semantic-authority-staging-${{ github.sha }}
+          path: evaluation/results/agentic-semantic-authority-staging.json
+          if-no-files-found: error
+          retention-days: 3
