@@ -2,11 +2,6 @@ name: Agent Work Browser Acceptance
 
 on:
   workflow_dispatch:
-    inputs:
-      base_url:
-        description: Preview URL to verify with the authenticated CHECK_ZTKS browser acceptance
-        required: true
-        default: https://jetwork-git-feat-agent-work-timeline-v1-gugurbuzs-projects.vercel.app
   push:
     branches:
       - feat/agent-work-timeline-v1
@@ -23,10 +18,13 @@ concurrency:
 jobs:
   check-ztks-agent-work:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       CI: 'true'
-      E2E_BASE_URL: ${{ github.event.inputs.base_url || 'https://jetwork-git-feat-agent-work-timeline-v1-gugurbuzs-projects.vercel.app' }}
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+      VITE_REASONING_ENGINE_V2: 'true'
+      VITE_SINGLE_ASSISTANT_RUNTIME: 'true'
       E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
     steps:
@@ -57,7 +55,7 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run CHECK_ZTKS Agent Work browser acceptance
+      - name: Run CHECK_ZTKS Agent Work browser persistence acceptance
         run: pnpm test:e2e --grep "keeps CHECK_ZTKS Agent Work chronology durable"
 
       - name: Upload Playwright diagnostics
