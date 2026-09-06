@@ -49,9 +49,16 @@ describe('assistant runtime presentation boundary', () => {
     expect(reducedMotionBlock).toContain('animation: none;');
   });
 
-  it('persists the safe work summary and total duration but keeps provider routing private', () => {
+  it('persists only the public work chronology while keeping provider routing private', () => {
     expect(repositorySource).toContain('thinking_text: message.thinkingText');
     expect(repositorySource).toContain('thinking_time: message.thinkingTime');
+    expect(repositorySource).toContain('encodeAgentWorkEnvelope(message.workEvents || [], message.rawResponse)');
     expect(repositorySource).toContain('provider: hidesPrivateRuntimeTelemetry ? null : message.provider');
+  });
+
+  it('clears transient live chronology at both turn start and successful durable completion', () => {
+    const resetOccurrences = repositorySource.match(/resetAgentWorkLiveSnapshot\(\)/g) || [];
+    expect(resetOccurrences.length).toBeGreaterThanOrEqual(2);
+    expect(repositorySource).toContain('getAgentWorkLiveSnapshot()');
   });
 });
