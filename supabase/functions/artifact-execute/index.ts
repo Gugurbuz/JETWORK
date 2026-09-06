@@ -126,7 +126,7 @@ async function geminiInspect(bytes: Uint8Array, mimeType: string, fileName: stri
   if (bytes.byteLength > MULTIMODAL_INLINE_LIMIT) throw new Error(`${fileName} multimodal inspect için 14 MB sınırını aşıyor.`)
   const apiKey = Deno.env.get('GEMINI_API_KEY')
   if (!apiKey) throw new Error('Multimodal inspect için GEMINI_API_KEY gerekli.')
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
