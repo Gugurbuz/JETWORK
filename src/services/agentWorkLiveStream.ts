@@ -28,8 +28,19 @@ const EMPTY_EVENTS: AgentWorkEvent[] = [];
 
 let snapshot: AgentWorkEvent[] = EMPTY_EVENTS;
 const listeners = new Set<Listener>();
+const persistedSnapshots = new Map<number, AgentWorkEvent[]>();
+const persistedListeners = new Set<Listener>();
 
 const emit = () => listeners.forEach(listener => listener());
+const emitPersisted = () => persistedListeners.forEach(listener => listener());
+
+const startedAtKey = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.trunc(numeric);
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 const mapKind = (value: unknown, eventName: string): AgentWorkEventKind => {
   const kind = String(value || '').trim();
@@ -109,15 +120,45 @@ export const resetAgentWorkLiveSnapshot = () => {
 
 export const resetAgentWorkLiveSnapshotForTests = resetAgentWorkLiveSnapshot;
 
+export const registerPersistedAgentWorkEvents = (startedAt: unknown, events: AgentWorkEvent[] = []) => {
+  const key = startedAtKey(startedAt);
+  if (key === null || !events.length) return;
+  persistedSnapshots.set(key, [...events].sort((a, b) => a.sequence - b.sequence));
+  emitPersisted();
+};
+
+export const getPersistedAgentWorkEvents = (startedAt: unknown): AgentWorkEvent[] => {
+  const key = startedAtKey(startedAt);
+  return key === null ? EMPTY_EVENTS : persistedSnapshots.get(key) || EMPTY_EVENTS;
+};
+
+export const resetPersistedAgentWorkEventsForTests = () => {
+  persistedSnapshots.clear();
+  emitPersisted();
+};
+
 const subscribe = (listener: Listener) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
+};
+
+const subscribePersisted = (listener: Listener) => {
+  persistedListeners.add(listener);
+  return () => persistedListeners.delete(listener);
 };
 
 export function useAgentWorkLiveEvents(enabled = true): AgentWorkEvent[] {
   return useSyncExternalStore(
     enabled ? subscribe : () => () => undefined,
     enabled ? getAgentWorkLiveSnapshot : () => EMPTY_EVENTS,
+    () => EMPTY_EVENTS,
+  );
+}
+
+export function usePersistedAgentWorkEvents(startedAt?: number): AgentWorkEvent[] {
+  return useSyncExternalStore(
+    subscribePersisted,
+    () => getPersistedAgentWorkEvents(startedAt),
     () => EMPTY_EVENTS,
   );
 }
