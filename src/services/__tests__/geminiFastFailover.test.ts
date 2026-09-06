@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('Gemini answer provider resilience', () => {
-  it('keeps Gemini 3.8 Flash as the production default with task-sensitive timeouts', () => {
+  it('keeps Gemini 3.8 Flash as the production default with work-mode thinking and task-sensitive timeouts', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
       'utf8',
@@ -26,8 +26,12 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('signal has been aborted');
     expect(source).toContain('if (input.signal?.aborted || streamedTextBeforeError(error)) throw error');
     expect(source).toContain('const finalSynthesis = !input.allowTools && !trivialConversation');
-    expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'medium' }");
-    expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'low' }");
+    expect(source).toContain("input.workMode === 'fast'");
+    expect(source).toContain("input.workMode === 'deep'");
+    expect(source).toContain("? 'low'");
+    expect(source).toContain("? 'high'");
+    expect(source).toContain(": 'medium'");
+    expect(source).toContain('config.thinkingConfig = { thinkingLevel: selectedThinkingLevel }');
     expect(source).not.toContain("thinkingLevel: 'minimal'");
   });
 
