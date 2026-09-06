@@ -180,6 +180,8 @@ const isSpreadsheetToolAttachment = (attachment: Pick<MessageAttachment, 'name' 
   || attachment.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 );
 
+const MULTIMODAL_CHAT_MIME_TYPES = new Set(['image/png','image/jpeg','image/webp','image/gif','application/pdf','audio/mpeg','audio/wav','audio/x-wav','audio/mp4','audio/aac','video/mp4','video/webm','video/quicktime']);
+
 const defaultAttachmentPurpose = (
   attachment: Pick<MessageAttachment, 'name' | 'mimeType'>,
 ): MessageAttachment['purpose'] => (
@@ -521,6 +523,21 @@ const MessageItem = memo(({
             </div>
           )}
 
+          {sourceView.mediaSources.length > 0 && (
+            <details className="group mt-4 border-t border-theme-border/50 pt-3">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
+                <ImagePlus size={10} /> {sourceView.mediaSources.length} medya kaynağı incelendi
+                <ChevronDown size={12} className="ml-auto transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="mt-2 flex flex-col gap-1.5">{sourceView.mediaSources.map((source, index) => (
+                <div key={`${source.sourceId || source.sourceName}-${index}`} className="rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs">
+                  <div className="font-medium text-theme-text">{source.title || source.sourceName}</div>
+                  <div className="text-[10px] text-theme-text-muted">{source.mediaKind || 'media'} · {source.mimeType || 'unknown'} · {source.contentHash ? source.contentHash.slice(0, 12) : 'hash yok'}</div>
+                </div>
+              ))}</div>
+            </details>
+          )}
+
           {sourceView.knowledgeSources.length > 0 && (
             <details className="group mt-4 border-t border-theme-border/50 pt-3">
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
@@ -733,8 +750,8 @@ export function ChatPanel({
 
   const isSupportedFileType = (file: File) => {
     if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
-      return KNOWLEDGE_ATTACHMENT_EXTENSIONS.test(file.name)
-        && (KNOWLEDGE_ATTACHMENT_MIME_TYPES.has(file.type || '') || file.type.startsWith('image/'));
+      return MULTIMODAL_CHAT_MIME_TYPES.has(file.type || '') || (KNOWLEDGE_ATTACHMENT_EXTENSIONS.test(file.name)
+        && (KNOWLEDGE_ATTACHMENT_MIME_TYPES.has(file.type || '') || file.type.startsWith('image/')));
     }
     const supportedTypes = [
       'application/pdf', 
@@ -771,7 +788,7 @@ export function ChatPanel({
       if (!isSupportedFileType(file)) {
         alert(
           FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-            ? `Desteklenmeyen dosya türü: ${file.name}. TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyaları desteklenir.`
+            ? `Desteklenmeyen dosya türü: ${file.name}. TXT, MD, CSV, HTML, JSON, PDF, görsel, MP3/WAV/AAC, MP4/WEBM, DOCX, PPTX ve XLSX dosyaları desteklenir.`
             : `Desteklenmeyen dosya türü: ${file.name}. Görsel, PDF, TXT, MD, CSV ve DOCX dosyaları desteklenmektedir.`,
         );
         continue;

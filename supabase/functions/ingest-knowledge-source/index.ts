@@ -170,7 +170,7 @@ async function callGeminiGenerateText(bytes: Uint8Array, mimeType: string, fileN
         ].join(' ') },
         { inlineData: { mimeType, data: bytesToBase64(bytes) } },
       ] }],
-      generationConfig: { temperature: 0, topP: 0.1, maxOutputTokens: 16_000 },
+      generationConfig: { maxOutputTokens: 16_000 },
     }),
   })
   if (!response.ok) {

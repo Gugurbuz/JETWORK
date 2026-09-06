@@ -48,7 +48,7 @@ const ASSERTION_KINDS = [
 
 const CATEGORIES = ['regression', 'rag', 'grounding', 'follow-up', 'hallucination', 'general-chat', 'artifact', 'web', 'performance', 'cost', 'latency'];
 const SEVERITIES = ['P0', 'P1', 'P2', 'P3'];
-const MODELS = ['auto', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview', 'gpt-5.6-sol'];
+const MODELS = ['auto', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview', 'gpt-5.6-sol'];
 
 interface ScenarioEditorState {
   id?: string;
@@ -348,6 +348,7 @@ export function QualityLabPage() {
   const [selectedRunCases, setSelectedRunCases] = React.useState<any[]>([]);
   const [selectedRunSteps, setSelectedRunSteps] = React.useState<any[]>([]);
   const [banner, setBanner] = React.useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [gemini38Scorecard, setGemini38Scorecard] = React.useState({ completed: 0, grounded: 0, p95Ms: 0, costPerGrounded: 0, cacheHitRate: 0 });
 
   const load = React.useCallback(async () => {
     const [scenarioRes, stepRes, assertionRes, suiteRes, suiteCaseRes, runRes, projectRes] = await Promise.all([
@@ -368,6 +369,14 @@ export function QualityLabPage() {
     setSuiteCases(suiteCaseRes.data || []);
     setRuns(runRes.data || []);
     setProjects(projectRes.data || []);
+    const { data: g38Turns } = await supabase.from('assistant_turns').select('status,source_refs,usage,created_at,completed_at').eq('response_model', 'gemini-3.8-flash').order('created_at', { ascending: false }).limit(100);
+    const completed = (g38Turns || []).filter(turn => turn.status === 'completed');
+    const grounded = completed.filter(turn => Array.isArray(turn.source_refs) && turn.source_refs.length > 0);
+    const durations = completed.map(turn => Math.max(0, new Date(turn.completed_at || turn.created_at).getTime() - new Date(turn.created_at).getTime())).sort((a,b) => a-b);
+    const p95Ms = durations.length ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * 0.95) - 1)] : 0;
+    const totalCost = grounded.reduce((sum, turn) => sum + Number((turn.usage as any)?.estimated_cost_usd || 0), 0);
+    const cacheHits = completed.filter(turn => Number((turn.usage as any)?.gemini_implicit_cache_hit || 0) > 0).length;
+    setGemini38Scorecard({ completed: completed.length, grounded: grounded.length, p95Ms, costPerGrounded: grounded.length ? totalCost / grounded.length : 0, cacheHitRate: completed.length ? Math.round((cacheHits / completed.length) * 100) : 0 });
   }, []);
 
   React.useEffect(() => {
@@ -536,6 +545,16 @@ export function QualityLabPage() {
 
       <main className="mx-auto max-w-[1500px] p-5 md:p-7">
         {banner && <div className={cn('mb-5 flex items-center justify-between rounded-2xl border px-4 py-3 text-sm', banner.tone === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700' : 'border-red-500/30 bg-red-500/10 text-red-700')}><span>{banner.text}</span><button onClick={() => setBanner(null)}><X size={15} /></button></div>}
+
+        <section className="mb-4 rounded-2xl border border-theme-border/70 bg-theme-surface p-4">
+          <div className="mb-3 flex items-center gap-2"><Zap size={16} className="text-theme-primary" /><div><div className="text-sm font-semibold">Gemini 3.8 Production Scorecard</div><div className="text-[10px] text-theme-text-muted">Son 100 production turn · cost / successful grounded answer ana metriği</div></div></div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard icon={ShieldCheck} label="Grounded başarı" value={`${gemini38Scorecard.grounded}/${gemini38Scorecard.completed}`} hint="source_refs bulunan completed turn" />
+            <MetricCard icon={Clock3} label="P95 total turn" value={millis(gemini38Scorecard.p95Ms)} />
+            <MetricCard icon={CircleDollarSign} label="Cost / grounded" value={money(gemini38Scorecard.costPerGrounded)} />
+            <MetricCard icon={Gauge} label="Native cache hit" value={`%${gemini38Scorecard.cacheHitRate}`} />
+          </div>
+        </section>
 
         <section className="mb-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard icon={ShieldCheck} label="Son kalite skoru" value={latest ? `%${latestPassRate}` : '—'} hint={latest ? dateTime(latest.created_at) : 'Henüz run yok'} />
