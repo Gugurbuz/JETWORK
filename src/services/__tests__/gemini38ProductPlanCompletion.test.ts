@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { normalizeGeminiFunctionCalls } from '../../../supabase/functions/_shared/geminiFunctionContract'
 
 const provider = readFileSync(new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url), 'utf8')
-const interactions = readFileSync(new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url), 'utf8')
+const interactions = readFileSync(new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url), 'utf8')
 const legacy = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url), 'utf8')
 const core = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')
 const surface = readFileSync(new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url), 'utf8')
@@ -18,6 +18,7 @@ describe('Gemini 3.8 product plan completion contracts', () => {
     expect(provider).toContain('requestGeminiInteractionsResponse')
     expect(interactions).toContain("{ type: 'google_search'")
     expect(interactions).toContain("tool_choice: 'validated'")
+    expect(interactions).toContain('previous_interaction_id')
     expect(core).toContain('capabilitySession?.surface.providerWebVisible === true')
   })
 
@@ -35,10 +36,11 @@ describe('Gemini 3.8 product plan completion contracts', () => {
     expect(interactions).toContain("mode === 'fast' ? 'low' : mode === 'deep' ? 'high' : 'medium'")
   })
 
-  it('surfaces public commentary as a typed controller tool and SSE event', () => {
+  it('surfaces public commentary and real provider work as typed SSE events', () => {
     expect(surface).toContain("REPORT_PROGRESS_TOOL_NAME = 'report_progress'")
     expect(surface).toContain("enum: ['start', 'finding', 'plan_change', 'blocked']")
     expect(core).toContain("sendEvent(controller, encoder, 'commentary'")
+    expect(core).toContain("sendEvent(controller, encoder, 'provider_step'")
     expect(client).toContain("type: 'commentary'")
   })
 
