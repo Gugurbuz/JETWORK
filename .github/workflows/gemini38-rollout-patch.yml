@@ -1,0 +1,87 @@
+name: Gemini 3.8 rollout patch
+
+on:
+  push:
+    branches:
+      - chore/gemini-3-8-flash-only
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/gemini-3-8-flash-only
+          fetch-depth: 0
+
+      - name: Enforce Gemini 3.8 production default
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              p.write_text(text.replace(old, new, 1))
+
+          gateway = 'supabase/functions/openai-assistant-v2/index.ts'
+          replace_once(
+              gateway,
+              "const GEMINI_PRO_MODEL = 'gemini-3.1-pro-preview'\nconst DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'",
+              "const GEMINI_PRO_MODEL = 'gemini-3.8-flash'\nconst DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'",
+          )
+          replace_once(
+              gateway,
+              "const substantiveModel = (requestedModel: string) => (\n  requestedModel === LEGACY_GEMINI_FLASH_LITE_MODEL ? GEMINI_FLASH_LITE_MODEL : requestedModel\n)",
+              "const substantiveModel = (requestedModel: string) => (\n  requestedModel.startsWith('gemini-') ? DEFAULT_GEMINI_RUNTIME_MODEL : requestedModel\n)",
+          )
+          replace_once(
+              gateway,
+              "const requestedModel = cleanString(parsedBody?.model, 80) || 'auto'",
+              "const requestedModel = cleanString(parsedBody?.model, 80) || DEFAULT_GEMINI_RUNTIME_MODEL",
+          )
+
+          old_chat_options = '''            <option value="gemini-3-flash-preview">Gemini · 3 Flash</option>\n            <option value="gemini-3.1-pro-preview">Gemini · 3.1 Pro</option>\n            <option value="gemini-3.1-flash-lite-preview">Gemini · 3.1 Flash Lite</option>'''
+          replace_once(
+              'src/components/ChatPanel.tsx',
+              old_chat_options,
+              '            <option value="gemini-3.8-flash">Gemini · 3.8 Flash</option>',
+          )
+
+          old_sidebar_options = '''                <option value="gemini-3-flash-preview">Gemini · 3 Flash</option>\n                <option value="gemini-3.1-pro-preview">Gemini · 3.1 Pro</option>\n                <option value="gemini-3.1-flash-lite-preview">Gemini · 3.1 Flash Lite</option>'''
+          replace_once(
+              'src/components/Sidebar.tsx',
+              old_sidebar_options,
+              '                <option value="gemini-3.8-flash">Gemini · 3.8 Flash</option>',
+          )
+
+          for p in Path('src/services/__tests__').glob('*.test.ts'):
+              text = p.read_text()
+              next_text = text.replace(
+                  "DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'",
+                  "DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'",
+              )
+              if next_text != text:
+                  p.write_text(next_text)
+          PY
+
+          git diff --check
+          if git diff --quiet; then
+            echo 'No rollout patch changes required.'
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/openai-assistant-v2/index.ts src/components/ChatPanel.tsx src/components/Sidebar.tsx src/services/__tests__
+          git commit -m "feat(gemini): enforce 3.8 production default across gateway and UI"
+          git push origin HEAD:chore/gemini-3-8-flash-only
