@@ -9,6 +9,10 @@ const providerSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
   'utf8',
 )
+const interactionSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  'utf8',
+)
 
 describe('legacy deterministic Gemini web executor', () => {
   it('remains testable as a rollback/history helper but is not active routing authority', () => {
@@ -50,10 +54,11 @@ describe('legacy deterministic Gemini web executor', () => {
     expect(result.sources).toHaveLength(1)
   })
 
-  it('does not pre-execute deterministic research in the active Gemini provider wrapper', () => {
-    expect(providerSource).not.toContain("import { runDeterministicGeminiWebResearch")
+  it('does not pre-execute deterministic research in the active Gemini V3 provider', () => {
+    expect(providerSource).not.toContain('runDeterministicGeminiWebResearch')
     expect(providerSource).not.toContain("plan?.intent === 'research' && providerWebRequested")
-    expect(providerSource).not.toContain('runDeterministicGeminiWebResearch({')
-    expect(providerSource).toContain('requestBaseWithEmptyFinalizationRecovery')
+    expect(providerSource).toContain('requestGeminiInteractionsResponse')
+    expect(interactionSource).toContain("{ type: 'google_search'")
+    expect(interactionSource).toContain("tool_choice: 'validated'")
   })
 })
