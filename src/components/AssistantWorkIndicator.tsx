@@ -5,6 +5,7 @@ import type { AssistantKnowledgeSource } from '../types';
 import { cn } from '../lib/utils';
 import { splitAssistantSources } from '../services/assistantSources';
 import type { AgentWorkEvent } from '../services/agentWorkTypes';
+import { useAgentWorkLiveEvents } from '../services/agentWorkLiveStream';
 import {
   completeActiveAgentEvents,
   createObservedAgentWorkEvent,
@@ -203,6 +204,8 @@ export function AssistantWorkIndicator({
 }: AssistantWorkIndicatorProps) {
   const elapsedSeconds = useElapsedSeconds(isActive, startedAt, completedSeconds);
   const formattedDuration = formatAssistantWorkDuration(elapsedSeconds);
+  const liveWorkEvents = useAgentWorkLiveEvents(isActive && !workEvents?.length);
+  const canonicalWorkEvents = workEvents?.length ? workEvents : liveWorkEvents;
   const sourceView = useMemo(
     () => splitAssistantSources(knowledgeSources || [], groundingUrls || []),
     [groundingUrls, knowledgeSources],
@@ -218,23 +221,30 @@ export function AssistantWorkIndicator({
   }), [activityText, isActive, knowledgeSourceCount, phaseLabel, webSourceCount]);
 
   const initialSnapshot = useMemo(() => activitySnapshot(activityText, phaseLabel), []);
+  const canonicalSeenRef = useRef(Boolean(canonicalWorkEvents.length));
+  if (canonicalWorkEvents.length) canonicalSeenRef.current = true;
   const [events, setEvents] = useState<AgentWorkEvent[]>(() => (
-    workEvents?.length ? workEvents : eventsFromReportedActivities(reportedActivities, startedAt)
+    canonicalWorkEvents.length ? canonicalWorkEvents : eventsFromReportedActivities(reportedActivities, startedAt)
   ));
   const [isExpanded, setIsExpanded] = useState(isActive);
   const previousSnapshotRef = useRef<string[]>(initialSnapshot);
   const sequenceRef = useRef(Math.max(0, ...events.map(event => event.sequence)));
   const sourceCountRef = useRef({ knowledge: knowledgeSourceCount, web: webSourceCount });
+  const canonicalInitializedRef = useRef(Boolean(canonicalWorkEvents.length));
   const composerStopTarget = useComposerStopTarget(isActive, onStop);
 
   useEffect(() => {
-    if (!workEvents?.length) return;
-    setEvents(previous => workEvents.reduce(reduceAgentActivityEvents, previous));
-    sequenceRef.current = Math.max(sequenceRef.current, ...workEvents.map(event => event.sequence));
-  }, [workEvents]);
+    if (!canonicalWorkEvents.length) return;
+    setEvents(previous => {
+      const base = canonicalInitializedRef.current ? previous : [];
+      canonicalInitializedRef.current = true;
+      return canonicalWorkEvents.reduce(reduceAgentActivityEvents, base);
+    });
+    sequenceRef.current = Math.max(sequenceRef.current, ...canonicalWorkEvents.map(event => event.sequence));
+  }, [canonicalWorkEvents]);
 
   useEffect(() => {
-    if (workEvents?.length) return;
+    if (canonicalSeenRef.current) return;
     const snapshot = activitySnapshot(activityText, phaseLabel);
     const appended = diffRollingActivitySnapshot(previousSnapshotRef.current, snapshot);
     previousSnapshotRef.current = snapshot;
@@ -253,10 +263,14 @@ export function AssistantWorkIndicator({
       });
       return next;
     });
-  }, [activityText, isActive, phaseLabel, workEvents]);
+  }, [activityText, isActive, phaseLabel]);
 
   useEffect(() => {
     const nextCounts = { knowledge: knowledgeSourceCount, web: webSourceCount };
+    if (canonicalSeenRef.current) {
+      sourceCountRef.current = nextCounts;
+      return;
+    }
     const previousCounts = sourceCountRef.current;
     const newSourceEvents: AgentWorkEvent[] = [];
     if (nextCounts.knowledge > previousCounts.knowledge) {
