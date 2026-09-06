@@ -363,14 +363,22 @@ export const useMessages = (channelRef: any) => {
       let streamedGroundingUrls: Message['groundingUrls'] = [];
       let streamedAttachments: Message['attachments'] = [];
       const stageNotes: string[] = [];
+      let latestPhaseLabel = 'Asistana bağlanılıyor...';
+      const appendStageNote = (value?: string) => {
+        const safe = String(value || '').trim();
+        if (!safe || stageNotes[stageNotes.length - 1] === safe) return;
+        stageNotes.push(safe);
+        if (stageNotes.length > 8) stageNotes.shift();
+      };
       const patchStreamingText = (fullText: string) => {
         streamedText = fullText;
+        if (fullText) latestPhaseLabel = 'Yanıt canlı olarak yazılıyor...';
         const patch = {
           text: fullText,
           knowledgeSources: streamedKnowledgeSources,
           groundingUrls: streamedGroundingUrls,
           phase: 'ACT' as const,
-          phaseLabel: 'Yanıt hazırlanıyor...',
+          phaseLabel: latestPhaseLabel,
           thinkingText: stageNotesAsSummary(stageNotes),
         };
         setMessages(previous => previous.map(message => (
@@ -417,51 +425,66 @@ export const useMessages = (channelRef: any) => {
             const sourceView = splitAssistantSources(sources);
             streamedKnowledgeSources = sourceView.knowledgeSources;
             streamedGroundingUrls = sourceView.groundingUrls;
+            const sourceParts = [
+              streamedKnowledgeSources.length > 0 ? `${streamedKnowledgeSources.length} kurumsal kaynak bulundu` : '',
+              streamedGroundingUrls.length > 0 ? `${streamedGroundingUrls.length} web kaynağı bulundu` : '',
+            ].filter(Boolean);
+            if (sourceParts.length) {
+              latestPhaseLabel = `${sourceParts.join(' · ')} · kanıtlar eşleştiriliyor...`;
+              appendStageNote(latestPhaseLabel);
+            }
+            const sourcePatch = {
+              knowledgeSources: streamedKnowledgeSources,
+              groundingUrls: streamedGroundingUrls,
+              phase: 'RESEARCH' as const,
+              phaseLabel: latestPhaseLabel,
+              thinkingText: stageNotesAsSummary(stageNotes),
+            };
             setMessages(previous => previous.map(message => (
               message.id === aiMsgId
-                ? {
-                    ...message,
-                    knowledgeSources: streamedKnowledgeSources,
-                    groundingUrls: streamedGroundingUrls,
-                  }
+                ? { ...message, ...sourcePatch }
                 : message
+            )));
+            broadcastMessage(channelRef, 'ai_stream_chunk', {
+              id: aiMsgId,
+              text: streamedText,
+              ...sourcePatch,
+              senderName: 'JetWork AI',
+              senderRole: 'Sistem Asistanı',
+            });
+          },
+          onCommentary: (event) => {
+            const safeMessage = event.message.trim();
+            if (!safeMessage) return;
+            latestPhaseLabel = safeMessage;
+            appendStageNote(safeMessage);
+            const patch = {
+              phase: phaseForAssistantStage(event.kind === 'blocked' ? 'verifying' : 'planning'),
+              phaseLabel: safeMessage,
+              thinkingText: stageNotesAsSummary(stageNotes),
+            };
+            setMessages(previous => previous.map(message => (
+              message.id === aiMsgId ? { ...message, ...patch } : message
             )));
             broadcastMessage(channelRef, 'ai_stream_chunk', {
               id: aiMsgId,
               text: streamedText,
               knowledgeSources: streamedKnowledgeSources,
               groundingUrls: streamedGroundingUrls,
+              ...patch,
               senderName: 'JetWork AI',
               senderRole: 'Sistem Asistanı',
             });
           },
-          onCommentary: (event) => {
-            const commentaryId = `commentary:${aiMsgId}:${event.sequence}`;
-            const commentaryMessage: Message = {
-              id: commentaryId, role: 'model', text: event.message, senderName: 'JetWork AI', senderRole: 'Çalışma güncellemesi',
-              createdAt: aiCreatedAt + event.sequence, isTyping: false, phase: phaseForAssistantStage(event.kind === 'blocked' ? 'verifying' : 'planning'),
-              phaseLabel: undefined, persistenceStatus: 'pending',
-            };
-            setMessages(previous => {
-              if (previous.some(message => message.id === commentaryId)) return previous;
-              const finalIndex = previous.findIndex(message => message.id === aiMsgId);
-              if (finalIndex < 0) return [...previous, commentaryMessage];
-              return [...previous.slice(0, finalIndex), commentaryMessage, ...previous.slice(finalIndex)];
-            });
-            broadcastMessage(channelRef, 'new_message', { itemId: currentWorkspaceId, message: messageForRealtime(commentaryMessage) });
-            void saveAiMessage(currentWorkspaceId, user.uid, commentaryMessage).catch(error => {
-              console.warn('Assistant commentary could not be persisted:', error);
-            });
-          },
           onStatus: (stage, label) => {
             const safeLabel = (label || '').trim();
-            if (safeLabel && stageNotes[stageNotes.length - 1] !== safeLabel) {
-              stageNotes.push(safeLabel);
-              if (stageNotes.length > 5) stageNotes.shift();
+            if (safeLabel) {
+              latestPhaseLabel = safeLabel;
+              appendStageNote(safeLabel);
             }
             const patch = {
               phase: phaseForAssistantStage(stage),
-              phaseLabel: safeLabel || 'Çalışılıyor...',
+              phaseLabel: safeLabel || latestPhaseLabel || 'Çalışılıyor...',
               thinkingText: stageNotesAsSummary(stageNotes),
             };
             setMessages(previous => previous.map(message => (

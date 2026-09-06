@@ -13,6 +13,7 @@ import './mobile-workspace-nav.css';
 import './assistant-runtime-ui.css';
 import './assistant-work-indicator.css';
 import './assistant-mobile-clean.css';
+import './assistant-live-runtime.css';
 
 installAssistantTransportRecovery();
 installAssistantTtftBrowserTelemetry();

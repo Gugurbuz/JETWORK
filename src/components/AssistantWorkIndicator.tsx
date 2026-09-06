@@ -67,6 +67,34 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
     return 'Talep işleme alındı';
   }
 
+  if (/^talep bağlamı çıkarılıyor/iu.test(normalized)) {
+    return completed ? 'Soru ve konuşma bağlamı hazırlandı' : 'Soru ve konuşma bağlamını hazırlıyorum...';
+  }
+
+  if (/^advisory bağlam hazırlanıyor/iu.test(normalized)) {
+    return completed ? 'İlgili proje bağlamı hazırlandı' : 'İlgili proje bağlamını topluyorum...';
+  }
+
+  if (/^semantic capability adayları çıkarılıyor/iu.test(normalized)) {
+    return completed ? 'Uygun kaynak ve araçlar değerlendirildi' : 'Uygun kaynak ve araçları değerlendiriyorum...';
+  }
+
+  if (/^controller hazır:/iu.test(normalized)) {
+    return completed ? 'Çalışma araçları hazırlandı' : 'Çalışma araçlarını hazırlıyorum...';
+  }
+
+  if (/^controller ilk aksiyonu değerlendiriyor/iu.test(normalized)) {
+    return completed ? 'İlk inceleme adımı seçildi' : 'İlk inceleme adımını seçiyorum...';
+  }
+
+  if (/^controller ek capability\/kanıt çağrısı yapıyor/iu.test(normalized)) {
+    return completed ? 'Ek kanıt kontrol edildi' : 'Bulduğum kanıtı ek kaynaklarla doğruluyorum...';
+  }
+
+  if (/^controller ilgili jetwork skill prosedürlerini yüklüyor/iu.test(normalized)) {
+    return completed ? 'Gerekli çalışma yöntemi hazırlandı' : 'Gerekli çalışma yöntemini hazırlıyorum...';
+  }
+
   if (/^konuşma bağlamı ve çalışma yolu hazırlanıyor/iu.test(normalized)) {
     return completed
       ? 'Konuşma bağlamı ve çalışma yolu hazırlandı'
@@ -75,8 +103,8 @@ export function formatAssistantWorkActivityLabel(value: string, completed = fals
 
   if (/^çalışma yolu belirlendi; reasoning akışı başlatıldı/iu.test(normalized)) {
     return completed
-      ? 'Çalışma yolu belirlendi · reasoning akışı başlatıldı'
-      : 'Reasoning akışı başlatılıyor...';
+      ? 'Çalışma yolu belirlendi · inceleme başlatıldı'
+      : 'İnceleme başlatılıyor...';
   }
 
   if (/^talep sınıflandırıldı/iu.test(normalized)) {
@@ -149,6 +177,14 @@ export function buildAssistantWorkActivities(input: {
   for (const line of (input.activityText || '').split(/\r?\n/u)) {
     appendUnique(labels, line);
   }
+
+  if ((input.knowledgeSourceCount || 0) > 0) {
+    appendUnique(labels, `${input.knowledgeSourceCount} kurumsal kaynak bulundu · kanıtlar eşleştiriliyor`);
+  }
+  if ((input.webSourceCount || 0) > 0) {
+    appendUnique(labels, `${input.webSourceCount} web kaynağı bulundu · güncellik ve tutarlılık kontrol ediliyor`);
+  }
+
   appendUnique(labels, input.phaseLabel);
 
   const activeLabelKey = normalizeActivity(input.phaseLabel || labels.at(-1) || '').toLocaleLowerCase('tr-TR');

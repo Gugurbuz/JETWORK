@@ -1,0 +1,104 @@
+/* Gemini 3.8 / Agentic Runtime live-work presentation.
+ * Loaded after assistant-mobile-clean.css so mobile clients consume the real
+ * status/commentary/source stream instead of the legacy static placeholder.
+ */
+
+.assistant-work__details--live {
+  position: relative;
+}
+
+.assistant-work__details--live .assistant-work__activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+}
+
+.assistant-work__details--live::after {
+  content: none;
+  display: none;
+}
+
+.assistant-work__details--live .assistant-work__activity {
+  min-width: 0;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.assistant-work__details--live .assistant-work__activity--completed {
+  opacity: 0.5;
+}
+
+.assistant-work__details--live .assistant-work__activity--active {
+  opacity: 1;
+}
+
+.assistant-work__details--live .assistant-work__activity--active .assistant-work__activity-icon svg {
+  animation: jetwork-runtime-spin 1s linear infinite;
+}
+
+@keyframes jetwork-runtime-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 767px) {
+  /* Undo the legacy mobile mask that replaced all real activity with the
+     hard-coded “Bilgi ve kaynaklar inceleniyor…” sentence. */
+  .assistant-work__details--live .assistant-work__activity-list {
+    display: flex !important;
+    gap: 0.38rem !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .assistant-work__details--live::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  /* Keep the live feed compact on a phone: preserve the current activity and
+     the immediately preceding observation, while the component still retains
+     the complete bounded activity history for completion details. */
+  .assistant-work__details--live .assistant-work__activity {
+    display: none !important;
+    align-items: flex-start;
+    gap: 0.45rem;
+    color: var(--theme-text-muted);
+    font-size: 0.78rem;
+    line-height: 1.42;
+    overflow-wrap: anywhere;
+  }
+
+  .assistant-work__details--live .assistant-work__activity:nth-last-child(-n+2) {
+    display: flex !important;
+  }
+
+  .assistant-work__details--live .assistant-work__activity--active {
+    color: color-mix(in srgb, var(--theme-text) 82%, var(--theme-text-muted));
+    font-weight: 520;
+  }
+
+  .assistant-work__details--live .assistant-work__activity-icon {
+    flex: 0 0 0.85rem;
+    width: 0.85rem;
+    height: 1.05rem;
+    margin-top: 0.04rem;
+  }
+
+  .assistant-work__details--live .assistant-work__activity-icon svg {
+    width: 0.78rem;
+    height: 0.78rem;
+  }
+
+  /* Once text deltas arrive the answer remains the visual focus; live work
+     stays compact above it instead of turning into a second transcript. */
+  [data-testid="chat-message"][data-message-role="model"] .assistant-work__details--live {
+    max-width: min(100%, 31rem) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-work__details--live .assistant-work__activity,
+  .assistant-work__details--live .assistant-work__activity--active .assistant-work__activity-icon svg {
+    transition: none;
+    animation: none;
+  }
+}
