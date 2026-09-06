@@ -3,12 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { resolveAssistantDocumentRequestMode } from '../assistantDocumentIntent'
 import { applyConversationScopeInventoryPolicy } from '../../../supabase/functions/_shared/conversationScopePolicy'
 
-const providerSource = readFileSync(
+const legacyProviderSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
   'utf8',
 )
-const providerWrapperSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+const interactionsSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  'utf8',
+)
+const coreSource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
   'utf8',
 )
 const liveProxySource = readFileSync(
@@ -43,25 +47,27 @@ const basePlan = () => ({
 })
 
 describe('true live assistant streaming contract', () => {
-  it('uses the Gemini streaming API without fabricating signatures for synthetic tool calls', () => {
-    expect(providerSource).toContain('generateContentStream')
-    expect(providerSource).not.toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
-    expect(providerSource).not.toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
-    expect(providerSource).toContain('_geminiContent: candidateContent')
-    expect(providerSource).toContain('providerFunctionCallIds')
-    expect(providerSource).toContain("item._geminiSkipContent === true")
-    expect(providerSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')
-    expect(providerSource).toContain('!providerFunctionCallIds.has(callId)')
-    expect(providerSource).toContain('for await (const chunk of stream')
+  it('keeps the legacy Gemini streaming adapter safe for compatibility paths', () => {
+    expect(legacyProviderSource).toContain('generateContentStream')
+    expect(legacyProviderSource).not.toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
+    expect(legacyProviderSource).not.toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
+    expect(legacyProviderSource).toContain('_geminiContent: candidateContent')
+    expect(legacyProviderSource).toContain('providerFunctionCallIds')
+    expect(legacyProviderSource).toContain("item._geminiSkipContent === true")
+    expect(legacyProviderSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')
+    expect(legacyProviderSource).toContain('!providerFunctionCallIds.has(callId)')
+    expect(legacyProviderSource).toContain('for await (const chunk of stream')
   })
 
-  it('keeps knowledge answerability protection without collapsing Gemini into one final delta', () => {
-    expect(providerWrapperSource).toContain('createStreamingProviderAnswerabilityGuard')
-    expect(providerWrapperSource).toContain('requestBaseWithStreamingAnswerability')
-    expect(providerWrapperSource).toContain('answerability_streaming_guard_used')
-    expect(providerWrapperSource).toContain('onText: delta => guard.push(delta)')
-    expect(providerWrapperSource).toContain('guard.finish()')
-    expect(providerWrapperSource).toContain('answerability_streaming_plan_override_applied')
+  it('streams active Gemini 3.8 Interactions text incrementally without moving semantic answerability into the provider wrapper', () => {
+    expect(interactionsSource).toContain('stream: true')
+    expect(interactionsSource).toContain("eventType === 'step.delta'")
+    expect(interactionsSource).toContain("deltaType === 'text'")
+    expect(interactionsSource).toContain('builder.text += delta.text')
+    expect(interactionsSource).toContain('input.onText(delta.text)')
+    expect(interactionsSource).toContain('gemini_provider_first_text_ms')
+    expect(coreSource).toContain('evaluateGroundedTechnicalClaims')
+    expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
   })
 
   it('surfaces real memory and plan activity without router metadata counts', () => {
