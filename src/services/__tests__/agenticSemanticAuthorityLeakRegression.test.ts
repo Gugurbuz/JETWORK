@@ -55,7 +55,6 @@ describe('Agentic semantic authority leak regressions', () => {
     })
     const ids = new Set(result.candidates.map(candidate => candidate.id))
 
-    expect(ids).toEqual(expect.objectContaining ? ids : ids)
     expect(ids.has('provider:web_search')).toBe(true)
     expect(ids.has('tool:search_knowledge_catalog')).toBe(true)
     expect(ids.has('tool:list_knowledge_catalog')).toBe(true)
