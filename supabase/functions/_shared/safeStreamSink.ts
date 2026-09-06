@@ -1,3 +1,5 @@
+import { createAgentWorkSseAdapter } from './agentWorkSseAdapter.ts'
+
 export interface StreamControllerLike {
   enqueue(chunk: Uint8Array): void
   close(): void
@@ -22,6 +24,8 @@ export interface SafeStreamSinkOptions {
   now?: () => number
   onTiming?: (observation: SafeStreamTimingObservation) => void
   logTiming?: boolean
+  /** Emits the canonical public Agent Work side-channel while preserving legacy SSE events. */
+  agentWorkPresentation?: boolean
 }
 
 export interface SafeStreamSink {
@@ -45,6 +49,12 @@ const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0,
  * named streamOpenToFirstTextMs because this layer does not know the original
  * request-received timestamp and therefore must never label this value as
  * end-to-end TTFT.
+ *
+ * Agent Work v1 is also applied here because this is the one shared SSE boundary
+ * used by the assistant gateway/live proxy. Existing status/commentary/source
+ * frames remain intact; an additive canonical public side-channel supplies
+ * stable event ids, ordering and lifecycle states without exposing private
+ * reasoning or raw function-call JSON.
  */
 export function createSafeStreamSink(
   controller: StreamControllerLike,
@@ -63,6 +73,9 @@ export function createSafeStreamSink(
   let observationEmitted = false
   let observationBuffer = ''
   const observationDecoder = new TextDecoder()
+  let deliveryBuffer = ''
+  const deliveryDecoder = new TextDecoder()
+  const presentationAdapter = options.agentWorkPresentation === false ? null : createAgentWorkSseAdapter(now)
 
   const emitTiming = () => {
     if (observationEmitted) return
@@ -101,9 +114,7 @@ export function createSafeStreamSink(
       return
     }
     const type = clean(eventName || payload?.type, 80)
-    if (type === 'text_delta' && firstTextDeltaAtMs === null && clean(payload?.delta, 8_000)) {
-      firstTextDeltaAtMs = now()
-    }
+    if (type === 'text_delta' && firstTextDeltaAtMs === null && clean(payload?.delta, 8_000)) firstTextDeltaAtMs = now()
     if (type === 'completed') {
       completedEventObserved = true
       conversationId = clean(payload?.conversationId, 240)
@@ -127,11 +138,12 @@ export function createSafeStreamSink(
     emitTiming()
   }
 
-  const write = (chunk: Uint8Array): boolean => {
-    if (!open) return false
+  const enqueueText = (value: string): boolean => {
+    if (!open || !value) return open
     try {
-      controller.enqueue(chunk)
-      observeChunk(chunk)
+      const encoded = encoder.encode(value)
+      controller.enqueue(encoded)
+      observeChunk(encoded)
       return true
     } catch {
       markClosed()
@@ -139,12 +151,55 @@ export function createSafeStreamSink(
     }
   }
 
+  const write = (chunk: Uint8Array): boolean => {
+    if (!open) return false
+    if (!presentationAdapter) {
+      try {
+        controller.enqueue(chunk)
+        observeChunk(chunk)
+        return true
+      } catch {
+        markClosed()
+        return false
+      }
+    }
+
+    deliveryBuffer += deliveryDecoder.decode(chunk, { stream: true })
+    if (deliveryBuffer.length > 256_000) {
+      // A normal SSE frame is tiny. If an upstream violates that invariant,
+      // preserve transport rather than allowing the presentation adapter to
+      // become a memory-growth failure mode.
+      const passthrough = deliveryBuffer
+      deliveryBuffer = ''
+      return enqueueText(passthrough)
+    }
+
+    const frames = deliveryBuffer.split(/\r?\n\r?\n/u)
+    deliveryBuffer = frames.pop() || ''
+    for (const rawFrame of frames) {
+      const completeFrame = `${rawFrame}\n\n`
+      if (!enqueueText(presentationAdapter.transformFrame(completeFrame))) return false
+    }
+    return true
+  }
+
   const event = (eventName: string, payload: unknown): boolean => write(
     encoder.encode(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`),
   )
 
+  const flushPresentation = (): boolean => {
+    if (!open || !presentationAdapter) return open
+    if (deliveryBuffer) {
+      const pending = deliveryBuffer
+      deliveryBuffer = ''
+      if (!enqueueText(presentationAdapter.transformFrame(pending))) return false
+    }
+    return enqueueText(presentationAdapter.flush())
+  }
+
   const close = (): boolean => {
     if (!open) return false
+    if (!flushPresentation()) return false
     try {
       controller.close()
       markClosed()
@@ -157,8 +212,18 @@ export function createSafeStreamSink(
 
   const done = (): boolean => {
     if (!open) return false
+    if (!flushPresentation()) return false
     if (!write(encoder.encode('data: [DONE]\n\n'))) return false
-    return close()
+    // DONE is a complete frame; write() drains it immediately. Avoid calling
+    // close() here because close() would run the presentation flush a second time.
+    try {
+      controller.close()
+      markClosed()
+      return true
+    } catch {
+      markClosed()
+      return false
+    }
   }
 
   return {

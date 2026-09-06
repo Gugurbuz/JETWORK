@@ -2,7 +2,10 @@ import { create } from 'zustand';
 import { Message } from '../types';
 import { supabase } from '../supabase';
 import { rowsToCamel, rowToCamel } from '../lib/mapping';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { parseAssistantPresentationMetadata } from '../services/assistantPresentationMetadata';
+import { decodeAgentWorkEnvelope } from '../services/agentWorkPersistence';
+import { registerPersistedAgentWorkEvents } from '../services/agentWorkLiveStream';
 
 interface MessageStore {
   messagesByWorkspace: Record<string, Message[]>;
@@ -20,16 +23,58 @@ interface MessageStore {
 }
 
 function sanitizeAssistantPresentation(message: Message): Message {
-  if (message.role !== 'model' || !/<jetwork_meta>/iu.test(message.text || '')) return message;
-  const presentation = parseAssistantPresentationMetadata(message.text);
+  if (message.role !== 'model') return message;
+  const envelope = decodeAgentWorkEnvelope(message.rawResponse);
+  const hasPresentationMetadata = /<jetwork_meta>/iu.test(message.text || '');
+  const presentation = hasPresentationMetadata ? parseAssistantPresentationMetadata(message.text) : null;
+  const workEvents = envelope?.workEvents.length ? envelope.workEvents : message.workEvents;
+  if (workEvents?.length) registerPersistedAgentWorkEvents(message.createdAt, workEvents);
   return {
     ...message,
-    text: presentation.visibleText,
-    thinkingText: message.thinkingText || presentation.workSummary,
-    questions: message.questions?.length ? message.questions : presentation.questions,
-    actionSummary: message.actionSummary || presentation.actionSummary,
+    text: presentation?.visibleText ?? message.text,
+    thinkingText: message.thinkingText || presentation?.workSummary,
+    questions: message.questions?.length ? message.questions : presentation?.questions,
+    actionSummary: message.actionSummary || presentation?.actionSummary,
+    workEvents,
+    // Hide the transport envelope from application consumers while preserving
+    // any real raw response that was nested inside it.
+    rawResponse: envelope ? envelope.rawResponse : message.rawResponse,
   };
 }
+
+export function normalizeRuntimePersistenceState(message: Message): Message {
+  if (
+    !FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    || message.role !== 'model'
+    || !message.persistenceStatus
+  ) {
+    return message;
+  }
+
+  // A successful runtime turn is not publicly complete until its message row —
+  // including the canonical Agent Work envelope — is durably committed. Provider
+  // metadata exists on the local successful completion object, but is deliberately
+  // redacted from the durable/realtime row, so it is only used to identify the
+  // pending success boundary, never to decide the terminal transition.
+  if (message.persistenceStatus === 'pending') {
+    if (!message.provider) return message;
+    return message.isTyping ? message : { ...message, isTyping: true };
+  }
+
+  // Once persistence succeeds (or definitively fails), the turn can leave the
+  // active state even if a realtime DB echo has already redacted provider fields.
+  // This prevents the completed header from either racing ahead of persistence or
+  // getting stuck active after the durable commit.
+  if ((message.persistenceStatus === 'saved' || message.persistenceStatus === 'failed') && message.isTyping) {
+    return { ...message, isTyping: false };
+  }
+
+  return message;
+}
+
+const normalizeRuntimePersistenceStates = (messages: Message[]): Message[] => (
+  messages.map(normalizeRuntimePersistenceState)
+);
 
 async function loadMessages(workspaceId: string): Promise<Message[]> {
   const { data, error } = await supabase
@@ -57,7 +102,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   setMessages: (workspaceId: string, updater: (prev: Message[]) => Message[]) => {
     set((state) => {
       const currentMessages = state.messagesByWorkspace[workspaceId] || [];
-      const newMessages = updater(currentMessages);
+      const newMessages = normalizeRuntimePersistenceStates(updater(currentMessages));
       return {
         messagesByWorkspace: {
           ...state.messagesByWorkspace,

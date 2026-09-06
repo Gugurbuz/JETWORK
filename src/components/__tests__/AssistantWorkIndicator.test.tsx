@@ -11,7 +11,7 @@ import {
 } from '../AssistantWorkIndicator';
 
 describe('AssistantWorkIndicator', () => {
-  it('builds reported runtime activities plus live source observations and marks the current phase active', () => {
+  it('builds reported runtime activities plus real source observations and marks only the current phase active', () => {
     const activities = buildAssistantWorkActivities({
       isActive: true,
       activityText: '• Talep ve konuşma bağlamı inceleniyor\n• Bilgi bankası taranıyor',
@@ -26,161 +26,59 @@ describe('AssistantWorkIndicator', () => {
       '3 kurumsal kaynak bulundu · kanıtlar eşleştiriliyor',
       'Kaynaklar karşılaştırılıyor',
     ]);
-    expect(activities[0].state).toBe('completed');
-    expect(activities[1].state).toBe('completed');
-    expect(activities[2].state).toBe('completed');
-    expect(activities[3].state).toBe('active');
+    expect(activities.at(-1)?.state).toBe('active');
+    expect(activities.slice(0, -1).every(activity => activity.state === 'completed')).toBe(true);
   });
 
-  it('surfaces source-count observations without inventing elapsed-time progress', () => {
-    const activities = buildAssistantWorkActivities({
-      isActive: false,
-      activityText: '• Asistana bağlanılıyor...',
-      knowledgeSourceCount: 4,
-      webSourceCount: 2,
-    });
-
-    expect(activities.map(activity => activity.label)).toEqual([
-      'Asistana bağlanılıyor...',
-      '4 kurumsal kaynak bulundu · kanıtlar eşleştiriliyor',
-      '2 web kaynağı bulundu · güncellik ve tutarlılık kontrol ediliyor',
-    ]);
+  it('translates technical runtime labels into public presentation text', () => {
+    expect(formatAssistantWorkActivityLabel('Talep bağlamı çıkarılıyor; araç seçimini aktif LLM yapacak...', false)).toBe('Soru ve konuşma bağlamını hazırlıyorum...');
+    expect(formatAssistantWorkActivityLabel('Advisory bağlam hazırlanıyor...', false)).toBe('İlgili proje bağlamını topluyorum...');
+    expect(formatAssistantWorkActivityLabel('Semantic capability adayları çıkarılıyor...', false)).toBe('Uygun kaynak ve araçları değerlendiriyorum...');
+    expect(formatAssistantWorkActivityLabel('Controller hazır: 10 semantic aday · 18 görünür tool', true)).toBe('Çalışma araçları hazırlandı');
+    expect(formatAssistantWorkActivityLabel('Controller ek capability/kanıt çağrısı yapıyor...', false)).toBe('Bulduğum bilgiyi ek kaynaklarla doğruluyorum...');
+    expect(formatAssistantWorkActivityLabel('Controller ek capability/kanıt çağrısı yapıyor...', true)).toBe('Bulduğum bilgi ek kaynaklarla doğrulandı');
+    expect(formatAssistantWorkActivityLabel('Yanıt hazırlandı', true)).toBe('Yanıt oluşturuldu');
   });
 
-  it('keeps reported planning and synthesis steps instead of deleting them', () => {
-    const activities = buildAssistantWorkActivities({
-      isActive: true,
-      activityText: [
-        '• Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
-        '• Araştırma ve doğrulama planı oluşturuluyor...',
-        '• Plan hazır: 1 operasyonel adım',
-        '• Kanıtlar ve doğrulama sonucu sentezleniyor...',
-        '• Bilgi bankasında ilgili kayıtlar aranıyor',
-      ].join('\n'),
-      phaseLabel: 'Yanıt hazırlandı',
-    });
-
-    expect(activities.map(activity => activity.label)).toEqual([
-      'Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
-      'Araştırma ve doğrulama planı oluşturuluyor...',
-      'Plan hazır: 1 operasyonel adım',
-      'Kanıtlar ve doğrulama sonucu sentezleniyor...',
-      'Bilgi bankasında ilgili kayıtlar aranıyor',
-      'Yanıt hazırlandı',
-    ]);
-  });
-
-  it('translates runtime labels into clear end-user work descriptions', () => {
-    expect(formatAssistantWorkActivityLabel(
-      'Talep bağlamı çıkarılıyor; araç seçimini aktif LLM yapacak...',
-      false,
-    )).toBe('Soru ve konuşma bağlamını hazırlıyorum...');
-    expect(formatAssistantWorkActivityLabel(
-      'Advisory bağlam hazırlanıyor...',
-      false,
-    )).toBe('İlgili proje bağlamını topluyorum...');
-    expect(formatAssistantWorkActivityLabel(
-      'Semantic capability adayları çıkarılıyor...',
-      false,
-    )).toBe('Uygun kaynak ve araçları değerlendiriyorum...');
-    expect(formatAssistantWorkActivityLabel(
-      'Controller hazır: 10 semantic aday · 18 görünür tool',
-      true,
-    )).toBe('Çalışma araçları hazırlandı');
-    expect(formatAssistantWorkActivityLabel(
-      'Controller ek capability/kanıt çağrısı yapıyor...',
-      false,
-    )).toBe('Bulduğum kanıtı ek kaynaklarla doğruluyorum...');
-    expect(formatAssistantWorkActivityLabel(
-      'Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
-      true,
-    )).toBe('Talep türü değerlendirildi: Proje / ürün çalışması · Orta');
-    expect(formatAssistantWorkActivityLabel(
-      'Araştırma ve doğrulama planı oluşturuluyor...',
-      true,
-    )).toBe('Araştırma ve doğrulama planı oluşturuldu');
-    expect(formatAssistantWorkActivityLabel(
-      'Plan hazır: 1 operasyonel adım',
-      true,
-    )).toBe('Plan oluşturuldu · 1 operasyonel adım');
-    expect(formatAssistantWorkActivityLabel(
-      'Kanıtlar ve doğrulama sonucu sentezleniyor...',
-      true,
-    )).toBe('Yanıt için bilgiler birleştirildi');
-    expect(formatAssistantWorkActivityLabel(
-      'Bilgi bankasında ilgili kayıtlar aranıyor',
-      true,
-    )).toBe('Bilgi bankasında ilgili kayıtlar incelendi');
-  });
-
-  it('does not synthesize elapsed-time progress rows', () => {
+  it('does not invent elapsed-time progress rows', () => {
     expect(buildPendingRuntimeActivities(1)).toEqual([]);
     expect(buildPendingRuntimeActivities(12)).toEqual([]);
     expect(buildPendingRuntimeActivities(37)).toEqual([]);
   });
 
-  it('shows only the actual connection state when runtime detail has not arrived yet', () => {
-    const html = renderToStaticMarkup(
-      <AssistantWorkIndicator
-        isActive
-        startedAt={Date.now() - 22_000}
-        phaseLabel="Asistana bağlanılıyor..."
-      />,
-    );
-
-    expect(html).toContain('data-testid="assistant-work-live-details"');
-    expect(html).toContain('Asistana bağlanılıyor...');
-    expect(html).not.toContain('Talep için çalışma planı hazırlanıyor...');
-    expect(html).not.toContain('Model yanıtı üzerinde çalışıyor...');
-    expect(html).not.toContain('Yanıt üretimi devam ediyor...');
-    expect(html).toContain('assistant-work__activity--active');
-  });
-
-  it('renders real proxy and reasoning events as a public live chronology', () => {
+  it('renders the active thinking header and keeps the real timeline open by default', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
         startedAt={Date.now() - 12_000}
-        activityText={[
-          '• Talep işleme alındı',
-          '• Konuşma bağlamı ve çalışma yolu hazırlanıyor...',
-          '• Çalışma yolu belirlendi; reasoning akışı başlatıldı',
-          '• Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
-          '• Araştırma ve doğrulama planı oluşturuluyor...',
-          '• Plan hazır: 2 operasyonel adım',
-        ].join('\n')}
-        phaseLabel="JetWork Global + proje bilgi bankasında kanıt aranıyor..."
+        activityText={'• Talep işleme alındı\n• Semantic capability adayları çıkarılıyor...'}
+        phaseLabel="Bilgi bankasında ilgili kayıtlar aranıyor"
       />,
     );
 
-    expect(html).toContain('Talep işleme alındı');
-    expect(html).toContain('Konuşma bağlamı ve çalışma yolu hazırlandı');
-    expect(html).toContain('Çalışma yolu belirlendi · inceleme başlatıldı');
-    expect(html).toContain('Talep türü değerlendirildi: Proje / ürün çalışması · Orta');
-    expect(html).toContain('Araştırma ve doğrulama planı oluşturuldu');
-    expect(html).toContain('Plan oluşturuldu · 2 operasyonel adım');
-    expect(html).toContain('JetWork Global + proje bilgi bankasında kanıt aranıyor...');
+    expect(html).toContain('Düşünüyor');
+    expect(html).toContain('data-testid="assistant-work-live-details"');
+    expect(html).toContain('Uygun kaynak ve araçlar değerlendirildi');
+    expect(html).toContain('Bilgi Bankası');
+    expect(html).toContain('Bilgi bankasında ilgili kayıtlar aranıyor');
+    expect(html).not.toContain('Controller hazır:');
   });
 
-  it('uses the completed runtime summary as the authoritative final chronology', () => {
-    const reported = [
-      { label: 'Talep sınıflandırıldı: Analiz · Yüksek', state: 'completed' as const },
-      { label: 'Araştırma ve doğrulama planı oluşturuluyor...', state: 'completed' as const },
-      { label: 'Plan hazır: 1 operasyonel adım', state: 'completed' as const },
-      { label: 'Yanıt hazırlandı', state: 'completed' as const },
-    ];
-    const observed = [
-      ...reported,
-      { label: 'Talep işleme alındı', state: 'completed' as const },
-      { label: 'Konuşma bağlamı hazırlandı', state: 'completed' as const },
-    ];
-
-    expect(selectCompletedActivityEvidence(reported, observed).map(item => item.label)).toEqual(
-      reported.map(item => item.label),
+  it('collapses completed work and uses the final thought-duration copy', () => {
+    const html = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive={false}
+        completedSeconds={19}
+        activityText={'• Talep işleme alındı\n• Bilgi bankası tarandı\n• Yanıt hazırlandı'}
+      />,
     );
+
+    expect(html).toContain('19 sn düşündü');
+    expect(html).toContain('aria-label="Çalışma ayrıntılarını göster"');
+    expect(html).not.toContain('data-testid="assistant-work-details"');
   });
 
-  it('renders a stopped result as worked-and-stopped and keeps the JetWork logo', () => {
+  it('renders a stopped result as thought-and-stopped and keeps the JetWork logo', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive={false}
@@ -191,73 +89,41 @@ describe('AssistantWorkIndicator', () => {
       />,
     );
 
-    expect(html).toContain('12 sn çalıştı · durduruldu');
+    expect(html).toContain('12 sn düşündü · durduruldu');
     expect(html).toContain('data-testid="assistant-work-completed-logo"');
-    expect(html).toContain('assistant-work__logo-stage');
     expect(html).toContain('assistant-work__logo');
-    expect(html).not.toContain('hazırlandı');
   });
 
-  it('keeps the branded thinking state and exposes the current real activity as a live timeline', () => {
+  it('keeps source facts in the timeline but leaves evidence cards to ChatPanel source panels', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
-        startedAt={Date.now() - 18_000}
-        activityText="• Kurumsal bilgi bankası taranıyor"
-        phaseLabel="İlgili kayıtlar karşılaştırılıyor"
-      />,
-    );
-
-    expect(html).toContain('assistant-work__logo-motion');
-    expect(html).toContain('assistant-work__logo-stage');
-    expect(html).toContain('assistant-work__logo');
-    expect(html).toContain('Düşünüyor');
-    expect(html).toContain('data-testid="assistant-work-live-details"');
-    expect(html).toContain('Kurumsal bilgi bankası tarandı');
-    expect(html).toContain('İlgili kayıtlar karşılaştırılıyor');
-    expect(html).not.toContain('>Durdur<');
-    expect(html).not.toContain('Arka planda çalışsın');
-  });
-
-  it('formats longer work durations in a compact Turkish form', () => {
-    expect(formatAssistantWorkDuration(9)).toBe('9 sn');
-    expect(formatAssistantWorkDuration(120)).toBe('2 dk');
-    expect(formatAssistantWorkDuration(126)).toBe('2 dk 6 sn');
-  });
-
-  it('keeps completed work details available even without source details', () => {
-    const html = renderToStaticMarkup(
-      <AssistantWorkIndicator
-        isActive={false}
-        completedSeconds={19}
-        activityText="• Talep sınıflandırıldı: Proje / ürün çalışması · Orta\n• Plan hazır: 1 operasyonel adım\n• Yanıt hazırlandı"
-      />,
-    );
-
-    expect(html).toContain('19 sn çalıştı');
-    expect(html).toContain('data-testid="assistant-work-completed-logo"');
-    expect(html).toContain('aria-label="Çalışma ayrıntılarını göster"');
-    expect(html).not.toContain('assistant-work-details');
-  });
-
-  it('keeps source disclosure together with restored work details', () => {
-    const html = renderToStaticMarkup(
-      <AssistantWorkIndicator
-        isActive={false}
-        completedSeconds={9}
-        activityText="• Kanıtlar ve doğrulama sonucu sentezleniyor..."
+        startedAt={Date.now() - 4_000}
+        phaseLabel="Kaynaklar değerlendiriliyor"
         knowledgeSources={[{
           sourceName: 'Kurumsal Kaynak',
-          title: 'İş Kuralı Dokümanı',
+          title: 'CRM Function Envanteri',
           sourceType: 'knowledge',
         }]}
       />,
     );
 
-    expect(html).toContain('aria-label="Çalışma ayrıntılarını göster"');
-    expect(html).not.toContain('Planner');
-    expect(html).not.toContain('Tool');
-    expect(html).not.toContain('Final model');
-    expect(html).toContain('9 sn çalıştı');
+    expect(html).toContain('1 kurumsal kaynak bulundu');
+    expect(html).not.toContain('CRM Function Envanteri');
+  });
+
+  it('uses the completed runtime summary as authoritative evidence when it exists', () => {
+    const reported = [
+      { label: 'Talep türü değerlendirildi', state: 'completed' as const },
+      { label: 'Yanıt oluşturuldu', state: 'completed' as const },
+    ];
+    const observed = [...reported, { label: 'Eski geçici satır', state: 'completed' as const }];
+    expect(selectCompletedActivityEvidence(reported, observed)).toEqual(reported);
+  });
+
+  it('formats longer work durations in compact Turkish form', () => {
+    expect(formatAssistantWorkDuration(9)).toBe('9 sn');
+    expect(formatAssistantWorkDuration(120)).toBe('2 dk');
+    expect(formatAssistantWorkDuration(126)).toBe('2 dk 6 sn');
   });
 });

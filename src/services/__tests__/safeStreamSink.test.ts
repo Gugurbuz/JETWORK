@@ -57,6 +57,46 @@ describe('safe stream sink', () => {
     expect(controller.closed).toBe(false);
   });
 
+  it('emits canonical tool_start/tool_complete lifecycle with a stable event id', () => {
+    const controller = new FakeController();
+    const sink = createSafeStreamSink(controller, new TextEncoder(), { logTiming: false });
+
+    sink.event('status', {
+      type: 'status',
+      stage: 'searching_knowledge',
+      label: 'JetWork Global + proje bilgi bankasında kanıt aranıyor...',
+    });
+    sink.event('sources', {
+      type: 'sources',
+      sources: [
+        { sourceType: 'knowledge', title: 'CRM Function Envanteri' },
+        { sourceType: 'knowledge', title: 'CHECK_ZTKS source' },
+        { sourceType: 'knowledge', title: 'Z_FICA_TKS_CHECK' },
+      ],
+    });
+    sink.event('completed', { type: 'completed', conversationId: 'conv-1', model: 'gemini-3.8-flash', provider: 'gemini' });
+    sink.done();
+
+    const output = controller.chunks.join('');
+    expect(output).toContain('event: tool_start');
+    expect(output).toContain('event: tool_complete');
+    expect(output.match(/"event_id":"tool:1"/gu)?.length).toBeGreaterThanOrEqual(2);
+    expect(output).toContain('3 kurumsal kaynak bulundu');
+    expect(output).toContain('event: final');
+  });
+
+  it('maps technical status labels to public presentation text at the SSE boundary', () => {
+    const controller = new FakeController();
+    const sink = createSafeStreamSink(controller, new TextEncoder(), { logTiming: false });
+
+    sink.event('status', { type: 'status', stage: 'routing', label: 'Semantic capability adayları çıkarılıyor...' });
+    sink.done();
+
+    const output = controller.chunks.join('');
+    expect(output).toContain('Uygun kaynak ve araçları değerlendiriyorum...');
+    expect(output).not.toContain('Semantic capability adayları çıkarılıyor...');
+  });
+
   it('observes the first non-empty text delta without calling it end-to-end TTFT', () => {
     const controller = new FakeController();
     let clock = 1_000;

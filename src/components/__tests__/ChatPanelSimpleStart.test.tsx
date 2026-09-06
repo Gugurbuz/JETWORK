@@ -33,11 +33,7 @@ describe('ChatPanel simple BA start', () => {
       role: 'model',
       text: 'Talebi doğru çerçevelemek için şu noktaları netleştirelim.',
       createdAt: 1,
-      questions: [{
-        id: 'q1',
-        text: 'Talebin çözeceği iş problemi nedir?',
-        options: [],
-      }],
+      questions: [{ id: 'q1', text: 'Talebin çözeceği iş problemi nedir?', options: [] }],
     }]);
     expect(html).toContain('Talebin çözeceği iş problemi nedir?');
     expect(html).toContain('Varsayımlarla devam et');
@@ -66,7 +62,7 @@ describe('ChatPanel simple BA start', () => {
     expect(html).not.toContain('jetwork-thinking-dots');
   });
 
-  it('collapses completed work to a compact worked-duration line', () => {
+  it('collapses completed work to a compact thought-duration line', () => {
     const html = renderPanel([{
       id: 'm1',
       role: 'model',
@@ -77,7 +73,7 @@ describe('ChatPanel simple BA start', () => {
       createdAt: Date.now() - 18_000,
     }]);
 
-    expect(html).toContain('18 sn çalıştı');
+    expect(html).toContain('18 sn düşündü');
     expect(html).not.toContain('18 sn’de hazırlandı');
     expect(html).not.toContain('Nasıl hazırlandı?');
     expect(html).not.toContain('Planlama:');

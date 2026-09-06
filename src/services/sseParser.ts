@@ -1,3 +1,5 @@
+import { observeAgentWorkSseEvent } from './agentWorkLiveStream';
+
 export interface SseEvent {
   data: string;
   event?: string;
@@ -20,7 +22,9 @@ function parseFrame(frame: string): SseEvent | null {
   }
 
   if (data.length === 0) return null;
-  return { data: data.join('\n'), event, id };
+  const parsed = { data: data.join('\n'), event, id };
+  observeAgentWorkSseEvent(parsed);
+  return parsed;
 }
 
 export function consumeSseBuffer(
