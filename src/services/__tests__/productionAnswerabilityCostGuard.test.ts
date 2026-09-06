@@ -6,7 +6,7 @@ const providerBaseSource = readFileSync(
   'utf8',
 )
 const interactionsSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
   'utf8',
 )
 const coreSource = readFileSync(
