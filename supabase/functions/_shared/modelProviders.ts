@@ -26,8 +26,26 @@ export {
 
 export type AssistantProvider = 'openai' | 'gemini' | 'ollama'
 
+export const PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'
+export const DEFAULT_GEMINI_MODEL = PUBLIC_GEMINI_MODEL
+const LEGACY_GEMINI_MODEL_ALIASES = [
+  'gemini-3-flash-preview',
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.7-flash',
+] as const
+export const GEMINI_MODELS = new Set([PUBLIC_GEMINI_MODEL, ...LEGACY_GEMINI_MODEL_ALIASES])
+
 export const providerForModel = (model: string): AssistantProvider => (
-  isOllamaModel(model) ? 'ollama' : baseProviderForModel(model)
+  isOllamaModel(model)
+    ? 'ollama'
+    : GEMINI_MODELS.has(model)
+      ? 'gemini'
+      : baseProviderForModel(model)
 )
 
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
@@ -75,7 +93,7 @@ const deterministicMissResponse = (input: {
 }): NormalizedModelResponse => ({
   id: `jetwork-deterministic-web:${crypto.randomUUID()}`,
   status: 'completed',
-  model: input.model,
+  model: PUBLIC_GEMINI_MODEL,
   output: [{
     type: 'message',
     role: 'assistant',
@@ -163,6 +181,7 @@ const requestTimedGeminiBase = async (input: GeminiRequestInput): Promise<Normal
   let emittedText = ''
   const response = await baseRequestGeminiResponse({
     ...input,
+    model: PUBLIC_GEMINI_MODEL,
     onText: delta => {
       if (firstTextAt == null && delta) firstTextAt = performance.now()
       if (delta) emittedText += delta
@@ -175,6 +194,7 @@ const requestTimedGeminiBase = async (input: GeminiRequestInput): Promise<Normal
     : response
   return {
     ...alignedResponse,
+    model: PUBLIC_GEMINI_MODEL,
     usage: mergeNumericUsage(response.usage, {
       gemini_provider_total_ms: Math.max(0, Math.round(completedAt - startedAt)),
       ...(firstTextAt == null ? {} : {
@@ -243,7 +263,7 @@ const requestBaseWithEmptyFinalizationRecovery = async (
 
   if (visibleText.trim() || responseHasFunctionCall(first)) return first
 
-  console.warn('JETWORK_GEMINI_EMPTY_FINALIZATION_RETRY', JSON.stringify({ model: input.model }))
+  console.warn('JETWORK_GEMINI_EMPTY_FINALIZATION_RETRY', JSON.stringify({ model: PUBLIC_GEMINI_MODEL }))
   let retryVisibleText = ''
   const retry = await requestBaseWithStreamingAnswerability({
     ...input,
@@ -290,13 +310,13 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   if (web.searchCount < 1) {
     const text = 'Deep Research için zorunlu Google Search executor çalıştı ancak gerçek bir arama çağrısı doğrulanamadı. Web araştırmasını tamamlanmış saymıyorum.'
     input.onText(text)
-    return deterministicMissResponse({ model: input.model, text, usage: web.usage, searchQueries: web.searchQueries })
+    return deterministicMissResponse({ model: PUBLIC_GEMINI_MODEL, text, usage: web.usage, searchQueries: web.searchQueries })
   }
 
   if (!web.sources.length) {
     const text = 'Google Search gerçekten çalıştı ancak bu araştırma hedefi için doğrulanabilir web kaynağı dönmedi. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'
     input.onText(text)
-    return deterministicMissResponse({ model: input.model, text, usage: web.usage, searchQueries: web.searchQueries })
+    return deterministicMissResponse({ model: PUBLIC_GEMINI_MODEL, text, usage: web.usage, searchQueries: web.searchQueries })
   }
 
   const sourceList = web.sources
@@ -331,6 +351,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
 
   const finalResponse = await requestBaseWithStreamingAnswerability({
     ...input,
+    model: PUBLIC_GEMINI_MODEL,
     instructions: finalInstructions,
     items: finalItems,
     tools: [],
@@ -340,6 +361,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
 
   return {
     ...finalResponse,
+    model: PUBLIC_GEMINI_MODEL,
     webSources: web.sources.map(source => ({ title: source.title, url: source.url })),
     webSearchQueries: web.searchQueries,
     usage: mergeNumericUsage(web.usage, finalResponse.usage, {

@@ -12,12 +12,13 @@ export interface SettingsState {
   setPromptSettings: (settings: PromptSettings | null) => void;
 }
 
-const DEPRECATED_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview';
-const STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite';
+export const PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash';
 
-const normalizeSelectableModel = (model: string | null | undefined): string => (
-  model === DEPRECATED_FLASH_LITE_MODEL ? STABLE_FLASH_LITE_MODEL : (model || 'auto')
-);
+const normalizeSelectableModel = (model: string | null | undefined): string => {
+  const normalized = String(model || PUBLIC_GEMINI_MODEL).trim();
+  if (normalized.startsWith('gemini-')) return PUBLIC_GEMINI_MODEL;
+  return normalized || PUBLIC_GEMINI_MODEL;
+};
 
 const readLocalSetting = (key: string): string | null => {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') return null;

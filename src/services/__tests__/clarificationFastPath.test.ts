@@ -11,7 +11,7 @@ describe('clarification TTFT fast path', () => {
   it('routes low-risk clarification handshakes to the trivial lane', () => {
     expect(shouldUseTrivialAssistantFastPath({
       message,
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.8-flash',
       attachmentCount: 0,
     })).toBe(true)
   })
@@ -20,8 +20,9 @@ describe('clarification TTFT fast path', () => {
     expect(deterministicTrivialResponseForMessage(message)).toContain('Talebi anlat')
   })
 
-  it('never spends Pro on trivial clarification even when Pro is selected', () => {
-    expect(executionModelForTrivialFastPathModel('gemini-3.1-pro-preview')).toBe('gemini-3.1-flash-lite')
+  it('migrates legacy Gemini selections to 3.8 Flash on the trivial lane', () => {
+    expect(executionModelForTrivialFastPathModel('gemini-3.1-pro-preview')).toBe('gemini-3.8-flash')
+    expect(executionModelForTrivialFastPathModel('gemini-3.5-flash')).toBe('gemini-3.8-flash')
   })
 
   it('keeps substantive project requests out of the trivial lane', () => {

@@ -13,6 +13,7 @@ import { compactSemanticConversation } from '../../../supabase/functions/_shared
 
 const gatewaySource = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url), 'utf8')
 const providerSource = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url), 'utf8')
+const publicProviderSource = readFileSync(new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url), 'utf8')
 const controllerPolicySource = readFileSync(new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url), 'utf8')
 const reasoningSource = readFileSync(new URL('../../../supabase/functions/_shared/reasoningEngine.ts', import.meta.url), 'utf8')
 const orchestratorSource = readFileSync(new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url), 'utf8')
@@ -119,15 +120,18 @@ describe('provider, evidence and semantic intent integrity', () => {
     expect(providerSource).toContain("if ('content' in clean) clean.content = sanitizeContent(clean.content)")
   })
 
-  it('keeps Flash-Lite selectable while removing the hidden cheap-agent-to-final-model split', () => {
+  it('keeps compatibility helpers internal while public Gemini selection is 3.8-only', () => {
     expect(providerSource).toContain('GEMINI_AGENT_MODEL')
     expect(providerSource).toContain('const requestedModel = normalizeGeminiRequestedModel(input.model)')
     expect(providerSource).toContain('primary_llm_agent_calls')
     expect(providerSource).not.toContain('buildGeminiFinalSynthesisItems')
     expect(providerSource).not.toContain('model: GEMINI_AGENT_MODEL')
     expect(settingsSource).toContain('normalizeSelectableModel')
-    expect(settingsSource).toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'")
-    expect(settingsSource).not.toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL')
+    expect(settingsSource).toContain("PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'")
+    expect(settingsSource).toContain("if (normalized.startsWith('gemini-')) return PUBLIC_GEMINI_MODEL")
+    expect(settingsSource).not.toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'")
+    expect(publicProviderSource).toContain("PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'")
+    expect(publicProviderSource).toContain('model: PUBLIC_GEMINI_MODEL')
   })
 
   it('gives OpenAI the same primary-agent policy at developer precedence', () => {

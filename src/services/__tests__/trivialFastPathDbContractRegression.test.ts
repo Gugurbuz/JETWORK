@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const migration = readFileSync(
-  new URL('../../../supabase/migrations/20260810223000_fix_trivial_fast_path_model_contract.sql', import.meta.url),
+  new URL('../../../supabase/migrations/20260906015000_gemini_38_trivial_fast_path.sql', import.meta.url),
   'utf8',
 );
 const helper = readFileSync(
@@ -19,13 +19,13 @@ const indexHtml = readFileSync(
 );
 
 describe('trivial fast path DB/runtime contract regression', () => {
-  it('accepts the auto sentinel and normalizes it to the runtime execution model', () => {
-    expect(helper).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.1-flash-lite'");
+  it('accepts auto and stale Gemini aliases but normalizes execution to Gemini 3.8 Flash', () => {
+    expect(helper).toContain("TRIVIAL_GEMINI_LATENCY_MODEL = 'gemini-3.8-flash'");
     expect(helper).toContain("model === 'auto'");
-    expect(migration).toContain("when p_model = 'auto' then 'gemini-3.1-flash-lite'");
+    expect(migration).toContain("when p_model = 'auto' or p_model like 'gemini-%' then 'gemini-3.8-flash'");
     expect(migration).toContain("'auto',");
+    expect(migration).toContain("'gemini-3.8-flash'");
     expect(migration).toContain("'gemini-3.5-flash'");
-    expect(migration).toContain("'gemini-3.5-flash-lite'");
     expect(migration).toContain('v_execution_model');
   });
 
@@ -34,6 +34,15 @@ describe('trivial fast path DB/runtime contract regression', () => {
     expect(migration).not.toContain('v_conversation.model <> v_execution_model');
     expect(migration).toContain('v_conversation.prompt_version_id <> v_prompt_id');
     expect(migration).toContain('Trivial turns deliberately reuse the active conversation');
+  });
+
+  it('allows only the active Gemini 3.8 model at trivial completion', () => {
+    const completionStart = migration.indexOf('create or replace function public.complete_trivial_assistant_turn');
+    const completion = migration.slice(completionStart);
+    expect(completion).toContain("'gemini-3.8-flash'");
+    expect(completion).not.toContain("'gemini-3.5-flash'");
+    expect(completion).not.toContain("'gemini-3.1-flash-lite'");
+    expect(completion).toContain('invalid_fast_path_completion');
   });
 
   it('keeps the exact deterministic greeting response in the runtime helper', () => {

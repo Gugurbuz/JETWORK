@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('Gemini answer provider resilience', () => {
-  it('keeps explicit Pro bounded on Pro while preserving task-sensitive Flash timeouts', () => {
+  it('keeps Gemini 3.8 Flash as the production default with task-sensitive timeouts', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
       'utf8',
     );
 
-    expect(source).toContain("export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'");
+    expect(source).toContain("export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash'");
+    expect(source).toContain("import { GoogleGenAI } from 'npm:@google/genai@2.21.0'");
     expect(source).toContain('GEMINI_PRO_ATTEMPT_TIMEOUT_MS = 45_000');
     expect(source).toContain('GEMINI_TOOL_ATTEMPT_TIMEOUT_MS = 18_000');
     expect(source).toContain('GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS = 45_000');
@@ -25,8 +26,9 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('signal has been aborted');
     expect(source).toContain('if (input.signal?.aborted || streamedTextBeforeError(error)) throw error');
     expect(source).toContain('const finalSynthesis = !input.allowTools && !trivialConversation');
-    expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'minimal' }");
+    expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'medium' }");
     expect(source).toContain("config.thinkingConfig = { thinkingLevel: 'low' }");
+    expect(source).not.toContain("thinkingLevel: 'minimal'");
   });
 
   it('recovers a final answer from completed tool evidence after transient Gemini tool-loop failure', () => {
@@ -43,6 +45,7 @@ describe('Gemini answer provider resilience', () => {
     expect(source).toContain('delete recoveryConfig.toolConfig');
     expect(source).toContain('timeoutMs: GEMINI_FINAL_SYNTHESIS_TIMEOUT_MS');
     expect(source).toContain('contents: toGeminiContents(compactToolRecoveryItems(input.items))');
+    expect(source).toContain('model: DEFAULT_GEMINI_MODEL');
   });
 
   it('removes prior tool-call protocol items when Gemini must produce a final no-tool answer', () => {

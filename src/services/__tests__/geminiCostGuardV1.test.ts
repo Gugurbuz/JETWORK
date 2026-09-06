@@ -14,6 +14,10 @@ const providerWrapperSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
   'utf8',
 )
+const publicProviderSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+  'utf8',
+)
 const controllerPolicySource = readFileSync(
   new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url),
   'utf8',
@@ -36,12 +40,15 @@ const liveCanaryWorkflow = readFileSync(
 )
 
 describe('Gemini cost and primary-agent boundaries', () => {
-  it('keeps stable model normalization and legacy budget helpers available', () => {
+  it('keeps compatibility helpers internal while exposing only Gemini 3.8 Flash', () => {
     expect(GEMINI_SEMANTIC_MODEL).toBe('gemini-3.1-flash-lite')
     expect(GEMINI_AGENT_MODEL).toBe('gemini-3.5-flash-lite')
     expect(normalizeGeminiRequestedModel('gemini-3.1-flash-lite-preview')).toBe('gemini-3.1-flash-lite')
-    expect(settingsStoreSource).not.toContain('model === FLASH_LITE_MODEL ? GEMINI_PRO_MODEL')
-    expect(settingsStoreSource).toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'")
+    expect(settingsStoreSource).toContain("PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'")
+    expect(settingsStoreSource).toContain("if (normalized.startsWith('gemini-')) return PUBLIC_GEMINI_MODEL")
+    expect(settingsStoreSource).not.toContain("STABLE_FLASH_LITE_MODEL = 'gemini-3.5-flash-lite'")
+    expect(publicProviderSource).toContain("PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'")
+    expect(publicProviderSource).toContain('model: PUBLIC_GEMINI_MODEL')
 
     const base = {
       complexity: 'medium', knowledgeRequired: true, webMode: 'none', verificationRequired: false,
@@ -108,10 +115,11 @@ describe('Gemini cost and primary-agent boundaries', () => {
     expect(usage?.estimated_cost_usd).toBeCloseTo(0.0055, 6)
   })
 
-  it('keeps Auto provider fallback wiring intact', () => {
-    expect(gatewaySource).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.5-flash'")
+  it('keeps Auto provider fallback wiring intact while execution is normalized at the provider boundary', () => {
+    expect(gatewaySource).toContain("DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'")
     expect(gatewaySource).toContain('preferGeminiAuto')
     expect(gatewaySource).toContain('AUTO_PROVIDER_CIRCUIT_BREAKER_MS')
+    expect(publicProviderSource).toContain('model: PUBLIC_GEMINI_MODEL')
   })
 
   it('never runs the paid production continuity canary automatically', () => {
