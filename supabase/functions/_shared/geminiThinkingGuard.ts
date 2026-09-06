@@ -1,9 +1,29 @@
 const GEMINI_HOST = 'generativelanguage.googleapis.com'
-const GEMINI_FLASH_MODEL_PATHS = [
-  '/models/gemini-3.5-flash:generateContent',
-  '/models/gemini-3.5-flash:streamGenerateContent',
-] as const
 const COST_GUARD_MARKER = '[JETWORK_COST_GUARD]'
+
+type BoundedFinalThinkingLevel = 'minimal' | 'low'
+
+const GEMINI_FLASH_THINKING_POLICIES: ReadonlyArray<{
+  path: string
+  thinkingLevel: BoundedFinalThinkingLevel
+}> = [
+  {
+    path: '/models/gemini-3.5-flash:generateContent',
+    thinkingLevel: 'minimal',
+  },
+  {
+    path: '/models/gemini-3.5-flash:streamGenerateContent',
+    thinkingLevel: 'minimal',
+  },
+  {
+    path: '/models/gemini-3.8-flash:generateContent',
+    thinkingLevel: 'low',
+  },
+  {
+    path: '/models/gemini-3.8-flash:streamGenerateContent',
+    thinkingLevel: 'low',
+  },
+] as const
 
 const requestUrl = (input: Parameters<typeof fetch>[0]): string => {
   if (typeof input === 'string') return input
@@ -25,13 +45,14 @@ const systemInstructionText = (body: Record<string, unknown>) => {
   }
 }
 
-const isGeminiFlashGenerateContent = (url: string) => {
+const boundedFinalThinkingLevelForUrl = (url: string): BoundedFinalThinkingLevel | null => {
   try {
     const parsed = new URL(url)
-    return parsed.hostname === GEMINI_HOST
-      && GEMINI_FLASH_MODEL_PATHS.some(path => parsed.pathname.endsWith(path))
+    if (parsed.hostname !== GEMINI_HOST) return null
+    const policy = GEMINI_FLASH_THINKING_POLICIES.find(item => parsed.pathname.endsWith(item.path))
+    return policy?.thinkingLevel ?? null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -39,7 +60,8 @@ export function applyGeminiThinkingGuardBody(
   url: string,
   body: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!isGeminiFlashGenerateContent(url)) return body
+  const thinkingLevel = boundedFinalThinkingLevelForUrl(url)
+  if (!thinkingLevel) return body
   if (!systemInstructionText(body).includes(COST_GUARD_MARKER)) return body
 
   const tools = Array.isArray(body.tools) ? body.tools : []
@@ -53,7 +75,7 @@ export function applyGeminiThinkingGuardBody(
     ...body,
     generationConfig: {
       ...generationConfig,
-      thinkingConfig: { thinkingLevel: 'minimal' },
+      thinkingConfig: { thinkingLevel },
     },
   }
 }
@@ -77,7 +99,7 @@ export function installGeminiFinalSynthesisThinkingGuard(): void {
     const guardedBody = applyGeminiThinkingGuardBody(url, parsedBody)
     if (guardedBody === parsedBody) return currentFetch(input, init)
 
-    console.info('[gemini-thinking-guard] minimal thinking applied to bounded final synthesis')
+    console.info('[gemini-thinking-guard] bounded final synthesis thinking policy applied')
     return currentFetch(input, {
       ...init,
       body: JSON.stringify(guardedBody),
