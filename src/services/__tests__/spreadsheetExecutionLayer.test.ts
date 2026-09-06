@@ -155,10 +155,9 @@ describe('Spreadsheet Execution Layer', () => {
     expect(chatPanelSource).toContain('isActionableExecutionAttachment')
     expect(useMessagesSource).toContain('attachments: preparedAttachments,')
     expect(useMessagesSource).toContain("attachment.purpose === 'knowledge_bank'")
-    expect(assistantRuntimeClientSource).toContain("candidate.purpose !== 'chat_only'")
-    expect(assistantRuntimeClientSource).toContain('explicitlyTextReadable')
-    expect(assistantRuntimeClientSource).toContain('!isActionableExecutionAttachment(candidate)')
-    expect(assistantRuntimeClientSource).toContain("import { isActionableExecutionAttachment } from './assistantFileRepository';")
+    expect(assistantRuntimeClientSource).toContain("attachments.filter(candidate => candidate.purpose === 'chat_only')")
+    expect(assistantRuntimeClientSource).toContain('MULTIMODAL_CHAT_MIMES')
+    expect(assistantRuntimeClientSource).toContain('readAttachmentText(attachment)')
   })
 
   it('wires execution through the authenticated assistant dispatcher and private worker', () => {
