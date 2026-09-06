@@ -33,6 +33,17 @@ describe('Agent Work durable completion boundary', () => {
     expect(normalized.isTyping).toBe(false);
   });
 
+  it('allows completion when the realtime durable row has redacted provider metadata', () => {
+    const normalized = normalizeRuntimePersistenceState(runtimeMessage({
+      provider: undefined,
+      responseModel: undefined,
+      isTyping: true,
+      persistenceStatus: 'saved',
+    }));
+
+    expect(normalized.isTyping).toBe(false);
+  });
+
   it('does not leave the work header active after a definitive persistence failure', () => {
     const normalized = normalizeRuntimePersistenceState(runtimeMessage({
       isTyping: true,
@@ -42,7 +53,7 @@ describe('Agent Work durable completion boundary', () => {
     expect(normalized.isTyping).toBe(false);
   });
 
-  it('does not rewrite ordinary or legacy assistant messages without runtime provider metadata', () => {
+  it('does not rewrite ordinary or legacy assistant messages without runtime provider metadata while pending', () => {
     const message = runtimeMessage({
       provider: undefined,
       isTyping: false,
