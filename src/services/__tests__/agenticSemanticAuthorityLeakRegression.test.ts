@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { discoverIndexedCapabilities } from '../../../supabase/functions/_shared/capabilities/indexedDiscovery.ts'
 import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/semanticOrchestrator.ts'
 
 const internalGatewaySource = readFileSync(
@@ -15,6 +14,18 @@ const providerSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
   'utf8',
 )
+const interactionSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  'utf8',
+)
+const coreSource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
+  'utf8',
+)
+const surfaceSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Agentic semantic authority leak regressions', () => {
   it('materializes the internal gateway locally instead of pinning an old remote runtime', () => {
@@ -23,7 +34,7 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(internalGatewaySource).not.toMatch(/[0-9a-f]{40}\/supabase\/functions\/openai-assistant-v2/)
   })
 
-  it('keeps the canonical gateway contract: attach neutral semantic plan before entering core', () => {
+  it('keeps the gateway semantic plan advisory before entering core', () => {
     const attachedPlan = 'message: attachSemanticPlan(currentMessage, semantic.plan)'
     const upstreamFetch = "upstream = await fetch(`${supabaseUrl}/functions/v1/openai-assistant-core-v2`"
     expect(publicGatewaySource).toContain('buildSemanticExecutionPlan({')
@@ -32,82 +43,43 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(publicGatewaySource.indexOf(attachedPlan)).toBeLessThan(publicGatewaySource.indexOf(upstreamFetch))
   })
 
-  it('keeps Controller V2 preplanning semantically neutral across freshness phrasings', async () => {
-    const requests = [
-      'İYS entegrasyon dokümanına ihtiyacım var güncel',
-      'İYS için en son geçerli entegrasyon dokümanını bul',
-      'İYS entegrasyonunda şu an kullanılan doküman hangisi',
-      'İYS vendorının son dokümanını incele',
-      'İYS entegrasyonunun mevcut sürüm dokümantasyonuna ihtiyacım var',
-    ]
-
-    for (const message of requests) {
-      const result = await buildSemanticExecutionPlan({
-        provider: 'gemini',
-        model: 'gemini-3.8-flash',
-        message,
-        conversation: [],
-        agentControllerV2Enabled: true,
-      })
-
-      expect(result.plan).toMatchObject({
-        intent: 'analysis',
-        complexity: 'medium',
-        executionMode: 'direct',
-        knowledgeRequired: false,
-        webMode: 'none',
-        verificationRequired: false,
-      })
-      expect(result.plan.evidenceQueries).toEqual([])
-      expect(result.usage?.controller_v2_advisory_plan).toBe(1)
-    }
-  })
-
-  it('never lets semantic Top-K hide foundational web and knowledge evidence capabilities', async () => {
-    const result = await discoverIndexedCapabilities({
-      client: null,
-      geminiApiKey: undefined,
-      query: 'İYS entegrasyon dokümanına ihtiyacım var güncel',
-      topK: 1,
+  it('keeps V2 preplanning neutral while the active Gemini V3 provider owns semantic action selection', async () => {
+    const result = await buildSemanticExecutionPlan({
+      provider: 'gemini',
+      model: 'gemini-3.8-flash',
+      message: 'İYS entegrasyon dokümanının güncel halini incele',
+      conversation: [],
+      agentControllerV2Enabled: true,
     })
-    const ids = new Set(result.candidates.map(candidate => candidate.id))
 
-    expect(ids.has('provider:web_search')).toBe(true)
-    expect(ids.has('tool:search_knowledge_catalog')).toBe(true)
-    expect(ids.has('tool:list_knowledge_catalog')).toBe(true)
-    expect(ids.has('tool:get_knowledge_object')).toBe(true)
-    expect(ids.has('tool:get_knowledge_objects')).toBe(true)
-    expect(ids.has('tool:get_related_objects')).toBe(true)
+    expect(result.plan.executionMode).toBe('direct')
+    expect(result.plan.evidenceQueries).toEqual([])
+    expect(providerSource).toContain('requestGeminiInteractionsResponse')
+    expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
+    expect(providerSource).not.toContain('extractSemanticPlanFromItems')
   })
 
-  it('respects discovery exclusions so foundational options do not loop during discover-more', async () => {
-    const excluded = [
-      'provider:web_search',
-      'tool:search_knowledge_catalog',
-      'tool:list_knowledge_catalog',
-      'tool:get_knowledge_object',
-      'tool:get_knowledge_objects',
-      'tool:get_related_objects',
-    ]
-    const result = await discoverIndexedCapabilities({
-      client: null,
-      geminiApiKey: undefined,
-      query: 'current public integration documentation',
-      topK: 1,
-      excludeIds: excluded,
-    })
-    const ids = new Set(result.candidates.map(candidate => candidate.id))
-    for (const id of excluded) expect(ids.has(id)).toBe(false)
+  it('exposes the full registered capability surface instead of letting semantic Top-K hide options', () => {
+    expect(surfaceSource).toContain("discoveryMode: 'full_surface'")
+    expect(surfaceSource).toContain('...runtimeTools')
+    expect(surfaceSource).toContain('providerWebVisible: true')
+    expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
+    expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
   })
 
-  it('withholds an ungrounded enterprise final and gives the same LLM controller one recovery re-plan', () => {
-    expect(providerSource).toContain('requestBaseWithEnterpriseEvidenceReplan')
-    expect(providerSource).toContain('[JETWORK GROUNDING RECOVERY REPLAN OBSERVATION]')
-    expect(providerSource).toContain('grounding_controller_replan_retry: 1')
-    expect(providerSource).toContain('const first = await requestBaseWithEmptyFinalizationRecovery({')
-    expect(providerSource).toContain('const retry = await requestBaseWithEmptyFinalizationRecovery({')
-    expect(providerSource).toContain('Search sonucu candidate-only ise onu kanıt sayma')
-    expect(providerSource).not.toContain("toolName: 'search_knowledge_catalog'")
-    expect(providerSource).not.toContain("toolName: 'provider_web'")
+  it('lets Gemini choose native web/url/code and custom functions in the same interaction', () => {
+    expect(interactionSource).toContain("{ type: 'google_search'")
+    expect(interactionSource).toContain("{ type: 'url_context' }")
+    expect(interactionSource).toContain("{ type: 'code_execution' }")
+    expect(interactionSource).toContain("tool_choice: 'validated'")
+    expect(interactionSource).toContain('customToolsForInteractions')
+  })
+
+  it('keeps grounding mechanical and fail-closed without choosing a semantic recovery route', () => {
+    expect(coreSource).toContain('evaluateGroundedTechnicalClaims({')
+    expect(coreSource).toContain('shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })')
+    expect(coreSource).toContain('roundText = groundingFailureText()')
+    expect(providerSource).not.toContain('[JETWORK GROUNDING RECOVERY REPLAN OBSERVATION]')
+    expect(providerSource).not.toContain('grounding_controller_replan_retry')
   })
 })
