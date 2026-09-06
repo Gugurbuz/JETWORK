@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Message } from '../types';
 import { supabase } from '../supabase';
 import { rowsToCamel, rowToCamel } from '../lib/mapping';
+import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { parseAssistantPresentationMetadata } from '../services/assistantPresentationMetadata';
 import { decodeAgentWorkEnvelope } from '../services/agentWorkPersistence';
 import { registerPersistedAgentWorkEvents } from '../services/agentWorkLiveStream';
@@ -41,6 +42,38 @@ function sanitizeAssistantPresentation(message: Message): Message {
   };
 }
 
+export function normalizeRuntimePersistenceState(message: Message): Message {
+  if (
+    !FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    || message.role !== 'model'
+    || !message.provider
+    || !message.persistenceStatus
+  ) {
+    return message;
+  }
+
+  // A successful runtime turn is not publicly complete until its message row —
+  // including the canonical Agent Work envelope — is durably committed. Keep the
+  // work header active while persistence is pending; the answer text can already
+  // be visible because streaming is independent from this completion boundary.
+  if (message.persistenceStatus === 'pending') {
+    return message.isTyping ? message : { ...message, isTyping: true };
+  }
+
+  // Once persistence succeeds (or definitively fails), the turn can leave the
+  // active state. This prevents a completed/collapsed UI from racing ahead of
+  // the durable chronology and makes reload equality a product invariant.
+  if ((message.persistenceStatus === 'saved' || message.persistenceStatus === 'failed') && message.isTyping) {
+    return { ...message, isTyping: false };
+  }
+
+  return message;
+}
+
+const normalizeRuntimePersistenceStates = (messages: Message[]): Message[] => (
+  messages.map(normalizeRuntimePersistenceState)
+);
+
 async function loadMessages(workspaceId: string): Promise<Message[]> {
   const { data, error } = await supabase
     .from('messages')
@@ -67,7 +100,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   setMessages: (workspaceId: string, updater: (prev: Message[]) => Message[]) => {
     set((state) => {
       const currentMessages = state.messagesByWorkspace[workspaceId] || [];
-      const newMessages = updater(currentMessages);
+      const newMessages = normalizeRuntimePersistenceStates(updater(currentMessages));
       return {
         messagesByWorkspace: {
           ...state.messagesByWorkspace,
