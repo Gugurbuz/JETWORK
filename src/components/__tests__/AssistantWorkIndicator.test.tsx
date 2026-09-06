@@ -11,7 +11,7 @@ import {
 } from '../AssistantWorkIndicator';
 
 describe('AssistantWorkIndicator', () => {
-  it('builds only reported runtime activities and marks the latest live activity active', () => {
+  it('builds reported runtime activities plus live source observations and marks the current phase active', () => {
     const activities = buildAssistantWorkActivities({
       isActive: true,
       activityText: '• Talep ve konuşma bağlamı inceleniyor\n• Bilgi bankası taranıyor',
@@ -23,14 +23,16 @@ describe('AssistantWorkIndicator', () => {
     expect(activities.map(activity => activity.label)).toEqual([
       'Talep ve konuşma bağlamı inceleniyor',
       'Bilgi bankası taranıyor',
+      '3 kurumsal kaynak bulundu · kanıtlar eşleştiriliyor',
       'Kaynaklar karşılaştırılıyor',
     ]);
     expect(activities[0].state).toBe('completed');
     expect(activities[1].state).toBe('completed');
-    expect(activities[2].state).toBe('active');
+    expect(activities[2].state).toBe('completed');
+    expect(activities[3].state).toBe('active');
   });
 
-  it('does not invent activity rows from source counts or generic connection noise', () => {
+  it('surfaces source-count observations without inventing elapsed-time progress', () => {
     const activities = buildAssistantWorkActivities({
       isActive: false,
       activityText: '• Asistana bağlanılıyor...',
@@ -38,7 +40,11 @@ describe('AssistantWorkIndicator', () => {
       webSourceCount: 2,
     });
 
-    expect(activities.map(activity => activity.label)).toEqual(['Asistana bağlanılıyor...']);
+    expect(activities.map(activity => activity.label)).toEqual([
+      'Asistana bağlanılıyor...',
+      '4 kurumsal kaynak bulundu · kanıtlar eşleştiriliyor',
+      '2 web kaynağı bulundu · güncellik ve tutarlılık kontrol ediliyor',
+    ]);
   });
 
   it('keeps reported planning and synthesis steps instead of deleting them', () => {
@@ -64,7 +70,27 @@ describe('AssistantWorkIndicator', () => {
     ]);
   });
 
-  it('translates runtime labels into clearer end-user work descriptions without hiding plan detail', () => {
+  it('translates runtime labels into clear end-user work descriptions', () => {
+    expect(formatAssistantWorkActivityLabel(
+      'Talep bağlamı çıkarılıyor; araç seçimini aktif LLM yapacak...',
+      false,
+    )).toBe('Soru ve konuşma bağlamını hazırlıyorum...');
+    expect(formatAssistantWorkActivityLabel(
+      'Advisory bağlam hazırlanıyor...',
+      false,
+    )).toBe('İlgili proje bağlamını topluyorum...');
+    expect(formatAssistantWorkActivityLabel(
+      'Semantic capability adayları çıkarılıyor...',
+      false,
+    )).toBe('Uygun kaynak ve araçları değerlendiriyorum...');
+    expect(formatAssistantWorkActivityLabel(
+      'Controller hazır: 10 semantic aday · 18 görünür tool',
+      true,
+    )).toBe('Çalışma araçları hazırlandı');
+    expect(formatAssistantWorkActivityLabel(
+      'Controller ek capability/kanıt çağrısı yapıyor...',
+      false,
+    )).toBe('Bulduğum kanıtı ek kaynaklarla doğruluyorum...');
     expect(formatAssistantWorkActivityLabel(
       'Talep sınıflandırıldı: Proje / ürün çalışması · Orta',
       true,
@@ -110,7 +136,7 @@ describe('AssistantWorkIndicator', () => {
     expect(html).toContain('assistant-work__activity--active');
   });
 
-  it('renders real proxy and reasoning events as the live chronology', () => {
+  it('renders real proxy and reasoning events as a public live chronology', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
@@ -129,7 +155,7 @@ describe('AssistantWorkIndicator', () => {
 
     expect(html).toContain('Talep işleme alındı');
     expect(html).toContain('Konuşma bağlamı ve çalışma yolu hazırlandı');
-    expect(html).toContain('Çalışma yolu belirlendi · reasoning akışı başlatıldı');
+    expect(html).toContain('Çalışma yolu belirlendi · inceleme başlatıldı');
     expect(html).toContain('Talep türü değerlendirildi: Proje / ürün çalışması · Orta');
     expect(html).toContain('Araştırma ve doğrulama planı oluşturuldu');
     expect(html).toContain('Plan oluşturuldu · 2 operasyonel adım');
