@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@jetwork-production-assets/assets/jetwork-favicon-DfiSDAUn.svg" />
+    <title>JetWork</title>
+    <style>
+      /* Provider/model telemetry is operational metadata, not chat content.
+         Keep historical rows with previously persisted provider values clean too. */
+      .chat-scroll-container [title="openai"],
+      .chat-scroll-container [title="gemini"],
+      .chat-scroll-container [title^="gpt-"],
+      .chat-scroll-container [title^="gemini-"] {
+        display: none !important;
+      }
+
+      /* Migration guard: stale legacy model selectors can still exist in old UI
+         surfaces while the canonical selector is CompactModelControl/Settings.
+         Never expose those stale Gemini choices to end users. */
+      select:has(option[value="gemini-3-flash-preview"]),
+      select:has(option[value="gemini-3.1-pro-preview"]),
+      select:has(option[value="gemini-3.1-flash-lite-preview"]),
+      select:has(option[value="gemini-3.1-flash-lite"]),
+      select:has(option[value="gemini-3.5-flash"]),
+      select:has(option[value="gemini-3.5-flash-lite"]),
+      select:has(option[value="gemini-3.6-flash"]),
+      select:has(option[value="gemini-3.7-flash"]) {
+        display: none !important;
+      }
+    </style>
+    <script type="module" crossorigin src="https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@jetwork-production-assets/assets/index-D5H71Wg8.js"></script>
+    <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/Gugurbuz/JETWORK@jetwork-production-assets/assets/index-CaqIGBH9.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
