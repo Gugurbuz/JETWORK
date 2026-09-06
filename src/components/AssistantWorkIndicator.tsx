@@ -1,24 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  Database,
-  Globe2,
-  Link2,
-  LoaderCircle,
-  Search,
-  Square,
-} from 'lucide-react';
+import { Globe2, Search, Square } from 'lucide-react';
 import type { AssistantKnowledgeSource } from '../types';
 import { cn } from '../lib/utils';
-import { JetWorkLogo } from './JetWorkLogo';
 import { splitAssistantSources } from '../services/assistantSources';
+import type { AgentWorkEvent } from '../services/agentWorkTypes';
+import {
+  completeActiveAgentEvents,
+  createObservedAgentWorkEvent,
+  diffRollingActivitySnapshot,
+  formatAgentActivityLabel,
+  normalizeAgentActivityLabel,
+  reduceAgentActivityEvents,
+  sourceCountAgentWorkEvent,
+} from '../services/agentActivityReducer';
+import { AgentWorkHeader } from './AgentWorkHeader';
+import { AgentWorkTimeline } from './AgentWorkTimeline';
 
-const ACTIVITY_PREFIX = /^(?:[•*\-–—]|\d+[.)])\s*/u;
-const MARKDOWN_DECORATION = /[*#`_]/gu;
-const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata)/iu;
+const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata|engellendi)/iu;
 const SOURCE_GAP_ACTIVITY = /(?:kaynak|bilgi bankası|web).*(?:bulunamad|yetersiz|kullanılamadı|erişilemedi)|(?:bulunamad|yetersiz|kullanılamadı|erişilemedi).*(?:kaynak|bilgi bankası|web)/iu;
 const LOW_VALUE_ACTIVITY = /^çalışılıyor\.{0,3}$/iu;
 
@@ -35,136 +34,23 @@ interface AssistantWorkIndicatorProps {
   phaseLabel?: string;
   knowledgeSources?: AssistantKnowledgeSource[];
   groundingUrls?: { uri: string; title: string }[];
+  /** Canonical event input for Agent Work Runtime v1. Legacy props remain as a compatibility bridge. */
+  workEvents?: AgentWorkEvent[];
   isStopped?: boolean;
   onStop?: () => void;
   onFollowUp?: (prompt: string) => void;
   followUpDisabled?: boolean;
 }
 
-const normalizeActivity = (value: string): string => value
-  .trim()
-  .replace(ACTIVITY_PREFIX, '')
-  .replace(MARKDOWN_DECORATION, '')
-  .trim();
-
 const appendUnique = (target: string[], value: string | undefined) => {
-  const normalized = normalizeActivity(value || '');
+  const normalized = normalizeAgentActivityLabel(value || '');
   if (!normalized || LOW_VALUE_ACTIVITY.test(normalized)) return;
   const key = normalized.toLocaleLowerCase('tr-TR');
   if (target.some(item => item.toLocaleLowerCase('tr-TR') === key)) return;
   target.push(normalized);
 };
 
-export function formatAssistantWorkActivityLabel(value: string, completed = false): string {
-  const normalized = normalizeActivity(value);
-  if (!normalized) return '';
-
-  if (/^asistana bağlanılıyor/iu.test(normalized)) {
-    return completed ? 'Talep işleme alındı' : 'Asistana bağlanılıyor...';
-  }
-
-  if (/^talep işleme alındı$/iu.test(normalized)) {
-    return 'Talep işleme alındı';
-  }
-
-  if (/^talep bağlamı çıkarılıyor/iu.test(normalized)) {
-    return completed ? 'Soru ve konuşma bağlamı hazırlandı' : 'Soru ve konuşma bağlamını hazırlıyorum...';
-  }
-
-  if (/^advisory bağlam hazırlanıyor/iu.test(normalized)) {
-    return completed ? 'İlgili proje bağlamı hazırlandı' : 'İlgili proje bağlamını topluyorum...';
-  }
-
-  if (/^semantic capability adayları çıkarılıyor/iu.test(normalized)) {
-    return completed ? 'Uygun kaynak ve araçlar değerlendirildi' : 'Uygun kaynak ve araçları değerlendiriyorum...';
-  }
-
-  if (/^controller hazır:/iu.test(normalized)) {
-    return completed ? 'Çalışma araçları hazırlandı' : 'Çalışma araçlarını hazırlıyorum...';
-  }
-
-  if (/^controller ilk aksiyonu değerlendiriyor/iu.test(normalized)) {
-    return completed ? 'İlk inceleme adımı seçildi' : 'İlk inceleme adımını seçiyorum...';
-  }
-
-  if (/^controller ek capability\/kanıt çağrısı yapıyor/iu.test(normalized)) {
-    return completed ? 'Ek kanıt kontrol edildi' : 'Bulduğum kanıtı ek kaynaklarla doğruluyorum...';
-  }
-
-  if (/^controller ilgili jetwork skill prosedürlerini yüklüyor/iu.test(normalized)) {
-    return completed ? 'Gerekli çalışma yöntemi hazırlandı' : 'Gerekli çalışma yöntemini hazırlıyorum...';
-  }
-
-  if (/^konuşma bağlamı ve çalışma yolu hazırlanıyor/iu.test(normalized)) {
-    return completed
-      ? 'Konuşma bağlamı ve çalışma yolu hazırlandı'
-      : 'Konuşma bağlamı ve çalışma yolu hazırlanıyor...';
-  }
-
-  if (/^çalışma yolu belirlendi; reasoning akışı başlatıldı/iu.test(normalized)) {
-    return completed
-      ? 'Çalışma yolu belirlendi · inceleme başlatıldı'
-      : 'İnceleme başlatılıyor...';
-  }
-
-  if (/^talep sınıflandırıldı/iu.test(normalized)) {
-    return normalized.replace(/^talep sınıflandırıldı/iu, 'Talep türü değerlendirildi');
-  }
-
-  if (/^araştırma ve doğrulama planı oluşturuluyor/iu.test(normalized)) {
-    return completed
-      ? 'Araştırma ve doğrulama planı oluşturuldu'
-      : 'Araştırma ve doğrulama planı oluşturuluyor...';
-  }
-
-  const planReadyMatch = normalized.match(/^plan hazır(?::\s*(.+))?\.?$/iu);
-  if (planReadyMatch) {
-    const detail = planReadyMatch[1]?.trim();
-    return completed
-      ? `Plan oluşturuldu${detail ? ` · ${detail}` : ''}`
-      : `Plan oluşturuluyor${detail ? ` · ${detail}` : '...'}`;
-  }
-
-  if (/^ilgili jetwork skill prosedürleri yükleniyor/iu.test(normalized)) {
-    return completed
-      ? 'Gerekli JetWork yetenekleri hazırlandı'
-      : 'Gerekli JetWork yetenekleri hazırlanıyor...';
-  }
-
-  if (/^kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu.test(normalized)) {
-    return completed
-      ? 'Kaynakların yeterliliği ve tutarlılığı kontrol edildi'
-      : 'Kaynakların yeterliliği ve tutarlılığı kontrol ediliyor...';
-  }
-
-  if (/^sentez sırasında ek teknik kanıt isteniyor/iu.test(normalized)) {
-    return completed
-      ? 'Ek teknik kaynak arandı'
-      : 'Bilgi bankasında ek teknik kaynak aranıyor...';
-  }
-
-  if (/^kanıtlar ve doğrulama sonucu sentezleniyor/iu.test(normalized)) {
-    return completed
-      ? 'Yanıt için bilgiler birleştirildi'
-      : 'Yanıt için bilgiler birleştiriliyor...';
-  }
-
-  if (/^yanıt hazırlandı/iu.test(normalized)) {
-    return completed ? 'Yanıt oluşturuldu' : 'Yanıt oluşturuluyor...';
-  }
-
-  if (!completed) return normalized;
-
-  return normalized
-    .replace(/inceleniyor/giu, 'incelendi')
-    .replace(/taranıyor/giu, 'tarandı')
-    .replace(/aranıyor/giu, 'incelendi')
-    .replace(/karşılaştırılıyor/giu, 'karşılaştırıldı')
-    .replace(/doğrulanıyor/giu, 'doğrulandı')
-    .replace(/seçiliyor/giu, 'seçildi')
-    .replace(/hazırlanıyor/giu, 'hazırlandı')
-    .replace(/oluşturuluyor/giu, 'oluşturuldu');
-}
+export const formatAssistantWorkActivityLabel = formatAgentActivityLabel;
 
 export function buildAssistantWorkActivities(input: {
   isActive: boolean;
@@ -174,40 +60,47 @@ export function buildAssistantWorkActivities(input: {
   webSourceCount?: number;
 }): AssistantWorkActivity[] {
   const labels: string[] = [];
-  for (const line of (input.activityText || '').split(/\r?\n/u)) {
-    appendUnique(labels, line);
-  }
-
-  if ((input.knowledgeSourceCount || 0) > 0) {
-    appendUnique(labels, `${input.knowledgeSourceCount} kurumsal kaynak bulundu · kanıtlar eşleştiriliyor`);
-  }
-  if ((input.webSourceCount || 0) > 0) {
-    appendUnique(labels, `${input.webSourceCount} web kaynağı bulundu · güncellik ve tutarlılık kontrol ediliyor`);
-  }
-
+  for (const line of (input.activityText || '').split(/\r?\n/u)) appendUnique(labels, line);
+  if ((input.knowledgeSourceCount || 0) > 0) appendUnique(labels, `${input.knowledgeSourceCount} kurumsal kaynak bulundu · kanıtlar eşleştiriliyor`);
+  if ((input.webSourceCount || 0) > 0) appendUnique(labels, `${input.webSourceCount} web kaynağı bulundu · güncellik ve tutarlılık kontrol ediliyor`);
   appendUnique(labels, input.phaseLabel);
 
-  const activeLabelKey = normalizeActivity(input.phaseLabel || labels.at(-1) || '').toLocaleLowerCase('tr-TR');
-
+  const activeKey = normalizeAgentActivityLabel(input.phaseLabel || labels.at(-1) || '').toLocaleLowerCase('tr-TR');
   return labels.map((label, index) => ({
     label,
     state: WARNING_ACTIVITY.test(label)
       ? 'warning'
-      : input.isActive && (
-          label.toLocaleLowerCase('tr-TR') === activeLabelKey
-          || (!activeLabelKey && index === labels.length - 1)
-        )
+      : input.isActive && (label.toLocaleLowerCase('tr-TR') === activeKey || (!activeKey && index === labels.length - 1))
         ? 'active'
         : 'completed',
   }));
 }
 
-// Kept as an exported compatibility helper for existing callers/tests. JetWork no
-// longer invents elapsed-time progress rows; live activity must come from the
-// runtime or from the initial connection state.
 export function buildPendingRuntimeActivities(_elapsedSeconds: number): AssistantWorkActivity[] {
   return [];
 }
+
+export const selectCompletedActivityEvidence = (
+  reported: AssistantWorkActivity[],
+  observed: AssistantWorkActivity[],
+): AssistantWorkActivity[] => reported.length > 0 ? reported : observed;
+
+export const dedupeAssistantWorkActivities = (activities: AssistantWorkActivity[]): AssistantWorkActivity[] => {
+  const result: AssistantWorkActivity[] = [];
+  const indexByLabel = new Map<string, number>();
+  for (const activity of activities) {
+    const key = normalizeAgentActivityLabel(activity.label).toLocaleLowerCase('tr-TR');
+    if (!key) continue;
+    const existingIndex = indexByLabel.get(key);
+    if (existingIndex === undefined) {
+      indexByLabel.set(key, result.length);
+      result.push(activity);
+    } else {
+      result[existingIndex] = activity;
+    }
+  }
+  return result;
+};
 
 const elapsedFrom = (startedAt?: number): number => {
   if (!startedAt || !Number.isFinite(startedAt)) return 0;
@@ -224,7 +117,6 @@ function useElapsedSeconds(isActive: boolean, startedAt?: number, completedSecon
       setElapsedSeconds(Math.max(1, Math.round(completedSeconds || elapsedFrom(startedAt))));
       return;
     }
-
     const updateElapsed = () => setElapsedSeconds(elapsedFrom(startedAt));
     updateElapsed();
     const timer = window.setInterval(updateElapsed, 1000);
@@ -242,79 +134,49 @@ export function formatAssistantWorkDuration(totalSeconds: number): string {
   return remainder > 0 ? `${minutes} dk ${remainder} sn` : `${minutes} dk`;
 }
 
-const mergeObservedActivities = (
-  previous: AssistantWorkActivity[],
-  incoming: AssistantWorkActivity[],
-): AssistantWorkActivity[] => {
-  const next: AssistantWorkActivity[] = previous.map(activity => ({
-    ...activity,
-    state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
-  }));
-
-  for (const activity of incoming) {
-    const key = activity.label.toLocaleLowerCase('tr-TR');
-    const existingIndex = next.findIndex(candidate => candidate.label.toLocaleLowerCase('tr-TR') === key);
-    if (existingIndex >= 0) {
-      next[existingIndex] = activity;
-    } else {
-      next.push(activity);
-    }
-  }
-
-  return next.slice(-12);
+const activitySnapshot = (activityText?: string, phaseLabel?: string): string[] => {
+  const lines = (activityText || '')
+    .split(/\r?\n/u)
+    .map(normalizeAgentActivityLabel)
+    .filter(Boolean);
+  const phase = normalizeAgentActivityLabel(phaseLabel || '');
+  if (phase && lines.at(-1) !== phase) lines.push(phase);
+  return lines;
 };
 
-export const selectCompletedActivityEvidence = (
-  reported: AssistantWorkActivity[],
-  observed: AssistantWorkActivity[],
-): AssistantWorkActivity[] => (
-  reported.length > 0 ? reported : observed
-);
-
-export const dedupeAssistantWorkActivities = (
+const eventsFromReportedActivities = (
   activities: AssistantWorkActivity[],
-): AssistantWorkActivity[] => {
-  const result: AssistantWorkActivity[] = [];
-  const indexByLabel = new Map<string, number>();
-  for (const activity of activities) {
-    const key = normalizeActivity(activity.label).toLocaleLowerCase('tr-TR');
-    if (!key) continue;
-    const existingIndex = indexByLabel.get(key);
-    if (existingIndex === undefined) {
-      indexByLabel.set(key, result.length);
-      result.push(activity);
-    } else {
-      result[existingIndex] = activity;
-    }
-  }
-  return result;
-};
-
-const ActivityStateIcon = ({ state }: { state: AssistantWorkActivity['state'] }) => {
-  if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
-  if (state === 'active') return <LoaderCircle aria-hidden="true" />;
-  return <Check aria-hidden="true" />;
-};
+  startedAt?: number,
+): AgentWorkEvent[] => activities.flatMap((activity, index) => {
+  const event = createObservedAgentWorkEvent({
+    rawLabel: activity.label,
+    sequence: index + 1,
+    active: activity.state === 'active',
+    now: startedAt ? new Date(startedAt).toISOString() : undefined,
+  });
+  if (!event) return [];
+  return [{
+    ...event,
+    eventId: `reported:${index + 1}`,
+    state: activity.state,
+  }];
+});
 
 function useComposerStopTarget(isActive: boolean, onStop?: () => void): HTMLElement | null {
   const [target, setTarget] = useState<HTMLElement | null>(null);
-
   useEffect(() => {
     if (!isActive || !onStop || typeof document === 'undefined') {
       setTarget(null);
       return;
     }
-
     const sendButton = document.querySelector<HTMLButtonElement>('[data-testid="chat-send"]');
     const parent = sendButton?.parentElement;
     if (!sendButton || !parent) return;
-
     const previousDisplay = sendButton.style.display;
     const previousAriaHidden = sendButton.getAttribute('aria-hidden');
     sendButton.style.display = 'none';
     sendButton.setAttribute('aria-hidden', 'true');
     setTarget(parent);
-
     return () => {
       sendButton.style.display = previousDisplay;
       if (previousAriaHidden === null) sendButton.removeAttribute('aria-hidden');
@@ -322,7 +184,6 @@ function useComposerStopTarget(isActive: boolean, onStop?: () => void): HTMLElem
       setTarget(null);
     };
   }, [isActive, onStop]);
-
   return target;
 }
 
@@ -334,6 +195,7 @@ export function AssistantWorkIndicator({
   phaseLabel,
   knowledgeSources,
   groundingUrls,
+  workEvents,
   isStopped = false,
   onStop,
   onFollowUp,
@@ -354,71 +216,85 @@ export function AssistantWorkIndicator({
     knowledgeSourceCount,
     webSourceCount,
   }), [activityText, isActive, knowledgeSourceCount, phaseLabel, webSourceCount]);
-  const [observedActivities, setObservedActivities] = useState<AssistantWorkActivity[]>([]);
-  const [isExpanded, setIsExpanded] = useState(false);
+
+  const initialSnapshot = useMemo(() => activitySnapshot(activityText, phaseLabel), []);
+  const [events, setEvents] = useState<AgentWorkEvent[]>(() => (
+    workEvents?.length ? workEvents : eventsFromReportedActivities(reportedActivities, startedAt)
+  ));
+  const [isExpanded, setIsExpanded] = useState(isActive);
+  const previousSnapshotRef = useRef<string[]>(initialSnapshot);
+  const sequenceRef = useRef(Math.max(0, ...events.map(event => event.sequence)));
+  const sourceCountRef = useRef({ knowledge: knowledgeSourceCount, web: webSourceCount });
   const composerStopTarget = useComposerStopTarget(isActive, onStop);
 
   useEffect(() => {
-    if (!isActive || reportedActivities.length === 0) return;
-    setObservedActivities(previous => mergeObservedActivities(previous, reportedActivities));
-  }, [isActive, reportedActivities]);
+    if (!workEvents?.length) return;
+    setEvents(previous => workEvents.reduce(reduceAgentActivityEvents, previous));
+    sequenceRef.current = Math.max(sequenceRef.current, ...workEvents.map(event => event.sequence));
+  }, [workEvents]);
 
   useEffect(() => {
-    if (!isActive) setIsExpanded(false);
+    if (workEvents?.length) return;
+    const snapshot = activitySnapshot(activityText, phaseLabel);
+    const appended = diffRollingActivitySnapshot(previousSnapshotRef.current, snapshot);
+    previousSnapshotRef.current = snapshot;
+    if (!appended.length) return;
+
+    setEvents(previous => {
+      let next = completeActiveAgentEvents(previous);
+      appended.forEach((rawLabel, index) => {
+        sequenceRef.current += 1;
+        const event = createObservedAgentWorkEvent({
+          rawLabel,
+          sequence: sequenceRef.current,
+          active: isActive && index === appended.length - 1,
+        });
+        if (event) next = reduceAgentActivityEvents(next, event);
+      });
+      return next;
+    });
+  }, [activityText, isActive, phaseLabel, workEvents]);
+
+  useEffect(() => {
+    const nextCounts = { knowledge: knowledgeSourceCount, web: webSourceCount };
+    const previousCounts = sourceCountRef.current;
+    const newSourceEvents: AgentWorkEvent[] = [];
+    if (nextCounts.knowledge > previousCounts.knowledge) {
+      sequenceRef.current += 1;
+      newSourceEvents.push(sourceCountAgentWorkEvent({ sequence: sequenceRef.current, sourceType: 'knowledge', count: nextCounts.knowledge }));
+    }
+    if (nextCounts.web > previousCounts.web) {
+      sequenceRef.current += 1;
+      newSourceEvents.push(sourceCountAgentWorkEvent({ sequence: sequenceRef.current, sourceType: 'web', count: nextCounts.web }));
+    }
+    sourceCountRef.current = nextCounts;
+    if (newSourceEvents.length) setEvents(previous => newSourceEvents.reduce(reduceAgentActivityEvents, previous));
+  }, [knowledgeSourceCount, webSourceCount]);
+
+  useEffect(() => {
+    if (isActive) {
+      setIsExpanded(true);
+      return;
+    }
+    setEvents(previous => completeActiveAgentEvents(previous));
+    setIsExpanded(false);
   }, [isActive]);
 
-  const activityEvidence = mergeObservedActivities(observedActivities, reportedActivities);
-  const liveActivities = isActive ? activityEvidence : [];
-  const formattedLiveActivities = dedupeAssistantWorkActivities(liveActivities.map(activity => ({
-    ...activity,
-    label: formatAssistantWorkActivityLabel(activity.label, activity.state !== 'active'),
-  })));
-  const completedEvidence = selectCompletedActivityEvidence(reportedActivities, activityEvidence);
-  const completedActivities = dedupeAssistantWorkActivities(completedEvidence.map(activity => ({
-    ...activity,
-    state: activity.state === 'warning' ? 'warning' as const : 'completed' as const,
-    label: formatAssistantWorkActivityLabel(activity.label, true),
-  })));
-  const hasWorkDetails = completedActivities.length > 0;
-  const hasSourceDetails = knowledgeSourceCount > 0 || webSourceCount > 0;
-  const canShowDetails = hasWorkDetails || hasSourceDetails;
-  const hasSourceGap = webSourceCount === 0
-    && completedEvidence.some(activity => SOURCE_GAP_ACTIVITY.test(activity.label));
+  const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events]);
+  const hasWorkDetails = orderedEvents.length > 0;
+  const hasSourceGap = webSourceCount === 0 && orderedEvents.some(event => SOURCE_GAP_ACTIVITY.test(event.rawLabel || event.label));
 
-  const requestWebSearch = () => onFollowUp?.(
-    'Bu soruyu web üzerinde de araştır. Güncel ve güvenilir web kaynaklarıyla bulguları doğrula ve kaynakları göster.',
-  );
-  const requestDeepResearch = () => onFollowUp?.(
-    'Bu yanıtı daha derin araştır. Gerektiğinde bilgi bankasını ve web kaynaklarını kullan; bulguları kaynaklarla karşılaştırıp doğrula.',
-  );
+  const requestWebSearch = () => onFollowUp?.('Bu soruyu web üzerinde de araştır. Güncel ve güvenilir web kaynaklarıyla bulguları doğrula ve kaynakları göster.');
+  const requestDeepResearch = () => onFollowUp?.('Bu yanıtı daha derin araştır. Gerektiğinde bilgi bankasını ve web kaynaklarını kullan; bulguları kaynaklarla karşılaştırıp doğrula.');
 
   const stopPortal = composerStopTarget && onStop
     ? createPortal(
-        <button
-          type="button"
-          data-testid="chat-stop"
-          aria-label="Yanıtı durdur"
-          className="assistant-composer-stop"
-          onClick={onStop}
-        >
+        <button type="button" data-testid="chat-stop" aria-label="Yanıtı durdur" className="assistant-composer-stop" onClick={onStop}>
           <Square aria-hidden="true" />
         </button>,
         composerStopTarget,
       )
     : null;
-
-  const completedSummaryContent = (
-    <>
-      <span
-        data-testid="assistant-work-completed-logo"
-        className="assistant-work__logo-stage"
-        aria-hidden="true"
-      >
-        <JetWorkLogo className="assistant-work__logo" />
-      </span>
-      <span>{formattedDuration} çalıştı{isStopped ? ' · durduruldu' : ''}</span>
-    </>
-  );
 
   return (
     <>
@@ -426,117 +302,23 @@ export function AssistantWorkIndicator({
         data-testid="assistant-work-indicator"
         className={cn('assistant-work', !isActive && 'assistant-work--completed')}
         aria-label={isActive
-          ? `JetWork çalışıyor, ${elapsedSeconds} saniye`
+          ? `JetWork düşünüyor, ${elapsedSeconds} saniye`
           : isStopped
-            ? `JetWork ${formattedDuration} çalıştı ve durduruldu`
-            : `JetWork ${formattedDuration} çalıştı`}
+            ? `JetWork ${formattedDuration} düşündü ve durduruldu`
+            : `JetWork ${formattedDuration} düşündü`}
       >
-        {isActive ? (
-          <>
-            <div className="assistant-work__topline">
-              <span className="assistant-work__logo-stage" aria-hidden="true">
-                <span className="assistant-work__logo-motion">
-                  <JetWorkLogo className="assistant-work__logo" />
-                </span>
-              </span>
-              <span className="assistant-work__label">Düşünüyor</span>
-              <span className="assistant-work__separator" aria-hidden="true">·</span>
-              <time className="assistant-work__time">{formattedDuration}</time>
-            </div>
+        <AgentWorkHeader
+          isActive={isActive}
+          duration={formattedDuration}
+          elapsedSeconds={elapsedSeconds}
+          expanded={isExpanded}
+          expandable={hasWorkDetails}
+          isStopped={isStopped}
+          onToggle={() => setIsExpanded(previous => !previous)}
+        />
 
-            {formattedLiveActivities.length > 0 ? (
-              <div
-                className="assistant-work__details assistant-work__details--live"
-                data-testid="assistant-work-live-details"
-                aria-live="polite"
-              >
-                <ol className="assistant-work__activity-list">
-                  {formattedLiveActivities.map((activity, index) => (
-                    <li
-                      key={`${activity.label}-${index}`}
-                      className={cn('assistant-work__activity', `assistant-work__activity--${activity.state}`)}
-                    >
-                      <span className="assistant-work__activity-icon">
-                        <ActivityStateIcon state={activity.state} />
-                      </span>
-                      <span>{activity.label}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ) : null}
-          </>
-        ) : canShowDetails ? (
-          <button
-            type="button"
-            className="assistant-work__summary"
-            onClick={() => setIsExpanded(previous => !previous)}
-            aria-expanded={isExpanded}
-            aria-label="Çalışma ayrıntılarını göster"
-          >
-            {completedSummaryContent}
-            <ChevronDown className={cn('assistant-work__chevron', isExpanded && 'assistant-work__chevron--open')} aria-hidden="true" />
-          </button>
-        ) : (
-          <div className="assistant-work__summary assistant-work__summary--static">
-            {completedSummaryContent}
-          </div>
-        )}
-
-        {!isActive && isExpanded && canShowDetails ? (
-          <div className="assistant-work__details" data-testid="assistant-work-details">
-            {hasWorkDetails ? (
-              <ol className="assistant-work__activity-list">
-                {completedActivities.map(activity => (
-                  <li
-                    key={activity.label}
-                    className={cn('assistant-work__activity', `assistant-work__activity--${activity.state}`)}
-                  >
-                    <span className="assistant-work__activity-icon">
-                      <ActivityStateIcon state={activity.state} />
-                    </span>
-                    <span>{activity.label}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-
-            {hasSourceDetails ? (
-              <div className="assistant-work__source-facts">
-                {knowledgeSourceCount > 0 ? (
-                  <div className="assistant-work__source-fact">
-                    <Database aria-hidden="true" />
-                    <span>{knowledgeSourceCount} kurumsal kaynak kullanıldı</span>
-                  </div>
-                ) : null}
-                {webSourceCount > 0 ? (
-                  <div className="assistant-work__source-fact">
-                    <Globe2 aria-hidden="true" />
-                    <span>{webSourceCount} web kaynağı kullanıldı</span>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {sourceView.groundingUrls.length > 0 ? (
-              <div className="assistant-work__sources" aria-label="Kullanılan web kaynakları">
-                <div className="assistant-work__source-links">
-                  {sourceView.groundingUrls.slice(0, 3).map((source, index) => (
-                    <a
-                      key={`${source.uri}-${index}`}
-                      href={source.uri}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="assistant-work__source-link"
-                    >
-                      <Link2 aria-hidden="true" />
-                      <span>{source.title}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
+        {isExpanded && hasWorkDetails ? (
+          <AgentWorkTimeline events={orderedEvents} live={isActive} />
         ) : null}
 
         {!isActive && onFollowUp ? (
