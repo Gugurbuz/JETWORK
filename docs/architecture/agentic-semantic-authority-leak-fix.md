@@ -111,7 +111,8 @@ At the latest PR #212 hardening pass:
 - the focused live-like runner is implemented;
 - unauthenticated staging gateway access remains correctly rejected with HTTP 401;
 - a gzip/data-URL module loader was proven in isolated staging and the temporary diagnostic was disabled immediately afterwards;
-- the materialized public staging entry/router bundle has been deployed with JWT verification preserved; internal/core staging transport is intentionally not claimed complete until the materialized bundle deployment is fully verified;
+- the materialized public staging entry/router bundle has been deployed with JWT verification preserved;
+- internal/core staging transport is intentionally not claimed complete until their materialized bundle deployment and boot are verified;
 - live İYS provider execution remains blocked until `AGENTIC_GOLDEN_ANON_KEY` and `AGENTIC_GOLDEN_ACCESS_TOKEN` are available to the manual staging workflow.
 
 This environment block does **not** satisfy the live release gate. Production must remain unchanged until the authenticated staging run passes.
