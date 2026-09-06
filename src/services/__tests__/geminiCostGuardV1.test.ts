@@ -56,19 +56,19 @@ describe('Gemini cost and primary-agent boundaries', () => {
     expect(toolBudgetForPlan({ ...base, intent: 'sap_diagnosis' })).toBe(4)
   })
 
-  it('lets the requested Gemini model own normal tool decisions under the shared controller policy', () => {
+  it('keeps compatibility provider helpers free of deterministic dispatch while V3 owns semantic decisions', () => {
     expect(providerWrapperSource).toContain('const requestedModel = normalizeGeminiRequestedModel(input.model)')
     expect(providerWrapperSource).toContain('model: requestedModel')
     expect(providerWrapperSource).toContain('const primaryAgentInstruction = AGENT_CONTROLLER_INSTRUCTION')
-    expect(controllerPolicySource).toContain('Deterministic routing avoidance')
-    expect(controllerPolicySource).toContain('semantik seçimi controller modeli yapar')
+    expect(controllerPolicySource).toContain('semantic controller ve assistant modelisin')
+    expect(controllerPolicySource).toContain('bir sonraki en değerli aksiyona kendin karar ver')
     expect(providerWrapperSource).toContain('primary_llm_agent_calls')
     expect(providerWrapperSource).not.toContain('buildDeterministicKnowledgeDispatch')
     expect(providerWrapperSource).not.toContain('shouldUseDeterministicKnowledgeDispatch')
     expect(providerWrapperSource).not.toContain('model: GEMINI_AGENT_MODEL')
   })
 
-  it('does not wire deterministic inventory shortcuts into the active provider layer', () => {
+  it('does not wire deterministic inventory shortcuts into the compatibility provider layer', () => {
     expect(providerWrapperSource).not.toContain('buildEnumerationFastPathDispatch')
     expect(providerWrapperSource).not.toContain('buildSyntheticEnumerationFunctionCall')
     expect(providerWrapperSource).not.toContain('deterministic_enumeration_dispatch')
