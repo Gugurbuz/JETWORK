@@ -59,7 +59,7 @@ jobs:
           await import('../../supabase/functions/openai-assistant-core-v2/index.ts')
           EOF
           for target in public internal core; do
-            pnpm exec esbuild ".tmp/agentic-staging/${target}.ts" \
+            pnpm dlx esbuild@0.25.12 ".tmp/agentic-staging/${target}.ts" \
               --bundle \
               --format=esm \
               --platform=neutral \
