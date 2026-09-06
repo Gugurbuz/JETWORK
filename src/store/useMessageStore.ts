@@ -46,23 +46,25 @@ export function normalizeRuntimePersistenceState(message: Message): Message {
   if (
     !FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
     || message.role !== 'model'
-    || !message.provider
     || !message.persistenceStatus
   ) {
     return message;
   }
 
   // A successful runtime turn is not publicly complete until its message row —
-  // including the canonical Agent Work envelope — is durably committed. Keep the
-  // work header active while persistence is pending; the answer text can already
-  // be visible because streaming is independent from this completion boundary.
+  // including the canonical Agent Work envelope — is durably committed. Provider
+  // metadata exists on the local successful completion object, but is deliberately
+  // redacted from the durable/realtime row, so it is only used to identify the
+  // pending success boundary, never to decide the terminal transition.
   if (message.persistenceStatus === 'pending') {
+    if (!message.provider) return message;
     return message.isTyping ? message : { ...message, isTyping: true };
   }
 
   // Once persistence succeeds (or definitively fails), the turn can leave the
-  // active state. This prevents a completed/collapsed UI from racing ahead of
-  // the durable chronology and makes reload equality a product invariant.
+  // active state even if a realtime DB echo has already redacted provider fields.
+  // This prevents the completed header from either racing ahead of persistence or
+  // getting stuck active after the durable commit.
   if ((message.persistenceStatus === 'saved' || message.persistenceStatus === 'failed') && message.isTyping) {
     return { ...message, isTyping: false };
   }
