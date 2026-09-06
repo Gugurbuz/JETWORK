@@ -2,24 +2,28 @@
 
 ## Incident
 
-Production turn `5eafa5ec-054b-4fb7-bc4b-6ef90bddc51e` showed `agent-controller-v2` telemetry but still received a legacy semantic evidence plan (`knowledgeRequired=true`, `enterpriseGroundingRequired=true`, `webMode=none`). The direct cause is production topology drift, not the intended repository V2 flow.
+Production turn `5eafa5ec-054b-4fb7-bc4b-6ef90bddc51e` showed Agent Controller V2 telemetry while the deployed assistant topology still allowed legacy semantic authority to leak back into the turn.
 
-The deployed public `openai-assistant-v2` function is an ad-hoc Gemini 3.8 proxy that sends the raw user message directly to `assistant-primary-agent-core-canary`. It therefore bypasses the repository's semantic gateway, which would have attached the Controller V2 neutral advisory plan before entering the core. The core then falls back to legacy `routeReasoningRequest/buildReasoningPlan` for its advisory envelope; that envelope is supposed to be advisory, but `enterpriseGroundingRequired` is still consumed by the grounding boundary as a hard safety signal. In the failing turn this turned an old semantic classification into a real runtime constraint.
+Three independent defects were confirmed:
 
-A second stale path also exists: deployed `openai-assistant-v2-internal` imports `openai-assistant-v2/index.ts` from Git commit `3dde3a3b0aac74ff7b36657e6931ffdb7a2dedc5`, hundreds of commits behind the materialized Agentic Runtime. It was not the primary path for the incident above, but it is an alternate semantic-authority leak and must be removed before rollout.
+1. Production `openai-assistant-v2` was an ad-hoc Gemini 3.8 proxy that forwarded the raw user message directly to `assistant-primary-agent-core-canary`, bypassing the repository semantic gateway and its neutral Controller V2 advisory envelope.
+2. The alternate deployed `openai-assistant-v2-internal` path imported `openai-assistant-v2/index.ts` from legacy Git commit `3dde3a3b0aac74ff7b36657e6931ffdb7a2dedc5`.
+3. Semantic Top-K could omit `provider:web_search` and foundational knowledge evidence tools, so the active LLM controller could lose a valid capability before it had the opportunity to choose it.
 
-The same turn demonstrated a separate capability-surface leak: `provider:web_search` was absent from semantic Top-K, so `providerWebVisible=false` and the controller could not choose public web research even though the capability was active in the registry.
+The same staging investigation exposed a deployment-topology defect: JETWORK must not depend on anonymous `raw.githubusercontent.com` imports for private-repository Edge runtime code. Supabase staging returned `Module not found` for the private SHA import. Runtime deployment therefore has to materialize the repository source into the Edge deployment package/bundle instead of treating a private GitHub raw URL as a durable module host.
 
 ## Invariants
 
 1. Controller V2 semantic preplanning is advisory context only. It does not choose knowledge, web, skill or artifact capabilities.
-2. Production must enter the core through the canonical Controller V2 gateway path; a direct raw-message proxy to the core is not a valid Agentic Runtime topology.
+2. Production must enter the core through the canonical Controller V2 gateway contract; a direct raw-message proxy to the core is not a valid Agentic Runtime topology.
 3. No production Agent Controller V2 hop may import an old assistant runtime from an external immutable GitHub SHA.
-4. Specialist Top-K may reduce specialist schemas, but it cannot remove foundational evidence domains from the controller's option set.
-5. Foundational availability is not execution: web and knowledge tools remain controller-selected and normal authorization/grounding/tool guards still apply.
-6. Search candidates are not evidence. Exact/detail verification remains required before candidate facts can ground final claims.
-7. A grounding rejection before mechanical budget exhaustion is an observation for Controller V2 recovery, not a semantic routing decision.
-8. Production rollout is blocked until unit/invariant tests, staging/live-like E2E, the original İYS regression, deployment-topology verification and grounding safety tests pass.
+4. No production Agent Controller V2 hop may depend on an anonymous private-repository `raw.githubusercontent.com` module import.
+5. Specialist Top-K may reduce specialist schemas, but it cannot remove foundational evidence domains from the controller's option set.
+6. Foundational availability is not execution: web and knowledge tools remain controller-selected and normal authorization/grounding/tool guards still apply.
+7. Search candidates are not evidence. Exact/detail verification remains required before candidate facts can ground final claims.
+8. If a provider attempts an enterprise-grounded final before enough verified evidence exists and mechanical budget remains, the unsafe draft is withheld and the same controller receives a grounding-recovery observation. The runtime does not pick the next semantic capability for it.
+9. Terminal grounding remains fail-closed after the allowed recovery/re-plan budget is exhausted.
+10. Production rollout is blocked until deterministic CI, the original İYS live-like regression, deployment-source/topology verification and grounding/candidate-verification safety gates pass.
 
 ## Canonical production topology
 
@@ -46,6 +50,18 @@ The following capabilities remain available independently of embedding rank:
 
 They are appended with a zero relevance score so they cannot masquerade as Top-K semantic matches. `excludeIds` is still honored during discover-more sessions.
 
+## Core bypass defense
+
+The canonical gateway must attach the neutral Controller V2 semantic envelope before entering the reasoning core. A second defense also exists in the core: while Controller V2 is active, absence of that envelope may not fall back to the legacy semantic planner. The core creates the same neutral controller envelope mechanically and leaves semantic capability selection to the active LLM.
+
+This is a topology/safety fallback, not a second planner.
+
+## Grounding recovery
+
+For an enterprise-grounded turn, a provider draft that cannot be grounded is not immediately exposed to the user while recovery budget remains. The provider/controller receives a runtime observation describing the evidence gap and is allowed one controller re-plan using the normal capability surface. The observation does not contain a hard-coded instruction to call web, knowledge or a particular tool.
+
+If the controller still cannot produce a supported final after recovery budget is exhausted, the existing fail-closed grounding response remains authoritative.
+
 ## Original regression
 
 Input:
@@ -54,21 +70,61 @@ Input:
 
 Required behavior:
 
-- The core receives a Controller V2 neutral advisory plan (`knowledgeRequired=false`, `webMode=none`) rather than deriving a semantic route from the raw phrase.
+- Controller V2 advisory plan stays semantically neutral (`knowledgeRequired=false`, `webMode=none`).
 - Web and knowledge evidence capabilities are both available to the active LLM controller.
 - The LLM chooses the next capability based on the goal and observations.
 - Candidate-only knowledge search output cannot be used as verified evidence.
-- A blocked grounded draft re-enters the controller loop while recovery budget remains; only terminal budget/no-evidence state may return the safe evidence-gap response.
+- Current-information claims require a fresh source when the controller chooses current web research.
+- A final answer is grounded in verified evidence or explicitly states the remaining evidence gap after recovery budget is exhausted.
+- A generic grounding failure must not be emitted prematurely while a valid controller recovery/re-plan remains available.
+
+Freshness paraphrases are regression-covered so the invariant does not depend on the literal word `güncel`.
+
+## Staging deployment packaging
+
+The staging workflow materializes three private-repository runtime bundles:
+
+- public entry/router bundle
+- internal semantic-gateway bundle
+- core runtime bundle
+
+The bundle gate rejects `raw.githubusercontent.com/Gugurbuz/JETWORK` references in the generated runtime artifacts. This validates that the desired Edge deployment payload is self-contained with respect to private JETWORK source.
+
+A focused staging runner also exists for the exact İYS regression. It verifies:
+
+- `x-jetwork-runtime-route = agent-controller-v2`
+- completed payload reports `controllerMode=true`
+- explicit `gemini-3.8-flash` is preserved
+- user-visible answer is produced
+- at least one real HTTPS web source exists for this current-web golden scenario
+- no premature generic grounding failure is surfaced
+
+The live provider run requires the permanent isolated staging user token. The workflow records missing staging credentials as an environment block rather than misclassifying it as a product regression.
+
+## Current verification status
+
+At the latest PR #212 hardening pass:
+
+- deterministic CI is green on the semantic-authority implementation;
+- materialized runtime bundle generation is green and rejects private GitHub raw imports;
+- the exact İYS scenario is present in the P6 golden contract;
+- the focused live-like runner is implemented;
+- unauthenticated staging gateway access remains correctly rejected with HTTP 401;
+- a gzip/data-URL module loader was proven in isolated staging and the temporary diagnostic was disabled immediately afterwards;
+- live İYS provider execution remains blocked until `AGENTIC_GOLDEN_ANON_KEY` and `AGENTIC_GOLDEN_ACCESS_TOKEN` are available to the manual staging workflow.
+
+This environment block does **not** satisfy the live release gate. Production must remain unchanged until the authenticated staging run passes.
 
 ## Rollout gate
 
 Do not merge/deploy to production from this branch until:
 
-1. CI typecheck/build/unit tests are green.
-2. Staging Agent Controller V2 run passes the İYS regression and paraphrase variants.
-3. Staging confirms `providerWebVisible=true` without a web keyword/regex route.
-4. Staging verifies the core receives the neutral Controller V2 plan rather than a legacy fallback plan.
-5. Deployed public gateway is not a raw-message direct-core semantic bypass.
-6. Deployed internal gateway source is repository-local and contains no stale runtime pin.
-7. Grounding safety and candidate-verification regression suites remain green.
-8. Production canary is verified before full routing is changed.
+1. CI typecheck/build/unit/golden tests are green on the final head SHA.
+2. Materialized Edge deployment artifacts contain no private JETWORK raw runtime import.
+3. Authenticated staging Agent Controller V2 run passes the exact İYS regression and paraphrase invariants.
+4. Staging confirms `providerWebVisible=true` without a web keyword/regex route and the controller actually selects fresh web evidence for the current-web golden scenario.
+5. Staging verifies the core receives the neutral Controller V2 plan rather than a legacy fallback plan.
+6. Candidate-only search output is not accepted as verified evidence.
+7. Grounding recovery/re-plan occurs before terminal fail-closed when budget remains.
+8. Grounding safety regressions remain green.
+9. Staging canary is verified before any production routing change.
