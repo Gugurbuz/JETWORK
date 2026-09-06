@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   buildGeminiInteractionsRequest,
   builtInToolsForInteractions,
+  createGeminiProviderStateItem,
   interactionInputFromJetWorkItems,
   normalizeGeminiInteraction,
-} from '../../../supabase/functions/_shared/geminiInteractionsAgent.ts'
+} from '../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts'
 
 const baseInput = () => ({
   apiKey: 'test-key',
@@ -35,6 +36,7 @@ describe('Gemini Interactions Agent V3', () => {
     const tools = request.tools as Array<Record<string, unknown>>
 
     expect(request.model).toBe('gemini-3.8-flash')
+    expect(request.stream).toBe(true)
     expect(request.store).toBe(true)
     expect(request.background).toBe(false)
     expect(request.generation_config).toMatchObject({
@@ -85,6 +87,27 @@ describe('Gemini Interactions Agent V3', () => {
       call_id: 'fc_1',
       result: [{ type: 'text', text: '{"resultCount":1}' }],
     }])
+  })
+
+  it('uses a persisted provider-state marker for a new turn and sends only input after that marker', () => {
+    const request = buildGeminiInteractionsRequest({
+      ...baseInput(),
+      items: [
+        { role: 'user', content: 'Önceki uzun soru' },
+        { role: 'assistant', content: 'Önceki uzun cevap' },
+        createGeminiProviderStateItem('int_previous_turn'),
+        { role: 'user', content: 'Peki ABAP kodunu ver' },
+        { role: 'developer', content: 'This runtime context is carried in system_instruction, not replayed as user history.' },
+      ],
+    })
+
+    expect('previous_interaction_id' in request ? request.previous_interaction_id : undefined).toBe('int_previous_turn')
+    expect(request.input).toEqual([{
+      type: 'user_input',
+      content: [{ type: 'text', text: 'Peki ABAP kodunu ver' }],
+    }])
+    expect(request.system_instruction).toBe('You are the controller.')
+    expect((request.tools as Array<Record<string, unknown>>).length).toBeGreaterThan(0)
   })
 
   it('converts JetWork history to stateless interaction steps when no stored interaction continuation exists', () => {
