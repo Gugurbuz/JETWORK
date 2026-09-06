@@ -34,13 +34,13 @@ const parseFrame = (input: string): { eventName: string; payload: Record<string,
 const publicLabel = (value: unknown, completed = false) => {
   const label = clean(value, 1_000)
   if (!label) return ''
-  if (/^talep bağlamı çıkarılıyor/iu.test(label)) return completed ? 'Soru ve konuşma bağlamı hazırlandı' : 'Soru ve konuşma bağlamını hazırlıyorum...'
-  if (/^advisory bağlam hazırlanıyor/iu.test(label)) return completed ? 'İlgili proje bağlamı hazırlandı' : 'İlgili proje bağlamını topluyorum...'
-  if (/^semantic capability adayları çıkarılıyor/iu.test(label)) return completed ? 'Uygun kaynak ve araçlar değerlendirildi' : 'Uygun kaynak ve araçları değerlendiriyorum...'
-  if (/^controller hazır:/iu.test(label)) return completed ? 'Çalışma araçları hazırlandı' : 'Çalışma araçlarını hazırlıyorum...'
-  if (/^controller ek capability\/kanıt çağrısı yapıyor/iu.test(label)) return completed ? 'Bulduğum bilgi ek kaynaklarla doğrulandı' : 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...'
-  if (/^controller ilgili jetwork skill prosedürlerini yüklüyor/iu.test(label)) return completed ? 'Gerekli çalışma yöntemi hazırlandı' : 'Gerekli çalışma yöntemini hazırlıyorum...'
-  if (/^yanıt hazırlandı/iu.test(label)) return completed ? 'Yanıt oluşturuldu' : 'Yanıt oluşturuluyor...'
+  if (/^talep bağlamı çıkarılıyor/iu.test(label) || /^soru ve konuşma bağlamını hazırlıyorum/iu.test(label)) return completed ? 'Soru ve konuşma bağlamı hazırlandı' : 'Soru ve konuşma bağlamını hazırlıyorum...'
+  if (/^advisory bağlam hazırlanıyor/iu.test(label) || /^ilgili proje bağlamını topluyorum/iu.test(label)) return completed ? 'İlgili proje bağlamı hazırlandı' : 'İlgili proje bağlamını topluyorum...'
+  if (/^semantic capability adayları çıkarılıyor/iu.test(label) || /^uygun kaynak ve araçları değerlendiriyorum/iu.test(label)) return completed ? 'Uygun kaynak ve araçlar değerlendirildi' : 'Uygun kaynak ve araçları değerlendiriyorum...'
+  if (/^controller hazır:/iu.test(label) || /^çalışma araçlarını hazırlıyorum/iu.test(label)) return completed ? 'Çalışma araçları hazırlandı' : 'Çalışma araçlarını hazırlıyorum...'
+  if (/^controller ek capability\/kanıt çağrısı yapıyor/iu.test(label) || /^bulduğum bilgiyi ek kaynaklarla doğruluyorum/iu.test(label)) return completed ? 'Bulduğum bilgi ek kaynaklarla doğrulandı' : 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...'
+  if (/^controller ilgili jetwork skill prosedürlerini yüklüyor/iu.test(label) || /^gerekli çalışma yöntemini hazırlıyorum/iu.test(label)) return completed ? 'Gerekli çalışma yöntemi hazırlandı' : 'Gerekli çalışma yöntemini hazırlıyorum...'
+  if (/^yanıt hazırlandı/iu.test(label) || /^yanıt oluşturuluyor/iu.test(label)) return completed ? 'Yanıt oluşturuldu' : 'Yanıt oluşturuluyor...'
   if (!completed) return label
   return label
     .replace(/inceleniyor/giu, 'incelendi')
