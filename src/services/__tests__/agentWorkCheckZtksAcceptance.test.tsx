@@ -18,13 +18,23 @@ const toFrontendEvent = (payload: Record<string, unknown>): AgentWorkEvent => ({
     : 'agent') as AgentWorkEventKind,
   label: String(payload.label || ''),
   tool: payload.tool ? String(payload.tool) : undefined,
-  sourceType: payload.source_type === 'knowledge' || payload.source_type === 'web' || payload.source_type === 'artifact'
+  sourceType: payload.source_type === 'knowledge'
+    || payload.source_type === 'web'
+    || payload.source_type === 'media'
+    || payload.source_type === 'artifact'
     ? payload.source_type
     : 'runtime',
   startedAt: payload.started_at ? String(payload.started_at) : undefined,
   completedAt: payload.completed_at ? String(payload.completed_at) : undefined,
   state: String(payload.state || 'completed') as AgentWorkEventState,
 });
+
+const reduceCanonicalEvent = (state: AgentWorkEvent[], eventName: string | undefined, data: string) => {
+  if (!['agent_activity', 'tool_start', 'tool_complete', 'artifact', 'warning', 'final'].includes(eventName || '')) return state;
+  const payload = JSON.parse(data) as Record<string, unknown>;
+  if (!payload.event_id) return state;
+  return reduceAgentActivityEvents(state, toFrontendEvent(payload));
+};
 
 describe('CHECK_ZTKS Agent Work acceptance', () => {
   it('keeps the complete real work chronology while text starts streaming and final UI collapses', () => {
@@ -84,12 +94,31 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
     expect(parsed.some(event => event.event === 'tool_complete')).toBe(true);
     expect(parsed.some(event => event.event === 'final')).toBe(true);
 
+    let liveState: AgentWorkEvent[] = [];
+    for (const event of parsed) {
+      if (event.event === 'text_delta') break;
+      liveState = reduceCanonicalEvent(liveState, event.event, event.data);
+    }
+
+    expect(liveState.some(event => event.label === 'Soru ve konuşma bağlamı hazırlandı')).toBe(true);
+    expect(liveState.some(event => event.label === '3 kurumsal kaynak bulundu')).toBe(true);
+    expect(liveState.find(event => event.label === 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...')?.state).toBe('active');
+    expect(liveState.filter(event => event.state === 'completed').length).toBeGreaterThanOrEqual(4);
+
+    const liveHtml = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive
+        startedAt={Date.parse('2026-09-06T20:00:00.000Z')}
+        workEvents={liveState}
+      />,
+    );
+    expect(liveHtml).toContain('Düşünüyor');
+    expect(liveHtml).toContain('data-testid="assistant-work-live-details"');
+    expect(liveHtml).toContain('Bulduğum bilgiyi ek kaynaklarla doğruluyorum...');
+
     let state: AgentWorkEvent[] = [];
     for (const event of parsed) {
-      if (!['agent_activity', 'tool_start', 'tool_complete', 'final'].includes(event.event || '')) continue;
-      const payload = JSON.parse(event.data) as Record<string, unknown>;
-      if (!payload.event_id) continue;
-      state = reduceAgentActivityEvents(state, toFrontendEvent(payload));
+      state = reduceCanonicalEvent(state, event.event, event.data);
     }
 
     const uniqueIds = new Set(state.map(event => event.eventId));
@@ -120,5 +149,37 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
     expect(finalHtml).toContain('37 sn düşündü');
     expect(finalHtml).toContain('aria-label="Çalışma ayrıntılarını göster"');
     expect(finalHtml).not.toContain('data-testid="assistant-work-details"');
+  });
+
+  it('keeps user media distinct from enterprise knowledge in public source events', () => {
+    let clock = Date.parse('2026-09-06T20:10:00.000Z');
+    const mediaOnlyAdapter = createAgentWorkSseAdapter(() => clock);
+    const mediaOnly = consumeSseBuffer(mediaOnlyAdapter.transformFrame(sse('sources', {
+      type: 'sources',
+      sources: [{ sourceName: 'screen.png', sourceType: 'media' }],
+    })), true).events;
+    const mediaEvent = mediaOnly.find(event => event.event === 'agent_activity');
+    expect(mediaEvent).toBeTruthy();
+    const mediaPayload = JSON.parse(mediaEvent!.data) as Record<string, unknown>;
+    expect(mediaPayload.label).toBe('1 kullanıcı medyası incelendi');
+    expect(mediaPayload.source_type).toBe('media');
+    expect(String(mediaPayload.label)).not.toContain('kurumsal');
+
+    clock += 1_000;
+    const mixedAdapter = createAgentWorkSseAdapter(() => clock);
+    const mixed = consumeSseBuffer(mixedAdapter.transformFrame(sse('sources', {
+      type: 'sources',
+      sources: [
+        { sourceName: 'CRM_Function_Envanteri.md', sourceType: 'knowledge' },
+        { sourceName: 'screen.png', sourceType: 'media' },
+        { sourceName: 'official.example', sourceType: 'web' },
+      ],
+    })), true).events;
+    const mixedEvent = mixed.find(event => event.event === 'agent_activity');
+    expect(mixedEvent).toBeTruthy();
+    const mixedPayload = JSON.parse(mixedEvent!.data) as Record<string, unknown>;
+    expect(mixedPayload.label).toBe('1 kurumsal kaynak · 1 web kaynağı · 1 kullanıcı medyası incelendi');
+    expect(mixedPayload.source_type).toBe('runtime');
+    expect(mixedPayload.tool).toBe('Kaynaklar');
   });
 });
