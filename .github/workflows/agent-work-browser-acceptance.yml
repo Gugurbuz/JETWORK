@@ -1,5 +1,6 @@
 name: Agent Work Browser Acceptance
 
+# Final release gate: canonical Agent Work chronology must survive browser reload unchanged.
 on:
   workflow_dispatch:
   push:
