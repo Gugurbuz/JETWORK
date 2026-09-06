@@ -1,7 +1,6 @@
 name: Agentic Semantic Authority Staging
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,7 +12,6 @@ concurrency:
 
 jobs:
   staging-gate:
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'fix/agentic-semantic-authority-v2'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
