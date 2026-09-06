@@ -102,10 +102,12 @@ export const observeAgentWorkSseEvent = (input: SseLikeEvent): AgentWorkEvent | 
 
 export const getAgentWorkLiveSnapshot = (): AgentWorkEvent[] => snapshot;
 
-export const resetAgentWorkLiveSnapshotForTests = () => {
+export const resetAgentWorkLiveSnapshot = () => {
   snapshot = EMPTY_EVENTS;
   emit();
 };
+
+export const resetAgentWorkLiveSnapshotForTests = resetAgentWorkLiveSnapshot;
 
 const subscribe = (listener: Listener) => {
   listeners.add(listener);
