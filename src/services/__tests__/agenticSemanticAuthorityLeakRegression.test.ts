@@ -24,11 +24,12 @@ describe('Agentic semantic authority leak regressions', () => {
   })
 
   it('keeps the canonical gateway contract: attach neutral semantic plan before entering core', () => {
+    const attachedPlan = 'message: attachSemanticPlan(currentMessage, semantic.plan)'
+    const upstreamFetch = "upstream = await fetch(`${supabaseUrl}/functions/v1/openai-assistant-core-v2`"
     expect(publicGatewaySource).toContain('buildSemanticExecutionPlan({')
-    expect(publicGatewaySource).toContain('message: attachSemanticPlan(currentMessage, semantic.plan)')
-    expect(publicGatewaySource).toContain("/functions/v1/openai-assistant-core-v2")
-    expect(publicGatewaySource.indexOf('message: attachSemanticPlan(currentMessage, semantic.plan)'))
-      .toBeLessThan(publicGatewaySource.indexOf("/functions/v1/openai-assistant-core-v2"))
+    expect(publicGatewaySource).toContain(attachedPlan)
+    expect(publicGatewaySource).toContain(upstreamFetch)
+    expect(publicGatewaySource.indexOf(attachedPlan)).toBeLessThan(publicGatewaySource.indexOf(upstreamFetch))
   })
 
   it('keeps Controller V2 preplanning semantically neutral across freshness phrasings', async () => {
