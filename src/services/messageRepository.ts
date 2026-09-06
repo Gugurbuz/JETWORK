@@ -133,6 +133,12 @@ export async function saveAiMessage(
     : message;
   const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, persistableMessage, ownerId));
   if (error) throw error;
+  if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+    // Persistence has copied the authoritative public chronology into the message
+    // envelope. Clear the transient singleton so a retry/new turn cannot briefly
+    // render the previous turn while waiting for its first canonical event.
+    resetAgentWorkLiveSnapshot();
+  }
 }
 
 export async function saveMessageReactions(
