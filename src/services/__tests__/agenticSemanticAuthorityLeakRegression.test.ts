@@ -7,12 +7,28 @@ const internalGatewaySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-v2-internal/index.ts', import.meta.url),
   'utf8',
 )
+const publicGatewaySource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url),
+  'utf8',
+)
+const providerSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Agentic semantic authority leak regressions', () => {
   it('materializes the internal gateway locally instead of pinning an old remote runtime', () => {
     expect(internalGatewaySource).toContain("import '../openai-assistant-v2/index.ts'")
     expect(internalGatewaySource).not.toContain('raw.githubusercontent.com')
     expect(internalGatewaySource).not.toMatch(/[0-9a-f]{40}\/supabase\/functions\/openai-assistant-v2/)
+  })
+
+  it('keeps the canonical gateway contract: attach neutral semantic plan before entering core', () => {
+    expect(publicGatewaySource).toContain('buildSemanticExecutionPlan({')
+    expect(publicGatewaySource).toContain('message: attachSemanticPlan(currentMessage, semantic.plan)')
+    expect(publicGatewaySource).toContain("/functions/v1/openai-assistant-core-v2")
+    expect(publicGatewaySource.indexOf('message: attachSemanticPlan(currentMessage, semantic.plan)'))
+      .toBeLessThan(publicGatewaySource.indexOf("/functions/v1/openai-assistant-core-v2"))
   })
 
   it('keeps Controller V2 preplanning semantically neutral across freshness phrasings', async () => {
@@ -81,5 +97,16 @@ describe('Agentic semantic authority leak regressions', () => {
     })
     const ids = new Set(result.candidates.map(candidate => candidate.id))
     for (const id of excluded) expect(ids.has(id)).toBe(false)
+  })
+
+  it('withholds an ungrounded enterprise final and gives the same LLM controller one recovery re-plan', () => {
+    expect(providerSource).toContain('requestBaseWithEnterpriseEvidenceReplan')
+    expect(providerSource).toContain('[JETWORK GROUNDING RECOVERY REPLAN OBSERVATION]')
+    expect(providerSource).toContain('grounding_controller_replan_retry: 1')
+    expect(providerSource).toContain('const first = await requestBaseWithEmptyFinalizationRecovery({')
+    expect(providerSource).toContain('const retry = await requestBaseWithEmptyFinalizationRecovery({')
+    expect(providerSource).toContain('Search sonucu candidate-only ise onu kanıt sayma')
+    expect(providerSource).not.toContain("toolName: 'search_knowledge_catalog'")
+    expect(providerSource).not.toContain("toolName: 'provider_web'")
   })
 })
