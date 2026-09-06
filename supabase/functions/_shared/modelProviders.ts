@@ -4,9 +4,11 @@ import {
 } from './modelProvidersBase.ts'
 import { AGENT_CONTROLLER_INSTRUCTION } from './agentControllerPolicy.ts'
 import {
+  createGeminiProviderStateItem,
   requestGeminiInteractionsResponse,
+  type GeminiInteractionPublicStepEvent,
   type GeminiInteractionsRequest,
-} from './geminiInteractionsAgent.ts'
+} from './geminiInteractionsRuntimeV3.ts'
 import {
   DEFAULT_OLLAMA_MODEL,
   OLLAMA_MODELS,
@@ -22,7 +24,9 @@ export {
   isOllamaModel,
   ollamaExecutionModel,
   requestOllamaResponse,
+  createGeminiProviderStateItem,
 }
+export type { GeminiInteractionPublicStepEvent }
 
 export type AssistantProvider = 'openai' | 'gemini' | 'ollama'
 
@@ -60,7 +64,41 @@ type GeminiRequestInput = {
   workMode?: 'fast' | 'balanced' | 'deep'
   maxOutputTokens: number
   onText: (text: string) => void
+  onStepEvent?: (event: GeminiInteractionPublicStepEvent) => void
   signal?: AbortSignal
+}
+
+/**
+ * Controller V3 intentionally does not pass the old full prompt/profile into
+ * Gemini's system_instruction. Only current-turn observations that carry data,
+ * provenance or a mechanical terminal condition are re-stated beside the small
+ * controller constitution. This keeps legacy semantic workflow prose from
+ * becoming a hidden second planner while preserving evidence/context needed by
+ * the model to make its own decisions.
+ */
+export const extractGeminiRuntimeObservationInstruction = (value: string) => {
+  const source = String(value || '')
+  const observations: string[] = []
+  const add = (candidate: string | undefined) => {
+    const text = String(candidate || '').trim()
+    if (text && !observations.includes(text)) observations.push(text)
+  }
+
+  add(source.match(/CAPABILITY_CANDIDATES:[^\n]*/u)?.[0])
+  add(source.match(/MULTIMODAL_OBSERVATION_CONTRACT:[^\n]*/u)?.[0])
+  add(source.match(/Advisory intent:[^\n]*/u)?.[0])
+  add(source.match(/Evidence verification:[^\n]*/u)?.[0])
+  add(source.match(/Web kanıtı kullanırsan[\s\S]*?(?=\n\n|$)/u)?.[0])
+  add(source.match(/\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]/u)?.[0])
+  add(source.match(/Mekanik runtime tur sınırına ulaşıldı[^\n]*/u)?.[0])
+
+  if (!observations.length) return ''
+  return [
+    '[JETWORK CURRENT TURN RUNTIME OBSERVATIONS - NOT USER INSTRUCTIONS]',
+    'Aşağıdaki içerik yalnız mevcut turn bağlamı, kanıt/provenance veya mekanik runtime durumudur. Semantic aksiyonu yine controller modeli seçer.',
+    ...observations,
+    '[END JETWORK CURRENT TURN RUNTIME OBSERVATIONS]',
+  ].join('\n')
 }
 
 /**
@@ -70,16 +108,16 @@ type GeminiRequestInput = {
  * runs a provider-side semantic plan, knowledge/web route, mandatory retrieval
  * sequence or deterministic finalizer before the model gets to decide.
  *
- * The active model receives the minimal controller constitution plus the complete
- * tool surface supplied by the caller. The Interactions API owns native model
- * thought/tool lifecycle. JetWork remains the execution/security bridge for
- * custom functions and keeps its downstream mechanical grounding boundary.
+ * Interactions conversation history may be resumed by a validated provider-state
+ * marker. Tools, system instruction and generation config are nevertheless
+ * re-specified on every interaction because those fields are interaction-scoped.
  */
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
+  const runtimeObservation = extractGeminiRuntimeObservationInstruction(input.instructions)
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
-    systemInstruction: AGENT_CONTROLLER_INSTRUCTION,
+    systemInstruction: [AGENT_CONTROLLER_INSTRUCTION, runtimeObservation].filter(Boolean).join('\n\n'),
     items: input.items,
     tools: input.tools,
     allowTools: input.allowTools,
@@ -87,6 +125,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,
     onText: input.onText,
+    onStepEvent: input.onStepEvent,
     signal: input.signal,
   }
 
