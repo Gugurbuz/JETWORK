@@ -115,7 +115,7 @@ At the latest PR #212 hardening pass:
 - internal/core staging transport is intentionally not claimed complete until their materialized bundle deployment and boot are verified;
 - live İYS provider execution remains blocked until `AGENTIC_GOLDEN_ANON_KEY` and `AGENTIC_GOLDEN_ACCESS_TOKEN` are available to the manual staging workflow.
 
-This environment block does **not** satisfy the live release gate. Production must remain unchanged until the authenticated staging run passes.
+This environment block does **not** satisfy the live release gate. Production remains unchanged and must stay unchanged until the authenticated staging run passes.
 
 ## Rollout gate
 
