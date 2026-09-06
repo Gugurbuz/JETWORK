@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import { rowsToCamel, rowToCamel } from '../lib/mapping';
 import { parseAssistantPresentationMetadata } from '../services/assistantPresentationMetadata';
 import { decodeAgentWorkEnvelope } from '../services/agentWorkPersistence';
+import { registerPersistedAgentWorkEvents } from '../services/agentWorkLiveStream';
 
 interface MessageStore {
   messagesByWorkspace: Record<string, Message[]>;
@@ -25,13 +26,15 @@ function sanitizeAssistantPresentation(message: Message): Message {
   const envelope = decodeAgentWorkEnvelope(message.rawResponse);
   const hasPresentationMetadata = /<jetwork_meta>/iu.test(message.text || '');
   const presentation = hasPresentationMetadata ? parseAssistantPresentationMetadata(message.text) : null;
+  const workEvents = envelope?.workEvents.length ? envelope.workEvents : message.workEvents;
+  if (workEvents?.length) registerPersistedAgentWorkEvents(message.createdAt, workEvents);
   return {
     ...message,
     text: presentation?.visibleText ?? message.text,
     thinkingText: message.thinkingText || presentation?.workSummary,
     questions: message.questions?.length ? message.questions : presentation?.questions,
     actionSummary: message.actionSummary || presentation?.actionSummary,
-    workEvents: envelope?.workEvents.length ? envelope.workEvents : message.workEvents,
+    workEvents,
     // Hide the transport envelope from application consumers while preserving
     // any real raw response that was nested inside it.
     rawResponse: envelope ? envelope.rawResponse : message.rawResponse,
@@ -181,7 +184,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     if (unsubscribe) {
       unsubscribe();
       set((state) => {
-        const newListeners = { ...activeListeners };
+        const newListeners = { ...state.activeListeners };
         delete newListeners[workspaceId];
         return { activeListeners: newListeners };
       });
