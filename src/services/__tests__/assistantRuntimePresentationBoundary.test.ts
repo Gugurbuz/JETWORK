@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const mainSource = readFileSync(new URL('../../main.tsx', import.meta.url), 'utf8');
 const workIndicatorSource = readFileSync(new URL('../../components/AssistantWorkIndicator.tsx', import.meta.url), 'utf8');
+const workTimelineSource = readFileSync(new URL('../../components/AgentWorkTimeline.tsx', import.meta.url), 'utf8');
 const workIndicatorCss = readFileSync(new URL('../../assistant-work-indicator.css', import.meta.url), 'utf8');
 const repositorySource = readFileSync(new URL('../messageRepository.ts', import.meta.url), 'utf8');
 
@@ -11,12 +12,16 @@ describe('assistant runtime presentation boundary', () => {
     expect(mainSource).toContain("import './assistant-runtime-ui.css'");
   });
 
-  it('shows bounded operational activities without stage-level timing telemetry', () => {
+  it('shows ordered operational activities without stage-level timing telemetry', () => {
     expect(workIndicatorSource).toContain('buildAssistantWorkActivities');
-    expect(workIndicatorSource).toContain('data-testid="assistant-work-live-details"');
+    expect(workIndicatorSource).toContain('<AgentWorkTimeline');
+    expect(workTimelineSource).toContain('data-testid={live ? \'assistant-work-live-details\' : \'assistant-work-details\'}');
     expect(workIndicatorSource).not.toContain('plannerDuration');
     expect(workIndicatorSource).not.toContain('toolDuration');
     expect(workIndicatorSource).not.toContain('finalModelDuration');
+    expect(workTimelineSource).not.toContain('plannerDuration');
+    expect(workTimelineSource).not.toContain('toolDuration');
+    expect(workTimelineSource).not.toContain('finalModelDuration');
   });
 
   it('loads the dedicated work-indicator animation globally', () => {
@@ -37,9 +42,7 @@ describe('assistant runtime presentation boundary', () => {
     );
     expect(mobileBlock).not.toContain('assistant-work__logo-motion');
 
-    const reducedMotionBlock = workIndicatorCss.slice(
-      workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'),
-    );
+    const reducedMotionBlock = workIndicatorCss.slice(workIndicatorCss.indexOf('@media (prefers-reduced-motion: reduce)'));
     expect(reducedMotionBlock).toContain('.assistant-work__logo-motion');
     expect(reducedMotionBlock).toContain('.assistant-work__label');
     expect(reducedMotionBlock).toContain('.assistant-work__activity--active .assistant-work__activity-icon');
