@@ -23,6 +23,10 @@ const publicEntryRouterSource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-v2-entry-router/index.ts', import.meta.url),
   'utf8',
 )
+const reasoningEngineSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/reasoningEngine.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Agent Controller V2 runtime boundary', () => {
   it('defaults to disabled when rollout configuration is missing', () => {
@@ -83,6 +87,16 @@ describe('Agent Controller V2 runtime boundary', () => {
       .toBeLessThan(publicEntryRouterSource.indexOf('const routeDecision = classifyDocumentArtifactRequest(message)'))
     expect(publicEntryRouterSource.indexOf('if (isAgentControllerV2Enabled())'))
       .toBeLessThan(publicEntryRouterSource.indexOf('const longContextNeedsReasoning = message.length >= 2_000'))
+  })
+
+  it('keeps the core semantically neutral even if a V2 gateway is accidentally bypassed', () => {
+    expect(reasoningEngineSource).toContain('if (isAgentControllerV2Enabled()) return controllerV2NeutralRoute()')
+    expect(reasoningEngineSource).toContain('controller_v2_core_neutral_fallback: 1')
+    expect(reasoningEngineSource).toContain("orchestratorVersion: 'agent-controller-v2-core-neutral-fallback'")
+    expect(reasoningEngineSource.indexOf('if (isAgentControllerV2Enabled()) return controllerV2NeutralRoute()'))
+      .toBeLessThan(reasoningEngineSource.indexOf('return routeLegacyReasoningRequest(message, attachmentCount)'))
+    expect(reasoningEngineSource.indexOf('if (isAgentControllerV2Enabled()) {\n    return {\n      plan: controllerV2NeutralPlan(input.message)'))
+      .toBeLessThan(reasoningEngineSource.indexOf('const legacy = await buildLegacyReasoningPlan(input)'))
   })
 
   it('makes semantic preplanning advisory instead of choosing capabilities', async () => {

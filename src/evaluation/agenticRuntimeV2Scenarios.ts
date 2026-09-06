@@ -57,10 +57,21 @@ export const AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS: AgenticRuntimeV2GoldenScenario
   {
     id: 'agent-v2-05-current-web-decision',
     category: 'current_web',
-    turns: ['Bugünkü güncel Gemini model duyurularını kontrol et ve JetWork için etkisini değerlendir.'],
+    turns: ['İYS entegrasyon dokümanına ihtiyacım var güncel'],
     requiredCapabilities: ['web'],
-    forbiddenBehaviors: ['static_knowledge_presented_as_current', 'web_keyword_route'],
-    assertions: ['fresh_source_required', 'controller_selects_web'],
+    forbiddenBehaviors: [
+      'static_knowledge_presented_as_current',
+      'web_keyword_route',
+      'legacy_semantic_plan_controls_capability',
+      'top_k_hides_web',
+      'generic_grounding_failure_before_recovery',
+    ],
+    assertions: [
+      'fresh_source_required',
+      'controller_selects_web',
+      'neutral_v2_advisory_plan',
+      'foundational_web_available',
+    ],
   },
   {
     id: 'agent-v2-06-user-correction-wins',

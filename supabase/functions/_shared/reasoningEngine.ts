@@ -17,6 +17,8 @@ import {
   type WebMode,
   type WebResearchResult,
 } from './reasoningEngineLegacy.ts'
+import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
+import { hasExactTechnicalIdentifier } from './technicalIdentifier.ts'
 
 export {
   collectWebSources,
@@ -343,6 +345,42 @@ export const semanticPlanFromMessage = (message: string): ReasoningPlan | null =
   try { return normalizeSemanticPlan(JSON.parse(match[1]), currentMessage) } catch { return null }
 }
 
+const controllerV2NeutralPlan = (message: string): ReasoningPlan => {
+  const currentMessage = currentMessageWithoutPlan(message).slice(0, 1_000)
+  const exactTechnicalEvidenceRequired = hasExactTechnicalIdentifier(currentMessage)
+  return {
+    intent: 'analysis',
+    complexity: 'medium',
+    goal: currentMessage || 'Kullanıcı talebini doğru ve güvenli biçimde yanıtla.',
+    knowledgeRequired: false,
+    enterpriseGroundingRequired: exactTechnicalEvidenceRequired,
+    webMode: 'none',
+    verificationRequired: false,
+    creativeMode: false,
+    evidenceQueries: [],
+    steps: [{
+      id: 'controller-v2-core-fallback',
+      label: 'Controller LLM hedefi değerlendirir ve capability seçimini observationlara göre yapar',
+      toolHint: 'synthesis',
+      successCriteria: exactTechnicalEvidenceRequired
+        ? 'Exact teknik iddialar doğrulanmış evidence olmadan kesinleştirilmez; capability seçimini controller yapar.'
+        : 'Runtime önceden knowledge/web/skill/artifact seçmez; controller observation sonrası yeniden karar verir.',
+    }],
+    executionMode: 'direct',
+    orchestratorVersion: 'agent-controller-v2-core-neutral-fallback',
+    promptProfile: 'base',
+  }
+}
+
+const controllerV2NeutralRoute = (): ReasoningRoute => ({
+  intent: 'analysis',
+  complexity: 'medium',
+  knowledgeRequired: false,
+  webMode: 'none',
+  verificationRequired: false,
+  creativeMode: false,
+})
+
 export const routingSurfaceFromMessage = (message: string) => (
   legacyRoutingSurfaceFromMessage(currentMessageWithoutPlan(message))
 )
@@ -359,6 +397,7 @@ export function routeReasoningRequest(message: string, attachmentCount = 0): Rea
       creativeMode: semanticPlan.creativeMode,
     }
   }
+  if (isAgentControllerV2Enabled()) return controllerV2NeutralRoute()
   return routeLegacyReasoningRequest(message, attachmentCount)
 }
 
@@ -373,6 +412,13 @@ export async function buildReasoningPlan(input: {
 }): Promise<{ plan: ReasoningPlan; usage?: Record<string, number>; plannerFallback: boolean }> {
   const semanticPlan = semanticPlanFromMessage(input.message)
   if (semanticPlan) return { plan: semanticPlan, plannerFallback: false }
+  if (isAgentControllerV2Enabled()) {
+    return {
+      plan: controllerV2NeutralPlan(input.message),
+      usage: { controller_v2_core_neutral_fallback: 1 },
+      plannerFallback: false,
+    }
+  }
   const legacy = await buildLegacyReasoningPlan(input) as {
     plan: ReasoningPlan
     usage?: Record<string, number>
