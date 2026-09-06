@@ -5,7 +5,7 @@ import type { AssistantKnowledgeSource } from '../types';
 import { cn } from '../lib/utils';
 import { splitAssistantSources } from '../services/assistantSources';
 import type { AgentWorkEvent } from '../services/agentWorkTypes';
-import { useAgentWorkLiveEvents } from '../services/agentWorkLiveStream';
+import { useAgentWorkLiveEvents, usePersistedAgentWorkEvents } from '../services/agentWorkLiveStream';
 import {
   completeActiveAgentEvents,
   createObservedAgentWorkEvent,
@@ -205,7 +205,12 @@ export function AssistantWorkIndicator({
   const elapsedSeconds = useElapsedSeconds(isActive, startedAt, completedSeconds);
   const formattedDuration = formatAssistantWorkDuration(elapsedSeconds);
   const liveWorkEvents = useAgentWorkLiveEvents(isActive && !workEvents?.length);
-  const canonicalWorkEvents = workEvents?.length ? workEvents : liveWorkEvents;
+  const persistedWorkEvents = usePersistedAgentWorkEvents(startedAt);
+  const canonicalWorkEvents = workEvents?.length
+    ? workEvents
+    : liveWorkEvents.length
+      ? liveWorkEvents
+      : persistedWorkEvents;
   const sourceView = useMemo(
     () => splitAssistantSources(knowledgeSources || [], groundingUrls || []),
     [groundingUrls, knowledgeSources],
