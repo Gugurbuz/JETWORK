@@ -4,6 +4,7 @@ import type { Message } from '../types';
 import { FEATURE_FLAGS } from '../lib/featureFlags';
 import { persistAssistantToolAttachments } from './assistantFileRepository';
 import { encodeAgentWorkEnvelope } from './agentWorkPersistence';
+import { getAgentWorkLiveSnapshot, resetAgentWorkLiveSnapshot } from './agentWorkLiveStream';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
   let attachments = message.attachments;
@@ -87,6 +88,11 @@ export async function saveUserMessage(
   ownerId: string,
   message: Message,
 ): Promise<void> {
+  if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
+    // User-message persistence is the turn boundary. Clear any previous live
+    // chronology before the new assistant stream can emit canonical sequence 1.
+    resetAgentWorkLiveSnapshot();
+  }
   if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && Array.isArray(message.attachments)) {
     const originalAttachments = message.attachments;
     const persistedAttachments = await persistAssistantToolAttachments(workspaceId, originalAttachments);
@@ -117,7 +123,15 @@ export async function saveAiMessage(
   ownerId: string,
   message: Message,
 ): Promise<void> {
-  const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, message, ownerId));
+  const currentWorkEvents = message.workEvents?.length
+    ? message.workEvents
+    : FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+      ? getAgentWorkLiveSnapshot()
+      : [];
+  const persistableMessage = currentWorkEvents.length
+    ? { ...message, workEvents: currentWorkEvents }
+    : message;
+  const { error } = await supabase.from('messages').upsert(toMessagePayload(workspaceId, persistableMessage, ownerId));
   if (error) throw error;
 }
 
