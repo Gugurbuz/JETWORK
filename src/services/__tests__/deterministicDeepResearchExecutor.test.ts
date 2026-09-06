@@ -10,8 +10,8 @@ const providerSource = readFileSync(
   'utf8',
 )
 
-describe('deterministic Gemini Deep Research executor', () => {
-  it('forces Google Search via Gemini 3.8 Flash Interactions API tool_choice any', () => {
+describe('legacy deterministic Gemini web executor', () => {
+  it('remains testable as a rollback/history helper but is not active routing authority', () => {
     const request = buildDeterministicGeminiWebRequest({
       query: 'CHECK_ZTKS hangi mesajları üretiyor?',
       complexity: 'high',
@@ -25,18 +25,14 @@ describe('deterministic Gemini Deep Research executor', () => {
     expect(request.background).toBe(false)
   })
 
-  it('normalizes inline search results, citable sources, notes and grounding telemetry', () => {
+  it('still normalizes historical executor results deterministically', () => {
     const result = normalizeDeterministicGeminiWebResult({
       steps: [
         {
           type: 'google_search_call',
           arguments: { query: 'CHECK_ZTKS SAP' },
           id: 'search_1',
-          result: [{
-            title: 'Example source',
-            url: 'https://example.com/check-ztks',
-            snippet: 'Public context.',
-          }],
+          result: [{ title: 'Example source', url: 'https://example.com/check-ztks', snippet: 'Public context.' }],
         },
         { type: 'model_output', content: [{ type: 'text', text: 'Grounded research note.' }] },
       ],
@@ -52,23 +48,12 @@ describe('deterministic Gemini Deep Research executor', () => {
     expect(result.searchCount).toBe(1)
     expect(result.searchQueries).toEqual(['CHECK_ZTKS SAP'])
     expect(result.sources).toHaveLength(1)
-    expect(result.sources[0].url).toBe('https://example.com/check-ztks')
-    expect(result.text).toContain('Public context.')
-    expect(result.text).toContain('Grounded research note.')
-    expect(result.usage?.deterministic_web_executor_calls).toBe(1)
-    expect(result.usage?.gemini_interactions_web_search_calls).toBe(1)
-    expect(result.usage?.gemini_grounding_tool_calls).toBe(1)
   })
 
-  it('routes research web turns through executor before the guarded no-tool final synthesis', () => {
-    expect(providerSource).toContain("const providerWebRequested = input.allowProviderWeb ?? input.allowTools")
-    expect(providerSource).toContain("plan?.intent === 'research' && providerWebRequested")
-    expect(providerSource).toContain('runDeterministicGeminiWebResearch({')
-    expect(providerSource.indexOf('runDeterministicGeminiWebResearch({'))
-      .toBeLessThan(providerSource.indexOf('const finalResponse = await requestBaseWithStreamingAnswerability({'))
-    expect(providerSource).toContain('allowProviderWeb: false')
-    expect(providerSource).toContain('allowTools: false')
-    expect(providerSource).toContain('deterministic_deep_research_used')
-    expect(providerSource).toContain('answerability_streaming_guard_used')
+  it('does not pre-execute deterministic research in the active Gemini provider wrapper', () => {
+    expect(providerSource).not.toContain("import { runDeterministicGeminiWebResearch")
+    expect(providerSource).not.toContain("plan?.intent === 'research' && providerWebRequested")
+    expect(providerSource).not.toContain('runDeterministicGeminiWebResearch({')
+    expect(providerSource).toContain('requestBaseWithEmptyFinalizationRecovery')
   })
 })

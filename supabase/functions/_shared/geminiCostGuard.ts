@@ -22,6 +22,7 @@ const MODEL_PRICING_USD_PER_MILLION: Record<string, { input: number; output: num
   'gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
   'gemini-3.1-flash-lite-preview': { input: 0.25, output: 1.5 },
   'gemini-3.5-flash': { input: 1.5, output: 9 },
+  'gemini-3.8-flash': { input: 0.75, output: 3.75 },
   'gemini-3.5-flash-lite': { input: 0.3, output: 2.5 },
 }
 

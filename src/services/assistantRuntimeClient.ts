@@ -71,6 +71,7 @@ export type AssistantRuntimeEvent =
   | { type: 'sources'; sources: AssistantKnowledgeSource[] }
   | { type: 'artifacts'; attachments: MessageAttachment[] }
   | { type: 'status'; stage: AssistantRuntimeStage; label?: string }
+  | { type: 'commentary'; sequence: number; kind: 'start' | 'finding' | 'plan_change' | 'blocked'; message: string; sourceRefs: string[] }
   | {
     type: 'completed';
     conversationId?: string;
@@ -102,6 +103,7 @@ export interface AssistantChatAttachment {
   name: string;
   mimeType: string;
   content: string;
+  encoding?: 'utf8' | 'base64';
 }
 
 interface NormalizedArtifactResponse {
@@ -392,39 +394,62 @@ async function readAttachmentText(attachment: MessageAttachment): Promise<string
   return '';
 }
 
+const MULTIMODAL_CHAT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
+const MAX_CHAT_MEDIA_BYTES = 6 * 1024 * 1024;
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize)));
+  }
+  return btoa(binary);
+};
+
+const readAttachmentBytes = async (attachment: MessageAttachment): Promise<Uint8Array> => {
+  if (attachment.data) {
+    const encoded = attachment.data.includes(',') ? attachment.data.slice(attachment.data.indexOf(',') + 1) : attachment.data;
+    return Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+  }
+  if (attachment.file) return new Uint8Array(await attachment.file.arrayBuffer());
+  throw new Error(`${attachment.name || 'Dosya'} içeriği artık mevcut değil; dosyayı yeniden ekleyin.`);
+};
+
 export async function prepareAssistantChatAttachments(
   attachments: MessageAttachment[] = [],
 ): Promise<AssistantChatAttachment[]> {
-  const chatAttachments = attachments.filter(candidate => {
-    if (candidate.purpose !== 'chat_only') return false;
-    const mimeType = String(candidate.mimeType || '').toLocaleLowerCase('en-US');
-    const explicitlyTextReadable = mimeType.startsWith('text/') || mimeType === 'application/json';
-    return explicitlyTextReadable || !isActionableExecutionAttachment(candidate);
-  });
+  const chatAttachments = attachments.filter(candidate => candidate.purpose === 'chat_only');
   if (chatAttachments.length > MAX_CHAT_ATTACHMENTS) {
-    throw new AssistantAttachmentValidationError(
-      `Bir mesajda en fazla ${MAX_CHAT_ATTACHMENTS} sohbet eki kullanılabilir.`,
-    );
+    throw new AssistantAttachmentValidationError(`Bir mesajda en fazla ${MAX_CHAT_ATTACHMENTS} sohbet eki kullanılabilir.`);
   }
 
   const prepared: AssistantChatAttachment[] = [];
   let remainingCharacters = MAX_CHAT_ATTACHMENT_CHARACTERS;
+  let remainingMediaBytes = MAX_CHAT_MEDIA_BYTES;
 
   for (const attachment of chatAttachments) {
-    const content = (await readAttachmentText(attachment))
-      .replace(/^\uFEFF/, '')
-      .replace(/\r\n?/g, '\n');
+    const mimeType = String(attachment.mimeType || attachment.file?.type || 'application/octet-stream').toLocaleLowerCase('en-US');
+    if (MULTIMODAL_CHAT_MIMES.has(mimeType)) {
+      const bytes = await readAttachmentBytes(attachment);
+      if (bytes.byteLength > remainingMediaBytes) {
+        throw new AssistantAttachmentValidationError('Görsel/PDF sohbet ekleri toplam 6 MB sınırını aşamaz.');
+      }
+      prepared.push({
+        name: String(attachment.name || 'multimodal-input').slice(0, 240),
+        mimeType,
+        content: bytesToBase64(bytes),
+        encoding: 'base64',
+      });
+      remainingMediaBytes -= bytes.byteLength;
+      continue;
+    }
+
+    const content = (await readAttachmentText(attachment)).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
     if (!content.trim()) continue;
     if (content.length > remainingCharacters) {
-      throw new AssistantAttachmentValidationError(
-        `Sohbet eklerinin toplam metni ${MAX_CHAT_ATTACHMENT_CHARACTERS.toLocaleString('tr-TR')} karakteri aşamaz.`,
-      );
+      throw new AssistantAttachmentValidationError(`Sohbet eklerinin toplam metni ${MAX_CHAT_ATTACHMENT_CHARACTERS.toLocaleString('tr-TR')} karakteri aşamaz.`);
     }
-    prepared.push({
-      name: String(attachment.name || 'sohbet-eki.txt').slice(0, 240),
-      mimeType: String(attachment.mimeType || 'text/plain').slice(0, 120),
-      content,
-    });
+    prepared.push({ name: String(attachment.name || 'sohbet-eki.txt').slice(0, 240), mimeType, content, encoding: 'utf8' });
     remainingCharacters -= content.length;
   }
   return prepared;
@@ -471,6 +496,18 @@ export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEve
       label: payload.label ? String(payload.label) : undefined,
     };
   }
+  if (eventType === 'commentary') {
+    const kind = ['start', 'finding', 'plan_change', 'blocked'].includes(String(payload.kind))
+      ? String(payload.kind) as 'start' | 'finding' | 'plan_change' | 'blocked'
+      : 'finding';
+    return {
+      type: 'commentary',
+      sequence: Math.max(1, Number(payload.sequence || 1)),
+      kind,
+      message: String(payload.message || '').trim().slice(0, 500),
+      sourceRefs: Array.isArray(payload.sourceRefs) ? payload.sourceRefs.map(value => String(value)).slice(0, 8) : [],
+    };
+  }
   if (eventType === 'completed') {
     const rawUsage = payload.usage;
     const usage = rawUsage && typeof rawUsage === 'object'
@@ -504,6 +541,7 @@ export async function streamAssistantResponse(input: {
   messageId: string;
   message: string;
   model?: string;
+  workMode?: 'fast' | 'balanced' | 'deep';
   chatAttachments?: AssistantChatAttachment[];
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -511,6 +549,7 @@ export async function streamAssistantResponse(input: {
   onSources?: (sources: AssistantKnowledgeSource[]) => void;
   onArtifacts?: (attachments: MessageAttachment[]) => void;
   onStatus?: (stage: AssistantRuntimeStage, label?: string) => void;
+  onCommentary?: (event: { sequence: number; kind: 'start' | 'finding' | 'plan_change' | 'blocked'; message: string; sourceRefs: string[] }) => void;
 }): Promise<AssistantRuntimeResult> {
   const env = runtimeEnv();
   const { data: { session } } = await supabase.auth.getSession();
@@ -594,6 +633,7 @@ export async function streamAssistantResponse(input: {
       messageId: input.messageId,
       message: assistantMessage,
       model: input.model || 'auto',
+      workMode: input.workMode || 'balanced',
       chatAttachments: input.chatAttachments || [],
     });
     const headers = {
@@ -648,6 +688,10 @@ export async function streamAssistantResponse(input: {
       if (parsed.type === 'artifacts') {
         attachments = parsed.attachments;
         input.onArtifacts?.(attachments);
+        return;
+      }
+      if (parsed.type === 'commentary') {
+        if (parsed.message) input.onCommentary?.(parsed);
         return;
       }
       if (parsed.type === 'status') {

@@ -13,6 +13,7 @@ import type { RuntimeToolSchema } from './registry.ts'
 
 export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v2'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
+export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
 
 const TOP_K_DEFAULT = 10
@@ -44,6 +45,23 @@ const withControllerGuidance = (schema: RuntimeToolSchema): RuntimeToolSchema =>
     ...schema,
     description: `${description}${description ? ' ' : ''}${guidance}`,
   }
+}
+
+export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
+  type: 'function',
+  name: REPORT_PROGRESS_TOOL_NAME,
+  description: 'Publish a short user-visible work update when there is a meaningful start, finding, plan change or blocker. This tool only emits a public commentary event; it cannot retrieve data, grant permission, execute external actions or decide the next capability.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: ['start', 'finding', 'plan_change', 'blocked'] },
+      message: { type: 'string', minLength: 2, maxLength: 500 },
+      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 }, maxItems: 8 },
+    },
+    required: ['kind', 'message', 'sourceRefs'],
+    additionalProperties: false,
+  },
 }
 
 export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
@@ -116,6 +134,7 @@ export const buildControllerCapabilitySurface = (
     if (schema) selectedTools.push(withControllerGuidance(schema))
   }
   selectedTools.push(DISCOVER_MORE_CAPABILITIES_TOOL)
+  selectedTools.push(REPORT_PROGRESS_TOOL)
 
   for (const candidate of candidates) {
     pushRuntimeTool(selectedTools, candidate.toolName)

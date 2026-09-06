@@ -1,4 +1,5 @@
 import { GoogleGenAI } from 'npm:@google/genai@2.21.0'
+import { normalizeGeminiFunctionCalls } from './geminiFunctionContract.ts'
 
 export const OPENAI_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
 export const GEMINI_MODELS = new Set([
@@ -149,6 +150,31 @@ const parseToolOutput = (value: unknown): unknown => {
   try { return JSON.parse(value) } catch { return value }
 }
 
+const contentPartsForGemini = (content: unknown): Array<Record<string, unknown>> => {
+  if (typeof content === 'string') return content ? [{ text: content }] : []
+  if (!Array.isArray(content)) return []
+  const parts: Array<Record<string, unknown>> = []
+  for (const part of content) {
+    if (typeof part === 'string') {
+      if (part) parts.push({ text: part })
+      continue
+    }
+    if (!part || typeof part !== 'object') continue
+    const candidate = part as Record<string, unknown>
+    if (typeof candidate.text === 'string' && candidate.text) {
+      parts.push({ text: candidate.text })
+      continue
+    }
+    const inlineData = candidate.inlineData && typeof candidate.inlineData === 'object'
+      ? candidate.inlineData as Record<string, unknown>
+      : null
+    if (inlineData && typeof inlineData.mimeType === 'string' && typeof inlineData.data === 'string') {
+      parts.push({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } })
+    }
+  }
+  return parts
+}
+
 const toGeminiContents = (items: Array<Record<string, unknown>>) => {
   const contents: Array<Record<string, unknown>> = []
   const callNames = new Map<string, string>()
@@ -170,13 +196,13 @@ const toGeminiContents = (items: Array<Record<string, unknown>>) => {
       continue
     }
     if ((role === 'user' || role === 'assistant') && !type) {
-      const text = textFromContent(item.content)
-      if (text) contents.push({ role: role === 'assistant' ? 'model' : 'user', parts: [{ text }] })
+      const parts = contentPartsForGemini(item.content)
+      if (parts.length) contents.push({ role: role === 'assistant' ? 'model' : 'user', parts })
       continue
     }
     if (type === 'message') {
-      const text = textFromContent(item.content)
-      if (text) contents.push({ role: role === 'user' ? 'user' : 'model', parts: [{ text }] })
+      const parts = contentPartsForGemini(item.content)
+      if (parts.length) contents.push({ role: role === 'user' ? 'user' : 'model', parts })
       continue
     }
     if (type === 'function_call') {
@@ -436,6 +462,7 @@ export async function requestGeminiResponse(input: {
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
+  workMode?: 'fast' | 'balanced' | 'deep'
   maxOutputTokens: number
   onText: (text: string) => void
   signal?: AbortSignal
@@ -453,10 +480,17 @@ export async function requestGeminiResponse(input: {
       : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS, providerWebEnabled ? GEMINI_WEB_SOURCE_PRIORITY_INSTRUCTIONS : ''].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
   }
+  const selectedThinkingLevel = input.workMode === 'fast'
+    ? 'low'
+    : input.workMode === 'deep'
+      ? 'high'
+      : 'medium'
   if (artifactSynthesis) {
     config.thinkingConfig = { thinkingLevel: 'low' }
-  } else if (finalSynthesis && executionModel === DEFAULT_GEMINI_MODEL) {
-    config.thinkingConfig = { thinkingLevel: 'medium' }
+  } else if (executionModel === DEFAULT_GEMINI_MODEL) {
+    // The controller starts at MEDIUM unless the user explicitly selected Fast/Deep.
+    // Runtime never infers this from task keywords or intent labels.
+    config.thinkingConfig = { thinkingLevel: selectedThinkingLevel }
   }
   if (input.allowTools) {
     const declarations = input.tools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters }))
@@ -522,12 +556,16 @@ export async function requestGeminiResponse(input: {
   if (visibleText.length > rawVisibleText.length) {
     input.onText(visibleText.slice(rawVisibleText.length))
   }
-  const functionCalls = parts.filter((part: any) => part?.functionCall)
+  const functionCalls = normalizeGeminiFunctionCalls(parts)
   const output = functionCalls.length
-    ? functionCalls.map((part: any, index: number) => {
-        const call = part.functionCall || {}
-        return { type: 'function_call', call_id: String(call.id || crypto.randomUUID()), name: String(call.name || ''), arguments: JSON.stringify(call.args || {}), _geminiContent: index === 0 ? candidateContent : undefined, _geminiSkipContent: index > 0 }
-      })
+    ? functionCalls.map((call, index) => ({
+        type: 'function_call',
+        call_id: call.id,
+        name: call.name,
+        arguments: JSON.stringify(call.args),
+        _geminiContent: index === 0 ? candidateContent : undefined,
+        _geminiSkipContent: index > 0,
+      }))
     : [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: visibleText, annotations: [] }], _geminiContent: candidateContent }]
   const metadata = (response as any)?.usageMetadata || {}
   return {
@@ -538,6 +576,8 @@ export async function requestGeminiResponse(input: {
       input_tokens: Number(metadata.promptTokenCount || 0),
       output_tokens: Number(metadata.candidatesTokenCount || 0),
       reasoning_tokens: Number(metadata.thoughtsTokenCount || 0),
+      cached_tokens: Number(metadata.cachedContentTokenCount || metadata.totalCachedTokens || 0),
+      gemini_implicit_cache_hit: Number(metadata.cachedContentTokenCount || metadata.totalCachedTokens || 0) > 0 ? 1 : 0,
       total_tokens: Number(metadata.totalTokenCount || 0),
       ...(webSources.length ? { gemini_grounding_source_count: webSources.length } : {}),
       ...(webSearchQueries.length ? { gemini_web_search_query_count: webSearchQueries.length } : {}),

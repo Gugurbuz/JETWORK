@@ -4,7 +4,6 @@ import {
   type NormalizedModelResponse,
 } from './modelProvidersBase.ts'
 import { extractSemanticPlanFromItems } from './geminiCostGuard.ts'
-import { runDeterministicGeminiWebResearch } from './deterministicGeminiWebResearch.ts'
 import { createStreamingProviderAnswerabilityGuard } from './providerAnswerabilityGuard.ts'
 import { replaceProviderResponseVisibleText } from './providerResponseText.ts'
 import {
@@ -170,6 +169,7 @@ type GeminiRequestInput = {
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
   allowProviderWeb?: boolean
+  workMode?: 'fast' | 'balanced' | 'deep'
   maxOutputTokens: number
   onText: (text: string) => void
   signal?: AbortSignal
@@ -293,81 +293,7 @@ const requestBaseWithEmptyFinalizationRecovery = async (
 }
 
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
-  const plan = extractSemanticPlanFromItems(input.items)
-  const providerWebRequested = input.allowProviderWeb ?? input.allowTools
-  const deterministicDeepResearch = plan?.intent === 'research' && providerWebRequested
-
-  if (!deterministicDeepResearch) return requestBaseWithEmptyFinalizationRecovery(input, plan)
-
-  const target = researchTarget(plan)
-  const web = await runDeterministicGeminiWebResearch({
-    apiKey: input.apiKey,
-    query: target || 'Kullanıcının Deep Research talebi için güncel ve güvenilir web kaynaklarını araştır.',
-    complexity: plan?.complexity,
-    signal: input.signal,
-  })
-
-  if (web.searchCount < 1) {
-    const text = 'Deep Research için zorunlu Google Search executor çalıştı ancak gerçek bir arama çağrısı doğrulanamadı. Web araştırmasını tamamlanmış saymıyorum.'
-    input.onText(text)
-    return deterministicMissResponse({ model: PUBLIC_GEMINI_MODEL, text, usage: web.usage, searchQueries: web.searchQueries })
-  }
-
-  if (!web.sources.length) {
-    const text = 'Google Search gerçekten çalıştı ancak bu araştırma hedefi için doğrulanabilir web kaynağı dönmedi. Kurumsal veya teknik ayrıntıları kaynak yokken uydurmuyorum.'
-    input.onText(text)
-    return deterministicMissResponse({ model: PUBLIC_GEMINI_MODEL, text, usage: web.usage, searchQueries: web.searchQueries })
-  }
-
-  const sourceList = web.sources
-    .map((source, index) => `${index + 1}. ${source.title} — ${source.url}${source.snippet ? `\n   ${source.snippet}` : ''}`)
-    .join('\n')
-  const knowledgeEvidence = inlineKnowledgeEvidence(input.instructions)
-  const evidenceItem = {
-    role: 'user',
-    content: [
-      '[JETWORK_DETERMINISTIC_DEEP_RESEARCH_EVIDENCE]',
-      `Research target: ${target}`,
-      knowledgeEvidence ? `[JETWORK_PRIOR_KNOWLEDGE_EVIDENCE]\n${knowledgeEvidence}\n[END_JETWORK_PRIOR_KNOWLEDGE_EVIDENCE]` : '',
-      web.text,
-      `Citable web sources:\n${sourceList}`,
-      '[END_JETWORK_DETERMINISTIC_DEEP_RESEARCH_EVIDENCE]',
-    ].filter(Boolean).join('\n\n').slice(0, 42_000),
-  }
-
-  const finalInstructions = [
-    input.instructions.replaceAll(PROVIDER_WEB_CAPABILITY_MARKER, '').replace(UNTRUSTED_EVIDENCE_PATTERN, ''),
-    '[JETWORK DETERMINISTIC DEEP RESEARCH SYNTHESIS]',
-    'Google Search executor already ran before this synthesis. Do NOT perform another web search and do not call tools.',
-    'Use only the supplied deterministic web evidence and any supplied JetWork knowledge evidence for factual claims.',
-    'For private/enterprise identifiers, public web evidence is not authoritative proof of internal behavior. If enterprise evidence is missing, say so explicitly.',
-    'When citing web evidence, cite only the exact URLs supplied in JETWORK_DETERMINISTIC_DEEP_RESEARCH_EVIDENCE. Never invent a URL.',
-  ].filter(Boolean).join('\n\n')
-
-  const finalItems = [
-    ...input.items.map(item => stripProviderWebMarker(item) as Record<string, unknown>),
-    evidenceItem,
-  ]
-
-  const finalResponse = await requestBaseWithStreamingAnswerability({
-    ...input,
-    model: PUBLIC_GEMINI_MODEL,
-    instructions: finalInstructions,
-    items: finalItems,
-    tools: [],
-    allowTools: false,
-    allowProviderWeb: false,
-  }, plan)
-
-  return {
-    ...finalResponse,
-    model: PUBLIC_GEMINI_MODEL,
-    webSources: web.sources.map(source => ({ title: source.title, url: source.url })),
-    webSearchQueries: web.searchQueries,
-    usage: mergeNumericUsage(web.usage, finalResponse.usage, {
-      deterministic_deep_research_used: 1,
-      deterministic_web_source_count: web.sources.length,
-      deterministic_web_search_count: web.searchCount,
-    }),
-  }
+  // Provider-native web is exposed as a capability. The active Gemini controller
+  // decides whether to use Google Search; no semantic intent gate executes web first.
+  return requestBaseWithEmptyFinalizationRecovery(input, extractSemanticPlanFromItems(input.items))
 }

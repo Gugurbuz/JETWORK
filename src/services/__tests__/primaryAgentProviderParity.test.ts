@@ -5,7 +5,7 @@ const wrapper = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
   'utf8',
 );
-const deterministicResearchWrapper = readFileSync(
+const provider = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
   'utf8',
 );
@@ -27,24 +27,19 @@ const reasoning = readFileSync(
 );
 
 describe('primary-agent provider parity', () => {
-  it('routes Gemini web research through native Google Search without OpenAI preflight semantics', () => {
+  it('keeps legacy semantic web planning isolated from the active agentic controller path', () => {
     expect(semantic).toContain("const providerNativeWeb = provider === 'gemini' && inputPlan.webMode !== 'none'");
-    expect(semantic).toContain("webMode: providerNativeWeb ? 'none' : inputPlan.webMode");
-    expect(scopePolicy).toContain('const providerNativeWeb = explicitWebResearch && plan.goal.includes(PROVIDER_WEB_CAPABILITY_MARKER)');
-    expect(scopePolicy).toContain("plan.webMode = explicitWebResearch ? (providerNativeWeb ? 'none' : 'required') : 'none'");
-    expect(reasoning).toContain("const webMode: WebMode = providerWebMarker ? 'none' : rawWebMode");
-    expect(reasoning).not.toContain("currentRoute.webMode !== 'none' ? currentRoute.webMode : 'required'");
+    expect(scopePolicy).toContain('PROVIDER_WEB_CAPABILITY_MARKER');
+    expect(reasoning).toContain('PROVIDER_WEB_CAPABILITY_MARKER');
   });
 
-  it('executes Deep Research web collection deterministically before a no-tool final synthesis', () => {
-    expect(deterministicResearchWrapper).toContain("const deterministicDeepResearch = plan?.intent === 'research' && providerWebRequested");
-    expect(deterministicResearchWrapper).toContain('runDeterministicGeminiWebResearch({');
-    expect(deterministicResearchWrapper).toContain('if (web.searchCount < 1)');
-    expect(deterministicResearchWrapper).toContain('if (!web.sources.length)');
-    expect(deterministicResearchWrapper).toContain('allowTools: false');
-    expect(deterministicResearchWrapper).toContain('allowProviderWeb: false');
-    expect(deterministicResearchWrapper).toContain('public web evidence is not authoritative proof of internal behavior');
+  it('lets the active Gemini controller select provider-native Google Search without deterministic pre-execution', () => {
+    expect(provider).not.toContain("import { runDeterministicGeminiWebResearch");
+    expect(provider).not.toContain("plan?.intent === 'research' && providerWebRequested");
+    expect(provider).toContain('requestBaseWithEmptyFinalizationRecovery');
+    expect(wrapper).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
     expect(legacy).toContain('googleSearch: {}');
+    expect(legacy).toContain("functionCallingConfig: { mode: providerWebEnabled ? 'VALIDATED' : 'AUTO' }");
   });
 
   it('does not silently promote a selected Gemini model before the primary tool loop', () => {
