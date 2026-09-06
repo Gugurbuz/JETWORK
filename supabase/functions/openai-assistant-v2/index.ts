@@ -58,7 +58,9 @@ const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQ
 const GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite'
 const LEGACY_GEMINI_FLASH_LITE_MODEL = 'gemini-3.1-flash-lite-preview'
 const GEMINI_PRO_MODEL = 'gemini-3.8-flash'
+const gemini38DefaultEnabled = () => String(Deno.env.get('GEMINI_38_PRODUCTION_DEFAULT') ?? 'true').trim().toLocaleLowerCase('en-US') !== 'false'
 const DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'
+const AUTO_GEMINI_RUNTIME_MODEL = () => gemini38DefaultEnabled() ? DEFAULT_GEMINI_RUNTIME_MODEL : 'gemini-3.5-flash'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol'
 const AUTO_PROVIDER_CIRCUIT_BREAKER_MS = 5 * 60 * 1000
 const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
@@ -336,7 +338,7 @@ async function loadSemanticContext(input: {
 }
 
 const substantiveModel = (requestedModel: string) => (
-  requestedModel.startsWith('gemini-') ? DEFAULT_GEMINI_RUNTIME_MODEL : requestedModel
+  requestedModel === 'auto' ? AUTO_GEMINI_RUNTIME_MODEL() : requestedModel.startsWith('gemini-') ? DEFAULT_GEMINI_RUNTIME_MODEL : requestedModel
 )
 const orchestrationProvider = (requestedModel: string, openAiKey?: string) => {
   if (requestedModel === 'auto') return openAiKey ? 'openai' as const : 'gemini' as const
@@ -346,7 +348,7 @@ const orchestrationModel = (requestedModel: string, provider: 'openai'|'gemini')
   if (requestedModel !== 'auto') return substantiveModel(requestedModel)
   return provider === 'openai'
     ? cleanString(Deno.env.get('OPENAI_MODEL') || DEFAULT_OPENAI_MODEL, 80)
-    : GEMINI_PRO_MODEL
+    : AUTO_GEMINI_RUNTIME_MODEL()
 }
 
 async function tryAuthoritativeInventoryFastPath(input: {
@@ -441,7 +443,7 @@ serve(async req => {
   const parsedBody = parseGatewayBody(body)
   const messageId = cleanString(parsedBody?.messageId, 200)
   const requestedModel = cleanString(parsedBody?.model, 80) || DEFAULT_GEMINI_RUNTIME_MODEL
-  logLatency('ASSISTANT_GATEWAY_REQUEST', { traceId, messageId, requestedModel, gatewayVersion: 'v3' })
+  logLatency('ASSISTANT_GATEWAY_REQUEST', { traceId, messageId, requestedModel, gatewayVersion: 'v3', gemini38DefaultEnabled: gemini38DefaultEnabled(), autoGeminiModel: AUTO_GEMINI_RUNTIME_MODEL() })
 
   try {
     const fastPath = await tryTrivialFastPath({ authorization, supabaseUrl, anonKey, parsedBody, traceId, gatewayReceivedAtMs })

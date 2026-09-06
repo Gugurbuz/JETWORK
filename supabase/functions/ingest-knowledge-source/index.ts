@@ -159,7 +159,7 @@ async function extractXlsxText(bytes: Uint8Array) {
 async function callGeminiGenerateText(bytes: Uint8Array, mimeType: string, fileName: string) {
   const apiKey = Deno.env.get('GEMINI_API_KEY')
   if (!apiKey) throw new Error(`${fileName} dosyası için metin çıkarımı GEMINI_API_KEY gerektiriyor.`)
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
@@ -170,7 +170,7 @@ async function callGeminiGenerateText(bytes: Uint8Array, mimeType: string, fileN
         ].join(' ') },
         { inlineData: { mimeType, data: bytesToBase64(bytes) } },
       ] }],
-      generationConfig: { temperature: 0, topP: 0.1, maxOutputTokens: 16_000 },
+      generationConfig: { maxOutputTokens: 16_000 },
     }),
   })
   if (!response.ok) {

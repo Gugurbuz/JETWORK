@@ -314,6 +314,7 @@ export async function requestGeminiResponse(input: {
   apiKey: string
   model: string
   instructions: string
+  stableInstructions?: string
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
@@ -335,10 +336,11 @@ export async function requestGeminiResponse(input: {
   // knowledge, skills or provider-native web are useful on each round.
   const providerWebEnabled = input.allowProviderWeb ?? input.allowTools
   const effectiveAllowTools = input.allowTools && (input.tools.length > 0 || providerWebEnabled)
+  const stableProviderInstructions = sanitizeProviderInstructions(input.stableInstructions || '')
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
+  const geminiStableInstructions = [stableProviderInstructions, primaryAgentInstruction].filter(Boolean).join('\n\n')
   const geminiInstructions = [
     providerInstructions,
-    primaryAgentInstruction,
     baAnalysisInstruction,
     resolvedConversationInstruction,
     effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
@@ -350,6 +352,7 @@ export async function requestGeminiResponse(input: {
   const firstResponse = await legacyRequestGeminiResponse({
     ...input,
     model: requestedModel,
+    stableInstructions: geminiStableInstructions,
     instructions: geminiInstructions,
     items: effectiveAllowTools
       ? compactGeminiAgentItems(compactedProviderItems)

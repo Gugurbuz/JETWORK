@@ -63,6 +63,7 @@ export type AssistantRuntimeStage =
   | 'searching_knowledge'
   | 'searching_web'
   | 'verifying'
+  | 'analyzing_media'
   | 'synthesizing'
   | 'answering';
 
@@ -104,6 +105,8 @@ export interface AssistantChatAttachment {
   mimeType: string;
   content: string;
   encoding?: 'utf8' | 'base64';
+  mediaKind?: 'image' | 'pdf' | 'audio' | 'video';
+  contentHash?: string;
 }
 
 interface NormalizedArtifactResponse {
@@ -144,7 +147,7 @@ function asKnowledgeSources(value: unknown): AssistantKnowledgeSource[] {
       const candidate = item as Record<string, unknown>;
       const sourceName = String(candidate.sourceName || '').trim();
       if (!sourceName) return null;
-      const sourceType = candidate.sourceType === 'web' ? 'web' : 'knowledge';
+      const sourceType = candidate.sourceType === 'web' ? 'web' : candidate.sourceType === 'media' ? 'media' : 'knowledge';
       const url = candidate.url && /^https?:\/\//i.test(String(candidate.url))
         ? String(candidate.url)
         : undefined;
@@ -156,6 +159,11 @@ function asKnowledgeSources(value: unknown): AssistantKnowledgeSource[] {
         title: candidate.title ? String(candidate.title) : undefined,
         sourceType,
         url,
+        mediaKind: ['image', 'pdf', 'audio', 'video'].includes(String(candidate.mediaKind)) ? candidate.mediaKind as 'image' | 'pdf' | 'audio' | 'video' : undefined,
+        mimeType: candidate.mimeType ? String(candidate.mimeType) : undefined,
+        contentHash: candidate.contentHash ? String(candidate.contentHash) : undefined,
+        authority: candidate.authority === 'enterprise_source' ? 'enterprise_source' : candidate.authority === 'user_input' ? 'user_input' : undefined,
+        previewable: candidate.previewable === true,
       };
     })
     .filter((item): item is AssistantKnowledgeSource => !!item);
@@ -394,8 +402,12 @@ async function readAttachmentText(attachment: MessageAttachment): Promise<string
   return '';
 }
 
-const MULTIMODAL_CHAT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
+const MULTIMODAL_CHAT_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/aac', 'video/mp4', 'video/webm', 'video/quicktime']);
 const MAX_CHAT_MEDIA_BYTES = 6 * 1024 * 1024;
+
+const mediaKindForMime = (mimeType: string): 'image' | 'pdf' | 'audio' | 'video' | undefined => mimeType.startsWith('image/') ? 'image' : mimeType === 'application/pdf' ? 'pdf' : mimeType.startsWith('audio/') ? 'audio' : mimeType.startsWith('video/') ? 'video' : undefined;
+
+const sha256Bytes = async (bytes: Uint8Array): Promise<string> => { const digest = await crypto.subtle.digest('SHA-256', bytes); return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join(''); };
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
   let binary = '';
@@ -432,13 +444,15 @@ export async function prepareAssistantChatAttachments(
     if (MULTIMODAL_CHAT_MIMES.has(mimeType)) {
       const bytes = await readAttachmentBytes(attachment);
       if (bytes.byteLength > remainingMediaBytes) {
-        throw new AssistantAttachmentValidationError('Görsel/PDF sohbet ekleri toplam 6 MB sınırını aşamaz.');
+        throw new AssistantAttachmentValidationError('Görsel/PDF/ses/video sohbet ekleri toplam 6 MB sınırını aşamaz.');
       }
       prepared.push({
         name: String(attachment.name || 'multimodal-input').slice(0, 240),
         mimeType,
         content: bytesToBase64(bytes),
         encoding: 'base64',
+        mediaKind: mediaKindForMime(mimeType),
+        contentHash: await sha256Bytes(bytes),
       });
       remainingMediaBytes -= bytes.byteLength;
       continue;
@@ -486,6 +500,7 @@ export function parseAssistantRuntimeEvent(event: SseEvent): AssistantRuntimeEve
       'searching_knowledge',
       'searching_web',
       'verifying',
+      'analyzing_media',
       'synthesizing',
       'answering',
     ]);

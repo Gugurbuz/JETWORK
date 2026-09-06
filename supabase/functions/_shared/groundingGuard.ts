@@ -149,7 +149,7 @@ const isEvidenceGapResponse = (text: string) => {
 export const resultHasVerifiedKnowledgeEvidence = (result: GroundingToolResultLike) => (
   result.summary?.citationReady === true
   && result.sources.some(source => (
-    source.sourceType !== 'web'
+    (source.sourceType === 'knowledge' || !source.sourceType)
     && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
   ))
 )
@@ -315,7 +315,8 @@ export const evaluateGroundedTechnicalClaims = (input: {
 
   const verifiedResults = input.toolResults.filter(resultHasVerifiedKnowledgeEvidence)
   const verifiedKnowledgeEvidence = verifiedResults.length > 0 || input.sources.some(source => (
-    source.sourceType !== 'web' && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
+    (source.sourceType === 'knowledge' || !source.sourceType)
+    && Boolean(clean(source.canonicalKey, 320) || clean(source.sourceId, 120))
   ))
   const supported = verifiedIdentifierSet(input.sources, verifiedResults)
   if (userSuppliedRequirementsMayCountAsEvidence) {

@@ -90,6 +90,7 @@ describe('parseAssistantRuntimeEvent', () => {
         title: 'SAVE',
         sourceType: 'knowledge',
         url: undefined,
+        previewable: false,
       }],
     });
   });
@@ -112,6 +113,7 @@ describe('parseAssistantRuntimeEvent', () => {
         title: 'Web search guide',
         sourceType: 'web',
         url: 'https://platform.openai.com/docs/guides/tools-web-search',
+        previewable: false,
       }],
     });
   });
@@ -182,6 +184,7 @@ describe('prepareAssistantChatAttachments', () => {
       name: 'not.txt',
       mimeType: 'text/plain',
       content: 'Merhaba\nDünya',
+      encoding: 'utf8',
     }]);
   });
 

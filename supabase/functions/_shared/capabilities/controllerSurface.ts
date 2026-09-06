@@ -14,6 +14,7 @@ import type { RuntimeToolSchema } from './registry.ts'
 export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v2'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
+export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
 
 const TOP_K_DEFAULT = 10
@@ -45,6 +46,22 @@ const withControllerGuidance = (schema: RuntimeToolSchema): RuntimeToolSchema =>
     ...schema,
     description: `${description}${description ? ' ' : ''}${guidance}`,
   }
+}
+
+export const REQUEST_LARGE_CONTEXT_TOOL: RuntimeToolSchema = {
+  type: 'function',
+  name: REQUEST_LARGE_CONTEXT_TOOL_NAME,
+  description: 'Request a larger bounded slice of prior conversation only when the current resolved context is insufficient. This is a context retrieval action, not a semantic router. The controller must explain why more history is needed.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      reason: { type: 'string', minLength: 4, maxLength: 500 },
+      targetCharacters: { type: ['integer', 'null'], minimum: 36000, maximum: 240000 },
+    },
+    required: ['reason', 'targetCharacters'],
+    additionalProperties: false,
+  },
 }
 
 export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
@@ -135,6 +152,7 @@ export const buildControllerCapabilitySurface = (
   }
   selectedTools.push(DISCOVER_MORE_CAPABILITIES_TOOL)
   selectedTools.push(REPORT_PROGRESS_TOOL)
+  selectedTools.push(REQUEST_LARGE_CONTEXT_TOOL)
 
   for (const candidate of candidates) {
     pushRuntimeTool(selectedTools, candidate.toolName)

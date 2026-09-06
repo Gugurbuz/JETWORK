@@ -2,6 +2,7 @@ import type { AssistantKnowledgeSource } from '../types';
 
 export interface AssistantSourceView {
   knowledgeSources: AssistantKnowledgeSource[];
+  mediaSources: AssistantKnowledgeSource[];
   groundingUrls: { uri: string; title: string }[];
 }
 
@@ -19,6 +20,7 @@ export function splitAssistantSources(
   existingGroundingUrls: { uri: string; title: string }[] = [],
 ): AssistantSourceView {
   const knowledgeSources: AssistantKnowledgeSource[] = [];
+  const mediaSources: AssistantKnowledgeSource[] = [];
   const groundingUrls: { uri: string; title: string }[] = [];
   const seenGrounding = new Set<string>();
 
@@ -37,6 +39,7 @@ export function splitAssistantSources(
   existingGroundingUrls.forEach(appendGrounding);
 
   sources.forEach(source => {
+    if (source.sourceType === 'media') { mediaSources.push(source); return; }
     if (source.sourceType === 'web') {
       appendGrounding({
         uri: source.url,
@@ -47,5 +50,5 @@ export function splitAssistantSources(
     knowledgeSources.push(source);
   });
 
-  return { knowledgeSources, groundingUrls };
+  return { knowledgeSources, mediaSources, groundingUrls };
 }

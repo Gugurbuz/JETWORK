@@ -459,6 +459,7 @@ export async function requestGeminiResponse(input: {
   apiKey: string
   model: string
   instructions: string
+  stableInstructions?: string
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
@@ -477,7 +478,7 @@ export async function requestGeminiResponse(input: {
   const config: Record<string, unknown> = {
     systemInstruction: trivialConversation
       ? TRIVIAL_CONVERSATION_INSTRUCTIONS
-      : [input.instructions, GEMINI_EVIDENCE_INSTRUCTIONS, providerWebEnabled ? GEMINI_WEB_SOURCE_PRIORITY_INSTRUCTIONS : ''].filter(Boolean).join('\n\n'),
+      : [input.stableInstructions, GEMINI_EVIDENCE_INSTRUCTIONS, input.instructions, providerWebEnabled ? GEMINI_WEB_SOURCE_PRIORITY_INSTRUCTIONS : ''].filter(Boolean).join('\n\n'),
     maxOutputTokens: trivialConversation ? Math.min(input.maxOutputTokens, 160) : input.maxOutputTokens,
   }
   const selectedThinkingLevel = input.workMode === 'fast'

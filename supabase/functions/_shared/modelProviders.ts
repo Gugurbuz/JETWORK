@@ -165,6 +165,7 @@ type GeminiRequestInput = {
   apiKey: string
   model: string
   instructions: string
+  stableInstructions?: string
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean

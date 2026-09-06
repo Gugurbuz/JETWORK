@@ -81,8 +81,13 @@ export interface AssistantKnowledgeSource {
   canonicalKey?: string;
   objectType?: string;
   title?: string;
-  sourceType?: 'knowledge' | 'web';
+  sourceType?: 'knowledge' | 'web' | 'media';
   url?: string;
+  mediaKind?: 'image' | 'pdf' | 'audio' | 'video';
+  mimeType?: string;
+  contentHash?: string;
+  authority?: 'user_input' | 'enterprise_source';
+  previewable?: boolean;
 }
 
 export interface Message {

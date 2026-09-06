@@ -46,7 +46,12 @@ export interface VerificationResult {
 }
 
 export interface ReasoningSourceRef extends AssistantSourceRef {
-  sourceType?: 'knowledge' | 'web'
+  sourceType?: 'knowledge' | 'web' | 'media'
+  mediaKind?: 'image' | 'pdf' | 'audio' | 'video'
+  mimeType?: string
+  contentHash?: string
+  authority?: 'user_input' | 'enterprise_source'
+  previewable?: boolean
   url?: string
 }
 

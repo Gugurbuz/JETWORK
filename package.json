@@ -29,6 +29,7 @@
     "verify:document-quality": "tsx scripts/verify-document-content-quality.ts",
     "verify:golden-contract": "vitest run src/evaluation/__tests__/goldenScenarios.test.ts",
     "verify:reasoning-golden": "tsx scripts/verify-reasoning-quality-golden.ts",
+    "verify:gemini38-golden": "vitest run src/evaluation/__tests__/gemini38GoldenSuite.test.ts src/services/__tests__/gemini38ProductPlanCompletion.test.ts",
     "verify:assistant-runtime": "node scripts/verify-assistant-edge-syntax.mjs && vitest run src/services/__tests__/assistantRuntimeClient.test.ts src/services/__tests__/knowledgeParser.test.ts src/services/__tests__/workspaceRealtimeTransport.test.ts src/testing/assistant/goldenKnowledgeQuestions.test.ts",
     "evaluate:golden": "tsx scripts/run-golden-evaluation.ts --confirm-live",
     "evaluate:agentic-staging-performance": "tsx scripts/run-agentic-runtime-v2-staging.ts --confirm-staging"
