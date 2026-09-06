@@ -131,4 +131,46 @@ test.describe('authenticated product flow', () => {
     await expect(modelMessage).not.toContainText('Yanıt tamamlanamadı');
     await expect(modelMessage).toContainText(/Talep sınıflandırıldı|bilgi bankasında|kanıt/i, { timeout: 160_000 });
   });
+
+  test('keeps CHECK_ZTKS Agent Work chronology durable across answer streaming and reload', async ({ page }) => {
+    test.setTimeout(210_000);
+    await createWorkspace(page, 'AgentWork');
+    await sendMessage(page, 'CHECK_ZTKS hangi mesajları üretiyor? Bilgi bankasındaki teknik kanıtlarla doğrula.');
+
+    const modelMessage = page.locator('[data-testid="chat-message"][data-message-role="model"]').last();
+    await expect(modelMessage).toBeVisible({ timeout: 30_000 });
+    await expect(modelMessage.getByTestId('assistant-work-indicator')).toContainText(/Düşünüyor|düşündü/i, { timeout: 30_000 });
+
+    const liveTimeline = modelMessage.getByTestId('assistant-work-live-details');
+    await expect(liveTimeline).toBeVisible({ timeout: 45_000 });
+    const completedRowsBeforeFirstAnswer = liveTimeline.locator('[data-event-id].assistant-work__activity--completed');
+    await expect.poll(() => completedRowsBeforeFirstAnswer.count(), { timeout: 45_000 }).toBeGreaterThan(0);
+
+    await expect(modelMessage).toContainText(/CHECK_ZTKS/i, { timeout: 170_000 });
+    await expect(modelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 170_000 });
+    await expect(modelMessage).not.toContainText('Yanıt tamamlanamadı');
+
+    const completedHeader = modelMessage.getByRole('button', { name: 'Çalışma ayrıntılarını göster' });
+    await expect(completedHeader).toBeVisible();
+    await completedHeader.click();
+
+    const completedTimeline = modelMessage.getByTestId('assistant-work-details');
+    await expect(completedTimeline).toBeVisible();
+    const rows = completedTimeline.locator('[data-event-id]');
+    const eventIds = await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-event-id')).filter(Boolean) as string[]);
+    expect(eventIds.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(eventIds).size).toBe(eventIds.length);
+    await expect(completedTimeline.locator('[data-event-kind="source"]')).toHaveCount(1, { timeout: 5_000 }).catch(() => undefined);
+
+    await page.reload();
+    await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
+    const reloadedModelMessage = page.locator('[data-testid="chat-message"][data-message-role="model"]').last();
+    await expect(reloadedModelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 30_000 });
+    await reloadedModelMessage.getByRole('button', { name: 'Çalışma ayrıntılarını göster' }).click();
+
+    const reloadedTimeline = reloadedModelMessage.getByTestId('assistant-work-details');
+    await expect(reloadedTimeline).toBeVisible();
+    const reloadedEventIds = await reloadedTimeline.locator('[data-event-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-event-id')).filter(Boolean) as string[]);
+    expect(reloadedEventIds).toEqual(eventIds);
+  });
 });
