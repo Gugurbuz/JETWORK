@@ -39,7 +39,7 @@ describe('Agent Controller V3 knowledge execution boundary', () => {
     expect(toolsSource).toContain("if (toolName === 'get_knowledge_objects') return getExactObjects")
     expect(toolsSource).toContain("if (toolName === 'list_knowledge_catalog') return listCatalog")
     expect(surfaceSource).not.toContain('next knowledge call MUST')
-    expect(policySource).toContain('search/list/get/relation')
+    expect(policySource).toContain('exact/detail/relation/list/search seçimlerine')
   })
 
   it('preserves mechanical verified-evidence and ABAP message-code extraction', () => {
