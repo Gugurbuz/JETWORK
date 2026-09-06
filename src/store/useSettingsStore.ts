@@ -2,10 +2,13 @@ import { create } from 'zustand';
 import { PromptSettings } from '../types';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
+export type WorkMode = 'fast' | 'balanced' | 'deep';
 
 export interface SettingsState {
   selectedModel: string;
   setSelectedModel: (model: string) => void;
+  workMode: WorkMode;
+  setWorkMode: (mode: WorkMode) => void;
   theme: ThemeType;
   setTheme: (theme: ThemeType) => void;
   promptSettings: PromptSettings | null;
@@ -36,6 +39,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     const normalizedModel = normalizeSelectableModel(model);
     writeLocalSetting('selected_model', normalizedModel);
     set({ selectedModel: normalizedModel });
+  },
+  workMode: (readLocalSetting('assistant_work_mode') as WorkMode) || 'balanced',
+  setWorkMode: (workMode) => {
+    writeLocalSetting('assistant_work_mode', workMode);
+    set({ workMode });
   },
   theme: (readLocalSetting('theme') as ThemeType) || 'monochrome',
   setTheme: (theme) => {

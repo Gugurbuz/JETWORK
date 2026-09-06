@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Cpu } from 'lucide-react';
-import { PUBLIC_GEMINI_MODEL, useSettingsStore } from '../store/useSettingsStore';
+import { PUBLIC_GEMINI_MODEL, useSettingsStore, type WorkMode } from '../store/useSettingsStore';
 import { cn } from '../lib/utils';
+
+const WORK_MODES: Array<{ value: WorkMode; label: string; detail: string }> = [
+  { value: 'fast', label: 'Hızlı', detail: 'Daha düşük gecikme' },
+  { value: 'balanced', label: 'Dengeli', detail: 'Varsayılan kalite / hız dengesi' },
+  { value: 'deep', label: 'Derin', detail: 'Daha yoğun reasoning' },
+];
 
 const OPTIONS = [
   { value: 'auto', label: 'Otomatik', detail: 'JetWork en uygun modeli seçer' },
@@ -19,6 +25,8 @@ type CompactModelControlProps = {
 export function CompactModelControl({ disabled = false, mobile = false }: CompactModelControlProps) {
   const selectedModel = useSettingsStore(state => state.selectedModel);
   const setSelectedModel = useSettingsStore(state => state.setSelectedModel);
+  const workMode = useSettingsStore(state => state.workMode);
+  const setWorkMode = useSettingsStore(state => state.setWorkMode);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = OPTIONS.find(option => option.value === selectedModel) || OPTIONS[0];
@@ -78,6 +86,17 @@ export function CompactModelControl({ disabled = false, mobile = false }: Compac
                 <p className="text-sm font-semibold text-theme-text">Model seç</p>
                 <p className="mt-0.5 text-[11px] text-theme-text-muted">Şu an: {selected.label}</p>
               </div>
+              <div className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-theme-text-muted">Çalışma modu</div>
+              <div role="menu" className="space-y-0.5">
+                {WORK_MODES.map(option => (
+                  <button key={option.value} type="button" role="menuitemradio" aria-checked={workMode === option.value} onClick={() => setWorkMode(option.value)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-theme-surface-hover">
+                    <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-theme-text">{option.label}</span><span className="mt-0.5 block text-[11px] text-theme-text-muted">{option.detail}</span></span>
+                    {workMode === option.value && <Check size={16} className="shrink-0 text-theme-text" />}
+                  </button>
+                ))}
+              </div>
+              <div className="my-1.5 border-t border-theme-border/60" />
+              <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-theme-text-muted">Model</div>
               <div role="menu" className="space-y-0.5">
                 {OPTIONS.map(option => (
                   <button
@@ -117,7 +136,16 @@ export function CompactModelControl({ disabled = false, mobile = false }: Compac
         {selected.label}<ChevronDown size={13} className={cn('transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 top-10 z-[70] w-64 rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-xl">
+        <div role="menu" className="absolute right-0 top-10 z-[70] w-72 rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-xl">
+          <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-theme-text-muted">Çalışma modu</div>
+          {WORK_MODES.map(option => (
+            <button key={option.value} type="button" role="menuitemradio" aria-checked={workMode === option.value} onClick={() => setWorkMode(option.value)} className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-theme-surface-hover">
+              <span className="min-w-0 flex-1"><span className="block text-xs font-medium text-theme-text">{option.label}</span><span className="mt-0.5 block text-[10px] text-theme-text-muted">{option.detail}</span></span>
+              {workMode === option.value && <Check size={14} className="shrink-0 text-theme-text" />}
+            </button>
+          ))}
+          <div className="my-1.5 border-t border-theme-border/60" />
+          <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-theme-text-muted">Model</div>
           {OPTIONS.map(option => (
             <button
               key={option.value}

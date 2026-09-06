@@ -318,6 +318,7 @@ export async function requestGeminiResponse(input: {
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
   allowProviderWeb?: boolean
+  workMode?: 'fast' | 'balanced' | 'deep'
   maxOutputTokens: number
   onText: (text: string) => void
   signal?: AbortSignal

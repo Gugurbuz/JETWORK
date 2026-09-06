@@ -41,5 +41,6 @@ export const AGENT_CONTROLLER_INSTRUCTION = [
   'Enerjisa formatında belge istendiğinde canonical Enerjisa document contract/template tek otoritedir. Canonical bölüm başlıklarını koru; legacy fallback chapter veya alternatif şablon uydurma. Artifact renderer/validator hangi canonical contractı veriyorsa onu uygula.',
   'Final vermeden önce içsel olarak şu kontrolü yap: Kullanıcının hedefini maddi biçimde değiştirecek çözülmemiş soru, çelişki, sistem etkisi, bağımlılık veya doğrulanabilir iddia kaldı mı? Kaldıysa ve uygun capability varsa araştırmaya devam et.',
   'Runtime güvenlik/izin, tool şeması, timeout, toplam tool-call tavanı, dosya gerçekten oluştu mu ve benzeri mekanik sınırları uygular. Bu mekanik sınırlar dışında ne yapılacağına sen karar verirsin.',
+  'Uzun veya araç kullanan işlerde kullanıcı açısından anlamlı bir başlangıç, yeni bulgu, plan değişikliği veya engel oluştuğunda report_progress ile 1-3 kısa cümlelik public çalışma güncellemesi paylaş. Her tool çağrısında mesaj atma; ham reasoning, thought signature, secret veya başka tenant bilgisi paylaşma. Basit tek-adımlı cevaplarda report_progress kullanma.',
   'Gizli düşünce zincirini kullanıcıya açıklama. Kullanıcıya sonuç, doğrulanmış dayanaklar, önemli çıkarımlar, belirsizlikler ve gerekiyorsa sonraki aksiyonu ver.',
 ].join('\n')

@@ -125,6 +125,7 @@ export const useMessages = (channelRef: any) => {
     // immediate submit can occur before React has re-rendered this hook, so a
     // render-captured selectedModel can be one choice behind the UI.
     const requestedModel = useSettingsStore.getState().selectedModel || 'auto';
+    const requestedWorkMode = useSettingsStore.getState().workMode || 'balanced';
 
     generationAbortRef.current?.abort(new DOMException('Superseded by a newer user message.', 'AbortError'));
     const generationController = new AbortController();
@@ -393,6 +394,7 @@ export const useMessages = (channelRef: any) => {
           messageId: msgId,
           message: messageText,
           model: requestedModel,
+          workMode: requestedWorkMode,
           chatAttachments: await prepareAssistantChatAttachments(preparedAttachments),
           signal: generationController.signal,
           onText: fullText => {
@@ -431,6 +433,24 @@ export const useMessages = (channelRef: any) => {
               groundingUrls: streamedGroundingUrls,
               senderName: 'JetWork AI',
               senderRole: 'Sistem Asistanı',
+            });
+          },
+          onCommentary: (event) => {
+            const commentaryId = `commentary:${aiMsgId}:${event.sequence}`;
+            const commentaryMessage: Message = {
+              id: commentaryId, role: 'model', text: event.message, senderName: 'JetWork AI', senderRole: 'Çalışma güncellemesi',
+              createdAt: aiCreatedAt + event.sequence, isTyping: false, phase: phaseForAssistantStage(event.kind === 'blocked' ? 'verifying' : 'planning'),
+              phaseLabel: undefined, persistenceStatus: 'pending',
+            };
+            setMessages(previous => {
+              if (previous.some(message => message.id === commentaryId)) return previous;
+              const finalIndex = previous.findIndex(message => message.id === aiMsgId);
+              if (finalIndex < 0) return [...previous, commentaryMessage];
+              return [...previous.slice(0, finalIndex), commentaryMessage, ...previous.slice(finalIndex)];
+            });
+            broadcastMessage(channelRef, 'new_message', { itemId: currentWorkspaceId, message: messageForRealtime(commentaryMessage) });
+            void saveAiMessage(currentWorkspaceId, user.uid, commentaryMessage).catch(error => {
+              console.warn('Assistant commentary could not be persisted:', error);
             });
           },
           onStatus: (stage, label) => {

@@ -15,6 +15,7 @@ import {
   capabilitySessionObservation,
   discoverMoreForController,
   DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
+  REPORT_PROGRESS_TOOL_NAME,
   startControllerCapabilitySession,
   type ControllerCapabilitySession,
 } from '../_shared/capabilities/controllerSurface.ts'
@@ -63,6 +64,7 @@ const ALLOWED_MODELS = new Set([AUTO_MODEL, ...OPENAI_MODELS, ...GEMINI_MODELS])
 const MAX_HISTORY_CHARACTERS = 36_000
 const MAX_CHAT_ATTACHMENTS = 3
 const MAX_CHAT_ATTACHMENT_CHARACTERS = 60_000
+const MAX_CHAT_MEDIA_BASE64_CHARACTERS = 8_500_000
 const STREAM_HEARTBEAT_MS = 5_000
 
 const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maximum: number) => {
@@ -501,18 +503,25 @@ serve(async req => {
     const messageId = cleanString(body?.messageId, 200)
     const message = cleanString(body?.message, 32_000)
     const requestedModel = cleanString(body?.model || AUTO_MODEL, 80)
-    const chatAttachments: Array<{ name: string; mimeType: string; content: string }> = []
+    const workMode = ['fast', 'balanced', 'deep'].includes(String(body?.workMode)) ? String(body.workMode) as 'fast' | 'balanced' | 'deep' : 'balanced'
+    const chatAttachments: Array<{ name: string; mimeType: string; content: string; encoding: 'utf8' | 'base64' }> = []
     let remainingAttachmentCharacters = MAX_CHAT_ATTACHMENT_CHARACTERS
+    let remainingMediaCharacters = MAX_CHAT_MEDIA_BASE64_CHARACTERS
     if (Array.isArray(body?.chatAttachments)) {
       for (const candidate of body.chatAttachments.slice(0, MAX_CHAT_ATTACHMENTS)) {
-        if (!candidate || typeof candidate !== 'object' || remainingAttachmentCharacters <= 0) continue
-        const content = cleanString(candidate.content, remainingAttachmentCharacters)
+        if (!candidate || typeof candidate !== 'object') continue
+        const mimeType = cleanString(candidate.mimeType || 'text/plain', 120).toLocaleLowerCase('en-US')
+        const encoding = candidate.encoding === 'base64' ? 'base64' as const : 'utf8' as const
+        const maximum = encoding === 'base64' ? remainingMediaCharacters : remainingAttachmentCharacters
+        if (maximum <= 0) continue
+        const content = cleanString(candidate.content, maximum)
         if (!content) continue
-        chatAttachments.push({
-          name: cleanString(candidate.name || 'chat-attachment.txt', 240),
-          mimeType: cleanString(candidate.mimeType || 'text/plain', 120), content,
-        })
-        remainingAttachmentCharacters -= content.length
+        if (encoding === 'base64' && !['image/png','image/jpeg','image/webp','image/gif','application/pdf'].includes(mimeType)) {
+          return jsonResponse({ error: 'Unsupported multimodal chat MIME type.' }, 400)
+        }
+        chatAttachments.push({ name: cleanString(candidate.name || 'chat-attachment', 240), mimeType, content, encoding })
+        if (encoding === 'base64') remainingMediaCharacters -= content.length
+        else remainingAttachmentCharacters -= content.length
       }
     }
     if (!workspaceId || !messageId || (!message && !chatAttachments.length)) {
@@ -534,6 +543,9 @@ serve(async req => {
     const reasoningModel = modelReasoningUsesOpenAi ? configuredModel : promptModel
     if (configuredProvider === 'openai' && !openAiApiKey) return jsonResponse({ error: 'OPENAI_API_KEY is not configured for the selected model.' }, 503)
     if (configuredProvider === 'gemini' && !geminiApiKey) return jsonResponse({ error: 'GEMINI_API_KEY is not configured for the selected model.' }, 503)
+    if (chatAttachments.some(attachment => attachment.encoding === 'base64') && configuredProvider !== 'gemini') {
+      return jsonResponse({ error: 'Görsel/PDF sohbet girdisi şu anda Gemini 3.8 gerektiriyor.', code: 'MULTIMODAL_PROVIDER_REQUIRED' }, 400)
+    }
 
     console.info('ASSISTANT_MODEL_SELECTION', JSON.stringify({
       messageId,
@@ -545,15 +557,22 @@ serve(async req => {
     }))
 
     const conversation = await getOrCreateConversation(adminClient, workspaceId, authData.user.id, prompt.id, configuredModel)
-    const currentUserContent = [
-      message,
-      ...chatAttachments.map((attachment, index) => [
-        '', `[UNTRUSTED_CHAT_ATTACHMENT_${index + 1}]`,
-        JSON.stringify({ name: attachment.name, mimeType: attachment.mimeType }),
-        attachment.content, `[END_UNTRUSTED_CHAT_ATTACHMENT_${index + 1}]`,
-      ].join('\n')),
-    ].filter(Boolean).join('\n')
-    const requestHash = await sha256Text(stableJson({ message, chatAttachments, requestedModel, engine: ENGINE_VERSION }))
+    const currentUserParts: Array<Record<string, unknown>> = []
+    if (message) currentUserParts.push({ text: message })
+    chatAttachments.forEach((attachment, index) => {
+      const metadata = `[UNTRUSTED_CHAT_ATTACHMENT_${index + 1}] ${JSON.stringify({ name: attachment.name, mimeType: attachment.mimeType })}`;
+      if (attachment.encoding === 'base64') {
+        currentUserParts.push({ text: metadata })
+        currentUserParts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.content } })
+        currentUserParts.push({ text: `[END_UNTRUSTED_CHAT_ATTACHMENT_${index + 1}]` })
+      } else {
+        currentUserParts.push({ text: [metadata, attachment.content, `[END_UNTRUSTED_CHAT_ATTACHMENT_${index + 1}]`].join('\n') })
+      }
+    })
+    const currentUserContent: unknown = currentUserParts.length === 1 && typeof currentUserParts[0]?.text === 'string'
+      ? currentUserParts[0].text
+      : currentUserParts
+    const requestHash = await sha256Text(stableJson({ message, chatAttachments, requestedModel, workMode, engine: ENGINE_VERSION }))
     const safetyIdentifier = await sha256Text(`jetwork:${workspaceId}:${authData.user.id}`)
     const { data: claimData, error: claimError } = await adminClient.rpc('claim_assistant_turn', {
       p_conversation_id: conversation.id, p_workspace_id: workspaceId, p_owner_id: authData.user.id,
@@ -601,6 +620,7 @@ serve(async req => {
       let reasoningRunId: string | null = null
       let verification: VerificationResult | null = null
       let capabilitySession: ControllerCapabilitySession | null = null
+      let commentarySequence = 0
       const trace: TraceEntry[] = []
       const evidence: string[] = []
       const toolResultCache = new Map<string, AssistantToolExecution>()
@@ -1080,6 +1100,7 @@ serve(async req => {
                 items: runItems, tools,
                 allowTools: tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned,
                 allowProviderWeb: providerWebEnabled || geminiNativeWebPlanned,
+                workMode,
                 maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => {
                   roundText += delta
@@ -1252,6 +1273,24 @@ serve(async req => {
             const callId = cleanString(call.call_id, 200)
             let args: Record<string, unknown> = {}
             try { args = JSON.parse(String(call.arguments || '{}')) } catch { args = {} }
+            if (toolName === REPORT_PROGRESS_TOOL_NAME) {
+              const kind = ['start', 'finding', 'plan_change', 'blocked'].includes(String(args.kind)) ? String(args.kind) : 'finding'
+              const publicMessage = cleanString(args.message, 500)
+              const sourceRefs = Array.isArray(args.sourceRefs) ? args.sourceRefs.map(value => cleanString(value, 500)).filter(Boolean).slice(0, 8) : []
+              if (!publicMessage) {
+                runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, error: 'Public progress message is empty.' }) })
+                continue
+              }
+              commentarySequence += 1
+              sendEvent(controller, encoder, 'commentary', { type: 'commentary', sequence: commentarySequence, kind, message: publicMessage, sourceRefs })
+              await logToolRun(adminClient, {
+                conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id, promptVersionId: prompt.id,
+                toolName, callId, arguments: args, resultSummary: { engine: ENGINE_VERSION, publicCommentary: true, selectedByController: true },
+                sourceRefs: [], status: 'completed', durationMs: 0,
+              })
+              runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: true, sequence: commentarySequence, kind }) })
+              continue
+            }
             if (toolName === DISCOVER_MORE_CAPABILITIES_TOOL_NAME) {
               try {
                 const observation = await runCapabilityDiscoveryTool(args)
