@@ -10,7 +10,7 @@ const provider = readFileSync(
   'utf8',
 );
 const interactions = readFileSync(
-  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
   'utf8',
 );
 const legacy = readFileSync(
@@ -43,6 +43,7 @@ describe('primary-agent provider parity', () => {
     expect(provider).toContain('requestGeminiInteractionsResponse');
     expect(interactions).toContain("{ type: 'google_search', search_types: ['web_search'] }");
     expect(interactions).toContain("tool_choice: 'validated'");
+    expect(interactions).toContain('previous_interaction_id');
     expect(interactions).toContain('stream: true');
     expect(wrapper).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
   });
