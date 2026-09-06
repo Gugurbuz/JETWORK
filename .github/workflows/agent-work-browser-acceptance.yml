@@ -17,6 +17,8 @@ on:
       - src/services/assistantTransportRecovery.ts
       - src/services/messageRepository.ts
       - src/services/sseParser.ts
+      - src/store/useMessageStore.ts
+      - src/store/__tests__/useMessageStoreAgentWorkPersistence.test.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
 
