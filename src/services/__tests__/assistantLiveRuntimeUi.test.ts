@@ -18,6 +18,13 @@ describe('Gemini 3.8 live runtime UX', () => {
     expect(liveRuntimeCss).toContain('display: flex !important');
   });
 
+  it('keeps every completed runtime event visible when the next mobile event arrives', () => {
+    expect(liveRuntimeCss).not.toContain('nth-last-child(-n+2)');
+    expect(liveRuntimeCss).not.toContain('.assistant-work__details--live .assistant-work__activity {\n    display: none !important;');
+    expect(liveRuntimeCss).toContain('.assistant-work__details--live .assistant-work__activity {\n    display: flex !important;');
+    expect(liveRuntimeCss).toContain('.assistant-work__details--live .assistant-work__activity--completed');
+  });
+
   it('keeps typed status, source, commentary and text-delta event support connected', () => {
     expect(runtimeClientSource).toContain("type: 'text_delta'");
     expect(runtimeClientSource).toContain("type: 'sources'");
