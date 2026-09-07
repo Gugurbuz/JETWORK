@@ -152,6 +152,40 @@ const installActivePromptPrefetch = () => {
 
 installActivePromptPrefetch()
 
+// Interactions function continuation preserves server-side state through
+// previous_interaction_id. On the mechanical terminal round the core deliberately
+// sends an empty tool list; explicitly set tool_choice=none so a continuation can
+// only synthesize text from already collected observations. This is not a semantic
+// routing decision: Gemini chose every preceding tool, while the runtime merely
+// enforces its already-declared terminal budget boundary.
+const installGeminiTerminalSynthesisGuard = () => {
+  const previousFetch = globalThis.fetch.bind(globalThis)
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (
+      /generativelanguage\.googleapis\.com\/v1(?:beta)?\/interactions(?:\?|$)/u.test(url)
+      && typeof init?.body === 'string'
+    ) {
+      try {
+        const payload = JSON.parse(init.body) as Record<string, any>
+        const tools = Array.isArray(payload.tools) ? payload.tools : []
+        if (tools.length === 0 && payload.previous_interaction_id) {
+          payload.generation_config = {
+            ...(payload.generation_config && typeof payload.generation_config === 'object' ? payload.generation_config : {}),
+            tool_choice: 'none',
+          }
+          return previousFetch(input, { ...init, body: JSON.stringify(payload) })
+        }
+      } catch {
+        // Preserve the provider request unchanged when the payload is not JSON.
+      }
+    }
+    return previousFetch(input, init)
+  }
+}
+
+installGeminiTerminalSynthesisGuard()
+
 // The durable core owns its lifecycle with RUN_TIMEOUT_MS and no longer binds
 // reasoning execution to the incoming HTTP request abort signal.
 await import('./implementation.ts')
