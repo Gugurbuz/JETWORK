@@ -85,9 +85,17 @@ describe('Live runtime status and grounding regression', () => {
       .toBe('Asistana bağlanılıyor...');
   });
 
-  it('lets the provider LLM continue or re-plan instead of forcing synthesis after fixed knowledge misses', () => {
+  it('uses stable Gemini Interactions v1 as the V3 semantic-controller provider path', () => {
     const providerSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
+      new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+      'utf8',
+    );
+    const runtimeSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
+      'utf8',
+    );
+    const transportSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/geminiInteractionsTransportGA.ts', import.meta.url),
       'utf8',
     );
     const controllerPolicy = readFileSync(
@@ -95,26 +103,23 @@ describe('Live runtime status and grounding regression', () => {
       'utf8',
     );
 
-    expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION');
-    expect(providerSource).toContain('agent_controller_provider_web_available');
-    expect(providerSource).not.toContain('MAX_EMPTY_KNOWLEDGE_SEARCHES');
-    expect(providerSource).not.toContain('forceNoToolSynthesis');
-    expect(providerSource).not.toContain('boundedKnowledgeToolBudget');
-    expect(providerSource).not.toContain('cost_guard_knowledge_tool_budget');
-    expect(controllerPolicy).toContain('her observation/tool sonucundan sonra yeniden seç');
-    expect(controllerPolicy).toContain('Sabit bir planner→research→analysis→critic sırası yoktur');
-    expect(providerSource).toContain('gemini_empty_final_retry');
-    expect(providerSource).toContain('tools: []');
-    expect(providerSource).toContain('allowTools: false');
+    expect(providerSource).toContain('requestGeminiInteractionsResponseGA')
+    expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION')
+    expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
+    expect(providerSource).not.toContain('extractSemanticPlanFromItems')
+    expect(transportSource).toContain("GEMINI_INTERACTIONS_API_VERSION = 'v1'")
+    expect(transportSource).toContain('/interactions?alt=sse')
+    expect(runtimeSource).toContain("{ type: 'google_search'")
+    expect(runtimeSource).toContain("{ type: 'url_context' }")
+    expect(runtimeSource).toContain("{ type: 'code_execution' }")
+    expect(runtimeSource).toContain("tool_choice: 'validated'")
+    expect(controllerPolicy).toContain('semantic controller ve assistant modelisin')
+    expect(controllerPolicy).toContain('Her tool observationından sonra')
   });
 
-  it('uses semantic Top-K capability visibility instead of advisory-intent gating or an all-tools surface', () => {
+  it('uses a full model-visible capability surface instead of semantic Top-K routing', () => {
     const runtimeSource = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
-      'utf8',
-    );
-    const skillSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/skillTools.ts', import.meta.url),
       'utf8',
     );
     const surfaceSource = readFileSync(
@@ -125,16 +130,14 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain('startControllerCapabilitySession({');
     expect(runtimeSource).toContain('capabilitySession?.surface.tools || []');
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
-    expect(runtimeSource).toContain('DISCOVER_MORE_CAPABILITIES_TOOL_NAME');
-    expect(runtimeSource).not.toContain('Skills + Knowledge + Web capabilityleri açık');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
     expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
-    expect(surfaceSource).toContain('TOP_K_DEFAULT = 10');
-    expect(surfaceSource).toContain('TOP_K_MAX = 12');
-    expect(surfaceSource).toContain('excludeIds: input.session.seenCandidateIds');
-    expect(skillSource).toContain('maxItems: 8');
-    expect(skillSource).toContain('maximum: 12');
-    expect(skillSource).toContain('controllerDecisionRequired: true');
+    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v3-full'")
+    expect(surfaceSource).toContain('...runtimeTools')
+    expect(surfaceSource).toContain('providerWebVisible: true')
+    expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
+    expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
+    expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
   });
 
   it('treats server-side assistant SSE errors as terminal instead of reconnecting the failed turn', () => {
@@ -142,9 +145,8 @@ describe('Live runtime status and grounding regression', () => {
       new URL('../assistantTransportRecovery.ts', import.meta.url),
       'utf8',
     );
-
-    expect(recoverySource).toContain("if (eventName === 'error')");
-    expect(recoverySource).toContain('state.completedSeen = true');
-    expect(recoverySource).toContain('terminal application event');
+    expect(recoverySource).toContain("if (eventName === 'error')")
+    expect(recoverySource).toContain('state.completedSeen = true')
+    expect(recoverySource).toContain('Forward it once and stop reconnecting')
   });
 });

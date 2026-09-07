@@ -27,6 +27,7 @@ export interface GroundingCoverageResult {
   verifiedKnowledgeEvidence: boolean
   unsupportedIdentifiers: string[]
   messageTextMismatches: Array<{ identifier: string; claimed: string; expected: string }>
+  unsupportedClaims?: string[]
 }
 
 const clean = (value: unknown, max = 64_000) => String(value ?? '').trim().slice(0, max)
@@ -278,6 +279,74 @@ const suppliedExactClaim = (
   supplied.identifier === claim.identifier && sameExactMessage(claim.claimed, supplied.claimed)
 ))
 
+// For exact technical fact lookups, identifier-level grounding is necessary but
+// not sufficient: finding `ZCRM2-545` somewhere does not support an invented
+// trigger condition for that message. This narrow final-answer gate checks only
+// causal/behavioral claim sentences and asks whether their substantive terms are
+// directly represented in verified evidence text. It does not select a tool,
+// formulate a query or prescribe a recovery action.
+const EXACT_BEHAVIOR_CLAIM_PATTERN = /(?:\bkosul\w*\b|\bdurum\w*\b|\boldugunda\b|\bolursa\b|\bise\b|\bnedeniyle\b|\bdolayi\b|\btetik\w*\b|\balinir\b|\bolusur\b|\bverir\b|\bdondurur\b|\bkontrol\s+eder\b|\bengeller\b|\baktar\w*\b|\bwhen\b|\bif\b|\btrigger\w*\b|\boccur\w*\b|\bbecause\b|\breturn\w*\b|\bcheck\w*\b|\bprevent\w*\b)/i
+const CLAIM_SUPPORT_STOPWORDS = new Set([
+  'hangi','nedir','nasil','neden','icin','olan','olarak','veya','ama','ancak','fakat','ile','bir','bu','su','o','de','da','mi','mu','mı','mü',
+  'mesaj','mesaji','hata','hatasi','kod','kodu','teknik','bilgi','kesin','sekilde','durum','durumda','kosul','kosulda','kosullarda','oldugunda','olursa',
+  'ise','tetiklenir','tetikler','alinir','olusur','verir','dondurur','kontrol','eder','engeller','when','then','this','that','the','and','or','error','message',
+  'code','occurs','triggered','triggers','returns','checks','prevents','because','with','from','into','does','what','which','how',
+])
+
+const supportTokens = (value: string) => {
+  const withoutIdentifiers = normalizeText(value)
+    .replace(/\b(?:z[a-z0-9_]{2,}(?:-\d{2,4})?|check_[a-z0-9_]+)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+  return [...new Set(withoutIdentifiers.split(/\s+/)
+    .map(token => token.trim())
+    .filter(token => token.length >= 4 && !CLAIM_SUPPORT_STOPWORDS.has(token)))]
+}
+
+const tokenRoot = (token: string) => token.slice(0, token.length >= 7 ? 5 : token.length >= 5 ? 4 : token.length)
+
+const tokenIsSupported = (token: string, evidenceTokens: string[]) => {
+  const root = tokenRoot(token)
+  if (!root) return false
+  return evidenceTokens.some(evidenceToken => {
+    const evidenceRoot = tokenRoot(evidenceToken)
+    return evidenceToken === token
+      || evidenceToken.startsWith(root)
+      || token.startsWith(evidenceRoot)
+  })
+}
+
+const verifiedEvidenceText = (sources: GroundingSourceLike[], verifiedResults: GroundingToolResultLike[]) => [
+  ...sources.filter(source => source.sourceType !== 'web').flatMap(source => [source.canonicalKey, source.title]),
+  ...verifiedResults.flatMap(result => [
+    result.output,
+    ...result.sources.filter(source => source.sourceType !== 'web').flatMap(source => [source.canonicalKey, source.title]),
+  ]),
+].filter(Boolean).join('\n')
+
+const unsupportedExactBehaviorClaims = (input: {
+  responseText: string
+  suppliedIdentifiers: Set<string>
+  verifiedEvidence: string
+  exactTechnicalFactLookup: boolean
+}) => {
+  if (!input.exactTechnicalFactLookup || !input.verifiedEvidence.trim()) return []
+  const evidenceTokens = supportTokens(input.verifiedEvidence)
+  if (!evidenceTokens.length) return []
+  const segments = clean(input.responseText).split(/(?:\r?\n)+|(?<=[.!?])\s+/)
+  return segments.flatMap(segment => {
+    const normalized = normalizeText(segment)
+    if (!normalized || isEvidenceGapResponse(segment) || !EXACT_BEHAVIOR_CLAIM_PATTERN.test(normalized)) return []
+    const identifiers = extractTechnicalIdentifiers(segment)
+    if (!identifiers.some(identifier => input.suppliedIdentifiers.has(identifier))) return []
+    const tokens = supportTokens(segment)
+    if (tokens.length < 2) return []
+    const matched = tokens.filter(token => tokenIsSupported(token, evidenceTokens)).length
+    const minimumMatches = Math.min(2, tokens.length)
+    const ratio = matched / tokens.length
+    return matched >= minimumMatches && ratio >= 0.4 ? [] : [clean(segment, 1_000)]
+  })
+}
+
 export const evaluateGroundedTechnicalClaims = (input: {
   text: string
   plan: GroundingPlanLike
@@ -310,7 +379,7 @@ export const evaluateGroundedTechnicalClaims = (input: {
     || novelResponseIdentifiers.length > 0
     || novelExactMessageClaims.length > 0
   if (!strictEnterpriseClaim) {
-    return { ok: true, verifiedKnowledgeEvidence: false, unsupportedIdentifiers: [], messageTextMismatches: [] }
+    return { ok: true, verifiedKnowledgeEvidence: false, unsupportedIdentifiers: [], messageTextMismatches: [], unsupportedClaims: [] }
   }
 
   const verifiedResults = input.toolResults.filter(resultHasVerifiedKnowledgeEvidence)
@@ -341,6 +410,12 @@ export const evaluateGroundedTechnicalClaims = (input: {
     return [{ identifier: claim.identifier, claimed: claim.claimed, expected }]
   })
   const unsupportedIdentifierList = [...unsupportedIdentifiers]
+  const unsupportedClaims = unsupportedExactBehaviorClaims({
+    responseText: input.text,
+    suppliedIdentifiers,
+    verifiedEvidence: verifiedEvidenceText(input.sources, verifiedResults),
+    exactTechnicalFactLookup,
+  })
   const userSuppliedTechnicalEvidence = userSuppliedRequirementsMayCountAsEvidence && (
     responseIdentifiers.some(identifier => suppliedIdentifiers.has(identifier))
       || responseMessageClaims.some(claim => suppliedExactClaim(claim, suppliedMessageClaims))
@@ -349,19 +424,24 @@ export const evaluateGroundedTechnicalClaims = (input: {
     && !userSuppliedTechnicalEvidence
     && responseMessageClaims.length === 0
     && unsupportedIdentifierList.length === 0
+    && unsupportedClaims.length === 0
     && isEvidenceGapResponse(input.text)
 
   return {
     // Authoritative knowledge and user-supplied requirements are both valid
     // evidence domains. New enterprise facts still fail closed unless verified.
+    // Exact behavior/condition claims also need direct lexical support from
+    // verified evidence rather than merely sharing an identifier with it.
     ok: (
       (verifiedKnowledgeEvidence || userSuppliedTechnicalEvidence)
         && unsupportedIdentifierList.length === 0
         && messageTextMismatches.length === 0
+        && unsupportedClaims.length === 0
     ) || evidenceGapOnlyResponse,
     verifiedKnowledgeEvidence,
     unsupportedIdentifiers: unsupportedIdentifierList,
     messageTextMismatches,
+    unsupportedClaims,
   }
 }
 

@@ -9,8 +9,8 @@ import { buildControllerCapabilitySurface } from '../../../supabase/functions/_s
 
 const RECORD_PROJECT_MEMORY_TOOL_NAME = 'record_project_memory'
 
-describe('trusted Project Memory capability v2', () => {
-  it('is a semantic context candidate, not an always-visible meta tool', () => {
+describe('trusted Project Memory capability v3 surface', () => {
+  it('is visible to the controller while authenticated provenance remains an executor concern', () => {
     const tool = ASSISTANT_CONTEXT_TOOLS.find(item => item.name === RECORD_PROJECT_MEMORY_TOOL_NAME)
     expect(tool).toBeTruthy()
 
@@ -18,23 +18,9 @@ describe('trusted Project Memory capability v2', () => {
     expect(memoryCapability?.category).toBe('context')
     expect(memoryCapability?.metadata.requiresUserProvenance).toBe(true)
 
-    const withoutMemory = buildControllerCapabilitySurface([])
-    expect(withoutMemory.toolNames).not.toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
-
-    const withMemory = buildControllerCapabilitySurface([{
-      id: memoryCapability!.id,
-      kind: memoryCapability!.kind,
-      category: memoryCapability!.category,
-      title: memoryCapability!.title,
-      description: memoryCapability!.description,
-      toolName: memoryCapability!.toolName,
-      score: 0.9,
-      semanticScore: 0.9,
-      lexicalScore: 0,
-      registryVersion: 'capability-registry-v2',
-      discoveryVersion: 'capability-discovery-v2',
-    }])
-    expect(withMemory.toolNames).toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
+    const surface = buildControllerCapabilitySurface([])
+    expect(surface.toolNames).toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
+    expect(surface.candidateIds).toEqual([])
   })
 
   it('never exposes owner or source-message identity to the controller schema', () => {

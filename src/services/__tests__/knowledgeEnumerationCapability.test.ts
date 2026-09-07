@@ -47,7 +47,7 @@ describe('Knowledge enumeration/list capability', () => {
     const searchTool = ASSISTANT_KNOWLEDGE_TOOLS.find(candidate => candidate.name === 'search_knowledge_catalog');
     expect(searchTool).toBeTruthy();
     expect(JSON.stringify(searchTool)).toContain('candidate evidence');
-    expect(JSON.stringify(searchTool)).toContain('not citations');
+    expect(JSON.stringify(searchTool)).toContain('not citation-ready exact records');
   });
 
   it('calls the paginated RPC and preserves totalCount/nextCursor metadata', async () => {
@@ -128,7 +128,7 @@ describe('Knowledge enumeration/list capability', () => {
     expect(finalPayload.length).toBeLessThan(40_000);
   });
 
-  it('tells the agent to paginate exhaustive enumeration instead of repeating semantic search', () => {
+  it('keeps the legacy cost helper testable without making it the active V3 routing authority', () => {
     const instruction = costGuardAgentInstruction({
       budget: 4,
       executed: 1,

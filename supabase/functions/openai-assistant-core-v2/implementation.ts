@@ -35,6 +35,7 @@ import {
 } from '../_shared/groundingGuard.ts'
 import {
   cleanProviderItemsForOpenAi,
+  createGeminiProviderStateItem,
   DEFAULT_GEMINI_MODEL,
   GEMINI_MODELS,
   OPENAI_MODELS,
@@ -495,6 +496,42 @@ const geminiWebSearchQueries = (response: Record<string, unknown>): string[] => 
     : []
 )
 
+const knowledgeToolNames = new Set((ASSISTANT_KNOWLEDGE_TOOLS as readonly { name: string }[]).map(tool => tool.name))
+
+const publicGeminiStepActivity = (stepType: string) => {
+  if (stepType === 'google_search_call') return {
+    tool: 'Web', sourceType: 'web', startLabel: 'Web kaynakları aranıyor...', completedLabel: 'Web kaynakları tarandı',
+  }
+  if (stepType === 'url_context_call') return {
+    tool: 'Web', sourceType: 'web', startLabel: 'Web sayfaları inceleniyor...', completedLabel: 'Web sayfaları incelendi',
+  }
+  if (stepType === 'code_execution_call') return {
+    tool: 'Kod Çalıştırma', sourceType: 'runtime', startLabel: 'Kod çalıştırılıyor...', completedLabel: 'Kod çalıştırıldı',
+  }
+  return null
+}
+
+const publicCustomToolActivity = (toolName: string) => {
+  if (knowledgeToolNames.has(toolName)) return {
+    tool: 'Bilgi Bankası', sourceType: 'knowledge', startLabel: 'Bilgi bankası sorgusu çalışıyor...', completedLabel: 'Bilgi bankası sorgusu tamamlandı',
+  }
+  if (isSkillTool(toolName)) return {
+    tool: 'Çalışma Yöntemi', sourceType: 'runtime', startLabel: 'Çalışma yöntemi hazırlanıyor...', completedLabel: 'Çalışma yöntemi hazırlandı',
+  }
+  if (/document|artifact|spreadsheet|file/i.test(toolName)) return {
+    tool: 'Dosya', sourceType: 'artifact', startLabel: 'Çalışma çıktısı hazırlanıyor...', completedLabel: 'Çalışma çıktısı hazırlandı',
+  }
+  if (toolName === 'review_evidence_coverage') return {
+    tool: 'Kanıt Kontrolü', sourceType: 'runtime', startLabel: 'Kanıt kapsamı inceleniyor...', completedLabel: 'Kanıt kapsamı incelendi',
+  }
+  if (toolName === 'record_project_memory') return {
+    tool: 'Proje Bağlamı', sourceType: 'runtime', startLabel: 'Proje bağlamı kaydediliyor...', completedLabel: 'Proje bağlamı kaydedildi',
+  }
+  return {
+    tool: 'JETWORK', sourceType: 'runtime', startLabel: 'JETWORK aracı çalışıyor...', completedLabel: 'JETWORK aracı tamamlandı',
+  }
+}
+
 serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') return jsonResponse({ error: 'Only POST is supported.' }, 405)
@@ -646,6 +683,7 @@ serve(async req => {
       let activeProvider: AssistantProvider = configuredProvider
       let providerFallbackUsed = false
       let reasoningFallbackUsed = false
+      let latestGeminiInteractionId: string | null = null
       let reasoningRunId: string | null = null
       let verification: VerificationResult | null = null
       let capabilitySession: ControllerCapabilitySession | null = null
@@ -1033,9 +1071,9 @@ serve(async req => {
           ...baseItems,
           { role: 'developer', content: synthesisInstruction },
         ]
-        emitStatus('synthesizing', AGENTIC_CONTROLLER_ENABLED
-          ? 'Controller ilk aksiyonu değerlendiriyor...'
-          : 'Kanıtlar ve doğrulama sonucu sentezleniyor...')
+        if (!AGENTIC_CONTROLLER_ENABLED) {
+          emitStatus('synthesizing', 'Kanıtlar ve doğrulama sonucu sentezleniyor...')
+        }
 
         for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
           const mustSynthesize = round === MAX_TOOL_ROUNDS
@@ -1145,6 +1183,20 @@ serve(async req => {
                     sendEvent(controller, encoder, 'text_delta', { type: 'text_delta', delta })
                   }
                 },
+                onStepEvent: step => {
+                  const activity = publicGeminiStepActivity(step.stepType)
+                  if (!activity) return
+                  sendEvent(controller, encoder, 'provider_step', {
+                    type: 'provider_step',
+                    provider: 'gemini',
+                    operation_id: `gemini:${step.operationId}`,
+                    lifecycle: step.lifecycle,
+                    label: step.lifecycle === 'start' ? activity.startLabel : activity.completedLabel,
+                    tool: activity.tool,
+                    source_type: activity.sourceType,
+                    failed: step.failed === true,
+                  })
+                },
                 signal: runController.signal,
               })
             }
@@ -1180,7 +1232,12 @@ serve(async req => {
             response = await requestActiveProvider()
           }
 
-          usage = addUsage(usage, response.usage); responseModel = response.model || responseModel
+          usage = addUsage(usage, response.usage)
+          responseModel = response.model || responseModel
+          if (activeProvider === 'gemini') {
+            const interactionId = cleanString(response.id, 500)
+            if (interactionId) latestGeminiInteractionId = interactionId
+          }
           const output = response.output || []
           const finalWebSources = activeProvider === 'openai'
             ? extractWebSourcesFromOutput(output)
@@ -1209,7 +1266,7 @@ serve(async req => {
                 sourceRefs: finalWebSources, status: 'completed',
                 durationMs: Math.round(performance.now() - providerRoundStartedAt),
               })
-              emitStatus('searching_web', `${finalWebSources.length} web kaynağı toplandı`)
+              if (!AGENTIC_CONTROLLER_ENABLED) emitStatus('searching_web', `${finalWebSources.length} web kaynağı toplandı`)
               if (!AGENTIC_CONTROLLER_ENABLED && plan.verificationRequired) emitStatus('verifying', 'Google grounding kaynakları yanıtla eşleştirildi')
             }
             sendEvent(controller, encoder, 'sources', { type: 'sources', sources })
@@ -1231,7 +1288,8 @@ serve(async req => {
             }
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
             const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })
-            if (shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })) {
+            const groundingBlocked = shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })
+            if (groundingBlocked) {
               console.warn('ASSISTANT_GROUNDING_COVERAGE_BLOCKED', JSON.stringify({
                 messageId, unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
                 messageTextMismatchCount: groundingCoverage.messageTextMismatches.length,
@@ -1246,7 +1304,14 @@ serve(async req => {
               })
               emitStatus('verifying', 'Kanıt kapsamı dışında kalan teknik iddialar engellendi')
             }
-            const stateItems = compactConversationState([...baseItems, { role: 'assistant', content: roundText }], plan)
+            const persistedTurnItems: Array<Record<string, unknown>> = [...baseItems, { role: 'assistant', content: roundText }]
+            if (activeProvider === 'gemini' && latestGeminiInteractionId && !groundingBlocked) {
+              persistedTurnItems.push(createGeminiProviderStateItem(latestGeminiInteractionId))
+              usage = addUsage(usage, { gemini_interaction_state_persisted: 1 })
+            } else if (activeProvider === 'gemini' && groundingBlocked) {
+              usage = addUsage(usage, { gemini_interaction_state_discarded_grounding: 1 })
+            }
+            const stateItems = compactConversationState(persistedTurnItems, plan)
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
               p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
               p_expected_revision: conversationRevision, p_state_items: stateItems,
@@ -1288,13 +1353,15 @@ serve(async req => {
           }
 
           runItems.push(...output)
-          const hasSkillCalls = functionCalls.some((call: Record<string, unknown>) => isSkillTool(cleanString(call.name, 120)))
-          const hasDiscoveryCalls = functionCalls.some((call: Record<string, unknown>) => cleanString(call.name, 120) === DISCOVER_MORE_CAPABILITIES_TOOL_NAME)
-          emitStatus('synthesizing', hasDiscoveryCalls
-            ? 'Controller ek semantic capability adayları istiyor...'
-            : hasSkillCalls
-              ? 'Controller ilgili JetWork skill prosedürlerini yüklüyor...'
-              : 'Controller ek capability/kanıt çağrısı yapıyor...')
+          if (!AGENTIC_CONTROLLER_ENABLED) {
+            const hasSkillCalls = functionCalls.some((call: Record<string, unknown>) => isSkillTool(cleanString(call.name, 120)))
+            const hasDiscoveryCalls = functionCalls.some((call: Record<string, unknown>) => cleanString(call.name, 120) === DISCOVER_MORE_CAPABILITIES_TOOL_NAME)
+            emitStatus('synthesizing', hasDiscoveryCalls
+              ? 'Controller ek semantic capability adayları istiyor...'
+              : hasSkillCalls
+                ? 'Controller ilgili JetWork skill prosedürlerini yüklüyor...'
+                : 'Controller ek capability/kanıt çağrısı yapıyor...')
+          }
           let enterpriseArtifactEvidenceRetryRequested = false
           for (const call of functionCalls) {
             if (totalToolCalls >= MAX_TOOL_CALLS) {
@@ -1371,13 +1438,27 @@ serve(async req => {
               emitStatus('verifying', 'Kurumsal kanıt eksikliği controller’a geri bildirildi...')
               continue
             }
+            const customActivity = publicCustomToolActivity(toolName)
+            const customOperationId = `custom:${callId || crypto.randomUUID()}`
+            sendEvent(controller, encoder, 'provider_step', {
+              type: 'provider_step', operation_id: customOperationId, lifecycle: 'start',
+              label: customActivity.startLabel, tool: customActivity.tool, source_type: customActivity.sourceType,
+            })
             try {
               const result = isSkillTool(toolName)
                 ? await runSkillTool(toolName, args, 'model:skill')
                 : await runKnowledgeTool(toolName, args, 'model:capability')
               runItems.push({ type: 'function_call_output', call_id: callId, output: result.output })
+              sendEvent(controller, encoder, 'provider_step', {
+                type: 'provider_step', operation_id: customOperationId, lifecycle: 'complete',
+                label: customActivity.completedLabel, tool: customActivity.tool, source_type: customActivity.sourceType,
+              })
             } catch (toolError) {
               runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'TOOL_EXECUTION_FAILED', message: errorMessage(toolError).slice(0, 1_000) }) })
+              sendEvent(controller, encoder, 'provider_step', {
+                type: 'provider_step', operation_id: customOperationId, lifecycle: 'complete', failed: true,
+                label: `${customActivity.tool} işlemi tamamlanamadı`, tool: customActivity.tool, source_type: customActivity.sourceType,
+              })
             }
           }
           sendEvent(controller, encoder, 'sources', { type: 'sources', sources })

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { normalizeGeminiFunctionCalls } from '../../../supabase/functions/_shared/geminiFunctionContract'
 
 const provider = readFileSync(new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url), 'utf8')
+const interactions = readFileSync(new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url), 'utf8')
 const legacy = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url), 'utf8')
 const core = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')
 const surface = readFileSync(new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url), 'utf8')
@@ -12,9 +13,12 @@ const cost = readFileSync(new URL('../../../supabase/functions/_shared/geminiCos
 
 describe('Gemini 3.8 product plan completion contracts', () => {
   it('keeps web selection with the active controller instead of deterministic intent routing', () => {
-    expect(provider).not.toContain("import { runDeterministicGeminiWebResearch")
+    expect(provider).not.toContain('runDeterministicGeminiWebResearch')
     expect(provider).not.toContain("plan?.intent === 'research' && providerWebRequested")
-    expect(provider).toContain('requestBaseWithEmptyFinalizationRecovery')
+    expect(provider).toContain('requestGeminiInteractionsResponse')
+    expect(interactions).toContain("{ type: 'google_search'")
+    expect(interactions).toContain("tool_choice: 'validated'")
+    expect(interactions).toContain('previous_interaction_id')
     expect(core).toContain('capabilitySession?.surface.providerWebVisible === true')
   })
 
@@ -28,20 +32,19 @@ describe('Gemini 3.8 product plan completion contracts', () => {
 
   it('has explicit Fast/Balanced/Deep policy without semantic keyword classification', () => {
     expect(settings).toContain("export type WorkMode = 'fast' | 'balanced' | 'deep'")
-    expect(settings).toContain("assistant_work_mode")
-    expect(legacy).toContain("input.workMode === 'fast'")
-    expect(legacy).toContain("input.workMode === 'deep'")
-    expect(legacy).toContain("thinkingLevel: selectedThinkingLevel")
+    expect(settings).toContain('assistant_work_mode')
+    expect(interactions).toContain("mode === 'fast' ? 'low' : mode === 'deep' ? 'high' : 'medium'")
   })
 
-  it('surfaces public commentary as a typed controller tool and SSE event', () => {
+  it('surfaces public commentary and real provider work as typed SSE events', () => {
     expect(surface).toContain("REPORT_PROGRESS_TOOL_NAME = 'report_progress'")
     expect(surface).toContain("enum: ['start', 'finding', 'plan_change', 'blocked']")
     expect(core).toContain("sendEvent(controller, encoder, 'commentary'")
+    expect(core).toContain("sendEvent(controller, encoder, 'provider_step'")
     expect(client).toContain("type: 'commentary'")
   })
 
-  it('supports Gemini multimodal inlineData and implicit-cache telemetry', () => {
+  it('supports Gemini multimodal inlineData and implicit-cache telemetry on compatibility paths', () => {
     expect(client).toContain("encoding?: 'utf8' | 'base64'")
     expect(client).toContain("'application/pdf'")
     expect(core).toContain('inlineData: { mimeType: attachment.mimeType, data: attachment.content }')

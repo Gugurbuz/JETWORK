@@ -48,20 +48,10 @@ const knowledgePlan: ReasoningPlan = {
   },
 };
 
-const normalizeAnchor = (value: string) => value
-  .toLocaleLowerCase('tr-TR')
-  .replace(/ı/g, 'i')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '');
-
 describe('long-chat context/evidence memory v1', () => {
-  it('never drops an IYS identifier anchor while expanding a mixed enterprise query', () => {
+  it('preserves the controller-authored knowledge query verbatim instead of expanding it in runtime', () => {
     const variants = expandKnowledgeSearchQueries('IYS entegrasyonu');
-    expect(variants.length).toBeGreaterThan(0);
-    for (const variant of variants) {
-      expect(normalizeAnchor(variant).split(/\s+/)).toContain('iys');
-    }
-    expect(variants).not.toContain('entegrasyonu');
+    expect(variants).toEqual(['IYS entegrasyonu']);
   });
 
   it('keeps strict knowledge prompts free of document/presentation/artifact contracts', () => {

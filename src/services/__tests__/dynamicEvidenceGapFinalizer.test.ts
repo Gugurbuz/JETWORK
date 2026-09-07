@@ -60,15 +60,19 @@ describe('dynamic evidence-gap finalization', () => {
     expect(coverage.unsupportedIdentifiers).toContain('ZCRM2-545')
   })
 
-  it('lets the controller describe and investigate evidence gaps dynamically', () => {
+  it('lets the controller decide how to react to evidence gaps without a deterministic next-tool rule', () => {
     const policySource = readFileSync(
       new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url),
       'utf8',
     )
+    const evidenceToolSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/context/contextTools.ts', import.meta.url),
+      'utf8',
+    )
 
-    expect(policySource).toContain('Exact teknik identifier içeren kurumsal iddialarda exact-technical-evidence kuralını koru')
-    expect(policySource).toContain('Bir arama boş döndüğünde bunu otomatik bitiş sinyali sayma')
-    expect(policySource).toContain('Tool sonucu yalnız bir observationdır')
-    expect(policySource).toContain('belirsizlikler ve gerekiyorsa sonraki aksiyonu ver')
+    expect(policySource).toContain('Kuruma özgü veya exact teknik bir iddiayı yalnız elindeki observation gerçekten destekliyorsa kesinleştir')
+    expect(policySource).toContain('yeterli kanıt varsa dur, yetersizse re-plan et')
+    expect(policySource).toContain('observation sonrasında sıradaki aksiyona sen karar ver')
+    expect(evidenceToolSource).toContain('does not search, select the next capability, or finalize the answer')
   })
 })
