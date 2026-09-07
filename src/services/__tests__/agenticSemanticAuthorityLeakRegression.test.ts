@@ -15,7 +15,7 @@ const providerSource = readFileSync(
   'utf8',
 )
 const interactionSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
   'utf8',
 )
 const coreSource = readFileSync(
@@ -34,7 +34,7 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(internalGatewaySource).not.toMatch(/[0-9a-f]{40}\/supabase\/functions\/openai-assistant-v2/)
   })
 
-  it('keeps the gateway semantic plan advisory before entering core', () => {
+  it('keeps the gateway semantic envelope neutral before entering core', () => {
     const attachedPlan = 'message: attachSemanticPlan(currentMessage, semantic.plan)'
     const upstreamFetch = "upstream = await fetch(`${supabaseUrl}/functions/v1/openai-assistant-core-v2`"
     expect(publicGatewaySource).toContain('buildSemanticExecutionPlan({')
@@ -43,7 +43,7 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(publicGatewaySource.indexOf(attachedPlan)).toBeLessThan(publicGatewaySource.indexOf(upstreamFetch))
   })
 
-  it('keeps V2 preplanning neutral while the active Gemini V3 provider owns semantic action selection', async () => {
+  it('keeps pre-LLM planning semantically neutral while Gemini V3 owns action selection', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.8-flash',
@@ -52,7 +52,10 @@ describe('Agentic semantic authority leak regressions', () => {
       agentControllerV2Enabled: true,
     })
 
+    expect(result.plan.intent).toBe('analysis')
     expect(result.plan.executionMode).toBe('direct')
+    expect(result.plan.knowledgeRequired).toBe(false)
+    expect(result.plan.webMode).toBe('none')
     expect(result.plan.evidenceQueries).toEqual([])
     expect(providerSource).toContain('requestGeminiInteractionsResponse')
     expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
