@@ -12,10 +12,15 @@ export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
 
+// Evidence/source tools are intentionally presented before procedural discovery.
+// This is not semantic routing: the model still sees the complete surface and
+// remains free to choose any capability. The ordering only makes the ontology
+// unambiguous — knowledge tools access enterprise evidence, while skill tools
+// describe procedures/capabilities and are never a substitute for source access.
 const runtimeTools = [
-  ...(ASSISTANT_SKILL_TOOLS as unknown as RuntimeToolSchema[]),
   ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as RuntimeToolSchema[]),
   ...(ASSISTANT_CONTEXT_TOOLS as unknown as RuntimeToolSchema[]),
+  ...(ASSISTANT_SKILL_TOOLS as unknown as RuntimeToolSchema[]),
 ]
 
 const uniqueTools = (tools: RuntimeToolSchema[]) => {
@@ -164,5 +169,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: [],
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'All registered JetWork capabilities are visible. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
+  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
 })
