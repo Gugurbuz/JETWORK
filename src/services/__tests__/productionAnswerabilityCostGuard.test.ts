@@ -5,8 +5,12 @@ const providerBaseSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
   'utf8',
 )
-const interactionsSource = readFileSync(
+const runtimeSource = readFileSync(
   new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
+  'utf8',
+)
+const transportSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsTransportGA.ts', import.meta.url),
   'utf8',
 )
 const coreSource = readFileSync(
@@ -26,21 +30,22 @@ describe('production answerability + cost guard wiring', () => {
     expect(coreSource).toContain('evaluateGroundedTechnicalClaims')
     expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
     expect(coreSource).toContain('groundingFailureText()')
-    expect(interactionsSource).not.toContain("name: 'search_knowledge_catalog'")
+    expect(runtimeSource).not.toContain("name: 'search_knowledge_catalog'")
   })
 
-  it('requires internal evidence for structured BA requirements without forcing provider web', () => {
+  it('requires internal evidence for structured BA requirements without forcing provider web on compatibility paths', () => {
     expect(semanticSource).toContain('knowledgeRequired: userProvidedRequirements ? true : route.knowledgeRequired')
     expect(semanticSource).toContain('enterpriseGroundingRequired: userProvidedRequirements')
     expect(semanticSource).toContain("webMode: userProvidedRequirements ? 'none' : route.webMode")
     expect(semanticSource).not.toContain("webMode: userProvidedRequirements ? 'none' : 'if_internal_insufficient'")
   })
 
-  it('streams Gemini Interactions deltas while keeping final exact-claim answerability at the core boundary', () => {
-    expect(interactionsSource).toContain('stream: true')
-    expect(interactionsSource).toContain("eventType === 'step.delta'")
-    expect(interactionsSource).toContain('input.onText(delta.text)')
-    expect(interactionsSource).toContain('normalizeUsageWithTiming')
+  it('streams GA Gemini Interactions deltas while keeping final exact-claim answerability at the core boundary', () => {
+    expect(transportSource).toContain("GEMINI_INTERACTIONS_API_VERSION = 'v1'")
+    expect(transportSource).toContain('?alt=sse')
+    expect(transportSource).toContain("eventType === 'step.delta'")
+    expect(transportSource).toContain('input.onText(delta.text)')
+    expect(transportSource).toContain('normalizeUsageWithTiming')
     expect(coreSource).toContain('const canLiveStreamProviderText = activeProvider === \'gemini\'')
     expect(coreSource).toContain('hasExactCustomIdentifierInRequest')
     expect(coreSource).toContain("sendEvent(controller, encoder, 'text_delta'")
