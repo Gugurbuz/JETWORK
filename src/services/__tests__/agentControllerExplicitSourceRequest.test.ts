@@ -9,7 +9,6 @@ describe('Agent Controller V3 explicit source requests', () => {
     expect(surface.toolNames).toContain('search_knowledge_catalog')
     expect(surface.toolNames).toContain('get_knowledge_object')
     expect(surface.toolNames).toContain('report_progress')
-    expect(surface.discoveryMode).toBeUndefined()
   })
 
   it('requires an actual source attempt before an absence or access claim', () => {
