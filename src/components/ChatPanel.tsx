@@ -458,8 +458,6 @@ const MessageItem = memo(({
                 <InteractiveQuestions 
                   questions={msg.questions} 
                   onSubmit={(answerText) => {
-                    // Find the parent component's onSendMessage and pass the answer
-                    // We need to pass this down from ChatPanel
                     const customEvent = new CustomEvent('submit-interactive-answer', { detail: answerText });
                     window.dispatchEvent(customEvent);
                   }} 
@@ -543,14 +541,14 @@ const MessageItem = memo(({
             <details className="group mt-4 border-t border-theme-border/50 pt-3">
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
                 <Database size={10} />
-                {Math.min(sourceView.knowledgeSources.length, 3)} kurumsal kaynak kullanıldı
+                {sourceView.knowledgeSources.length} kurumsal kaynak kullanıldı
                 <ChevronDown
                   size={12}
                   className="ml-auto transition-transform group-open:rotate-180"
                 />
               </summary>
               <div className="mt-2 flex flex-col gap-1.5">
-                {sourceView.knowledgeSources.slice(0, 3).map((source, index) => (
+                {sourceView.knowledgeSources.map((source, index) => (
                   <div
                     key={`${source.sourceId || source.sourceName}-${source.canonicalKey || index}`}
                     className="flex items-start gap-2 rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs text-theme-text-muted"
@@ -582,7 +580,6 @@ const MessageItem = memo(({
             </button>
           )}
           
-          {/* Reactions */}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {msg.reactions && msg.reactions.map((reaction, i) => {
               const hasReacted = currentUser && reaction.users.includes(currentUser.name);
@@ -603,7 +600,6 @@ const MessageItem = memo(({
                 </button>
               );
             })}
-            
           </div>
         </div>
       </div>
@@ -706,7 +702,6 @@ export function ChatPanel({
   const handleScroll = () => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    // Use a slightly larger threshold to avoid false positives
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
     setIsScrolledUp(!isAtBottom);
   };
@@ -736,7 +731,6 @@ export function ChatPanel({
         onSendMessage(customEvent.detail, []);
       }
     };
-    
     window.addEventListener('submit-interactive-answer', handleInteractiveSubmit);
     return () => window.removeEventListener('submit-interactive-answer', handleInteractiveSubmit);
   }, [onSendMessage, isGenerating]);
@@ -800,12 +794,9 @@ export function ChatPanel({
           const arrayBuffer = await file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
           const text = result.value;
-          
-          // Convert text to base64 safely
           const bytes = new TextEncoder().encode(text);
           const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
           const base64Text = btoa(binString);
-          
           setSelectedAttachments(prev => [...prev, {
             url: `data:text/plain;base64,${base64Text}`,
             data: base64Text,
@@ -823,9 +814,7 @@ export function ChatPanel({
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64String = reader.result as string;
-          // Extract the base64 data part (remove "data:image/jpeg;base64,")
           const data = base64String.split(',')[1];
-          
           setSelectedAttachments(prev => [...prev, {
             url: base64String,
             data: data,
@@ -839,8 +828,6 @@ export function ChatPanel({
         reader.readAsDataURL(file);
       }
     }
-    
-    // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -880,7 +867,6 @@ export function ChatPanel({
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInput(val);
-    
     if (onTypingStart && onTypingEnd) {
       onTypingStart();
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -888,10 +874,8 @@ export function ChatPanel({
         onTypingEnd();
       }, 2000);
     }
-    
     const cursorPosition = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPosition);
-    
     if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
       setShowMentionMenu(false);
       setShowSlashMenu(false);
@@ -899,7 +883,6 @@ export function ChatPanel({
     } else {
       const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
       setShowMentionMenu(!!mentionMatch);
-
       const slashMatch = textBeforeCursor.match(/(^|\s)\/([a-zA-Z0-9-]*)$/);
       if (slashMatch) {
         setShowSlashMenu(true);
@@ -909,7 +892,6 @@ export function ChatPanel({
         setSlashFilter('');
       }
     }
-    
     e.target.style.height = 'auto';
     e.target.style.height = `${Math.min(e.target.scrollHeight, 192)}px`;
   };
@@ -919,14 +901,12 @@ export function ChatPanel({
     const cursorPosition = textareaRef.current.selectionStart;
     const textBeforeCursor = input.slice(0, cursorPosition);
     const textAfterCursor = input.slice(cursorPosition);
-    
     const match = textBeforeCursor.match(/@(\w*)$/);
     if (match) {
       const beforeMention = textBeforeCursor.slice(0, match.index);
       const newText = `${beforeMention}@${name} ${textAfterCursor}`;
       setInput(newText);
       setShowMentionMenu(false);
-      
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.focus();
@@ -942,14 +922,12 @@ export function ChatPanel({
     const cursorPosition = textareaRef.current.selectionStart;
     const textBeforeCursor = input.slice(0, cursorPosition);
     const textAfterCursor = input.slice(cursorPosition);
-    
     const match = textBeforeCursor.match(/(^|\s)\/([a-zA-Z0-9-]*)$/);
     if (match) {
       const beforeSlash = textBeforeCursor.slice(0, match.index + (match[1] ? 1 : 0));
       const newText = `${beforeSlash}${command} ${textAfterCursor}`;
       setInput(newText);
       setShowSlashMenu(false);
-      
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.focus();
@@ -999,7 +977,6 @@ export function ChatPanel({
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Only set dragging to false if we're leaving the main container
     if (e.currentTarget.contains(e.relatedTarget as Node)) return;
     setIsDragging(false);
   };
@@ -1008,7 +985,6 @@ export function ChatPanel({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    
     const requestedFiles: File[] = Array.from(e.dataTransfer.files);
     const availableChatSlots = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
       ? Math.max(
@@ -1038,11 +1014,9 @@ export function ChatPanel({
           const arrayBuffer = await file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
           const text = result.value;
-          
           const bytes = new TextEncoder().encode(text);
           const binString = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join("");
           const base64Text = btoa(binString);
-          
           setSelectedAttachments(prev => [...prev, {
             url: `data:text/plain;base64,${base64Text}`,
             data: base64Text,
@@ -1061,7 +1035,6 @@ export function ChatPanel({
         reader.onloadend = () => {
           const base64String = reader.result as string;
           const data = base64String.split(',')[1];
-          
           setSelectedAttachments(prev => [...prev, {
             url: base64String,
             data: data,
@@ -1089,7 +1062,6 @@ export function ChatPanel({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drag overlay */}
       <AnimatePresence>
         {isDragging && (
           <motion.div 
@@ -1115,7 +1087,6 @@ export function ChatPanel({
         )}
       </AnimatePresence>
 
-      {/* Header */}
       <header className="h-16 flex items-center px-4 bg-theme-bg border-b border-theme-border sticky top-0 z-10 transition-colors duration-300 shadow-sm">
         <div className="flex items-center gap-3 w-full">
           <button 
@@ -1159,7 +1130,6 @@ export function ChatPanel({
             <option value="gemini-3.8-flash">Gemini · 3.8 Flash</option>
           </select>
           
-          {/* Collaborators */}
           {collaborators && collaborators.length > 0 && (
             <div 
               className="flex -space-x-2 mr-4 cursor-pointer hover:opacity-80 transition-opacity"
@@ -1188,7 +1158,6 @@ export function ChatPanel({
             </div>
           )}
 
-          {/* Zero-Touch Mode Toggle Button */}
           {FEATURE_FLAGS.ZERO_TOUCH && onToggleZeroTouchMode && (
             <button
               onClick={() => setShowZeroTouchSettings(true)}
@@ -1213,7 +1182,6 @@ export function ChatPanel({
         </div>
       </header>
 
-      {/* Messages */}
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -1299,7 +1267,6 @@ export function ChatPanel({
           <div ref={messagesEndRef} className="chat-scroll-anchor" />
         </div>
         
-        {/* Scroll to bottom button */}
         <AnimatePresence>
           {isScrolledUp && (
             <motion.button
@@ -1315,10 +1282,7 @@ export function ChatPanel({
         </AnimatePresence>
       </div>
 
-      {/* Input Section */}
       <div className="p-6 bg-theme-bg border-t border-theme-border shrink-0 transition-colors duration-300 shadow-[0_-4px_24px_-12px_rgba(0,0,0,0.1)] z-20 relative">
-        
-        {/* AI Hand Raised Notification */}
         <AnimatePresence>
           {aiHandRaised && (
             <motion.div 
@@ -1327,7 +1291,6 @@ export function ChatPanel({
               exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
               className="absolute bottom-full mb-4 left-6 flex items-end gap-3 z-30"
             >
-              {/* Pulsing Lightbulb Icon */}
               <button
                 onClick={() => setIsAiHandExpanded(!isAiHandExpanded)}
                 className="w-12 h-12 rounded-full bg-theme-surface border border-theme-primary/30 flex items-center justify-center shadow-[0_0_15px_rgba(var(--theme-primary),0.2)] hover:shadow-[0_0_25px_rgba(var(--theme-primary),0.4)] hover:scale-105 transition-all relative shrink-0 text-theme-primary"
@@ -1336,7 +1299,6 @@ export function ChatPanel({
                 <Lightbulb size={24} className="animate-pulse drop-shadow-[0_0_8px_rgba(var(--theme-primary),0.8)]" style={{ animationDuration: '1s' }} fill="currentColor" />
               </button>
 
-              {/* Expanded Bubble */}
               <AnimatePresence>
                 {isAiHandExpanded && (
                   <motion.div
@@ -1375,7 +1337,6 @@ export function ChatPanel({
           )}
         </AnimatePresence>
 
-        {/* Typing Indicator */}
         {typingUsers && typingUsers.length > 0 && (
           <div className="absolute -top-8 left-8 flex items-center gap-2 text-xs text-theme-text-muted font-medium bg-theme-bg px-3 py-1.5 rounded-t-lg border border-b-0 border-theme-border shadow-sm">
             <div className="flex gap-1 items-center h-4">
@@ -1715,7 +1676,6 @@ export function ChatPanel({
                 {ZERO_TOUCH_AGENTS.map(agent => {
                   const isMandatory = agent.role === 'Orchestrator';
                   const isSelected = isMandatory || (activeZeroTouchRoles?.includes(agent.role) ?? false);
-                  
                   return (
                     <label 
                       key={agent.role} 

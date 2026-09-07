@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
   Database,
   FileText,
   GitBranch,
@@ -14,7 +13,6 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { AgentWorkEvent } from '../services/agentWorkTypes';
-import { splitAgentWorkTimeline } from '../services/agentActivityReducer';
 import '../agent-work-timeline.css';
 
 const StateIcon = ({ state }: { state: AgentWorkEvent['state'] }) => {
@@ -80,11 +78,8 @@ const renderEvent = (event: AgentWorkEvent) => {
   return <AgentActivityRow key={event.eventId} event={event} />;
 };
 
-export function AgentWorkTimeline({ events, live = false, compactAfter = 12 }: { events: AgentWorkEvent[]; live?: boolean; compactAfter?: number }) {
-  const [showAllHistory, setShowAllHistory] = useState(false);
+export function AgentWorkTimeline({ events, live = false }: { events: AgentWorkEvent[]; live?: boolean }) {
   const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
-  const { hidden, visible } = splitAgentWorkTimeline(ordered, Math.max(6, compactAfter - 4));
-  const displayed = showAllHistory ? ordered : visible;
   if (!ordered.length) return null;
 
   return (
@@ -93,18 +88,7 @@ export function AgentWorkTimeline({ events, live = false, compactAfter = 12 }: {
       data-testid={live ? 'assistant-work-live-details' : 'assistant-work-details'}
       aria-live={live ? 'polite' : undefined}
     >
-      {!showAllHistory && hidden.length > 0 ? (
-        <button type="button" className="assistant-work__history-toggle" onClick={() => setShowAllHistory(true)} aria-label={`${hidden.length} önceki işlemi göster`}>
-          <ChevronDown aria-hidden="true" />
-          {hidden.length} işlem daha
-        </button>
-      ) : null}
-      <ol className="assistant-work__activity-list">{displayed.map(renderEvent)}</ol>
-      {showAllHistory && hidden.length > 0 ? (
-        <button type="button" className="assistant-work__history-toggle assistant-work__history-toggle--close" onClick={() => setShowAllHistory(false)}>
-          Geçmişi daralt
-        </button>
-      ) : null}
+      <ol className="assistant-work__activity-list">{ordered.map(renderEvent)}</ol>
     </div>
   );
 }
