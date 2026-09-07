@@ -54,8 +54,13 @@ describe('Agent Controller V2 runtime boundary', () => {
       DENO_DEPLOYMENT_ID_ENV,
       'bpbbvjigostgrssnduhk_7806a5b9-17a7-4cae-a15e-c3e2d6ec8eac_4',
     ]])
+    const agentWorkCanary = new Map<string, string>([[
+      DENO_DEPLOYMENT_ID_ENV,
+      'bpbbvjigostgrssnduhk_83401d13-c940-4530-a4c9-fc0b9be60940_2',
+    ]])
     expect(isAgentControllerV2Enabled(name => goldenCanary.get(name))).toBe(true)
     expect(isAgentControllerV2Enabled(name => coreCanary.get(name))).toBe(true)
+    expect(isAgentControllerV2Enabled(name => agentWorkCanary.get(name))).toBe(true)
 
     const productionGateway = new Map<string, string>([[
       DENO_DEPLOYMENT_ID_ENV,
