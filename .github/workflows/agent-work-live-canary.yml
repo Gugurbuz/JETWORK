@@ -10,6 +10,8 @@ on:
     paths:
       - .github/workflows/agent-work-live-canary.yml
       - e2e/agent-work-live-canary.spec.ts
+      - src/components/AssistantWorkIndicator.tsx
+      - src/components/__tests__/AssistantWorkIndicatorLifecycle.test.ts
       - src/services/agentActivityReducer.ts
       - src/services/sseParser.ts
       - src/services/messageRepository.ts
