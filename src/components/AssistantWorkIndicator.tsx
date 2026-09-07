@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import { splitAssistantSources } from '../services/assistantSources';
 import type { AgentWorkEvent } from '../services/agentWorkTypes';
 import { useAgentWorkLiveEvents, usePersistedAgentWorkEvents } from '../services/agentWorkLiveStream';
+import { shouldHoldAgentWorkCompletionForPersistence } from '../services/agentWorkCompletionBarrier';
 import {
   completeActiveAgentEvents,
   createObservedAgentWorkEvent,
@@ -201,8 +202,6 @@ export function AssistantWorkIndicator({
   onFollowUp,
   followUpDisabled = false,
 }: AssistantWorkIndicatorProps) {
-  const elapsedSeconds = useElapsedSeconds(isActive, startedAt, completedSeconds);
-  const formattedDuration = formatAssistantWorkDuration(elapsedSeconds);
   const liveWorkEvents = useAgentWorkLiveEvents(isActive && !workEvents?.length);
   const persistedWorkEvents = usePersistedAgentWorkEvents(startedAt);
   const canonicalWorkEvents = workEvents?.length
@@ -210,6 +209,23 @@ export function AssistantWorkIndicator({
     : liveWorkEvents.length
       ? liveWorkEvents
       : persistedWorkEvents;
+  const canonicalSeenRef = useRef(Boolean(canonicalWorkEvents.length));
+  if (canonicalWorkEvents.length) canonicalSeenRef.current = true;
+
+  // Provider completion and durable UI completion are separate boundaries. If
+  // this message has already shown canonical runtime events, do not expose the
+  // completed header until saveAiMessage has registered the persisted snapshot
+  // (or hydration has supplied workEvents from raw_response). A reload before
+  // that point would otherwise lose the canonical ids and rebuild fallbacks.
+  const awaitingPersistence = shouldHoldAgentWorkCompletionForPersistence({
+    isActive,
+    canonicalSeen: canonicalSeenRef.current,
+    durableEventsAvailable: Boolean(workEvents?.length || persistedWorkEvents.length),
+    isStopped,
+  });
+  const displayIsActive = isActive || awaitingPersistence;
+  const elapsedSeconds = useElapsedSeconds(displayIsActive, startedAt, completedSeconds);
+  const formattedDuration = formatAssistantWorkDuration(elapsedSeconds);
   const sourceView = useMemo(
     () => splitAssistantSources(knowledgeSources || [], groundingUrls || []),
     [groundingUrls, knowledgeSources],
@@ -217,20 +233,18 @@ export function AssistantWorkIndicator({
   const knowledgeSourceCount = sourceView.knowledgeSources.length;
   const webSourceCount = sourceView.groundingUrls.length;
   const reportedActivities = useMemo(() => buildAssistantWorkActivities({
-    isActive,
+    isActive: displayIsActive,
     activityText,
     phaseLabel,
     knowledgeSourceCount,
     webSourceCount,
-  }), [activityText, isActive, knowledgeSourceCount, phaseLabel, webSourceCount]);
+  }), [activityText, displayIsActive, knowledgeSourceCount, phaseLabel, webSourceCount]);
 
   const initialSnapshot = useMemo(() => activitySnapshot(activityText, phaseLabel), []);
-  const canonicalSeenRef = useRef(Boolean(canonicalWorkEvents.length));
-  if (canonicalWorkEvents.length) canonicalSeenRef.current = true;
   const [events, setEvents] = useState<AgentWorkEvent[]>(() => (
     canonicalWorkEvents.length ? canonicalWorkEvents : eventsFromReportedActivities(reportedActivities, startedAt)
   ));
-  const [isExpanded, setIsExpanded] = useState(isActive);
+  const [isExpanded, setIsExpanded] = useState(displayIsActive);
   const previousSnapshotRef = useRef<string[]>(initialSnapshot);
   const sequenceRef = useRef(Math.max(0, ...events.map(event => event.sequence)));
   const sourceCountRef = useRef({ knowledge: knowledgeSourceCount, web: webSourceCount });
@@ -260,13 +274,13 @@ export function AssistantWorkIndicator({
         const event = createObservedAgentWorkEvent({
           rawLabel,
           sequence: sequenceRef.current,
-          active: isActive && index === appended.length - 1,
+          active: displayIsActive && index === appended.length - 1,
         });
         if (event) next = reduceAgentActivityEvents(next, event);
       });
       return next;
     });
-  }, [activityText, isActive, phaseLabel]);
+  }, [activityText, displayIsActive, phaseLabel]);
 
   useEffect(() => {
     const nextCounts = { knowledge: knowledgeSourceCount, web: webSourceCount };
@@ -289,13 +303,13 @@ export function AssistantWorkIndicator({
   }, [knowledgeSourceCount, webSourceCount]);
 
   useEffect(() => {
-    if (isActive) {
+    if (displayIsActive) {
       setIsExpanded(true);
       return;
     }
     setEvents(previous => completeActiveAgentEvents(previous));
     setIsExpanded(false);
-  }, [isActive]);
+  }, [displayIsActive]);
 
   const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events]);
   const hasWorkDetails = orderedEvents.length > 0;
@@ -317,15 +331,15 @@ export function AssistantWorkIndicator({
     <>
       <section
         data-testid="assistant-work-indicator"
-        className={cn('assistant-work', !isActive && 'assistant-work--completed')}
-        aria-label={isActive
+        className={cn('assistant-work', !displayIsActive && 'assistant-work--completed')}
+        aria-label={displayIsActive
           ? `JetWork düşünüyor, ${elapsedSeconds} saniye`
           : isStopped
             ? `JetWork ${formattedDuration} düşündü ve durduruldu`
             : `JetWork ${formattedDuration} düşündü`}
       >
         <AgentWorkHeader
-          isActive={isActive}
+          isActive={displayIsActive}
           duration={formattedDuration}
           elapsedSeconds={elapsedSeconds}
           expanded={isExpanded}
@@ -335,10 +349,10 @@ export function AssistantWorkIndicator({
         />
 
         {isExpanded && hasWorkDetails ? (
-          <AgentWorkTimeline events={orderedEvents} live={isActive} />
+          <AgentWorkTimeline events={orderedEvents} live={displayIsActive} />
         ) : null}
 
-        {!isActive && onFollowUp ? (
+        {!displayIsActive && onFollowUp ? (
           <div className="assistant-work__follow-ups">
             {hasSourceGap ? (
               <button type="button" onClick={requestWebSearch} disabled={followUpDisabled}>
