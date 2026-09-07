@@ -1,10 +1,22 @@
+import { reduceAgentActivityEvents } from './agentActivityReducer';
 import { observeAgentWorkSseEvent } from './agentWorkLiveStream';
+import type { AgentWorkEvent } from './agentWorkTypes';
 
 export interface SseEvent {
   data: string;
   event?: string;
   id?: string;
 }
+
+const EMPTY_AGENT_WORK_EVENTS: AgentWorkEvent[] = [];
+let parsedAgentWorkEvents: AgentWorkEvent[] = EMPTY_AGENT_WORK_EVENTS;
+
+const captureCanonicalAgentWorkEvent = (input: SseEvent) => {
+  const observed = observeAgentWorkSseEvent(input);
+  if (!observed) return;
+  const base = observed.sequence === 1 ? EMPTY_AGENT_WORK_EVENTS : parsedAgentWorkEvents;
+  parsedAgentWorkEvents = reduceAgentActivityEvents(base, observed);
+};
 
 function parseFrame(frame: string): SseEvent | null {
   const data: string[] = [];
@@ -23,7 +35,7 @@ function parseFrame(frame: string): SseEvent | null {
 
   if (data.length === 0) return null;
   const parsed = { data: data.join('\n'), event, id };
-  observeAgentWorkSseEvent(parsed);
+  captureCanonicalAgentWorkEvent(parsed);
   return parsed;
 }
 
@@ -52,3 +64,11 @@ export function consumeSseBuffer(
 
   return { events, remainder };
 }
+
+export const getParsedAgentWorkEvents = (): AgentWorkEvent[] => parsedAgentWorkEvents;
+
+export const resetParsedAgentWorkEvents = () => {
+  parsedAgentWorkEvents = EMPTY_AGENT_WORK_EVENTS;
+};
+
+export const resetParsedAgentWorkEventsForTests = resetParsedAgentWorkEvents;
