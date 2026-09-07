@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { extractGeminiRuntimeObservationInstruction } from '../../../supabase/functions/_shared/modelProviders.ts'
+import { extractGeminiRuntimeObservationInstruction } from '../../../supabase/functions/_shared/agent/controllerRuntimeObservation.ts'
 
 describe('Controller V3 runtime instruction boundary', () => {
   it('keeps evidence/provenance observations but drops legacy domain workflow prose', () => {
