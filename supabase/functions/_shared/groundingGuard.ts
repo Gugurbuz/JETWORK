@@ -335,7 +335,11 @@ const unsupportedExactBehaviorClaims = (input: {
   const segments = clean(input.responseText).split(/(?:\r?\n)+|(?<=[.!?])\s+/)
   return segments.flatMap(segment => {
     const normalized = normalizeText(segment)
-    if (!normalized || isEvidenceGapResponse(segment) || !EXACT_BEHAVIOR_CLAIM_PATTERN.test(normalized)) return []
+    const behaviorText = normalized
+      .replace(/\b(?:z[a-z0-9_]{2,}(?:-\d{2,4})?|check_[a-z0-9_]+)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!normalized || isEvidenceGapResponse(segment) || !behaviorText || !EXACT_BEHAVIOR_CLAIM_PATTERN.test(behaviorText)) return []
     const identifiers = extractTechnicalIdentifiers(segment)
     if (!identifiers.some(identifier => input.suppliedIdentifiers.has(identifier))) return []
     const tokens = supportTokens(segment)
