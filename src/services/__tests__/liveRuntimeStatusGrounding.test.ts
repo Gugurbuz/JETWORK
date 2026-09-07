@@ -85,13 +85,17 @@ describe('Live runtime status and grounding regression', () => {
       .toBe('Asistana bağlanılıyor...');
   });
 
-  it('uses Gemini Interactions as the V3 semantic-controller provider path', () => {
+  it('uses stable Gemini Interactions v1 as the V3 semantic-controller provider path', () => {
     const providerSource = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
       'utf8',
     );
-    const interactionSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+    const runtimeSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
+      'utf8',
+    );
+    const transportSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/geminiInteractionsTransportGA.ts', import.meta.url),
       'utf8',
     );
     const controllerPolicy = readFileSync(
@@ -99,15 +103,16 @@ describe('Live runtime status and grounding regression', () => {
       'utf8',
     );
 
-    expect(providerSource).toContain('requestGeminiInteractionsResponse')
+    expect(providerSource).toContain('requestGeminiInteractionsResponseGA')
     expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION')
     expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
     expect(providerSource).not.toContain('extractSemanticPlanFromItems')
-    expect(interactionSource).toContain("GEMINI_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions'")
-    expect(interactionSource).toContain("{ type: 'google_search'")
-    expect(interactionSource).toContain("{ type: 'url_context' }")
-    expect(interactionSource).toContain("{ type: 'code_execution' }")
-    expect(interactionSource).toContain("tool_choice: 'validated'")
+    expect(transportSource).toContain("GEMINI_INTERACTIONS_API_VERSION = 'v1'")
+    expect(transportSource).toContain('/interactions?alt=sse')
+    expect(runtimeSource).toContain("{ type: 'google_search'")
+    expect(runtimeSource).toContain("{ type: 'url_context' }")
+    expect(runtimeSource).toContain("{ type: 'code_execution' }")
+    expect(runtimeSource).toContain("tool_choice: 'validated'")
     expect(controllerPolicy).toContain('semantic controller ve assistant modelisin')
     expect(controllerPolicy).toContain('Her tool observationından sonra')
   });
@@ -140,9 +145,7 @@ describe('Live runtime status and grounding regression', () => {
       new URL('../assistantTransportRecovery.ts', import.meta.url),
       'utf8',
     );
-
-    expect(recoverySource).toContain("if (eventName === 'error')");
-    expect(recoverySource).toContain('state.completedSeen = true');
-    expect(recoverySource).toContain('terminal application event');
+    expect(recoverySource).toContain('terminalServerError');
+    expect(recoverySource).toContain('do not reconnect the failed server turn');
   });
 });
