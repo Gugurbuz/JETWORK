@@ -145,7 +145,8 @@ describe('Live runtime status and grounding regression', () => {
       new URL('../assistantTransportRecovery.ts', import.meta.url),
       'utf8',
     );
-    expect(recoverySource).toContain('terminalServerError');
-    expect(recoverySource).toContain('do not reconnect the failed server turn');
+    expect(recoverySource).toContain("if (eventName === 'error')")
+    expect(recoverySource).toContain('state.completedSeen = true')
+    expect(recoverySource).toContain('Forward it once and stop reconnecting')
   });
 });
