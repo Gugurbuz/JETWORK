@@ -13,9 +13,11 @@ on:
       - src/services/agentActivityReducer.ts
       - src/services/sseParser.ts
       - src/services/messageRepository.ts
+      - src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
       - supabase/functions/openai-assistant-core-v2/index.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
+      - supabase/functions/_shared/geminiInteractionsTransportGA.ts
 
 permissions:
   contents: read
