@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types';
-import { normalizeRuntimePersistenceState } from '../useMessageStore';
+import { mergeRuntimeServerMessage, normalizeRuntimePersistenceState } from '../useMessageStore';
 
 const runtimeMessage = (overrides: Partial<Message> = {}): Message => ({
   id: 'assistant-1',
@@ -61,5 +61,64 @@ describe('Agent Work durable completion boundary', () => {
     });
 
     expect(normalizeRuntimePersistenceState(message)).toBe(message);
+  });
+
+  it('keeps an optimistic active assistant stream alive when the server materializer emits the same id first', () => {
+    const local = runtimeMessage({
+      provider: undefined,
+      responseModel: undefined,
+      text: 'Findeks kayıtları inceleniyor...',
+      thinkingText: 'Bilgi bankasında kayıtları inceliyorum...',
+      phase: 'RESEARCH',
+      phaseLabel: 'Bilgi bankasında aranıyor...',
+      isTyping: true,
+      persistenceStatus: undefined,
+      createdAt: 100,
+    });
+    const serverMaterialized = runtimeMessage({
+      text: 'Sunucu tarafından materialize edilen final metin',
+      isTyping: false,
+      persistenceStatus: undefined,
+      createdAt: 200,
+      thinkingText: undefined,
+      phase: null,
+      phaseLabel: undefined,
+      workEvents: undefined,
+      rawResponse: undefined,
+    });
+
+    const merged = mergeRuntimeServerMessage(local, serverMaterialized);
+
+    expect(merged.text).toBe('Sunucu tarafından materialize edilen final metin');
+    expect(merged.isTyping).toBe(true);
+    expect(merged.persistenceStatus).toBe('pending');
+    expect(merged.createdAt).toBe(100);
+    expect(merged.thinkingText).toBe('Bilgi bankasında kayıtları inceliyorum...');
+    expect(merged.phase).toBe('RESEARCH');
+  });
+
+  it('lets a server row carrying canonical Agent Work events complete the same active stream', () => {
+    const local = runtimeMessage({
+      isTyping: true,
+      persistenceStatus: 'pending',
+    });
+    const serverDurable = runtimeMessage({
+      isTyping: false,
+      persistenceStatus: undefined,
+      workEvents: [{
+        eventId: 'tool:1',
+        sequence: 1,
+        kind: 'tool',
+        label: 'Bilgi bankası sorgusu tamamlandı',
+        sourceType: 'knowledge',
+        state: 'completed',
+      }],
+    });
+
+    const merged = mergeRuntimeServerMessage(local, serverDurable);
+
+    expect(merged.isTyping).toBe(false);
+    expect(merged.persistenceStatus).toBe('saved');
+    expect(merged.workEvents?.[0]?.eventId).toBe('tool:1');
   });
 });
