@@ -85,16 +85,53 @@ describe('safe stream sink', () => {
     expect(output).toContain('event: final');
   });
 
-  it('maps technical status labels to public presentation text at the SSE boundary', () => {
+  it('keeps mechanical status events out of canonical Agent Work chronology', () => {
     const controller = new FakeController();
     const sink = createSafeStreamSink(controller, new TextEncoder(), { logTiming: false });
 
     sink.event('status', { type: 'status', stage: 'routing', label: 'Semantic capability adayları çıkarılıyor...' });
+    sink.event('status', { type: 'status', stage: 'routing', label: 'Controller hazır: 16 semantic aday · 11 görünür tool' });
     sink.done();
 
     const output = controller.chunks.join('');
-    expect(output).toContain('Uygun kaynak ve araçları değerlendiriyorum...');
-    expect(output).not.toContain('Semantic capability adayları çıkarılıyor...');
+    expect(output).toContain('event: status');
+    expect(output).toContain('Semantic capability adayları çıkarılıyor...');
+    expect(output).not.toContain('event: agent_activity');
+    expect(output).not.toContain('Uygun kaynak ve araçları değerlendiriyorum...');
+    expect(output).not.toContain('Çalışma araçları hazırlandı');
+  });
+
+  it('turns meaningful LLM commentary into canonical Agent Work activity', () => {
+    const controller = new FakeController();
+    const sink = createSafeStreamSink(controller, new TextEncoder(), { logTiming: false });
+
+    sink.event('commentary', {
+      type: 'commentary',
+      message: 'Bilgi bankasında Findeks ve KKB kayıtlarını inceliyorum...',
+    });
+    sink.event('completed', { type: 'completed', conversationId: 'conv-1', model: 'gemini-3.8-flash', provider: 'gemini' });
+    sink.done();
+
+    const output = controller.chunks.join('');
+    expect(output).toContain('event: commentary');
+    expect(output).toContain('event: agent_activity');
+    expect(output).toContain('Bilgi bankasında Findeks ve KKB kayıtlarını inceliyorum...');
+  });
+
+  it('does not promote controller telemetry disguised as commentary', () => {
+    const controller = new FakeController();
+    const sink = createSafeStreamSink(controller, new TextEncoder(), { logTiming: false });
+
+    sink.event('commentary', {
+      type: 'commentary',
+      message: 'Controller ek capability/kanıt çağrısı yapıyor...',
+    });
+    sink.done();
+
+    const output = controller.chunks.join('');
+    expect(output).toContain('event: commentary');
+    expect(output).not.toContain('event: agent_activity');
+    expect(output).not.toContain('Bulduğum bilgiyi ek kaynaklarla doğruluyorum...');
   });
 
   it('observes the first non-empty text delta without calling it end-to-end TTFT', () => {
