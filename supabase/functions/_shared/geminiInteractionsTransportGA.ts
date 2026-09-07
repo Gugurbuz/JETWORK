@@ -1,6 +1,7 @@
 import {
   buildGeminiInteractionsRequest,
   GEMINI_INTERACTIONS_MODEL,
+  interactionInputFromJetWorkItems,
   normalizeGeminiInteraction,
   type GeminiInteractionPublicStepEvent,
   type GeminiInteractionsNormalizedResponse,
@@ -283,8 +284,27 @@ const requestStreamingInteraction = async (
 export async function requestGeminiInteractionsResponseGA(
   input: GeminiInteractionsRequest,
 ): Promise<GeminiInteractionsNormalizedResponse> {
-  const body = buildGeminiInteractionsRequest(input)
-  const previousInteractionUsed = typeof (body as Record<string, unknown>).previous_interaction_id === 'string'
+  const body = buildGeminiInteractionsRequest(input) as Record<string, any>
+
+  // A terminal synthesis round is intentionally tool-less. Do not resume a
+  // pending requires_action interaction for that round: doing so can preserve
+  // the previous tool-call state and return another function_call even though
+  // the current interaction declares no tools. Re-materialize the complete
+  // JetWork transcript (user input + every model call + every function result)
+  // into a fresh interaction and explicitly prohibit function calling. This
+  // keeps semantic synthesis with Gemini while making the mechanical budget
+  // boundary deterministic and evidence-preserving.
+  if (!input.allowTools) {
+    delete body.previous_interaction_id
+    body.input = interactionInputFromJetWorkItems(input.items)
+    body.tools = []
+    body.generation_config = {
+      ...(body.generation_config && typeof body.generation_config === 'object' ? body.generation_config : {}),
+      tool_choice: 'none',
+    }
+  }
+
+  const previousInteractionUsed = typeof body.previous_interaction_id === 'string'
   const startedAt = performance.now()
   const response = await fetch(GEMINI_INTERACTIONS_URL, {
     method: 'POST',
