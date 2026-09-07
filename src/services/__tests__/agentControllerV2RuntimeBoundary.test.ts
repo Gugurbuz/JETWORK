@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_CONTROLLER_V2_FLAG,
+  AGENT_CONTROLLER_V2_PRODUCTION_FUNCTION_IDS,
   DENO_DEPLOYMENT_ID_ENV,
   LEGACY_AGENT_CONTROLLER_FLAG,
   isAgentControllerV2Enabled,
@@ -17,6 +18,10 @@ import {
 
 const durableCoreEntrySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
+  'utf8',
+)
+const productionV3CoreEntrySource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v3/index.ts', import.meta.url),
   'utf8',
 )
 const publicEntryRouterSource = readFileSync(
@@ -45,7 +50,7 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isLegacyAgentControllerEnabled(name => legacyOnly.get(name))).toBe(true)
   })
 
-  it('allows only explicit non-production canary function identities to enable live-like V2', () => {
+  it('allows only code-owned canary and production function identities to enable the controller', () => {
     const goldenCanary = new Map<string, string>([[
       DENO_DEPLOYMENT_ID_ENV,
       'bpbbvjigostgrssnduhk_8889f9e7-b72b-4549-b793-0045311043d6_12',
@@ -62,18 +67,19 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isAgentControllerV2Enabled(name => coreCanary.get(name))).toBe(true)
     expect(isAgentControllerV2Enabled(name => agentWorkCanary.get(name))).toBe(true)
 
+    expect(AGENT_CONTROLLER_V2_PRODUCTION_FUNCTION_IDS.has('0f38ecb0-e3c9-4adb-8aec-a52c3474d266')).toBe(true)
     const productionGateway = new Map<string, string>([[
       DENO_DEPLOYMENT_ID_ENV,
-      'bpbbvjigostgrssnduhk_0f38ecb0-e3c9-4adb-8aec-a52c3474d266_101',
+      'bpbbvjigostgrssnduhk_0f38ecb0-e3c9-4adb-8aec-a52c3474d266_114',
     ]])
-    expect(isAgentControllerV2Enabled(name => productionGateway.get(name))).toBe(false)
+    expect(isAgentControllerV2Enabled(name => productionGateway.get(name))).toBe(true)
   })
 
-  it('treats invalid canonical configuration as disabled outside explicit canary deployments', () => {
+  it('treats invalid canonical configuration as disabled outside explicit rollout identities', () => {
     const values = new Map<string, string>([
       [AGENT_CONTROLLER_V2_FLAG, 'maybe'],
       [LEGACY_AGENT_CONTROLLER_FLAG, 'true'],
-      [DENO_DEPLOYMENT_ID_ENV, 'bpbbvjigostgrssnduhk_0f38ecb0-e3c9-4adb-8aec-a52c3474d266_101'],
+      [DENO_DEPLOYMENT_ID_ENV, 'bpbbvjigostgrssnduhk_11111111-2222-3333-4444-555555555555_1'],
     ])
     expect(isAgentControllerV2Enabled(name => values.get(name))).toBe(false)
   })
@@ -87,10 +93,19 @@ describe('Agent Controller V2 runtime boundary', () => {
       .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
   })
 
+  it('keeps the isolated production V3 core request-independent', () => {
+    expect(productionV3CoreEntrySource).toContain("key === 'AGENT_CONTROLLER_V2'")
+    expect(productionV3CoreEntrySource).toContain("? 'true' : originalEnvGet(key)")
+    expect(productionV3CoreEntrySource).toContain("await import('../openai-assistant-core-v2/index.ts')")
+    expect(productionV3CoreEntrySource).not.toContain('req.headers')
+    expect(productionV3CoreEntrySource).not.toContain('request.body')
+  })
+
   it('bypasses legacy semantic entry routing before any regex classifier runs', () => {
     expect(publicEntryRouterSource).toContain('if (isAgentControllerV2Enabled())')
-    expect(publicEntryRouterSource).toContain("headers.set('x-jetwork-runtime-route', 'agent-controller-v2')")
-    expect(publicEntryRouterSource).toContain("/functions/v1/openai-assistant-v2-internal")
+    expect(publicEntryRouterSource).toContain("headers.set('x-jetwork-runtime-route', 'agent-controller-v3')")
+    expect(publicEntryRouterSource).toContain("/functions/v1/openai-assistant-core-v3")
+    expect(publicEntryRouterSource).toContain('createDurableAgentWorkStream({')
     expect(publicEntryRouterSource.indexOf('if (isAgentControllerV2Enabled())'))
       .toBeLessThan(publicEntryRouterSource.indexOf('const routeDecision = classifyDocumentArtifactRequest(message)'))
     expect(publicEntryRouterSource.indexOf('if (isAgentControllerV2Enabled())'))
