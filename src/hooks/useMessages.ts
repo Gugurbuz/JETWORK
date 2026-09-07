@@ -203,7 +203,7 @@ export const useMessages = (channelRef: any) => {
       && !!preparedAttachments?.length
       && preparedAttachments.every(attachment => attachment.purpose === 'knowledge_bank');
     const shouldShowAssistantPending = !(!messageText.trim() && hasOnlyKnowledgeAttachments);
-    const aiMsgId = options.retryAiMessageId || crypto.randomUUID();
+    const aiMsgId = options.retryAiMessageId || (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME ? `assistant:${msgId}` : crypto.randomUUID());
     const aiCreatedAt = Date.now();
     const pendingAiMessage: Message = {
       id: aiMsgId,
@@ -489,8 +489,7 @@ export const useMessages = (channelRef: any) => {
             };
             setMessages(previous => previous.map(message => (
               message.id === aiMsgId
-                ? { ...message, ...patch }
-                : message
+                ? { ...message, ...patch } : message
             )));
             broadcastMessage(channelRef, 'ai_stream_chunk', {
               id: aiMsgId,

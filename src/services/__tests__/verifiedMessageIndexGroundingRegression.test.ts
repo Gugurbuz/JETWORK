@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateGroundedTechnicalClaims } from '../../../supabase/functions/_shared/groundingGuard'
-import { buildControllerCapabilitySurface, capabilitySessionObservation } from '../../../supabase/functions/_shared/capabilities/controllerSurface'
+import { buildControllerCapabilitySurface, capabilitySessionObservation, CONTROLLER_CAPABILITY_SURFACE_VERSION } from '../../../supabase/functions/_shared/capabilities/controllerSurface'
 
 describe('verified ABAP message index grounding regression', () => {
   it('accepts message codes carried by the mechanically preserved index in a verified exact record', () => {
@@ -38,41 +38,22 @@ describe('verified ABAP message index grounding regression', () => {
     expect(coverage.unsupportedIdentifiers).toEqual([])
   })
 
-  it('requires exhaustive direct-message candidate verification and fully-qualified code-only output', () => {
-    const surface = buildControllerCapabilitySurface([{
-      id: 'skill:sap/message-analysis',
-      kind: 'skill',
-      category: 'skill',
-      title: 'SAP message analysis',
-      description: '',
-      skillKey: 'sap/message-analysis',
-      declaredTools: ['knowledge'],
-      executorTools: ['search_knowledge_catalog', 'get_knowledge_object', 'get_knowledge_objects', 'get_related_objects'],
-      score: 1,
-      semanticScore: 1,
-      lexicalScore: 1,
-      registryVersion: 'test',
-      discoveryVersion: 'test',
-    }])
-
-    const exactTool = surface.tools.find(tool => tool.name === 'get_knowledge_object')
-    const batchTool = surface.tools.find(tool => tool.name === 'get_knowledge_objects')
-    const searchTool = surface.tools.find(tool => tool.name === 'search_knowledge_catalog')
+  it('keeps message grounding mechanical instead of encoding a mandatory retrieval sequence in the capability surface', () => {
+    const surface = buildControllerCapabilitySurface([])
     const observation = capabilitySessionObservation({
-      version: 'controller-capability-surface-v2',
-      discoveryMode: 'lexical_fallback',
-      fallbackReason: 'test',
-      seenCandidateIds: surface.candidateIds,
+      version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
+      discoveryMode: 'full_surface',
+      seenCandidateIds: [],
       surface,
     })
 
-    expect(exactTool?.description).toContain('fully-qualified canonical identifier')
-    expect(exactTool?.description).toContain('`ZCRM_COST-007`, never bare `007`')
-    expect(exactTool?.description).toContain('answer with canonical message codes only')
-    expect(batchTool?.description).toContain('exact-verify every directly relevant message candidate')
-    expect(batchTool?.description).toContain('full message-class prefix repeated on every code')
-    expect(searchTool?.description).toContain('all three must be exact-verified before finalizing')
-    expect(observation.instruction).toContain('never compress a list to bare numbers')
-    expect(observation.instruction).toContain('answer code-only')
+    expect(surface.toolNames).toContain('search_knowledge_catalog')
+    expect(surface.toolNames).toContain('get_knowledge_object')
+    expect(surface.toolNames).toContain('get_knowledge_objects')
+    expect(surface.toolNames).toContain('get_related_objects')
+    expect(observation.instruction).toContain('controller model')
+    expect(observation.instruction).not.toContain('exact-verify')
+    expect(observation.instruction).not.toContain('pending candidate')
+    expect(observation.instruction).not.toContain('answer code-only')
   })
 })

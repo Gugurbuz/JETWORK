@@ -3,12 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { resolveAssistantDocumentRequestMode } from '../assistantDocumentIntent'
 import { applyConversationScopeInventoryPolicy } from '../../../supabase/functions/_shared/conversationScopePolicy'
 
-const providerSource = readFileSync(
+const legacyProviderSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url),
   'utf8',
 )
-const providerWrapperSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
+const runtimeSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
+  'utf8',
+)
+const transportSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsTransportGA.ts', import.meta.url),
+  'utf8',
+)
+const coreSource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
   'utf8',
 )
 const liveProxySource = readFileSync(
@@ -43,25 +51,33 @@ const basePlan = () => ({
 })
 
 describe('true live assistant streaming contract', () => {
-  it('uses the Gemini streaming API without fabricating signatures for synthetic tool calls', () => {
-    expect(providerSource).toContain('generateContentStream')
-    expect(providerSource).not.toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
-    expect(providerSource).not.toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
-    expect(providerSource).toContain('_geminiContent: candidateContent')
-    expect(providerSource).toContain('providerFunctionCallIds')
-    expect(providerSource).toContain("item._geminiSkipContent === true")
-    expect(providerSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')
-    expect(providerSource).toContain('!providerFunctionCallIds.has(callId)')
-    expect(providerSource).toContain('for await (const chunk of stream')
+  it('keeps the legacy Gemini streaming adapter safe for compatibility paths', () => {
+    expect(legacyProviderSource).toContain('generateContentStream')
+    expect(legacyProviderSource).not.toContain("INJECTED_GEMINI_THOUGHT_SIGNATURE = 'context_engineering_is_the_way to_go'")
+    expect(legacyProviderSource).not.toContain('thoughtSignature: INJECTED_GEMINI_THOUGHT_SIGNATURE')
+    expect(legacyProviderSource).toContain('_geminiContent: candidateContent')
+    expect(legacyProviderSource).toContain('providerFunctionCallIds')
+    expect(legacyProviderSource).toContain("item._geminiSkipContent === true")
+    expect(legacyProviderSource).toContain('[JETWORK_TOOL_EVIDENCE name=${name}]')
+    expect(legacyProviderSource).toContain('!providerFunctionCallIds.has(callId)')
+    expect(legacyProviderSource).toContain('for await (const chunk of stream')
   })
 
-  it('keeps knowledge answerability protection without collapsing Gemini into one final delta', () => {
-    expect(providerWrapperSource).toContain('createStreamingProviderAnswerabilityGuard')
-    expect(providerWrapperSource).toContain('requestBaseWithStreamingAnswerability')
-    expect(providerWrapperSource).toContain('answerability_streaming_guard_used')
-    expect(providerWrapperSource).toContain('onText: delta => guard.push(delta)')
-    expect(providerWrapperSource).toContain('guard.finish()')
-    expect(providerWrapperSource).toContain('answerability_streaming_plan_override_applied')
+  it('streams active Gemini 3.8 GA Interactions text and real provider-tool lifecycle incrementally', () => {
+    expect(runtimeSource).toContain('buildGeminiInteractionsRequest')
+    expect(runtimeSource).toContain('previous_interaction_id')
+    expect(transportSource).toContain("GEMINI_INTERACTIONS_API_VERSION = 'v1'")
+    expect(transportSource).toContain('?alt=sse')
+    expect(transportSource).toContain("eventType === 'step.delta'")
+    expect(transportSource).toContain("deltaType === 'text'")
+    expect(transportSource).toContain('builder.text += delta.text')
+    expect(transportSource).toContain('input.onText(delta.text)')
+    expect(transportSource).toContain('input.onStepEvent?.')
+    expect(transportSource).toContain('gemini_provider_first_text_ms')
+    expect(transportSource).toContain('gemini_previous_interaction_used')
+    expect(coreSource).toContain("sendEvent(controller, encoder, 'provider_step'")
+    expect(coreSource).toContain('evaluateGroundedTechnicalClaims')
+    expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
   })
 
   it('surfaces real memory and plan activity without router metadata counts', () => {
@@ -79,7 +95,7 @@ describe('true live assistant streaming contract', () => {
     expect(liveProxySource).toContain('streamTiming: timingSnapshot')
   })
 
-  it('keeps explicit research intent when a message begins as a definition lookup', () => {
+  it('keeps explicit research intent on compatibility policy paths when a message begins as a definition lookup', () => {
     const plan = applyConversationScopeInventoryPolicy({
       plan: basePlan(),
       currentMessage: 'İys nedir nasıl entegre olunur teknik api vb araştır',
@@ -94,7 +110,7 @@ describe('true live assistant streaming contract', () => {
     expect(plan.steps.map(step => step.label).join(' ')).toMatch(/resmi web kaynaklarında/iu)
   })
 
-  it('keeps a plain internal definition lookup knowledge-only when web research was not requested', () => {
+  it('keeps a plain internal definition lookup knowledge-only on compatibility policy paths', () => {
     const plan = applyConversationScopeInventoryPolicy({
       plan: basePlan(),
       currentMessage: 'CHECK_ZTKS nedir',

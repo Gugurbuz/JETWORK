@@ -5,25 +5,31 @@ import {
   ENERJISA_DOCUMENT_CONTRACT_VERSION,
   ENERJISA_DOCUMENT_SECTIONS,
 } from '../../../supabase/functions/_shared/enerjisaDocumentContract.ts'
-import { AGENT_CONTROLLER_INSTRUCTION } from '../../../supabase/functions/_shared/agentControllerPolicy.ts'
 
+const evidenceToolSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/context/contextTools.ts', import.meta.url),
+  'utf8',
+)
+const controllerPolicySource = readFileSync(
+  new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url),
+  'utf8',
+)
 const docxOrchestratorSource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-enerjisa-docx/index.ts', import.meta.url),
   'utf8',
 )
-
 const documentRoutingSource = readFileSync(
   new URL('../../../supabase/functions/_shared/documentArtifactRouting.ts', import.meta.url),
   'utf8',
 )
 
-describe('Deep Analyst Runtime contract', () => {
-  it('keeps evidence coverage and critic semantics controller-driven', () => {
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Evidence Map')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Coverage sabit bölüm checklisti veya tool sayısı değildir')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('critic/self-review')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('final vermek yerine re-plan et')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Critic sonucu da karar verici bir deterministic gate değildir')
+describe('Deep Analyst Runtime V3 contract', () => {
+  it('keeps evidence coverage and critic as observations, never next-tool authority', () => {
+    expect(evidenceToolSource).toContain("name: REVIEW_EVIDENCE_COVERAGE_TOOL_NAME")
+    expect(evidenceToolSource).toContain('coverage/gap/conflict critic observations')
+    expect(evidenceToolSource).toContain('does not search, select the next capability, or finalize the answer')
+    expect(evidenceToolSource).toContain('controllerDecisionRequired: true')
+    expect(controllerPolicySource).toContain('Her tool observationından sonra')
   })
 
   it('keeps the Enerjisa DOCX endpoint deterministic only about the requested artifact', () => {

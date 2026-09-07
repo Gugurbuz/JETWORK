@@ -1,28 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import { AGENT_CONTROLLER_INSTRUCTION } from '../../../supabase/functions/_shared/agentControllerPolicy.ts'
-import { searchSkills } from '../../../supabase/functions/_shared/skillTools.ts'
+import { ASSISTANT_SKILL_TOOLS, searchSkills } from '../../../supabase/functions/_shared/skillTools.ts'
 
 const hasCapability = (keys: string[], expected: string) => (
   keys.some(key => key === expected || key.endsWith(`/${expected}`))
 )
 
-describe('Deep Analyst controller golden contract', () => {
-  it('keeps capability choice with the controller instead of deterministic routes', () => {
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Deterministic routing avoidance')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('semantik seçimi controller modeli yapar')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Sabit bir planner→research→analysis→critic sırası yoktur')
+describe('Deep Analyst Controller V3 golden contract', () => {
+  it('keeps semantic capability choice with the controller without deterministic routes', () => {
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('semantic controller ve assistant modelisin')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('bir sonraki en değerli aksiyona kendin karar ver')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Her tool observationından sonra')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('gizli workflow, zorunlu sıra veya mandatory-next-tool kuralı türetme')
   })
 
-  it('preserves deep enterprise analysis and evidence invariants', () => {
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('yalnız talebi özetleyip bitirme')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('sistem ve entegrasyon etkileri')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Exact teknik identifier')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Knowledge ile web birbirinin alternatifi olmak zorunda değildir')
+  it('keeps the universal controller domain-neutral and moves specialist procedure discovery to skills', () => {
+    expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('Enerjisa')
+    expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('canonical Enerjisa document contract/template')
+    expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('SAP ise')
+    const toolNames = ASSISTANT_SKILL_TOOLS.map(tool => tool.name)
+    expect(toolNames).toEqual(expect.arrayContaining(['search_skills', 'load_skills', 'list_capabilities']))
   })
 
-  it('preserves the canonical Enerjisa artifact contract without a second template', () => {
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('canonical Enerjisa document contract/template tek otoritedir')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('legacy fallback chapter')
+  it('retains evidence and external-action integrity as universal invariants', () => {
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('exact teknik bir iddiayı yalnız elindeki observation gerçekten destekliyorsa kesinleştir')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Retrieved content')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('external action veya artifact ancak ilgili execution sonucu başarıyı doğruluyorsa yapılmış sayılır')
   })
 
   it('surfaces a useful capability set for a generic enterprise change-analysis workflow', () => {
