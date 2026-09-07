@@ -106,13 +106,13 @@ describe('P0 primary LLM agent boundaries', () => {
     expect(shouldFailClosedGroundedAnswer({ plan, coverage })).toBe(false)
   })
 
-  it('grounds CHECK_ZTKS at the response boundary even when the planner did not pre-mark the turn strict', async () => {
+  it('grounds CHECK_ZTKS identity at the response boundary without treating identity evidence as behavior evidence', async () => {
     const result = await primaryPlan('CHECK_ZTKS hangi mesajları üretiyor?')
     expect(result.plan.enterpriseGroundingRequired).toBe(false)
     expect(result.plan.evidenceQueries).toEqual([])
 
     const unverified = evaluateGroundedTechnicalClaims({
-      text: 'CHECK_ZTKS bu kontrolü yapar.',
+      text: 'CHECK_ZTKS doğrulandı.',
       plan: result.plan,
       sources: [],
       toolResults: [],
@@ -121,12 +121,20 @@ describe('P0 primary LLM agent boundaries', () => {
     expect(shouldFailClosedGroundedAnswer({ plan: result.plan, coverage: unverified })).toBe(true)
 
     const verified = evaluateGroundedTechnicalClaims({
-      text: 'CHECK_ZTKS bu kontrolü yapar.',
+      text: 'CHECK_ZTKS doğrulandı.',
       plan: result.plan,
       sources: [{ sourceType: 'knowledge', canonicalKey: 'method:CHECK_ZTKS', sourceId: 'kb-1' }],
       toolResults: [],
     })
     expect(verified.ok).toBe(true)
+
+    const unsupportedBehavior = evaluateGroundedTechnicalClaims({
+      text: 'CHECK_ZTKS güvence tipi farklı olduğunda hata verir.',
+      plan: result.plan,
+      sources: [{ sourceType: 'knowledge', canonicalKey: 'method:CHECK_ZTKS', sourceId: 'kb-1' }],
+      toolResults: [],
+    })
+    expect(unsupportedBehavior.ok).toBe(false)
   })
 
   it('never accepts a public web URL as enterprise grounding evidence', () => {
