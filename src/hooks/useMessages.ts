@@ -489,8 +489,7 @@ export const useMessages = (channelRef: any) => {
             };
             setMessages(previous => previous.map(message => (
               message.id === aiMsgId
-                ? { ...message, ...patch }
-                : message
+                ? { ...message, ...patch } : message
             )));
             broadcastMessage(channelRef, 'ai_stream_chunk', {
               id: aiMsgId,
@@ -829,7 +828,7 @@ export const useMessages = (channelRef: any) => {
           newReactions.splice(existingReactionIndex, 1);
         }
       } else {
-        reaction.users.push(emoji);
+        reaction.users.push(user.name);
       }
     } else {
       newReactions.push({ emoji, users: [user.name] });
