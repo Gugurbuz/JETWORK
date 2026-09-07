@@ -163,10 +163,10 @@ const eventsFromReportedActivities = (
   }];
 });
 
-function useComposerStopTarget(isActive: boolean, onStop?: () => void): HTMLElement | null {
+function useComposerStopTarget(isActive: boolean, hasStopHandler: boolean): HTMLElement | null {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    if (!isActive || !onStop || typeof document === 'undefined') {
+    if (!isActive || !hasStopHandler || typeof document === 'undefined') {
       setTarget(null);
       return;
     }
@@ -182,9 +182,8 @@ function useComposerStopTarget(isActive: boolean, onStop?: () => void): HTMLElem
       sendButton.style.display = previousDisplay;
       if (previousAriaHidden === null) sendButton.removeAttribute('aria-hidden');
       else sendButton.setAttribute('aria-hidden', previousAriaHidden);
-      setTarget(null);
     };
-  }, [isActive, onStop]);
+  }, [hasStopHandler, isActive]);
   return target;
 }
 
@@ -235,7 +234,7 @@ export function AssistantWorkIndicator({
   const previousSnapshotRef = useRef<string[]>(initialSnapshot);
   const sequenceRef = useRef(Math.max(0, ...events.map(event => event.sequence)));
   const sourceCountRef = useRef({ knowledge: knowledgeSourceCount, web: webSourceCount });
-  const composerStopTarget = useComposerStopTarget(isActive, onStop);
+  const composerStopTarget = useComposerStopTarget(isActive, Boolean(onStop));
 
   useEffect(() => {
     if (!canonicalWorkEvents.length) return;
