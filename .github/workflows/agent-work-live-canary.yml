@@ -1,7 +1,7 @@
 name: Agent Work Live Canary
 
-# Live gate targets the isolated Agent Work gateway, currently backed by the
-# hosted-secret-safe openai-assistant-core-v2 v121 canary candidate.
+# Live rollout gate targets the isolated Agent Work gateway backed by the
+# Controller V3 shadow chain (core v125 at the current release runtime).
 on:
   workflow_dispatch:
   push:
