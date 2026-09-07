@@ -5,7 +5,7 @@ import { requestGeminiInteractionsResponseGA } from '../../../supabase/functions
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Gemini terminal synthesis continuation', () => {
-  it('preserves previous_interaction_id and sends only the matching function result', async () => {
+  it('starts a fresh no-tool interaction instead of replaying a pending function continuation', async () => {
     let requestBody: Record<string, any> = {}
     vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body || '{}')) as Record<string, any>
@@ -20,7 +20,7 @@ describe('Gemini terminal synthesis continuation', () => {
 
     await requestGeminiInteractionsResponseGA({
       apiKey: 'test-key',
-      systemInstruction: 'Controller constitution',
+      systemInstruction: 'Controller constitution and verified evidence',
       items: [
         { role: 'user', content: 'Kaynağı bul ve cevapla' },
         {
@@ -43,12 +43,13 @@ describe('Gemini terminal synthesis continuation', () => {
       onText: () => {},
     })
 
-    expect(requestBody.previous_interaction_id).toBe('int_requires_action')
+    expect(requestBody.previous_interaction_id).toBeUndefined()
+    expect(requestBody.tools).toEqual([])
     expect(requestBody.input).toEqual([
-      expect.objectContaining({ type: 'function_result', call_id: 'call_1', name: 'get_abap_source' }),
+      expect.objectContaining({ type: 'user_input' }),
     ])
-    expect(requestBody.input.some((item: Record<string, unknown>) => item.type === 'user_input')).toBe(false)
     expect(requestBody.input.some((item: Record<string, unknown>) => item.type === 'function_call')).toBe(false)
+    expect(requestBody.input.some((item: Record<string, unknown>) => item.type === 'function_result')).toBe(false)
   })
 
   it('keeps the mechanical terminal tool-choice guard at the durable core boundary', () => {
