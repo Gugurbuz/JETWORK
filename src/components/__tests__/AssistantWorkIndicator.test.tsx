@@ -30,7 +30,7 @@ describe('AssistantWorkIndicator', () => {
     expect(activities.slice(0, -1).every(activity => activity.state === 'completed')).toBe(true);
   });
 
-  it('translates technical runtime labels into public presentation text', () => {
+  it('keeps technical label formatting available without making it public chronology', () => {
     expect(formatAssistantWorkActivityLabel('Talep bağlamı çıkarılıyor; araç seçimini aktif LLM yapacak...', false)).toBe('Soru ve konuşma bağlamını hazırlıyorum...');
     expect(formatAssistantWorkActivityLabel('Advisory bağlam hazırlanıyor...', false)).toBe('İlgili proje bağlamını topluyorum...');
     expect(formatAssistantWorkActivityLabel('Semantic capability adayları çıkarılıyor...', false)).toBe('Uygun kaynak ve araçları değerlendiriyorum...');
@@ -46,22 +46,40 @@ describe('AssistantWorkIndicator', () => {
     expect(buildPendingRuntimeActivities(37)).toEqual([]);
   });
 
-  it('renders the active thinking header and keeps the real timeline open by default', () => {
+  it('renders only meaningful fallback work and hides controller/context/capability plumbing', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
         startedAt={Date.now() - 12_000}
-        activityText={'• Talep işleme alındı\n• Semantic capability adayları çıkarılıyor...'}
+        activityText={'• Talep işleme alındı\n• Talep bağlamı çıkarılıyor; araç seçimini aktif LLM yapacak...\n• Semantic capability adayları çıkarılıyor...\n• Controller hazır: 16 semantic aday · 11 görünür tool'}
         phaseLabel="Bilgi bankasında ilgili kayıtlar aranıyor"
       />,
     );
 
     expect(html).toContain('Düşünüyor');
     expect(html).toContain('data-testid="assistant-work-live-details"');
-    expect(html).toContain('Uygun kaynak ve araçlar değerlendirildi');
     expect(html).toContain('Bilgi Bankası');
     expect(html).toContain('Bilgi bankasında ilgili kayıtlar aranıyor');
+    expect(html).not.toContain('Talep işleme alındı');
+    expect(html).not.toContain('Soru ve konuşma bağlamı hazırlandı');
+    expect(html).not.toContain('Uygun kaynak ve araçlar değerlendirildi');
+    expect(html).not.toContain('Çalışma araçları hazırlandı');
     expect(html).not.toContain('Controller hazır:');
+  });
+
+  it('shows only the thinking header when fallback contains no meaningful work', () => {
+    const html = renderToStaticMarkup(
+      <AssistantWorkIndicator
+        isActive
+        startedAt={Date.now() - 8_000}
+        activityText={'• Talep işleme alındı\n• Talep bağlamı çıkarılıyor; araç seçimini aktif LLM yapacak...\n• Semantic capability adayları çıkarılıyor...\n• Controller hazır: 16 semantic aday · 11 görünür tool\n• Controller ilk aksiyonu değerlendiriyor...'}
+      />,
+    );
+
+    expect(html).toContain('Düşünüyor');
+    expect(html).not.toContain('data-testid="assistant-work-live-details"');
+    expect(html).not.toContain('Talep işleme alındı');
+    expect(html).not.toContain('İlk inceleme adımını seçiyorum');
   });
 
   it('collapses completed work and uses the final thought-duration copy', () => {
