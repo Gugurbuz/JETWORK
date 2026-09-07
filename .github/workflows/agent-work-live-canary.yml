@@ -1,7 +1,8 @@
 name: Agent Work Live Canary
 
-# Live rollout gate targets the exact-SHA Controller V3 core canary so the
-# authenticated browser test exercises the same core contract production uses.
+# Live rollout gate targets the PR #215 immutable release gateway. The gateway
+# wraps the isolated Controller V3 core with the canonical Agent Work SSE adapter,
+# so the authenticated browser test exercises the same stream contract production uses.
 on:
   workflow_dispatch:
   push:
@@ -13,6 +14,7 @@ on:
       - src/components/AssistantWorkIndicator.tsx
       - src/components/__tests__/AssistantWorkIndicatorLifecycle.test.ts
       - src/services/agentActivityReducer.ts
+      - src/services/agentWorkCompletionBarrier.ts
       - src/services/sseParser.ts
       - src/services/messageRepository.ts
       - src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
@@ -40,7 +42,7 @@ jobs:
       VITE_SINGLE_ASSISTANT_RUNTIME: 'true'
       E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-      E2E_ASSISTANT_CANARY_SLUG: agent-work-core-v3-canary
+      E2E_ASSISTANT_CANARY_SLUG: agent-work-release-215-gateway
     steps:
       - name: Checkout
         uses: actions/checkout@v4
