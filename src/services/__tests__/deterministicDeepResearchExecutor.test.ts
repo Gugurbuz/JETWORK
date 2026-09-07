@@ -9,8 +9,12 @@ const providerSource = readFileSync(
   new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
   'utf8',
 )
-const interactionSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/geminiInteractionsAgent.ts', import.meta.url),
+const runtimeSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts', import.meta.url),
+  'utf8',
+)
+const transportSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiInteractionsTransportGA.ts', import.meta.url),
   'utf8',
 )
 
@@ -57,8 +61,9 @@ describe('legacy deterministic Gemini web executor', () => {
   it('does not pre-execute deterministic research in the active Gemini V3 provider', () => {
     expect(providerSource).not.toContain('runDeterministicGeminiWebResearch')
     expect(providerSource).not.toContain("plan?.intent === 'research' && providerWebRequested")
-    expect(providerSource).toContain('requestGeminiInteractionsResponse')
-    expect(interactionSource).toContain("{ type: 'google_search'")
-    expect(interactionSource).toContain("tool_choice: 'validated'")
+    expect(providerSource).toContain('requestGeminiInteractionsResponseGA')
+    expect(runtimeSource).toContain("{ type: 'google_search'")
+    expect(runtimeSource).toContain("tool_choice: 'validated'")
+    expect(transportSource).toContain("GEMINI_INTERACTIONS_API_VERSION = 'v1'")
   })
 })
