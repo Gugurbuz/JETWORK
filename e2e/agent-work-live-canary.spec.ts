@@ -22,7 +22,18 @@ const routeAssistantToCanary = async (page: Page) => {
     const request = route.request();
     const url = new URL(request.url());
     url.pathname = `/functions/v1/${canarySlug}`;
-    await route.continue({ url: url.toString() });
+    const response = await route.fetch({ url: url.toString() });
+    if (!response.ok()) {
+      const failureBody = (await response.text()).slice(0, 4_000);
+      console.error(`[agent-work-live-canary] HTTP ${response.status()} ${failureBody}`);
+      await route.fulfill({
+        status: response.status(),
+        headers: response.headers(),
+        body: failureBody,
+      });
+      return;
+    }
+    await route.fulfill({ response });
   });
 };
 
@@ -42,6 +53,7 @@ test.describe('Agent Work live canary', () => {
     const modelMessage = page.locator('[data-testid="chat-message"][data-message-role="model"]').last();
     await expect(modelMessage).toBeVisible({ timeout: 30_000 });
     await expect(modelMessage).not.toContainText('Yanıt tamamlanamadı', { timeout: 160_000 });
+    await expect(modelMessage).not.toContainText(/Asistan servisi 5\d\d hatası döndürdü/i, { timeout: 160_000 });
     await expect(modelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 160_000 });
 
     const detailsToggle = modelMessage.getByRole('button', { name: 'Çalışma ayrıntılarını göster' });
@@ -63,14 +75,11 @@ test.describe('Agent Work live canary', () => {
     expect(eventIds.some(id => id.startsWith('reported:') || id.startsWith('observed:'))).toBe(false);
     expect(new Set(eventIds).size).toBe(eventIds.length);
 
-    // The real turn must expose at least one meaningful knowledge-work signal:
-    // a tool/source row or LLM-authored public progress mentioning the knowledge bank.
     const knowledgeRows = timeline.locator('[data-event-kind="tool"], [data-event-kind="source"]');
     const knowledgeSignals = await knowledgeRows.count();
     const timelineText = (await timeline.textContent()) || '';
     expect(knowledgeSignals > 0 || /Bilgi bankası|kurumsal kaynak|Findeks/i.test(timelineText)).toBe(true);
 
-    // Persistence must keep canonical event identity after a real page reload.
     await page.reload();
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
     const reloadedMessage = page.locator('[data-testid="chat-message"][data-message-role="model"]').last();
