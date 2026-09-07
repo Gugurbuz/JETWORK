@@ -190,6 +190,31 @@ export const interactionInputFromJetWorkItems = (items: Array<Record<string, unk
   return steps
 }
 
+/**
+ * Terminal synthesis is an execution-budget boundary, not another controller
+ * decision. Once tools are disabled we deliberately start a fresh interaction
+ * containing only user/model text. The system instruction already carries the
+ * verified evidence/observations needed for synthesis. Reusing a prior
+ * requires_action interaction here can cause Gemini to replay the old function
+ * call even though no tool surface exists, exhausting the round budget.
+ */
+export const terminalTextInputFromJetWorkItems = (items: Array<Record<string, unknown>>) => {
+  const steps: Array<Record<string, unknown>> = []
+  for (const item of items) {
+    const type = String(item.type || '')
+    const role = String(item.role || '')
+    if (type === GEMINI_PROVIDER_STATE_TYPE || type === 'function_call' || type === 'function_call_output') continue
+    const text = textFromContent(item.content)
+    if (!text) continue
+    if (role === 'user') {
+      steps.push({ type: 'user_input', content: [{ type: 'text', text }] })
+    } else if (role === 'assistant' || role === 'model' || type === 'message') {
+      steps.push({ type: 'model_output', content: [{ type: 'text', text }] })
+    }
+  }
+  return steps
+}
+
 const customToolsForInteractions = (tools: ReadonlyArray<Record<string, unknown>>) => tools.flatMap(raw => {
   if (String(raw.type || '') !== 'function') return []
   const name = String(raw.name || '').trim()
@@ -217,15 +242,17 @@ const thinkingLevel = (mode: GeminiInteractionWorkMode | undefined) => (
 )
 
 export const buildGeminiInteractionsRequest = (input: GeminiInteractionsRequest) => {
-  const functionContinuation = latestFunctionContinuation(input.items)
-  const storedState = functionContinuation ? null : latestGeminiProviderState(input.items)
+  const functionContinuation = input.allowTools ? latestFunctionContinuation(input.items) : null
+  const storedState = input.allowTools && !functionContinuation ? latestGeminiProviderState(input.items) : null
   const tools = input.allowTools
     ? [...builtInToolsForInteractions(input), ...customToolsForInteractions(input.tools)]
     : []
 
   let previousInteractionId = ''
   let interactionInput: Array<Record<string, unknown>> = []
-  if (functionContinuation) {
+  if (!input.allowTools) {
+    interactionInput = terminalTextInputFromJetWorkItems(input.items)
+  } else if (functionContinuation) {
     previousInteractionId = functionContinuation.previousInteractionId
     interactionInput = functionContinuation.input
   } else if (storedState) {
