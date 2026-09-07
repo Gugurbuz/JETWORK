@@ -13,7 +13,7 @@ describe('Agent Controller V3 explicit source requests', () => {
 
   it('requires an actual source attempt before an absence or access claim', () => {
     expect(AGENT_CONTROLLER_INSTRUCTION).toContain('belirli ve sana görünür bir kaynak veya tool ailesini açıkça kullanmanı isterse')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('ilgili capabilityyi gerçekten denemeden')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('ilgili evidence capabilityyi gerçekten denemeden')
     expect(AGENT_CONTROLLER_INSTRUCTION).toContain('kayıt bulunmadığını')
     expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Gerçek tool observationı boş sonuç')
   })
