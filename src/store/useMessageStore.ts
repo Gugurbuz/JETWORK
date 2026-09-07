@@ -270,7 +270,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     if (unsubscribe) {
       unsubscribe();
       set((state) => {
-        const newListeners = { ...activeListeners };
+        const newListeners = { ...state.activeListeners };
         delete newListeners[workspaceId];
         return { activeListeners: newListeners };
       });
