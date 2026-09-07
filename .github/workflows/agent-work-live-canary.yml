@@ -29,6 +29,7 @@ on:
       - supabase/functions/openai-assistant-core-v3/import_map.json
       - supabase/functions/openai-assistant-v2-entry-router/index.ts
       - supabase/functions/_shared/runtime/runtimeFlags.ts
+      - supabase/functions/_shared/agent/controllerSurface.ts
       - supabase/functions/_shared/agentWorkDurableStream.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
