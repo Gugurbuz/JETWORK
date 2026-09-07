@@ -73,9 +73,12 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isAgentControllerV2Enabled(name => values.get(name))).toBe(false)
   })
 
-  it('bridges the canonical/canary rollout decision into the durable core before implementation loads', () => {
-    expect(durableCoreEntrySource).toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')")
-    expect(durableCoreEntrySource.indexOf("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'"))
+  it('bridges the canonical rollout into the durable core without mutating hosted Supabase secrets', () => {
+    expect(durableCoreEntrySource).not.toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'")
+    expect(durableCoreEntrySource).toContain('const agentControllerV2Enabled = isAgentControllerV2Enabled()')
+    expect(durableCoreEntrySource).toContain('const originalEnvGet = Deno.env.get.bind(Deno.env)')
+    expect(durableCoreEntrySource).toContain("key === 'ASSISTANT_AGENTIC_CONTROLLER'")
+    expect(durableCoreEntrySource.indexOf("key === 'ASSISTANT_AGENTIC_CONTROLLER'"))
       .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
   })
 
