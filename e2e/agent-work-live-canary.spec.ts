@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
+// Live rollout gate: core v122 (Controller V3 full surface + explicit-source policy).
 const username = process.env.E2E_USERNAME;
 const password = process.env.E2E_PASSWORD;
 const canarySlug = process.env.E2E_ASSISTANT_CANARY_SLUG || 'agent-work-meaningful-v2-canary';
