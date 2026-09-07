@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 // Live rollout gate: Controller V3 full surface + explicit-source policy.
 const username = process.env.E2E_USERNAME;
 const password = process.env.E2E_PASSWORD;
-const canarySlug = process.env.E2E_ASSISTANT_CANARY_SLUG || 'agent-work-meaningful-v2-canary';
+const canarySlug = process.env.E2E_ASSISTANT_CANARY_SLUG || 'agent-work-core-v3-canary';
 
 const loginAndCreateChat = async (page: Page) => {
   await page.goto('/');
@@ -42,6 +42,13 @@ const persistedModelMessage = (page: Page) => (
   page.locator('[data-testid="chat-message"][data-message-role="model"]').last()
 );
 
+const assertNoRuntimeFailureText = async (message: ReturnType<typeof persistedModelMessage>) => {
+  await expect(message).not.toContainText(/Yanıt tamamlanamadı/i);
+  await expect(message).not.toContainText(/Asistan servisi 5\d\d hatası döndürdü/i);
+  await expect(message).not.toContainText(/Request contains an invalid argument/i);
+  await expect(message).not.toContainText(/Lütfen tekrar deneyin\.?/i);
+};
+
 const openPersistedTimeline = async (page: Page) => {
   const modelMessage = persistedModelMessage(page);
   await expect(modelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 30_000 });
@@ -68,9 +75,8 @@ test.describe('Agent Work live canary', () => {
 
     const liveModelMessage = persistedModelMessage(page);
     await expect(liveModelMessage).toBeVisible({ timeout: 30_000 });
-    await expect(liveModelMessage).not.toContainText('Yanıt tamamlanamadı', { timeout: 160_000 });
-    await expect(liveModelMessage).not.toContainText(/Asistan servisi 5\d\d hatası döndürdü/i, { timeout: 160_000 });
     await expect(liveModelMessage.getByTestId('assistant-work-completed-logo')).toBeVisible({ timeout: 160_000 });
+    await assertNoRuntimeFailureText(liveModelMessage);
 
     // The streaming placeholder can be replaced by the durable message after the
     // turn completes. Inspect the persisted message after reload so the gate tests
@@ -79,6 +85,7 @@ test.describe('Agent Work live canary', () => {
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
 
     const firstPersisted = await openPersistedTimeline(page);
+    await assertNoRuntimeFailureText(firstPersisted.modelMessage);
     await expect(firstPersisted.modelMessage).not.toContainText(
       /(?:bilgi bankası|knowledge catalog).{0,80}(?:aktif|tanımlı).{0,40}(?:değil|yok|bulunmamaktadır)/i,
     );
@@ -105,6 +112,7 @@ test.describe('Agent Work live canary', () => {
     await page.reload();
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 30_000 });
     const secondPersisted = await openPersistedTimeline(page);
+    await assertNoRuntimeFailureText(secondPersisted.modelMessage);
     const reloadedIds = await secondPersisted.timeline.locator('[data-event-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-event-id')).filter(Boolean) as string[]);
     expect(reloadedIds).toEqual(eventIds);
   });
