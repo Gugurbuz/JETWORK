@@ -58,7 +58,7 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
     properties: {
       kind: { type: 'string', enum: ['start', 'finding', 'plan_change', 'blocked'] },
       message: { type: 'string', minLength: 2, maxLength: 500 },
-      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 }, maxItems: 8 },
+      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 } },
     },
     required: ['kind', 'message', 'sourceRefs'],
     additionalProperties: false,
