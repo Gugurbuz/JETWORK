@@ -281,20 +281,29 @@ const requestStreamingInteraction = async (
   return normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed)
 }
 
+const hasPendingFunctionContinuation = (items: Array<Record<string, unknown>>) => {
+  let latestProviderStateIndex = -1
+  let latestFunctionCallIndex = -1
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]
+    const type = String(item.type || '')
+    if (type === 'jetwork_provider_state') latestProviderStateIndex = index
+    if (type === 'function_call' && String(item._gemini_interaction_id || '').trim()) latestFunctionCallIndex = index
+  }
+  if (latestFunctionCallIndex < 0 || latestFunctionCallIndex <= latestProviderStateIndex) return false
+  return items.slice(latestFunctionCallIndex + 1).some(item => String(item.type || '') === 'function_call_output')
+}
+
 export async function requestGeminiInteractionsResponseGA(
   input: GeminiInteractionsRequest,
 ): Promise<GeminiInteractionsNormalizedResponse> {
   const body = buildGeminiInteractionsRequest(input) as Record<string, any>
 
-  // A terminal synthesis round is intentionally tool-less. Do not resume a
-  // pending requires_action interaction for that round: doing so can preserve
-  // the previous tool-call state and return another function_call even though
-  // the current interaction declares no tools. Re-materialize the complete
-  // JetWork transcript (user input + every model call + every function result)
-  // into a fresh interaction and explicitly prohibit function calling. This
-  // keeps semantic synthesis with Gemini while making the mechanical budget
-  // boundary deterministic and evidence-preserving.
-  if (!input.allowTools) {
+  // Only a terminal synthesis of a pending function continuation needs a fresh
+  // interaction. Ordinary tool-less follow-ups still reuse persisted provider
+  // state so they keep Interactions' server-side conversation continuity and
+  // cache benefits.
+  if (!input.allowTools && hasPendingFunctionContinuation(input.items)) {
     delete body.previous_interaction_id
     body.input = interactionInputFromJetWorkItems(input.items)
     body.tools = []
