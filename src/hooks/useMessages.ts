@@ -203,7 +203,7 @@ export const useMessages = (channelRef: any) => {
       && !!preparedAttachments?.length
       && preparedAttachments.every(attachment => attachment.purpose === 'knowledge_bank');
     const shouldShowAssistantPending = !(!messageText.trim() && hasOnlyKnowledgeAttachments);
-    const aiMsgId = options.retryAiMessageId || crypto.randomUUID();
+    const aiMsgId = options.retryAiMessageId || (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME ? `assistant:${msgId}` : crypto.randomUUID());
     const aiCreatedAt = Date.now();
     const pendingAiMessage: Message = {
       id: aiMsgId,
@@ -829,7 +829,7 @@ export const useMessages = (channelRef: any) => {
           newReactions.splice(existingReactionIndex, 1);
         }
       } else {
-        reaction.users.push(user.name);
+        reaction.users.push(emoji);
       }
     } else {
       newReactions.push({ emoji, users: [user.name] });
