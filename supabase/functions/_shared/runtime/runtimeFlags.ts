@@ -8,6 +8,7 @@ export const DENO_DEPLOYMENT_ID_ENV = 'DENO_DEPLOYMENT_ID'
 export const AGENT_CONTROLLER_V2_CANARY_FUNCTION_IDS = new Set([
   '8889f9e7-b72b-4549-b793-0045311043d6', // openai-assistant-golden-canary
   '7806a5b9-17a7-4cae-a15e-c3e2d6ec8eac', // assistant-primary-agent-core-canary
+  '83401d13-c940-4530-a4c9-fc0b9be60940', // agent-work-core-v3-canary
 ])
 
 type EnvReader = (name: string) => string | undefined

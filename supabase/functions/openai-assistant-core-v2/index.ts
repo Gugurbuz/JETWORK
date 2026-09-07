@@ -21,12 +21,61 @@ installOllamaResponsesBridge()
 installGeminiFinalSynthesisThinkingGuard()
 
 // P1 rollout bridge: implementation.ts still reads the pre-V2 flag name while
-// its semantic branches are being removed. The canonical AGENT_CONTROLLER_V2
-// flag is the only rollout authority; mirror its resolved value into the legacy
-// key before implementation.ts evaluates module-level constants. Missing or
-// invalid canonical configuration therefore forces the durable core to legacy
-// mode even if an old environment still has ASSISTANT_AGENTIC_CONTROLLER=true.
-Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')
+// its semantic branches are being removed. Hosted Supabase Edge Runtime does not
+// allow overwriting project-owned secrets with Deno.env.set(), so resolve the
+// canonical flag once and overlay only reads needed by the active controller.
+// No project secret is mutated, and request/header/body values cannot activate
+// Controller V3 or alter its mechanical execution budget.
+const agentControllerV2Enabled = isAgentControllerV2Enabled()
+const originalEnvGet = Deno.env.get.bind(Deno.env)
+Deno.env.get = ((key: string) => (
+  key === 'ASSISTANT_AGENTIC_CONTROLLER'
+    ? (agentControllerV2Enabled ? 'true' : 'false')
+    : key === 'ASSISTANT_V2_MAX_TOOL_ROUNDS' && agentControllerV2Enabled
+      ? '8'
+      : originalEnvGet(key)
+)) as typeof Deno.env.get
+
+// A durable turn must not fail merely because the browser/test runner closes its
+// response stream before the server-side controller has finished persistence.
+// The implementation deliberately continues work after request aborts, so its
+// direct controller.enqueue/close calls can legitimately race a downstream
+// cancellation. Guard only the Web Streams "already closed" family of errors;
+// every other exception is rethrown so real runtime failures stay observable.
+const installDisconnectedStreamControllerGuard = () => {
+  const Controller = (globalThis as Record<string, any>).ReadableStreamDefaultController
+  const prototype = Controller?.prototype as Record<string, any> | undefined
+  if (!prototype || prototype.__jetworkDisconnectGuardInstalled) return
+
+  const isDisconnectedControllerError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || '')
+    return /cannot close or enqueue|controller is already closed|stream is closed|invalid state.*(?:closed|close|enqueue)/iu.test(message)
+  }
+  const guard = (methodName: 'enqueue' | 'close' | 'error') => {
+    const original = prototype[methodName]
+    if (typeof original !== 'function') return
+    prototype[methodName] = function (...args: unknown[]) {
+      try {
+        return original.apply(this, args)
+      } catch (error) {
+        if (isDisconnectedControllerError(error)) return undefined
+        throw error
+      }
+    }
+  }
+
+  guard('enqueue')
+  guard('close')
+  guard('error')
+  Object.defineProperty(prototype, '__jetworkDisconnectGuardInstalled', {
+    value: true,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  })
+}
+
+installDisconnectedStreamControllerGuard()
 
 // TTFT optimization: the core currently validates workspace access and only then
 // loads the active assistant prompt. Those reads are independent. Prefetch the
@@ -102,6 +151,40 @@ const installActivePromptPrefetch = () => {
 }
 
 installActivePromptPrefetch()
+
+// Interactions function continuation preserves server-side state through
+// previous_interaction_id. On the mechanical terminal round the core deliberately
+// sends an empty tool list; explicitly set tool_choice=none so a continuation can
+// only synthesize text from already collected observations. This is not a semantic
+// routing decision: Gemini chose every preceding tool, while the runtime merely
+// enforces its already-declared terminal budget boundary.
+const installGeminiTerminalSynthesisGuard = () => {
+  const previousFetch = globalThis.fetch.bind(globalThis)
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (
+      /generativelanguage\.googleapis\.com\/v1(?:beta)?\/interactions(?:\?|$)/u.test(url)
+      && typeof init?.body === 'string'
+    ) {
+      try {
+        const payload = JSON.parse(init.body) as Record<string, any>
+        const tools = Array.isArray(payload.tools) ? payload.tools : []
+        if (tools.length === 0 && payload.previous_interaction_id) {
+          payload.generation_config = {
+            ...(payload.generation_config && typeof payload.generation_config === 'object' ? payload.generation_config : {}),
+            tool_choice: 'none',
+          }
+          return previousFetch(input, { ...init, body: JSON.stringify(payload) })
+        }
+      } catch {
+        // Preserve the provider request unchanged when the payload is not JSON.
+      }
+    }
+    return previousFetch(input, init)
+  }
+}
+
+installGeminiTerminalSynthesisGuard()
 
 // The durable core owns its lifecycle with RUN_TIMEOUT_MS and no longer binds
 // reasoning execution to the incoming HTTP request abort signal.

@@ -72,6 +72,54 @@ export function normalizeRuntimePersistenceState(message: Message): Message {
   return message;
 }
 
+/**
+ * Server-side turn materialization intentionally creates the deterministic
+ * `assistant:<userMessageId>` row before the browser has necessarily completed
+ * its own canonical Agent Work persistence. That row must never terminate an
+ * already-active local stream merely because the database `is_typing` value is
+ * null/false.
+ *
+ * The local stream owns lifecycle until a server row actually carries canonical
+ * work events (which proves the Agent Work envelope is durable). At that point the
+ * durable row may safely win and complete the public work header.
+ */
+export function mergeRuntimeServerMessage(local: Message, incoming: Message): Message {
+  const merged = { ...local, ...incoming };
+  if (
+    !FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    || local.role !== 'model'
+    || local.isTyping !== true
+  ) {
+    return merged;
+  }
+
+  const durableCanonical = Boolean(incoming.workEvents?.length);
+  if (durableCanonical) {
+    return {
+      ...merged,
+      isTyping: false,
+      persistenceStatus: 'saved',
+      phase: null,
+      phaseLabel: undefined,
+    };
+  }
+
+  return {
+    ...merged,
+    // Preserve the local stream lifecycle and presentation until the canonical
+    // envelope is durable. The server materializer may still contribute final
+    // text/provider/source fields while the browser finishes persistence.
+    isTyping: true,
+    persistenceStatus: local.persistenceStatus || 'pending',
+    createdAt: local.createdAt,
+    thinkingText: local.thinkingText,
+    phase: local.phase,
+    phaseLabel: local.phaseLabel,
+    workEvents: local.workEvents,
+    rawResponse: local.rawResponse,
+  };
+}
+
 const normalizeRuntimePersistenceStates = (messages: Message[]): Message[] => (
   messages.map(normalizeRuntimePersistenceState)
 );
@@ -144,7 +192,10 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
         const newMsgs = [...msgs, ...optimisticMessages];
 
         typingMessages.forEach(tm => {
-          if (!newMsgs.some(m => m.id === tm.id)) {
+          const serverIndex = newMsgs.findIndex(message => message.id === tm.id);
+          if (serverIndex >= 0) {
+            newMsgs[serverIndex] = mergeRuntimeServerMessage(tm, newMsgs[serverIndex]);
+          } else {
             newMsgs.push(tm);
           }
         });
@@ -191,7 +242,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
             let next: Message[];
             if (idx >= 0) {
               next = [...prev];
-              next[idx] = { ...prev[idx], ...incoming };
+              next[idx] = mergeRuntimeServerMessage(prev[idx], incoming);
             } else {
               next = [...prev, incoming];
             }

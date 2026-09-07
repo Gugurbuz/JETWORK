@@ -59,6 +59,27 @@ const publicLabel = (value: unknown, completed = false) => {
     .replace(/çalışıyor/giu, 'tamamlandı')
 }
 
+const MECHANICAL_COMMENTARY = [
+  /^asistana bağlanılıyor/iu,
+  /^talep işleme alındı/iu,
+  /^talep bağlamı çıkarılıyor/iu,
+  /^advisory bağlam hazırlanıyor/iu,
+  /^semantic capability adayları çıkarılıyor/iu,
+  /^controller hazır:/iu,
+  /^controller ilk aksiyonu değerlendiriyor/iu,
+  /^controller ek capability\/kanıt çağrısı yapıyor/iu,
+  /^controller ilgili jetwork skill prosedürlerini yüklüyor/iu,
+  /^controller ek semantic capability adayları istiyor/iu,
+  /^konuşma bağlamı ve çalışma yolu hazırlanıyor/iu,
+  /^çalışma yolu belirlendi; reasoning akışı başlatıldı/iu,
+  /^yanıt hazırlandı/iu,
+]
+
+const isMechanicalCommentary = (value: unknown) => {
+  const label = clean(value, 1_000)
+  return Boolean(label) && MECHANICAL_COMMENTARY.some(pattern => pattern.test(label))
+}
+
 const sourceSummary = (payload: Record<string, unknown>): PublicSourceSummary | null => {
   const sources = Array.isArray(payload.sources) ? payload.sources as Record<string, unknown>[] : []
   let knowledge = 0
@@ -206,19 +227,30 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
 
     if (eventName === 'status') {
       const stage = clean(payload.stage, 80)
+      const tool = toolForStage(stage)
+      if (!tool) {
+        // Runtime plumbing statuses remain available to legacy telemetry but must
+        // never become public Agent Work rows. If a real tool was active, close
+        // that lifecycle before the runtime moves on.
+        const prefix = activeTool ? completeActive() : ''
+        return `${prefix}${input}`
+      }
+
       const label = publicLabel(payload.label, false)
       const prefix = completeActive()
-      const tool = toolForStage(stage)
       const sourceType = sourceTypeForStage(stage)
-      const activity = startActivity({ kind: tool ? 'tool' : 'status', label, tool, source_type: sourceType })
-      if (tool) activeTool = activity
+      const activity = startActivity({ kind: 'tool', label, tool, source_type: sourceType })
+      activeTool = activity
       const enriched = { ...payload, event_id: activity.event_id, sequence: activity.sequence, kind: activity.kind, label, tool, source_type: sourceType, started_at: activity.started_at, state: activity.state }
-      return `${prefix}${frame('status', enriched)}${frame(tool ? 'tool_start' : 'agent_activity', activity)}`
+      return `${prefix}${frame('status', enriched)}${frame('tool_start', activity)}`
     }
 
     if (eventName === 'commentary') {
+      const rawLabel = payload.message || payload.label
+      if (isMechanicalCommentary(rawLabel)) return input
+      const label = publicLabel(rawLabel, false)
+      if (!label) return input
       const prefix = completeActive()
-      const label = publicLabel(payload.message || payload.label, false)
       const activity = startActivity({ kind: 'commentary', label, source_type: 'runtime' })
       const enriched = { ...payload, event_id: activity.event_id, sequence: activity.sequence, label, started_at: activity.started_at, state: activity.state }
       return `${prefix}${frame('commentary', enriched)}${frame('agent_activity', activity)}`

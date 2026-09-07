@@ -173,8 +173,6 @@ const requestStreamingInteraction = async (
       return
     }
 
-    // Backward-compatible during Google's schema transition; v1 uses the
-    // dedicated status events above.
     if (eventType === 'interaction.status_update') {
       interaction.status = String(event.status || interaction.status || 'in_progress')
       return
@@ -310,8 +308,6 @@ export async function requestGeminiInteractionsResponseGA(
     return requestStreamingInteraction(response, input, startedAt, previousInteractionUsed)
   }
 
-  // Defensive fallback for gateways/tests that buffer a successful interaction
-  // even when SSE was requested.
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>
   const normalized = normalizeGeminiInteraction(payload)
   if (!['completed', 'requires_action'].includes(String(normalized.status || ''))) {

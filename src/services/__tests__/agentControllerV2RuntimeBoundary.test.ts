@@ -54,8 +54,13 @@ describe('Agent Controller V2 runtime boundary', () => {
       DENO_DEPLOYMENT_ID_ENV,
       'bpbbvjigostgrssnduhk_7806a5b9-17a7-4cae-a15e-c3e2d6ec8eac_4',
     ]])
+    const agentWorkCanary = new Map<string, string>([[
+      DENO_DEPLOYMENT_ID_ENV,
+      'bpbbvjigostgrssnduhk_83401d13-c940-4530-a4c9-fc0b9be60940_2',
+    ]])
     expect(isAgentControllerV2Enabled(name => goldenCanary.get(name))).toBe(true)
     expect(isAgentControllerV2Enabled(name => coreCanary.get(name))).toBe(true)
+    expect(isAgentControllerV2Enabled(name => agentWorkCanary.get(name))).toBe(true)
 
     const productionGateway = new Map<string, string>([[
       DENO_DEPLOYMENT_ID_ENV,
@@ -73,9 +78,12 @@ describe('Agent Controller V2 runtime boundary', () => {
     expect(isAgentControllerV2Enabled(name => values.get(name))).toBe(false)
   })
 
-  it('bridges the canonical/canary rollout decision into the durable core before implementation loads', () => {
-    expect(durableCoreEntrySource).toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER', isAgentControllerV2Enabled() ? 'true' : 'false')")
-    expect(durableCoreEntrySource.indexOf("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'"))
+  it('bridges the canonical rollout into the durable core without mutating hosted Supabase secrets', () => {
+    expect(durableCoreEntrySource).not.toContain("Deno.env.set('ASSISTANT_AGENTIC_CONTROLLER'")
+    expect(durableCoreEntrySource).toContain('const agentControllerV2Enabled = isAgentControllerV2Enabled()')
+    expect(durableCoreEntrySource).toContain('const originalEnvGet = Deno.env.get.bind(Deno.env)')
+    expect(durableCoreEntrySource).toContain("key === 'ASSISTANT_AGENTIC_CONTROLLER'")
+    expect(durableCoreEntrySource.indexOf("key === 'ASSISTANT_AGENTIC_CONTROLLER'"))
       .toBeLessThan(durableCoreEntrySource.indexOf("await import('./implementation.ts')"))
   })
 

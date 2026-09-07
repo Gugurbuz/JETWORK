@@ -5,12 +5,51 @@ const MARKDOWN_DECORATION = /[*#`_]/gu;
 const LOW_VALUE_ACTIVITY = /^çalışılıyor\.{0,3}$/iu;
 const WARNING_ACTIVITY = /(?:bulunamad|başarısız|kullanılamadı|yetersiz|erişilemedi|hata|engellendi)/iu;
 
+const MECHANICAL_RUNTIME_PATTERNS = [
+  /^asistana bağlanılıyor/iu,
+  /^talep işleme alındı$/iu,
+  /^talep bağlamı çıkarılıyor/iu,
+  /^soru ve konuşma bağlam(?:ı|ını) (?:hazırlıyorum|hazırlandı)/iu,
+  /^advisory bağlam hazırlanıyor/iu,
+  /^ilgili proje bağlam(?:ı|ını) (?:topluyorum|hazırlandı)/iu,
+  /^semantic capability adayları çıkarılıyor/iu,
+  /^uygun kaynak ve araçlar (?:değerlendiriyorum|değerlendirildi)/iu,
+  /^controller hazır:/iu,
+  /^çalışma araçlar(?:ı|ını) (?:hazırlıyorum|hazırlandı)/iu,
+  /^controller ilk aksiyonu değerlendiriyor/iu,
+  /^ilk inceleme adım(?:ı|ını) (?:seçiyorum|seçildi)/iu,
+  /^controller ek capability\/kanıt çağrısı yapıyor/iu,
+  /^bulduğum bilgi(?:yi)? ek kaynaklarla doğrul/iu,
+  /^controller ilgili jetwork skill prosedürlerini yüklüyor/iu,
+  /^gerekli çalışma yöntem(?:i|ini) (?:hazırlıyorum|hazırlandı)/iu,
+  /^controller ek semantic capability adayları istiyor/iu,
+  /^ek çalışma seçenekleri (?:değerlendiriyorum|değerlendirildi)/iu,
+  /^konuşma bağlamı ve çalışma yolu hazırlanıyor/iu,
+  /^konuşma bağlamı ve çalışma yolu hazırlandı/iu,
+  /^çalışma yolu belirlendi; reasoning akışı başlatıldı/iu,
+  /^inceleme başlatılıyor/iu,
+  /^araştırma ve doğrulama planı oluşturuluyor/iu,
+  /^plan hazır(?::|$)/iu,
+  /^ilgili jetwork skill prosedürleri yükleniyor/iu,
+  /^kanıt yeterliliği ve çelişkiler kontrol ediliyor/iu,
+  /^kanıtlar ve doğrulama sonucu sentezleniyor/iu,
+  /^yanıt hazırlandı/iu,
+  /^yanıt oluşturuluyor/iu,
+  /^yanıt oluşturuldu/iu,
+];
+
 export const normalizeAgentActivityLabel = (value: string): string => value
   .trim()
   .replace(ACTIVITY_PREFIX, '')
   .replace(MARKDOWN_DECORATION, '')
   .replace(/\s+/gu, ' ')
   .trim();
+
+export function isMechanicalAgentActivityLabel(value: string): boolean {
+  const normalized = normalizeAgentActivityLabel(value);
+  if (!normalized) return false;
+  return MECHANICAL_RUNTIME_PATTERNS.some(pattern => pattern.test(normalized));
+}
 
 export function formatAgentActivityLabel(value: string, completed = false): string {
   const normalized = normalizeAgentActivityLabel(value);
@@ -103,7 +142,7 @@ export function diffRollingActivitySnapshot(previous: string[], incoming: string
 
 export function createObservedAgentWorkEvent(input: { rawLabel: string; sequence: number; active?: boolean; now?: string }): AgentWorkEvent | null {
   const rawLabel = normalizeAgentActivityLabel(input.rawLabel);
-  if (!rawLabel || LOW_VALUE_ACTIVITY.test(rawLabel)) return null;
+  if (!rawLabel || LOW_VALUE_ACTIVITY.test(rawLabel) || isMechanicalAgentActivityLabel(rawLabel)) return null;
   const state: AgentWorkEventState = WARNING_ACTIVITY.test(rawLabel) ? 'warning' : input.active ? 'active' : 'completed';
   const label = formatAgentActivityLabel(rawLabel, state !== 'active');
   const timestamp = input.now || new Date().toISOString();
