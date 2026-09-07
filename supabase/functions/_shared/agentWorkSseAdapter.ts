@@ -56,6 +56,7 @@ const publicLabel = (value: unknown, completed = false) => {
     .replace(/doğrulanıyor/giu, 'doğrulandı')
     .replace(/hazırlanıyor/giu, 'hazırlandı')
     .replace(/oluşturuluyor/giu, 'oluşturuldu')
+    .replace(/çalışıyor/giu, 'tamamlandı')
 }
 
 const sourceSummary = (payload: Record<string, unknown>): PublicSourceSummary | null => {
@@ -109,6 +110,7 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
   let sequence = 0
   let activeActivity: PublicAgentWorkEvent | null = null
   let activeTool: PublicAgentWorkEvent | null = null
+  const providerOperations = new Map<string, PublicAgentWorkEvent>()
 
   const timestamp = () => new Date(now()).toISOString()
   const nextSequence = () => {
@@ -143,6 +145,17 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
     return event
   }
 
+  const startDetachedTool = (input: { label: string; tool?: string; source_type?: string }) => ({
+    kind: 'tool' as const,
+    label: input.label,
+    tool: input.tool,
+    source_type: input.source_type,
+    event_id: nextId('tool'),
+    sequence: nextSequence(),
+    started_at: timestamp(),
+    state: 'active' as const,
+  })
+
   const completedEvent = (input: Omit<PublicAgentWorkEvent, 'event_id' | 'sequence' | 'started_at' | 'completed_at' | 'state'>) => {
     const at = timestamp()
     return {
@@ -161,6 +174,35 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
     const payload = parsed.payload
     if (!eventName || !payload || parsed.data === '[DONE]') return input
     if (eventName === 'text_delta') return input
+
+    if (eventName === 'provider_step') {
+      const operationId = clean(payload.operation_id, 500)
+      const lifecycle = clean(payload.lifecycle, 20)
+      if (!operationId || !['start', 'complete'].includes(lifecycle)) return ''
+
+      if (lifecycle === 'start') {
+        const prefix = completeActive()
+        const started = startDetachedTool({
+          label: publicLabel(payload.label, false) || 'Araç çalışıyor...',
+          tool: clean(payload.tool, 120) || undefined,
+          source_type: clean(payload.source_type, 40) || 'runtime',
+        })
+        providerOperations.set(operationId, started)
+        return `${prefix}${frame('tool_start', started)}`
+      }
+
+      const started = providerOperations.get(operationId)
+      if (!started) return ''
+      providerOperations.delete(operationId)
+      const failed = payload.failed === true
+      const completed: PublicAgentWorkEvent = {
+        ...started,
+        label: publicLabel(payload.label || started.label, true),
+        state: failed ? 'failed' : 'completed',
+        completed_at: timestamp(),
+      }
+      return frame('tool_complete', completed)
+    }
 
     if (eventName === 'status') {
       const stage = clean(payload.stage, 80)
@@ -207,15 +249,33 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
     }
 
     if (eventName === 'completed') {
-      const prefix = completeActive()
+      let prefix = completeActive()
       activeTool = null
+      for (const [operationId, started] of providerOperations) {
+        prefix += frame('tool_complete', {
+          ...started,
+          label: publicLabel(started.label, true),
+          state: 'completed',
+          completed_at: timestamp(),
+        })
+        providerOperations.delete(operationId)
+      }
       const finalEvent = completedEvent({ kind: 'final', label: 'Yanıt oluşturuldu', source_type: 'runtime' })
       return `${prefix}${frame('final', { ...finalEvent, conversationId: payload.conversationId, model: payload.model, provider: payload.provider })}${input}`
     }
 
     if (eventName === 'error') {
-      const prefix = completeActive('failed')
+      let prefix = completeActive('failed')
       activeTool = null
+      for (const [operationId, started] of providerOperations) {
+        prefix += frame('tool_complete', {
+          ...started,
+          label: `${started.tool || 'Araç'} işlemi tamamlanamadı`,
+          state: 'failed',
+          completed_at: timestamp(),
+        })
+        providerOperations.delete(operationId)
+      }
       const warningEvent = completedEvent({ kind: 'warning', label: clean(payload.message || payload.error, 1_000) || 'Çalışma sırasında bir hata oluştu', source_type: 'runtime' })
       return `${prefix}${frame('warning', { ...warningEvent, state: 'failed' })}${input}`
     }
@@ -224,6 +284,19 @@ export function createAgentWorkSseAdapter(now: () => number = () => Date.now()):
     return input
   }
 
-  const flush = () => completeActive()
+  const flush = () => {
+    let output = completeActive()
+    for (const [operationId, started] of providerOperations) {
+      output += frame('tool_complete', {
+        ...started,
+        label: publicLabel(started.label, true),
+        state: 'completed',
+        completed_at: timestamp(),
+      })
+      providerOperations.delete(operationId)
+    }
+    return output
+  }
+
   return { transformFrame, flush }
 }

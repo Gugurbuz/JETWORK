@@ -1,9 +1,17 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { AGENT_CONTROLLER_INSTRUCTION } from '../../../supabase/functions/_shared/agent/controllerPolicy'
 
-describe('agent controller ABAP message normalization', () => {
-  it('requires canonical CLASS-NNN alongside verified MESSAGE syntax', () => {
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Kanonik mesaj kodunu mekanik biçimde `MESSAGE_CLASS-NNN` olarak üret')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('hem gerçek source sözdizimini hem bu kanonik kodu belirt')
+const toolsSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/assistantTools.ts', import.meta.url),
+  'utf8',
+)
+
+describe('ABAP canonical message evidence formatting', () => {
+  it('derives canonical MESSAGE_CLASS-NNN mechanically from verified ABAP source', () => {
+    expect(toolsSource).toContain('extractAbapMessageCodes')
+    expect(toolsSource).toContain("padStart(3, '0')")
+    expect(toolsSource).toContain("toLocaleUpperCase('en-US')")
+    expect(toolsSource).toContain('codes.add(`${messageClass}-${number}`)')
+    expect(toolsSource).toContain('[VERIFIED_ABAP_MESSAGE_CODES]')
   })
 })

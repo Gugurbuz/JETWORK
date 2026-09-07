@@ -6,32 +6,42 @@ const controllerSurfaceSource = readFileSync(
   new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url),
   'utf8',
 )
+const assistantToolsSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/assistantTools.ts', import.meta.url),
+  'utf8',
+)
+const groundingSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/groundingGuard.ts', import.meta.url),
+  'utf8',
+)
 
-describe('Agent Controller V2 exact evidence closure', () => {
-  it('uses verified exact evidence before asking the user for facts already present', () => {
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('exact-evidence closure')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('kanıtta zaten bulunan bir alanı kullanıcıdan tekrar isteme')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('MESSAGE eNNN(message_class)')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('verified `evidenceSignals`')
+describe('Agent Controller V3 exact-evidence boundary', () => {
+  it('keeps unsupported exact technical claims fail-closed without prescribing retrieval order', () => {
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Kuruma özgü veya exact teknik bir iddiayı')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Kanıt eksikse eksikliği açıkça söyle')
+    expect(assistantToolsSource).toContain('VERIFIED_KNOWLEDGE_EVIDENCE')
+    expect(assistantToolsSource).toContain('citationReady: true')
+    expect(groundingSource).toContain('evaluateGroundedTechnicalClaims')
+    expect(groundingSource).toContain('shouldFailClosedGroundedAnswer')
   })
 
-  it('does not encode the reproduced message number as a routing rule', () => {
+  it('does not encode a reproduced message number as a routing rule', () => {
     expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('111 nolu')
     expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('ZCRM_COST-111')
   })
 
-  it('closes a bounded pending candidate set before retrying the blocked precise search', () => {
-    expect(controllerSurfaceSource).toContain('exact-verify EVERY pendingCandidateKey in that batch, not a subset')
-    expect(controllerSurfaceSource).toContain('retry the blocked query verbatim')
-    expect(controllerSurfaceSource).toContain('must not replace retrying a more precise current-goal query')
+  it('does not restore the hidden candidate-verification state machine', () => {
+    expect(controllerSurfaceSource).not.toContain('pendingCandidateKey')
+    expect(controllerSurfaceSource).not.toContain('retry the blocked query verbatim')
+    expect(assistantToolsSource).not.toContain('SEARCH_CANDIDATES_REQUIRE_EXACT_VERIFICATION')
+    expect(assistantToolsSource).not.toContain('protocolBlocked')
+    expect(assistantToolsSource).not.toContain('pendingSearchVerificationByClient')
   })
 
-  it('preserves literal structural canonical keys instead of display rewrites', () => {
-    expect(controllerSurfaceSource).toContain('literal canonicalKey exactly as returned')
-    expect(controllerSurfaceSource).toContain('never rewrite canonicalKey as `CLASS=>METHOD`')
-    expect(controllerSurfaceSource).toContain('`tam implementasyon mevcut değil`')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Canonical provenance preservation bir final-output invariantıdır')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('exact verified `canonicalKey` stringini aynen')
-    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('`ZCL_EXAMPLE=>GET_VALUE`')
+  it('preserves canonical identity mechanically in exact records instead of prompt-level display rewrites', () => {
+    expect(assistantToolsSource).toContain('canonicalKey: row.canonical_key')
+    expect(assistantToolsSource).toContain('p_canonical_key: canonicalKey')
+    expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('CLASS=>METHOD')
+    expect(controllerSurfaceSource).not.toContain('never rewrite canonicalKey')
   })
 })
