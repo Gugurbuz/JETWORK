@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { WorkspaceRouteBridge } from './components/WorkspaceRouteBridge';
 import { QualityLabPage } from './components/QualityLabPage';
 import { installAssistantTransportRecovery } from './services/assistantTransportRecovery';
+import { installAssistantTerminalStreamGuard } from './services/assistantTerminalStreamGuard';
 import { installAssistantTtftBrowserTelemetry } from './services/assistantTtftBrowserTelemetry';
 import './index.css';
 import './ai-native.css';
@@ -16,6 +17,7 @@ import './assistant-mobile-clean.css';
 import './assistant-live-runtime.css';
 
 installAssistantTransportRecovery();
+installAssistantTerminalStreamGuard();
 installAssistantTtftBrowserTelemetry();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
