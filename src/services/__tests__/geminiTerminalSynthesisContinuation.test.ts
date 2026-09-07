@@ -1,10 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { requestGeminiInteractionsResponseGA } from '../../../supabase/functions/_shared/geminiInteractionsTransportGA.ts'
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Gemini terminal synthesis continuation', () => {
-  it('rematerializes only a pending function continuation and disables tools', async () => {
+  it('preserves previous_interaction_id and sends only the matching function result', async () => {
     let requestBody: Record<string, any> = {}
     vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body || '{}')) as Record<string, any>
@@ -42,13 +43,20 @@ describe('Gemini terminal synthesis continuation', () => {
       onText: () => {},
     })
 
-    expect(requestBody.previous_interaction_id).toBeUndefined()
-    expect(requestBody.tools).toEqual([])
-    expect(requestBody.generation_config?.tool_choice).toBe('none')
-    expect(requestBody.input).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'user_input' }),
-      expect.objectContaining({ type: 'function_call', id: 'call_1', name: 'get_abap_source' }),
+    expect(requestBody.previous_interaction_id).toBe('int_requires_action')
+    expect(requestBody.input).toEqual([
       expect.objectContaining({ type: 'function_result', call_id: 'call_1', name: 'get_abap_source' }),
-    ]))
+    ])
+    expect(requestBody.input.some((item: Record<string, unknown>) => item.type === 'user_input')).toBe(false)
+    expect(requestBody.input.some((item: Record<string, unknown>) => item.type === 'function_call')).toBe(false)
+  })
+
+  it('keeps the mechanical terminal tool-choice guard at the durable core boundary', () => {
+    const coreEntry = readFileSync(
+      new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
+      'utf8',
+    )
+    expect(coreEntry).toContain('tools.length === 0 && payload.previous_interaction_id')
+    expect(coreEntry).toContain("tool_choice: 'none'")
   })
 })
