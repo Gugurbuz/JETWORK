@@ -1,7 +1,6 @@
 import {
   buildGeminiInteractionsRequest,
   GEMINI_INTERACTIONS_MODEL,
-  interactionInputFromJetWorkItems,
   normalizeGeminiInteraction,
   type GeminiInteractionPublicStepEvent,
   type GeminiInteractionsNormalizedResponse,
@@ -174,8 +173,6 @@ const requestStreamingInteraction = async (
       return
     }
 
-    // Backward-compatible during Google's schema transition; v1 uses the
-    // dedicated status events above.
     if (eventType === 'interaction.status_update') {
       interaction.status = String(event.status || interaction.status || 'in_progress')
       return
@@ -281,39 +278,11 @@ const requestStreamingInteraction = async (
   return normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed)
 }
 
-const hasPendingFunctionContinuation = (items: Array<Record<string, unknown>>) => {
-  let latestProviderStateIndex = -1
-  let latestFunctionCallIndex = -1
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index]
-    const type = String(item.type || '')
-    if (type === 'jetwork_provider_state') latestProviderStateIndex = index
-    if (type === 'function_call' && String(item._gemini_interaction_id || '').trim()) latestFunctionCallIndex = index
-  }
-  if (latestFunctionCallIndex < 0 || latestFunctionCallIndex <= latestProviderStateIndex) return false
-  return items.slice(latestFunctionCallIndex + 1).some(item => String(item.type || '') === 'function_call_output')
-}
-
 export async function requestGeminiInteractionsResponseGA(
   input: GeminiInteractionsRequest,
 ): Promise<GeminiInteractionsNormalizedResponse> {
-  const body = buildGeminiInteractionsRequest(input) as Record<string, any>
-
-  // Only a terminal synthesis of a pending function continuation needs a fresh
-  // interaction. Ordinary tool-less follow-ups still reuse persisted provider
-  // state so they keep Interactions' server-side conversation continuity and
-  // cache benefits.
-  if (!input.allowTools && hasPendingFunctionContinuation(input.items)) {
-    delete body.previous_interaction_id
-    body.input = interactionInputFromJetWorkItems(input.items)
-    body.tools = []
-    body.generation_config = {
-      ...(body.generation_config && typeof body.generation_config === 'object' ? body.generation_config : {}),
-      tool_choice: 'none',
-    }
-  }
-
-  const previousInteractionUsed = typeof body.previous_interaction_id === 'string'
+  const body = buildGeminiInteractionsRequest(input)
+  const previousInteractionUsed = typeof (body as Record<string, unknown>).previous_interaction_id === 'string'
   const startedAt = performance.now()
   const response = await fetch(GEMINI_INTERACTIONS_URL, {
     method: 'POST',
@@ -339,8 +308,6 @@ export async function requestGeminiInteractionsResponseGA(
     return requestStreamingInteraction(response, input, startedAt, previousInteractionUsed)
   }
 
-  // Defensive fallback for gateways/tests that buffer a successful interaction
-  // even when SSE was requested.
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>
   const normalized = normalizeGeminiInteraction(payload)
   if (!['completed', 'requires_action'].includes(String(normalized.status || ''))) {
