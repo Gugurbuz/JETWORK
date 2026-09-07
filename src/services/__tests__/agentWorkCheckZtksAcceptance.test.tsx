@@ -37,7 +37,7 @@ const reduceCanonicalEvent = (state: AgentWorkEvent[], eventName: string | undef
 };
 
 describe('CHECK_ZTKS Agent Work acceptance', () => {
-  it('keeps the complete real work chronology while text starts streaming and final UI collapses', () => {
+  it('keeps only meaningful real work while text starts streaming and final UI collapses', () => {
     let clock = Date.parse('2026-09-06T20:00:00.000Z');
     const adapter = createAgentWorkSseAdapter(() => clock);
     let wire = '';
@@ -69,10 +69,9 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
       ],
     }));
     clock += 1_000;
-    wire += adapter.transformFrame(sse('status', {
-      type: 'status',
-      stage: 'verifying',
-      label: 'Controller ek capability/kanıt çağrısı yapıyor...',
+    wire += adapter.transformFrame(sse('commentary', {
+      type: 'commentary',
+      message: 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...',
     }));
     clock += 1_000;
     wire += adapter.transformFrame(sse('text_delta', {
@@ -100,10 +99,11 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
       liveState = reduceCanonicalEvent(liveState, event.event, event.data);
     }
 
-    expect(liveState.some(event => event.label === 'Soru ve konuşma bağlamı hazırlandı')).toBe(true);
+    expect(liveState.some(event => event.label === 'Soru ve konuşma bağlamı hazırlandı')).toBe(false);
+    expect(liveState.some(event => event.label === 'Uygun kaynak ve araçlar değerlendirildi')).toBe(false);
     expect(liveState.some(event => event.label === '3 kurumsal kaynak bulundu')).toBe(true);
     expect(liveState.find(event => event.label === 'Bulduğum bilgiyi ek kaynaklarla doğruluyorum...')?.state).toBe('active');
-    expect(liveState.filter(event => event.state === 'completed').length).toBeGreaterThanOrEqual(4);
+    expect(liveState.filter(event => event.state === 'completed').length).toBeGreaterThanOrEqual(2);
 
     const liveHtml = renderToStaticMarkup(
       <AssistantWorkIndicator
@@ -114,7 +114,10 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
     );
     expect(liveHtml).toContain('Düşünüyor');
     expect(liveHtml).toContain('data-testid="assistant-work-live-details"');
+    expect(liveHtml).toContain('Bilgi Bankası');
     expect(liveHtml).toContain('Bulduğum bilgiyi ek kaynaklarla doğruluyorum...');
+    expect(liveHtml).not.toContain('Soru ve konuşma bağlamı hazırlandı');
+    expect(liveHtml).not.toContain('Uygun kaynak ve araçlar değerlendirildi');
 
     let state: AgentWorkEvent[] = [];
     for (const event of parsed) {
@@ -123,8 +126,8 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
 
     const uniqueIds = new Set(state.map(event => event.eventId));
     expect(state).toHaveLength(uniqueIds.size);
-    expect(state.some(event => event.label === 'Soru ve konuşma bağlamı hazırlandı')).toBe(true);
-    expect(state.some(event => event.label === 'Uygun kaynak ve araçlar değerlendirildi')).toBe(true);
+    expect(state.some(event => event.label === 'Soru ve konuşma bağlamı hazırlandı')).toBe(false);
+    expect(state.some(event => event.label === 'Uygun kaynak ve araçlar değerlendirildi')).toBe(false);
     expect(state.some(event => event.label === '3 kurumsal kaynak bulundu')).toBe(true);
     expect(state.some(event => event.label === 'Bulduğum bilgi ek kaynaklarla doğrulandı')).toBe(true);
     expect(state.some(event => event.label === 'Yanıt oluşturuldu')).toBe(true);
@@ -133,6 +136,7 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
     const timelineHtml = renderToStaticMarkup(<AgentWorkTimeline events={state} />);
     expect(timelineHtml).toContain('3 kurumsal kaynak bulundu');
     expect(timelineHtml).toContain('Bulduğum bilgi ek kaynaklarla doğrulandı');
+    expect(timelineHtml).not.toContain('Çalışma araçları hazırlandı');
 
     const finalHtml = renderToStaticMarkup(
       <AssistantWorkIndicator
