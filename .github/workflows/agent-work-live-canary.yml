@@ -18,10 +18,16 @@ on:
       - src/services/sseParser.ts
       - src/services/messageRepository.ts
       - src/services/__tests__/agentWorkCompletionBarrier.test.ts
+      - src/services/__tests__/agentControllerV2RuntimeBoundary.test.ts
       - src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
       - src/store/useMessageStore.ts
       - src/store/__tests__/useMessageStoreAgentWorkPersistence.test.ts
       - supabase/functions/openai-assistant-core-v2/index.ts
+      - supabase/functions/openai-assistant-core-v3/index.ts
+      - supabase/functions/openai-assistant-core-v3/import_map.json
+      - supabase/functions/openai-assistant-v2-entry-router/index.ts
+      - supabase/functions/_shared/runtime/runtimeFlags.ts
+      - supabase/functions/_shared/agentWorkDurableStream.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
       - supabase/functions/_shared/geminiInteractionsTransportGA.ts
