@@ -9,6 +9,10 @@ import {
   registerPersistedAgentWorkEvents,
   resetAgentWorkLiveSnapshot,
 } from './agentWorkLiveStream';
+import {
+  getParsedAgentWorkEvents,
+  resetParsedAgentWorkEvents,
+} from './sseParser';
 
 function toMessagePayload(workspaceId: string, message: Message, ownerId?: string): Record<string, unknown> {
   let attachments = message.attachments;
@@ -93,9 +97,10 @@ export async function saveUserMessage(
   message: Message,
 ): Promise<void> {
   if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
-    // User-message persistence is the turn boundary. Clear any previous live
-    // chronology before the new assistant stream can emit canonical sequence 1.
+    // User-message persistence is the turn boundary. Clear any previous canonical
+    // chronology before the new assistant stream can emit sequence 1.
     resetAgentWorkLiveSnapshot();
+    resetParsedAgentWorkEvents();
   }
   if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME && Array.isArray(message.attachments)) {
     const originalAttachments = message.attachments;
@@ -127,11 +132,17 @@ export async function saveAiMessage(
   ownerId: string,
   message: Message,
 ): Promise<void> {
+  const liveWorkEvents = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    ? getAgentWorkLiveSnapshot()
+    : [];
+  const parsedWorkEvents = FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
+    ? getParsedAgentWorkEvents()
+    : [];
   const currentWorkEvents = message.workEvents?.length
     ? message.workEvents
-    : FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME
-      ? getAgentWorkLiveSnapshot()
-      : [];
+    : liveWorkEvents.length
+      ? liveWorkEvents
+      : parsedWorkEvents;
   const persistableMessage = currentWorkEvents.length
     ? { ...message, workEvents: currentWorkEvents }
     : message;
@@ -139,15 +150,16 @@ export async function saveAiMessage(
   if (error) throw error;
   if (FEATURE_FLAGS.SINGLE_ASSISTANT_RUNTIME) {
     // Atomically hand the just-persisted canonical chronology to the completed
-    // message view before clearing the transient turn snapshot. This prevents a
+    // message view before clearing transient turn snapshots. This prevents a
     // final render from falling back to reported:/observed: compatibility rows.
     if (currentWorkEvents.length) {
       registerPersistedAgentWorkEvents(message.createdAt, currentWorkEvents);
     }
     // Persistence has copied the authoritative public chronology into the message
-    // envelope. Clear the transient singleton so a retry/new turn cannot briefly
-    // render the previous turn while waiting for its first canonical event.
+    // envelope. Clear both transient sources so retries/new turns cannot briefly
+    // render the previous turn while waiting for their first canonical event.
     resetAgentWorkLiveSnapshot();
+    resetParsedAgentWorkEvents();
   }
 }
 
