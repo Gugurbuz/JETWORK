@@ -17,7 +17,10 @@ on:
       - src/services/agentWorkCompletionBarrier.ts
       - src/services/sseParser.ts
       - src/services/messageRepository.ts
+      - src/services/__tests__/agentWorkCompletionBarrier.test.ts
       - src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
+      - src/store/useMessageStore.ts
+      - src/store/__tests__/useMessageStoreAgentWorkPersistence.test.ts
       - supabase/functions/openai-assistant-core-v2/index.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
