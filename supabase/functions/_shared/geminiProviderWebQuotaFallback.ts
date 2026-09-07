@@ -68,7 +68,11 @@ const quotaExceededInStreamPrefix = async (response: Response) => {
     buffer += decoder.decode()
     return QUOTA_MARKER.test(buffer)
   } finally {
-    try { await reader.cancel() } catch {}
+    // A cloned Response body is a tee branch. Awaiting cancellation of one
+    // branch before the original branch is cancelled can deadlock the retry.
+    // Fire-and-forget here; the caller cancels the original branch immediately
+    // after quota detection, which lets both tee branches settle.
+    void reader.cancel().catch(() => undefined)
   }
 }
 
