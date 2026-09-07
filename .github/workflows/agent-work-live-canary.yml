@@ -1,5 +1,7 @@
 name: Agent Work Live Canary
 
+# Live gate targets the isolated Agent Work gateway, currently backed by the
+# static-import openai-assistant-core-v2 v120 canary candidate.
 on:
   workflow_dispatch:
   push:
