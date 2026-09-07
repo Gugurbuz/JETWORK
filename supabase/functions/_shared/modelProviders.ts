@@ -6,10 +6,10 @@ import { AGENT_CONTROLLER_INSTRUCTION } from './agentControllerPolicy.ts'
 import { extractGeminiRuntimeObservationInstruction } from './agent/controllerRuntimeObservation.ts'
 import {
   createGeminiProviderStateItem,
-  requestGeminiInteractionsResponse,
   type GeminiInteractionPublicStepEvent,
   type GeminiInteractionsRequest,
 } from './geminiInteractionsRuntimeV3.ts'
+import { requestGeminiInteractionsResponseGA } from './geminiInteractionsTransportGA.ts'
 import {
   DEFAULT_OLLAMA_MODEL,
   OLLAMA_MODELS,
@@ -73,9 +73,9 @@ type GeminiRequestInput = {
 /**
  * Controller V3 provider boundary.
  *
- * Gemini 3.8 Flash is invoked through the Interactions API. JetWork no longer
- * runs a provider-side semantic plan, knowledge/web route, mandatory retrieval
- * sequence or deterministic finalizer before the model gets to decide.
+ * Gemini 3.8 Flash is invoked through the GA Interactions API transport. JetWork
+ * no longer runs a provider-side semantic plan, knowledge/web route, mandatory
+ * retrieval sequence or deterministic finalizer before the model gets to decide.
  *
  * Interactions conversation history may be resumed by a validated provider-state
  * marker. Tools, system instruction and generation config are nevertheless
@@ -98,5 +98,5 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     signal: input.signal,
   }
 
-  return await requestGeminiInteractionsResponse(interactionInput) as NormalizedModelResponse
+  return await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
 }
