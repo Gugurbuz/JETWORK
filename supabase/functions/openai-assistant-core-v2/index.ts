@@ -36,6 +36,47 @@ Deno.env.get = ((key: string) => (
       : originalEnvGet(key)
 )) as typeof Deno.env.get
 
+// A durable turn must not fail merely because the browser/test runner closes its
+// response stream before the server-side controller has finished persistence.
+// The implementation deliberately continues work after request aborts, so its
+// direct controller.enqueue/close calls can legitimately race a downstream
+// cancellation. Guard only the Web Streams "already closed" family of errors;
+// every other exception is rethrown so real runtime failures stay observable.
+const installDisconnectedStreamControllerGuard = () => {
+  const Controller = (globalThis as Record<string, any>).ReadableStreamDefaultController
+  const prototype = Controller?.prototype as Record<string, any> | undefined
+  if (!prototype || prototype.__jetworkDisconnectGuardInstalled) return
+
+  const isDisconnectedControllerError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || '')
+    return /cannot close or enqueue|controller is already closed|stream is closed|invalid state.*(?:closed|close|enqueue)/iu.test(message)
+  }
+  const guard = (methodName: 'enqueue' | 'close' | 'error') => {
+    const original = prototype[methodName]
+    if (typeof original !== 'function') return
+    prototype[methodName] = function (...args: unknown[]) {
+      try {
+        return original.apply(this, args)
+      } catch (error) {
+        if (isDisconnectedControllerError(error)) return undefined
+        throw error
+      }
+    }
+  }
+
+  guard('enqueue')
+  guard('close')
+  guard('error')
+  Object.defineProperty(prototype, '__jetworkDisconnectGuardInstalled', {
+    value: true,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  })
+}
+
+installDisconnectedStreamControllerGuard()
+
 // TTFT optimization: the core currently validates workspace access and only then
 // loads the active assistant prompt. Those reads are independent. Prefetch the
 // prompt as soon as the workspace lookup begins, then reuse the exact RPC response
