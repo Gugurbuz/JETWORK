@@ -23,14 +23,17 @@ installGeminiFinalSynthesisThinkingGuard()
 // P1 rollout bridge: implementation.ts still reads the pre-V2 flag name while
 // its semantic branches are being removed. Hosted Supabase Edge Runtime does not
 // allow overwriting project-owned secrets with Deno.env.set(), so resolve the
-// canonical flag once and overlay only reads of the legacy key. No project secret
-// is mutated, and request/header/body values still cannot activate Controller V2.
+// canonical flag once and overlay only reads needed by the active controller.
+// No project secret is mutated, and request/header/body values cannot activate
+// Controller V3 or alter its mechanical execution budget.
 const agentControllerV2Enabled = isAgentControllerV2Enabled()
 const originalEnvGet = Deno.env.get.bind(Deno.env)
 Deno.env.get = ((key: string) => (
   key === 'ASSISTANT_AGENTIC_CONTROLLER'
     ? (agentControllerV2Enabled ? 'true' : 'false')
-    : originalEnvGet(key)
+    : key === 'ASSISTANT_V2_MAX_TOOL_ROUNDS' && agentControllerV2Enabled
+      ? '8'
+      : originalEnvGet(key)
 )) as typeof Deno.env.get
 
 // TTFT optimization: the core currently validates workspace access and only then
