@@ -126,13 +126,11 @@ describe('P0 primary LLM agent boundaries', () => {
       sources: [{ sourceType: 'knowledge', canonicalKey: 'method:CHECK_ZTKS', sourceId: 'kb-1' }],
       toolResults: [],
     })
-    expect(verified).toMatchObject({
-      ok: true,
-      verifiedKnowledgeEvidence: true,
-      unsupportedIdentifiers: [],
-      messageTextMismatches: [],
-      unsupportedClaims: [],
-    })
+    expect(verified.ok, JSON.stringify(verified)).toBe(true)
+    expect(verified.verifiedKnowledgeEvidence).toBe(true)
+    expect(verified.unsupportedIdentifiers).toEqual([])
+    expect(verified.messageTextMismatches).toEqual([])
+    expect(verified.unsupportedClaims).toEqual([])
 
     const unsupportedBehavior = evaluateGroundedTechnicalClaims({
       text: 'CHECK_ZTKS güvence tipi farklı olduğunda hata verir.',
