@@ -1,7 +1,7 @@
 name: Agent Work Live Canary
 
-# Live rollout gate targets the isolated Agent Work gateway backed by the
-# Controller V3 shadow chain.
+# Live rollout gate targets the exact-SHA Controller V3 core canary so the
+# authenticated browser test exercises the same core contract production uses.
 on:
   workflow_dispatch:
   push:
@@ -38,7 +38,7 @@ jobs:
       VITE_SINGLE_ASSISTANT_RUNTIME: 'true'
       E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-      E2E_ASSISTANT_CANARY_SLUG: agent-work-meaningful-v2-canary
+      E2E_ASSISTANT_CANARY_SLUG: agent-work-core-v3-canary
     steps:
       - name: Checkout
         uses: actions/checkout@v4
