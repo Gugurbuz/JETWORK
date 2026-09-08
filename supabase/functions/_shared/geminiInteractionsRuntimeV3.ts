@@ -19,6 +19,7 @@ export interface GeminiInteractionsRequest {
   items: Array<Record<string, unknown>>
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
+  terminalSynthesis?: boolean
   allowProviderWeb?: boolean
   workMode?: GeminiInteractionWorkMode
   maxOutputTokens: number
@@ -192,11 +193,10 @@ export const interactionInputFromJetWorkItems = (items: Array<Record<string, unk
 
 /**
  * Terminal synthesis is an execution-budget boundary, not another controller
- * decision. Once tools are disabled we deliberately start a fresh interaction
- * containing only user/model text. The system instruction already carries the
- * verified evidence/observations needed for synthesis. Reusing a prior
- * requires_action interaction here can cause Gemini to replay the old function
- * call even though no tool surface exists, exhausting the round budget.
+ * decision. Only an explicit terminal-synthesis request starts a fresh interaction
+ * containing user/model text. Normal no-tool turns retain provider continuation.
+ * Reusing a prior requires_action interaction at the terminal boundary can cause
+ * Gemini to replay the old function call even though no tool surface exists.
  */
 export const terminalTextInputFromJetWorkItems = (items: Array<Record<string, unknown>>) => {
   const steps: Array<Record<string, unknown>> = []
@@ -242,15 +242,16 @@ const thinkingLevel = (mode: GeminiInteractionWorkMode | undefined) => (
 )
 
 export const buildGeminiInteractionsRequest = (input: GeminiInteractionsRequest) => {
-  const functionContinuation = input.allowTools ? latestFunctionContinuation(input.items) : null
-  const storedState = input.allowTools && !functionContinuation ? latestGeminiProviderState(input.items) : null
+  const freshTerminalSynthesis = input.terminalSynthesis === true
+  const functionContinuation = freshTerminalSynthesis ? null : latestFunctionContinuation(input.items)
+  const storedState = !freshTerminalSynthesis && !functionContinuation ? latestGeminiProviderState(input.items) : null
   const tools = input.allowTools
     ? [...builtInToolsForInteractions(input), ...customToolsForInteractions(input.tools)]
     : []
 
   let previousInteractionId = ''
   let interactionInput: Array<Record<string, unknown>> = []
-  if (!input.allowTools) {
+  if (freshTerminalSynthesis) {
     interactionInput = terminalTextInputFromJetWorkItems(input.items)
   } else if (functionContinuation) {
     previousInteractionId = functionContinuation.previousInteractionId
