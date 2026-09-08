@@ -1,0 +1,81 @@
+name: Luna Bootstrap
+
+on:
+  push:
+    branches:
+      - feat/openai-luna-provider
+    paths:
+      - .github/workflows/luna-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/openai-luna-provider
+      - name: Apply Luna provider patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'expected pattern missing: {path}: {old[:120]}')
+              p.write_text(text.replace(old, new))
+
+          replace(
+              'supabase/functions/_shared/modelProvidersLegacy.ts',
+              "export const OPENAI_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])",
+              "export const OPENAI_MODELS = new Set(['gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6'])",
+          )
+          replace(
+              'supabase/functions/openai-assistant-core-v2/implementation.ts',
+              "const DEFAULT_MODEL = 'gpt-5.6-sol'",
+              "const DEFAULT_MODEL = 'gpt-5.6-luna'",
+          )
+          replace(
+              'supabase/functions/openai-assistant-v2/index.ts',
+              "const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol'",
+              "const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna'",
+          )
+          replace(
+              'src/components/CompactModelControl.tsx',
+              "  { value: 'auto', label: 'Otomatik', detail: 'JetWork en uygun modeli seçer' },\n  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', detail: 'OpenAI' },",
+              "  { value: 'auto', label: 'Otomatik', detail: 'JetWork en uygun modeli seçer' },\n  { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', detail: 'OpenAI • hızlı / ekonomik' },\n  { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', detail: 'OpenAI' },",
+          )
+          replace(
+              'src/components/SettingsModal.tsx',
+              '<option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>',
+              '<option value="gpt-5.6-luna">OpenAI GPT-5.6 Luna</option>\n                            <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>',
+          )
+
+          core = Path('supabase/functions/openai-assistant-core-v2/implementation.ts')
+          text = core.read_text()
+          old = """const userFacingAssistantError = (error: unknown) => {\n  const detail = errorMessage(error)\n  if (/no credits remaining|insufficient_quota|billing/i.test(detail)) {\n    return 'OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.'\n  }\n  if (/resource_exhausted|quota exceeded|gemini.*quota/i.test(detail)) {\n    return 'Gemini API kullanım kotası tükendi. Yönetici kotayı yeniledikten sonra tekrar deneyin.'\n  }\n  return 'Asistan yanıtı tamamlanamadı. Lütfen tekrar deneyin.'\n}\n"""
+          new = """const userFacingAssistantError = (error: unknown) => {\n  const detail = errorMessage(error)\n  if (/resource_exhausted|quota exceeded|gemini.*quota|generativelanguage\\.googleapis\\.com/i.test(detail)) {\n    return 'Gemini API kullanım kotası tükendi. Yönetici kotayı yeniledikten sonra tekrar deneyin.'\n  }\n  if (/no credits remaining|insufficient_quota|openai.*(?:quota|billing)|api\\.openai\\.com/i.test(detail)) {\n    return 'OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.'\n  }\n  return 'Asistan yanıtı tamamlanamadı. Lütfen tekrar deneyin.'\n}\n"""
+          if old not in text:
+              raise SystemExit('userFacingAssistantError block changed unexpectedly')
+          core.write_text(text.replace(old, new))
+
+          test = Path('src/services/__tests__/openaiLunaProvider.test.ts')
+          test.write_text("""import { readFileSync } from 'node:fs'\nimport { describe, expect, it } from 'vitest'\n\nconst providers = readFileSync(new URL('../../../supabase/functions/_shared/modelProvidersLegacy.ts', import.meta.url), 'utf8')\nconst core = readFileSync(new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url), 'utf8')\nconst gateway = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2/index.ts', import.meta.url), 'utf8')\nconst picker = readFileSync(new URL('../../components/CompactModelControl.tsx', import.meta.url), 'utf8')\n\ndescribe('OpenAI GPT-5.6 Luna provider integration', () => {\n  it('registers Luna as an explicit OpenAI model and makes it the OpenAI default', () => {\n    expect(providers).toContain("'gpt-5.6-luna'")\n    expect(core).toContain("const DEFAULT_MODEL = 'gpt-5.6-luna'")\n    expect(gateway).toContain("const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna'")\n  })\n\n  it('exposes Luna in the canonical model picker', () => {\n    expect(picker).toContain("value: 'gpt-5.6-luna'")\n    expect(picker).toContain("label: 'GPT-5.6 Luna'")\n  })\n\n  it('keeps provider quota messages provider-correct', () => {\n    const geminiGuard = core.indexOf('resource_exhausted|quota exceeded|gemini.*quota')\n    const openAiGuard = core.indexOf('no credits remaining|insufficient_quota|openai.*')\n    expect(geminiGuard).toBeGreaterThan(0)\n    expect(openAiGuard).toBeGreaterThan(geminiGuard)\n    expect(core).not.toContain('/no credits remaining|insufficient_quota|billing/i')\n  })\n})\n""")
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gugurbuz"
+          git config user.email "gurkangurbuz@hotmail.com.tr"
+          git add supabase/functions/_shared/modelProvidersLegacy.ts \
+                  supabase/functions/openai-assistant-core-v2/implementation.ts \
+                  supabase/functions/openai-assistant-v2/index.ts \
+                  src/components/CompactModelControl.tsx \
+                  src/components/SettingsModal.tsx \
+                  src/services/__tests__/openaiLunaProvider.test.ts
+          git commit -m "feat(openai): integrate GPT-5.6 Luna"
+          git push origin HEAD:feat/openai-luna-provider
