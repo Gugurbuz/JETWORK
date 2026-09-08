@@ -169,5 +169,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: [],
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
+  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. Public-web discovery is available both as provider-native web when healthy and as the search_web custom discovery capability; url_context can inspect concrete URLs. Provider availability handling is mechanical and never chooses a query or source. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
 })

@@ -164,6 +164,22 @@ const eventsFromReportedActivities = (
   }];
 });
 
+/**
+ * Canonical persisted/live Agent Work is authoritative at render time. React
+ * effects may still synchronize local compatibility state for lifecycle
+ * continuity, but a newly hydrated canonical snapshot must never spend even one
+ * paint behind reported:/observed: fallback rows.
+ */
+export const selectRenderedAgentWorkEvents = (
+  canonicalEvents: AgentWorkEvent[],
+  fallbackEvents: AgentWorkEvent[],
+): AgentWorkEvent[] => {
+  const selected = canonicalEvents.length
+    ? canonicalEvents.reduce(reduceAgentActivityEvents, [] as AgentWorkEvent[])
+    : fallbackEvents;
+  return [...selected].sort((a, b) => a.sequence - b.sequence);
+};
+
 function useComposerStopTarget(isActive: boolean, hasStopHandler: boolean): HTMLElement | null {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -311,7 +327,10 @@ export function AssistantWorkIndicator({
     setIsExpanded(false);
   }, [displayIsActive]);
 
-  const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events]);
+  const orderedEvents = useMemo(
+    () => selectRenderedAgentWorkEvents(canonicalWorkEvents, events),
+    [canonicalWorkEvents, events],
+  );
   const hasWorkDetails = orderedEvents.length > 0;
   const hasSourceGap = webSourceCount === 0 && orderedEvents.some(event => SOURCE_GAP_ACTIVITY.test(event.rawLabel || event.label));
 

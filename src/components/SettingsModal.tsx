@@ -237,6 +237,7 @@ export function SettingsModal({ user, onClose, onUpdateUser, selectedModel, onUp
                             className="w-full rounded-md border border-theme-border bg-theme-surface px-3 py-2 text-sm text-theme-text outline-none transition-colors focus:border-theme-primary"
                           >
                             <option value="auto">Otomatik — OpenAI veya Gemini 3.8 Flash (Önerilen)</option>
+                            <option value="gpt-5.6-luna">OpenAI GPT-5.6 Luna</option>
                             <option value="gpt-5.6-sol">OpenAI GPT-5.6 Sol</option>
                             <option value="gpt-5.6">OpenAI GPT-5.6</option>
                             <option value="gemini-3.8-flash">Gemini 3.8 Flash — Google</option>

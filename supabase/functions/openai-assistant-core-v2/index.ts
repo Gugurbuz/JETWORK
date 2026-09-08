@@ -2,9 +2,11 @@
 // Install provider guards before loading the implementation so provider
 // requests share warm-isolate health state and bounded synthesis policy.
 import { installGeminiFinalSynthesisThinkingGuard } from '../_shared/geminiThinkingGuard.ts'
+import { installGeminiProviderWebQuotaFallback } from '../_shared/geminiProviderWebQuotaFallback.ts'
 import { OLLAMA_MODELS, OPENAI_MODELS } from '../_shared/modelProviders.ts'
 import { installOllamaResponsesBridge } from '../_shared/ollamaResponsesBridge.ts'
 import { installOpenAiCircuitBreaker } from '../_shared/providerCircuitBreaker.ts'
+import { installOpenAiRequestCompatibility } from '../_shared/openAiRequestCompatibility.ts'
 import { isAgentControllerV2Enabled } from '../_shared/runtime/runtimeFlags.ts'
 
 // The durable core builds its allow-list from OPENAI_MODELS. Register the local
@@ -14,11 +16,18 @@ import { isAgentControllerV2Enabled } from '../_shared/runtime/runtimeFlags.ts'
 for (const model of OLLAMA_MODELS) OPENAI_MODELS.add(model)
 
 // Keep the existing OpenAI circuit breaker around real OpenAI traffic. The
-// Ollama bridge is installed afterwards so ollama:* requests are diverted before
-// they can affect OpenAI provider health state.
+// request compatibility layer is mechanical: it only removes unsupported JSON
+// Schema annotations from function definitions before the same request reaches
+// OpenAI. The Ollama bridge is installed afterwards so ollama:* requests are
+// diverted before they can affect OpenAI provider health state. Gemini's
+// provider-web guard removes only the upstream google_search primitive after an
+// actual quota failure and retries the same Gemini request with all remaining
+// model-visible capabilities intact.
 installOpenAiCircuitBreaker()
+installOpenAiRequestCompatibility()
 installOllamaResponsesBridge()
 installGeminiFinalSynthesisThinkingGuard()
+installGeminiProviderWebQuotaFallback()
 
 // P1 rollout bridge: implementation.ts still reads the pre-V2 flag name while
 // its semantic branches are being removed. Hosted Supabase Edge Runtime does not
