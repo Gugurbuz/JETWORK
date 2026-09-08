@@ -1,0 +1,93 @@
+.jetwork-generated-file-card {
+  position: relative;
+  min-height: 58px;
+  padding: 10px 12px 10px 58px !important;
+  border-width: 1px !important;
+  background: var(--theme-bg) !important;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.035) !important;
+}
+
+.jetwork-generated-file-card::before {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.jetwork-generated-file-card > svg:first-child {
+  display: none;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="word"] {
+  border-color: rgba(37, 99, 235, 0.20) !important;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.055), var(--theme-bg) 42%) !important;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="word"]::before {
+  content: "W";
+  border-color: rgba(37, 99, 235, 0.20);
+  background: rgba(37, 99, 235, 0.11);
+  color: rgb(37, 99, 235);
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="excel"] {
+  border-color: rgba(5, 150, 105, 0.20) !important;
+  background: linear-gradient(90deg, rgba(5, 150, 105, 0.055), var(--theme-bg) 42%) !important;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="excel"]::before {
+  content: "X";
+  border-color: rgba(5, 150, 105, 0.20);
+  background: rgba(5, 150, 105, 0.11);
+  color: rgb(5, 150, 105);
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="powerpoint"] {
+  border-color: rgba(234, 88, 12, 0.20) !important;
+  background: linear-gradient(90deg, rgba(234, 88, 12, 0.055), var(--theme-bg) 42%) !important;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="powerpoint"]::before {
+  content: "P";
+  border-color: rgba(234, 88, 12, 0.20);
+  background: rgba(234, 88, 12, 0.11);
+  color: rgb(234, 88, 12);
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="pdf"] {
+  border-color: rgba(220, 38, 38, 0.20) !important;
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.05), var(--theme-bg) 42%) !important;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="pdf"]::before {
+  content: "PDF";
+  border-color: rgba(220, 38, 38, 0.20);
+  background: rgba(220, 38, 38, 0.10);
+  color: rgb(220, 38, 38);
+  font-size: 8px;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="image"]::before {
+  content: "IMG";
+  border-color: rgba(124, 58, 237, 0.20);
+  background: rgba(124, 58, 237, 0.10);
+  color: rgb(124, 58, 237);
+  font-size: 8px;
+}
+
+.jetwork-generated-file-card[data-jetwork-file-kind="file"]::before {
+  content: "FILE";
+  border-color: color-mix(in srgb, var(--theme-border) 80%, transparent);
+  background: var(--theme-surface);
+  color: var(--theme-text-muted);
+  font-size: 7px;
+}
