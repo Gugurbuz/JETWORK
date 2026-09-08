@@ -1,0 +1,88 @@
+name: Terminal Synthesis Narrow Patch
+
+on:
+  push:
+    branches:
+      - release/agent-work-v3-production-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: add terminal synthesis narrow patch runner'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/agent-work-v3-production-hardening
+      - name: Apply narrow terminal synthesis patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'expected snippet not found in {path}: {old[:120]!r}')
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected snippet not unique in {path}: count={text.count(old)}')
+              p.write_text(text.replace(old, new, 1))
+
+          runtime = 'supabase/functions/_shared/geminiInteractionsRuntimeV3.ts'
+          replace_once(
+              runtime,
+              '  allowTools: boolean\n  allowProviderWeb?: boolean\n',
+              '  allowTools: boolean\n  terminalSynthesis?: boolean\n  allowProviderWeb?: boolean\n',
+          )
+          replace_once(
+              runtime,
+              "  const functionContinuation = input.allowTools ? latestFunctionContinuation(input.items) : null\n  const storedState = input.allowTools && !functionContinuation ? latestGeminiProviderState(input.items) : null\n",
+              "  const freshTerminalSynthesis = input.terminalSynthesis === true\n  const functionContinuation = freshTerminalSynthesis ? null : latestFunctionContinuation(input.items)\n  const storedState = !freshTerminalSynthesis && !functionContinuation ? latestGeminiProviderState(input.items) : null\n",
+          )
+          replace_once(
+              runtime,
+              '  if (!input.allowTools) {\n    interactionInput = terminalTextInputFromJetWorkItems(input.items)\n  } else if (functionContinuation) {\n',
+              '  if (freshTerminalSynthesis) {\n    interactionInput = terminalTextInputFromJetWorkItems(input.items)\n  } else if (functionContinuation) {\n',
+          )
+
+          providers = 'supabase/functions/_shared/modelProviders.ts'
+          replace_once(
+              providers,
+              '  allowTools: boolean\n  allowProviderWeb?: boolean\n',
+              '  allowTools: boolean\n  terminalSynthesis?: boolean\n  allowProviderWeb?: boolean\n',
+          )
+          replace_once(
+              providers,
+              '    allowTools: input.allowTools,\n    allowProviderWeb: input.allowProviderWeb,\n',
+              '    allowTools: input.allowTools,\n    terminalSynthesis: input.terminalSynthesis,\n    allowProviderWeb: input.allowProviderWeb,\n',
+          )
+
+          implementation = 'supabase/functions/openai-assistant-core-v2/implementation.ts'
+          replace_once(
+              implementation,
+              '                allowTools: tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned,\n                allowProviderWeb: providerWebEnabled || geminiNativeWebPlanned,\n',
+              '                allowTools: tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned,\n                terminalSynthesis: mustSynthesize,\n                allowProviderWeb: providerWebEnabled || geminiNativeWebPlanned,\n',
+          )
+
+          test = 'src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts'
+          replace_once(
+              test,
+              '      allowTools: false,\n      allowProviderWeb: false,\n',
+              '      allowTools: false,\n      terminalSynthesis: true,\n      allowProviderWeb: false,\n',
+          )
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/_shared/geminiInteractionsRuntimeV3.ts \
+                  supabase/functions/_shared/modelProviders.ts \
+                  supabase/functions/openai-assistant-core-v2/implementation.ts \
+                  src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
+          git diff --cached --check
+          git commit -m 'fix(gemini): scope fresh interaction to terminal synthesis'
+          git push origin HEAD:release/agent-work-v3-production-hardening
