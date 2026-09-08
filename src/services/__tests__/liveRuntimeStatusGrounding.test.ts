@@ -115,9 +115,10 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain("tool_choice: 'validated'")
     expect(controllerPolicy).toContain('semantic controller ve assistant modelisin')
     expect(controllerPolicy).toContain('Her tool observationından sonra')
+    expect(controllerPolicy).toContain('çalışma planı kur')
   });
 
-  it('uses a full model-visible capability surface instead of semantic Top-K routing', () => {
+  it('uses a full model-visible capability surface while making retrieval semantics explicit', () => {
     const runtimeSource = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
@@ -132,9 +133,10 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
     expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
-    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v3-full'")
+    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v3-adaptive-work-v1'")
     expect(surfaceSource).toContain('...runtimeTools')
     expect(surfaceSource).toContain('providerWebVisible: true')
+    expect(surfaceSource).toContain('nextCursor only means more records exist')
     expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
