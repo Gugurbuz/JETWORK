@@ -7,6 +7,8 @@ const mainContentSource = readFileSync(new URL('../../components/MainContent.tsx
 const fileViewerSource = readFileSync(new URL('../../components/FileViewer.tsx', import.meta.url), 'utf8');
 const fileViewerLoadingCss = readFileSync(new URL('../../components/file-viewer-loading.css', import.meta.url), 'utf8');
 const fileLibrarySource = readFileSync(new URL('../../components/FileLibrary.tsx', import.meta.url), 'utf8');
+const fileMetaSource = readFileSync(new URL('../../lib/files/fileMeta.ts', import.meta.url), 'utf8');
+const workspaceFileRepositorySource = readFileSync(new URL('../workspaceFileRepository.ts', import.meta.url), 'utf8');
 const modelControlSource = readFileSync(new URL('../../components/CompactModelControl.tsx', import.meta.url), 'utf8');
 const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
 const filePanelCss = readFileSync(new URL('../../workspace-file-panel.css', import.meta.url), 'utf8');
@@ -115,15 +117,17 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(mainContentSource).toContain('element.style.transform = `translate3d(');
   });
 
-  it('provides a global Files library with generated/uploaded origin filters and typed cards', () => {
-    expect(fileLibrarySource).toContain(".from('messages')");
-    expect(fileLibrarySource).toContain("file.purpose === 'tool_output' ? 'generated' : 'uploaded'");
+  it('provides a global Files library with server-side search, generated/uploaded origin filters and typed cards', () => {
+    expect(fileLibrarySource).toContain('listWorkspaceFiles');
+    expect(workspaceFileRepositorySource).toContain(".from('workspace_files')");
+    expect(fileLibrarySource).toContain("const [origin, setOrigin] = useState<FileOriginFilter>('generated')");
     expect(fileLibrarySource).toContain('Dosyalarda ara');
     expect(fileLibrarySource).toContain('Oluşturulanlar');
     expect(fileLibrarySource).toContain('Yüklenenler');
-    expect(fileLibrarySource).toContain("label: 'Word belgesi'");
-    expect(fileLibrarySource).toContain("label: 'Excel çalışma kitabı'");
-    expect(fileLibrarySource).toContain("label: 'PowerPoint sunumu'");
+    expect(fileLibrarySource).toContain('<GeneratedFileCard file={file}');
+    expect(fileMetaSource).toContain("label: 'Word belgesi'");
+    expect(fileMetaSource).toContain("label: 'Excel çalışma kitabı'");
+    expect(fileMetaSource).toContain("label: 'PowerPoint sunumu'");
   });
 
   it('keeps viewer keyboard behavior accessible', () => {
