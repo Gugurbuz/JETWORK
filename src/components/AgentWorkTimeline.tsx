@@ -15,6 +15,10 @@ import { cn } from '../lib/utils';
 import type { AgentWorkEvent } from '../services/agentWorkTypes';
 import '../agent-work-timeline.css';
 
+const GENERIC_KNOWLEDGE_ACTIVITY = /^(?:bilgi bankası sorgusu|bilgi bankasında sorgu|bilgi bankası işlemi)/iu;
+const GENERIC_WEB_ACTIVITY = /^(?:web araması|web sorgusu|google araması|internet araması)/iu;
+const NUMERIC_SOURCE_ACTIVITY = /^\d+\s+(?:kurumsal|web)\s+kaynak(?:\s+|\s*·\s*|$).*(?:bulundu|kullanıldı|incelendi)?/iu;
+
 const StateIcon = ({ state }: { state: AgentWorkEvent['state'] }) => {
   if (state === 'failed') return <XCircle aria-hidden="true" />;
   if (state === 'warning') return <AlertTriangle aria-hidden="true" />;
@@ -39,7 +43,7 @@ const RowState = ({ event }: { event: AgentWorkEvent }) => (
 
 export function AgentActivityRow({ event }: { event: AgentWorkEvent }) {
   return (
-    <li data-event-id={event.eventId} data-event-kind={event.kind} className={cn('assistant-work__activity', `assistant-work__activity--${event.state}`)}>
+    <li data-event-id={event.eventId} data-event-kind={event.kind} className={cn('assistant-work__activity assistant-work__activity--semantic', `assistant-work__activity--${event.state}`)}>
       <RowState event={event} />
       <span>{event.label}</span>
     </li>
@@ -78,8 +82,73 @@ const renderEvent = (event: AgentWorkEvent) => {
   return <AgentActivityRow key={event.eventId} event={event} />;
 };
 
-export function AgentWorkTimeline({ events, live = false }: { events: AgentWorkEvent[]; live?: boolean }) {
+const genericToolFamily = (event: AgentWorkEvent): 'knowledge' | 'web' | null => {
+  if (event.kind !== 'tool') return null;
+  if (event.sourceType === 'knowledge' && GENERIC_KNOWLEDGE_ACTIVITY.test(event.label)) return 'knowledge';
+  if (event.sourceType === 'web' && GENERIC_WEB_ACTIVITY.test(event.label)) return 'web';
+  return null;
+};
+
+/**
+ * Persisted Agent Work remains a complete event chronology. This function is
+ * presentation-only: it removes misleading rolling source-count snapshots and
+ * collapses repetitive generic provider tool rows between semantic controller
+ * updates. Public controller commentary (goal, plan, finding, plan change) is
+ * never collapsed, so the user can follow why the work is progressing.
+ */
+export function compactAgentWorkTimelinePresentation(events: AgentWorkEvent[]): AgentWorkEvent[] {
   const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+  const result: AgentWorkEvent[] = [];
+  let batch: { family: 'knowledge' | 'web'; index: number; count: number } | null = null;
+
+  const resetBatch = () => { batch = null; };
+
+  for (const event of ordered) {
+    if (event.kind === 'source' && NUMERIC_SOURCE_ACTIVITY.test(event.label)) {
+      // The dedicated Sources view reports the deduplicated distinct documents.
+      // Intermediate object-count snapshots (1 -> 21 -> 46...) are intentionally
+      // not repeated in the work narrative.
+      continue;
+    }
+
+    const family = genericToolFamily(event);
+    if (!family) {
+      resetBatch();
+      result.push(event);
+      continue;
+    }
+
+    if (!batch || batch.family !== family) {
+      const label = event.state === 'active' || event.state === 'pending'
+        ? family === 'knowledge' ? 'Bilgi bankası sorgusu çalışıyor...' : 'Web araması çalışıyor...'
+        : family === 'knowledge' ? '1 bilgi bankası işlemi tamamlandı' : '1 web araması tamamlandı';
+      result.push({
+        ...event,
+        eventId: `presentation-batch:${family}:${event.eventId}`,
+        label,
+      });
+      batch = { family, index: result.length - 1, count: 1 };
+      continue;
+    }
+
+    batch.count += 1;
+    const prior = result[batch.index];
+    const active = event.state === 'active' || event.state === 'pending';
+    result[batch.index] = {
+      ...prior,
+      state: event.state,
+      completedAt: event.completedAt || prior.completedAt,
+      label: active
+        ? `${batch.count}. ${family === 'knowledge' ? 'bilgi bankası işlemi' : 'web araması'} sürüyor...`
+        : `${batch.count} ${family === 'knowledge' ? 'bilgi bankası işlemi' : 'web araması'} tamamlandı`,
+    };
+  }
+
+  return result;
+}
+
+export function AgentWorkTimeline({ events, live = false }: { events: AgentWorkEvent[]; live?: boolean }) {
+  const ordered = compactAgentWorkTimelinePresentation(events);
   if (!ordered.length) return null;
 
   return (

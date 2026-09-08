@@ -25,6 +25,61 @@ describe('resolved conversation state continuity', () => {
     expect(result.plan.conversationState?.requestedEvidence).toContain('runtime_contract')
   })
 
+  it('bridges a terse contextual fragment to the prior resolved task instead of replacing the goal', async () => {
+    const result = await buildSemanticExecutionPlan({
+      provider: 'gemini',
+      model: 'gemini-3.8-flash',
+      message: 'Teklifteki',
+      conversation: [
+        { role: 'user', content: 'Yeşil enerji kontrolünü değiştirmek istiyorum' },
+        { role: 'assistant', content: 'Hangi kontrolden bahsettiğinizi netleştirebilir misiniz?' },
+      ],
+      priorExecution: {
+        intent: 'analysis',
+        resolvedRequest: 'Yeşil enerji kontrolünü değiştirmek istiyorum',
+      },
+    })
+
+    expect(result.plan.conversationState?.continuation).toBe(true)
+    expect(result.plan.conversationState?.userMove).toBe('follow_up')
+    expect(result.plan.conversationState?.resolvedRequest).toContain('Yeşil enerji kontrolünü değiştirmek istiyorum')
+    expect(result.plan.conversationState?.resolvedRequest).toContain('Teklifteki')
+    expect(result.plan.goal).not.toBe('Teklifteki')
+  })
+
+  it('keeps delegated discovery attached to the already refined task', async () => {
+    const refined = await buildSemanticExecutionPlan({
+      provider: 'gemini',
+      model: 'gemini-3.8-flash',
+      message: 'Teklifteki',
+      conversation: [{ role: 'user', content: 'Yeşil enerji kontrolünü değiştirmek istiyorum' }],
+      priorExecution: {
+        intent: 'analysis',
+        resolvedRequest: 'Yeşil enerji kontrolünü değiştirmek istiyorum',
+      },
+    })
+    const result = await buildSemanticExecutionPlan({
+      provider: 'gemini',
+      model: 'gemini-3.8-flash',
+      message: 'Sen bulcaksın',
+      conversation: [
+        { role: 'user', content: 'Yeşil enerji kontrolünü değiştirmek istiyorum' },
+        { role: 'user', content: 'Teklifteki' },
+        { role: 'assistant', content: 'Teknik referans paylaşabilir misiniz?' },
+      ],
+      priorExecution: {
+        intent: 'analysis',
+        resolvedRequest: refined.plan.conversationState?.resolvedRequest,
+      },
+    })
+
+    expect(result.plan.conversationState?.continuation).toBe(true)
+    expect(result.plan.conversationState?.resolvedRequest).toContain('Yeşil enerji kontrolünü değiştirmek istiyorum')
+    expect(result.plan.conversationState?.resolvedRequest).toContain('Teklifteki')
+    expect(result.plan.conversationState?.resolvedRequest).toContain('Sen bulcaksın')
+    expect(result.plan.goal).not.toBe('Sen bulcaksın')
+  })
+
   it('treats approval/start wording as a continuation of the active task', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'openai',

@@ -7,12 +7,13 @@ import { buildGeminiMediaSourceRef, geminiMediaKindForMime } from '../../../supa
 
 const root = (path: string) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8')
 
-describe('Gemini 3.8 G38-01..G38-15 release suite', () => {
-  it('contains the complete unique 15-case suite with G38-09 and G38-15 critical', () => {
-    expect(GEMINI38_GOLDEN_SUITE).toHaveLength(15)
-    expect(new Set(GEMINI38_GOLDEN_SUITE.map(item => item.id)).size).toBe(15)
+describe('Gemini 3.8 G38-01..G38-16 release suite', () => {
+  it('contains the complete unique 16-case suite with adaptive work planning critical', () => {
+    expect(GEMINI38_GOLDEN_SUITE).toHaveLength(16)
+    expect(new Set(GEMINI38_GOLDEN_SUITE.map(item => item.id)).size).toBe(16)
     expect(GEMINI38_GOLDEN_SUITE.find(item => item.id === 'G38-09')?.critical).toBe(true)
     expect(GEMINI38_GOLDEN_SUITE.find(item => item.id === 'G38-15')?.critical).toBe(true)
+    expect(GEMINI38_GOLDEN_SUITE.find(item => item.id === 'G38-16')?.critical).toBe(true)
   })
 
   it('G38-06 normalizes image, PDF, audio and video evidence by content hash', () => {
@@ -69,6 +70,19 @@ describe('Gemini 3.8 G38-01..G38-15 release suite', () => {
       expect(source).not.toMatch(/generationConfig:\s*\{[^}]*temperature/s)
       expect(source).not.toMatch(/generationConfig:\s*\{[^}]*topP/s)
     }
+  })
+
+  it('G38-16 requires goal-plan-evidence-replan-synthesis behavior and public progress', () => {
+    const policy = root('supabase/functions/_shared/agent/controllerPolicy.ts')
+    expect(policy).toContain('reactive "ara-bul-ara-bul" değildir')
+    expect(policy).toContain('çalışma planı kur')
+    expect(policy).toContain('hangi kanıt boşluğunun kaldığını')
+    expect(policy).toContain('report_progress(kind=start)')
+    expect(policy).toContain('report_progress(kind=finding)')
+    expect(policy).toContain('report_progress(kind=plan_change)')
+    expect(policy).toContain('`nextCursor` yalnız daha fazla kayıt olduğunu bildirir')
+    expect(policy).toContain('geniş prefix ile bütün kataloğu enumerate etme')
+    expect(policy).toContain('yeterli kanıt oluştuğunda araç çağırmayı bırakıp sentezle')
   })
 
   it('keeps media out of verified enterprise-knowledge authority', () => {

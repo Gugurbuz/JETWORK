@@ -192,8 +192,9 @@ describe('Reasoning primary-agent and legacy capability compatibility', () => {
       new URL('../../../supabase/functions/_shared/semanticOrchestrator.ts', import.meta.url),
       'utf8',
     );
-    expect(SEMANTIC_ORCHESTRATOR_VERSION).toBe('primary-llm-agent-v1');
+    expect(SEMANTIC_ORCHESTRATOR_VERSION).toBe('primary-llm-agent-v2-adaptive-work-context');
     expect(semanticSource).toContain('semantic_planner_provider_calls_avoided');
+    expect(semanticSource).toContain('short_context_bridge_enabled');
     expect(semanticSource).not.toContain('requestGeminiPlanOnce');
     expect(semanticSource).not.toContain('requestOpenAiPlan');
     expect(semanticSource).not.toContain('withSemanticRetry');

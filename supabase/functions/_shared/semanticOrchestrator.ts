@@ -15,7 +15,7 @@ import type { AssistantActiveOperation } from './operationState.ts'
 import type { ProjectMemoryContextItem } from './projectMemoryContext.ts'
 import { isAgentControllerV2Enabled } from './runtime/runtimeFlags.ts'
 
-export const SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'
+export const SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v2-adaptive-work-context'
 export const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
 
 export interface SemanticContextMessage {
@@ -197,10 +197,18 @@ const buildConversationState = (input: {
   ], 10)
   const currentWordCount = currentNormalized.split(' ').filter(Boolean).length
   const shortFollowUp = currentWordCount <= 8 && ELLIPTICAL_PATTERN.test(currentNormalized)
+  const shortContextBridge = Boolean(
+    priorResolvedRequest
+    && input.conversation.length
+    && currentWordCount > 0
+    && currentWordCount <= 6
+    && input.currentMessage.trim().length <= 160
+  )
   const genericContinuation = Boolean(priorResolvedRequest)
     && currentWordCount <= 10
     && (
       shortFollowUp
+      || shortContextBridge
       || CONTINUATION_PATTERN.test(currentNormalized)
       || CONFIRMATION_PATTERN.test(currentNormalized)
       || REJECTION_PATTERN.test(currentNormalized)
@@ -222,11 +230,17 @@ const buildConversationState = (input: {
   ], 10)
   const resolvedRequest = deepResearchTarget
     ? `${deepResearchTarget}\nAraştırma talebi: ${cleanText(input.currentMessage, 700)}`
-    : genericContinuation && priorResolvedRequest
-      ? `${priorResolvedRequest}\nKullanıcının yeni hamlesi: ${cleanText(input.currentMessage, 700)}`
-      : continuation && activeEntities.length
-        ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
-        : cleanText(input.currentMessage, 900)
+    : shortContextBridge && priorResolvedRequest
+      ? [
+          `Önceki çözülmüş görev: ${cleanText(priorResolvedRequest, 900)}`,
+          `Kullanıcının kısa takip mesajı: ${cleanText(input.currentMessage, 700)}`,
+          'Controller bu kısa hamlenin önceki görevi nasıl daralttığını, düzelttiğini veya sürdürdüğünü konuşma bağlamından çözmelidir; ham mesajı tek başına yeni hedef saymamalıdır.',
+        ].join('\n')
+      : genericContinuation && priorResolvedRequest
+        ? `${priorResolvedRequest}\nKullanıcının yeni hamlesi: ${cleanText(input.currentMessage, 700)}`
+        : continuation && activeEntities.length
+          ? `${activeEntities.join(', ')} — ${cleanText(input.currentMessage, 700)}`
+          : cleanText(input.currentMessage, 900)
   const retainedContext = [
     ...(genericContinuation && priorResolvedRequest
       ? [`resolved_task: ${cleanText(priorResolvedRequest.replace(/\s+/g, ' '), 600)}`]
@@ -471,6 +485,7 @@ export async function buildSemanticExecutionPlan(input: {
       primary_llm_agent_mode: 1,
       semantic_planner_provider_calls_avoided: 1,
       controller_v2_advisory_plan: controllerV2Enabled ? 1 : 0,
+      short_context_bridge_enabled: 1,
     },
     fallbackUsed: false,
     provider: input.provider,
