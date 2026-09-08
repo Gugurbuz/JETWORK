@@ -6,6 +6,7 @@ import {
 import type { AssistantGeneratedFileRef } from './executionTools.ts'
 import { requireVerifiedArtifactOutputs } from './artifact/storageVerifier.ts'
 import { verifyOfficeRevisionInvariant } from './artifact/officeRevisionVerifier.ts'
+import { persistVerifiedArtifactOutputs } from './artifact/domainRepository.ts'
 
 export interface ArtifactAssistantToolExecution {
   output: string
@@ -91,6 +92,10 @@ async function inspectOfficeRef(client: any, workspaceId: string, ref: ActionAtt
 async function removeGeneratedArtifact(client: any, artifact: AssistantGeneratedFileRef | undefined) {
   if (!artifact?.storageBucket || !artifact?.storagePath) return
   await client.storage.from(artifact.storageBucket).remove([artifact.storagePath]).catch(() => undefined)
+}
+
+async function removeGeneratedArtifacts(client: any, artifacts: readonly AssistantGeneratedFileRef[]) {
+  await Promise.all(artifacts.map(artifact => removeGeneratedArtifact(client, artifact)))
 }
 
 const verifiedModelOutput = (input: {
@@ -198,12 +203,33 @@ export async function executeArtifactAssistantTool(
     }
   }
 
+  let persistedArtifacts: AssistantGeneratedFileRef[] = execution.artifacts
+  if (requiresOutputArtifact && artifactVerification) {
+    try {
+      persistedArtifacts = await persistVerifiedArtifactOutputs({
+        client,
+        workspaceId,
+        toolName,
+        args,
+        artifacts: execution.artifacts,
+        verification: artifactVerification,
+        revisionInvariantVerified: officeRevisionVerification?.verified ?? null,
+      })
+    } catch (error) {
+      // A binary that failed its canonical metadata transaction must not be surfaced as
+      // a completed JetWork artifact. The previous active version remains intact.
+      await removeGeneratedArtifacts(client, execution.artifacts)
+      throw error
+    }
+  }
+
   const artifactVerificationSummary = artifactVerification ? {
     version: artifactVerification.version,
     reloadVerified: artifactVerification.reloadVerified,
     integrityVerified: artifactVerification.integrityVerified,
     artifactCount: artifactVerification.artifacts.length,
     revisionInvariantVerified: officeRevisionVerification?.verified ?? null,
+    canonicalPersistence: requiresOutputArtifact ? 'completed' : null,
   } : null
   const officeRevisionSummary = officeRevisionVerification
     ? officeRevisionVerification as unknown as Record<string, unknown>
@@ -217,7 +243,7 @@ export async function executeArtifactAssistantTool(
       officeRevisionVerification: officeRevisionSummary,
     }),
     sources: [],
-    artifacts: execution.artifacts,
+    artifacts: persistedArtifacts,
     summary: {
       ...execution.summary,
       executionOnly: true,
