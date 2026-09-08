@@ -9,7 +9,7 @@ const KNOWLEDGE_BUCKET = 'knowledge-sources';
 
 export type KnowledgeScope = 'global' | 'project';
 
-export interface JetbaseMultimodalStats {
+export interface JetBaseMultimodalStats {
   mode: 'text' | 'image_vision' | 'pdf_native_vision' | 'office_hybrid';
   visionApplied: boolean;
   embeddedImagesDetected: number;
@@ -31,7 +31,7 @@ export interface KnowledgeIngestionResult {
   relations: number;
   chunkCount?: number;
   extractionMethod?: string;
-  multimodal?: JetbaseMultimodalStats;
+  multimodal?: JetBaseMultimodalStats;
   embeddingStats?: {
     attempted: number;
     embedded: number;
@@ -53,7 +53,7 @@ export interface KnowledgeSourceSummary {
   ingestionStatus: 'pending' | 'processing' | 'ready' | 'failed';
   latestVersion: number;
   documentType?: string;
-  multimodal?: JetbaseMultimodalStats;
+  multimodal?: JetBaseMultimodalStats;
   createdAt: string;
   updatedAt: string;
   objectCount: number;
@@ -139,7 +139,7 @@ const inferKnowledgeMimeType = (file: File, fileName: string) => {
 const attachmentToFile = (attachment: MessageAttachment): File => {
   if (attachment.file) return attachment.file;
   if (!attachment.data) {
-    throw new Error('Jetbase kaynağının dosya içeriği artık mevcut değil; dosyayı yeniden ekleyin.');
+    throw new Error('JetBase kaynağının dosya içeriği artık mevcut değil; dosyayı yeniden ekleyin.');
   }
   const bytes = Uint8Array.from(atob(attachment.data), character => character.charCodeAt(0));
   return new File([bytes], attachment.name || 'source.txt', {
@@ -155,10 +155,10 @@ export async function resolveKnowledgeContext(workspaceId: string): Promise<Know
   const { data, error } = await supabase.rpc('resolve_knowledge_context', {
     p_workspace_id: workspaceId,
   });
-  if (error) throw toKnowledgeOperationError(error, 'Jetbase kapsamı hazırlanırken');
+  if (error) throw toKnowledgeOperationError(error, 'JetBase kapsamı hazırlanırken');
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.global_space_id) {
-    throw new Error('Jetbase kapsamı çözümlenemedi.');
+    throw new Error('JetBase kapsamı çözümlenemedi.');
   }
   return {
     globalSpaceId: String(row.global_space_id),
@@ -175,9 +175,9 @@ export async function resolveKnowledgeSpace(
     p_workspace_id: workspaceId,
     p_scope_type: scope,
   });
-  if (error) throw toKnowledgeOperationError(error, 'Jetbase kapsamı hazırlanırken');
+  if (error) throw toKnowledgeOperationError(error, 'JetBase kapsamı hazırlanırken');
   if (typeof data !== 'string' || !data) {
-    throw new Error(scope === 'global' ? 'Jetbase bulunamadı.' : 'Proje Jetbase kapsamı bulunamadı.');
+    throw new Error(scope === 'global' ? 'JetBase bulunamadı.' : 'Proje JetBase kapsamı bulunamadı.');
   }
   return data;
 }
@@ -189,22 +189,22 @@ export async function ingestKnowledgeFile(
   onStatus?: (status: AttachmentIngestion) => void | Promise<void>,
 ): Promise<KnowledgeIngestionResult> {
   if (!KNOWLEDGE_FILE_EXTENSIONS.test(file.name)) {
-    throw new Error('Jetbase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekliyor.');
+    throw new Error('JetBase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekliyor.');
   }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   const user = sessionData.session?.user;
   if (sessionError || !user) {
     throw sessionError
-      ? toKnowledgeOperationError(sessionError, 'Jetbase yükleme oturumu hazırlanırken')
-      : new Error('Jetbase kaynağı yüklemek için oturum gerekli.');
+      ? toKnowledgeOperationError(sessionError, 'JetBase yükleme oturumu hazırlanırken')
+      : new Error('JetBase kaynağı yüklemek için oturum gerekli.');
   }
 
   let knowledgeSpaceId: string;
   try {
     knowledgeSpaceId = await resolveKnowledgeSpace(workspaceId, scope);
   } catch (error) {
-    throw toKnowledgeOperationError(error, 'Jetbase kapsamı hazırlanırken');
+    throw toKnowledgeOperationError(error, 'JetBase kapsamı hazırlanırken');
   }
 
   const fileName = sanitizeFileName(file.name);
@@ -220,7 +220,7 @@ export async function ingestKnowledgeFile(
       cacheControl: '3600',
     });
   if (uploadError) {
-    const normalizedError = toKnowledgeOperationError(uploadError, 'Jetbase dosyası yüklenirken');
+    const normalizedError = toKnowledgeOperationError(uploadError, 'JetBase dosyası yüklenirken');
     await onStatus?.({ status: 'failed', error: normalizedError.message });
     throw normalizedError;
   }
@@ -235,8 +235,8 @@ export async function ingestKnowledgeFile(
         mimeType,
       },
     });
-    if (error) throw await toKnowledgeFunctionOperationError(error, 'Jetbase kaynağı işlenirken');
-    if (!data?.sourceId) throw new Error(data?.error || 'Jetbase kaynağı işlenemedi.');
+    if (error) throw await toKnowledgeFunctionOperationError(error, 'JetBase kaynağı işlenirken');
+    if (!data?.sourceId) throw new Error(data?.error || 'JetBase kaynağı işlenemedi.');
     const result = data as KnowledgeIngestionResult;
     await onStatus?.({
       status: 'ready',
@@ -249,7 +249,7 @@ export async function ingestKnowledgeFile(
     return result;
   } catch (error) {
     await supabase.storage.from(KNOWLEDGE_BUCKET).remove([storagePath]).catch(() => undefined);
-    const normalizedError = toKnowledgeOperationError(error, 'Jetbase kaynağı işlenirken');
+    const normalizedError = toKnowledgeOperationError(error, 'JetBase kaynağı işlenirken');
     await onStatus?.({
       status: 'failed',
       error: normalizedError.message,
@@ -264,7 +264,7 @@ export async function ingestKnowledgeAttachment(
   onStatus?: (status: AttachmentIngestion) => void | Promise<void>,
 ): Promise<KnowledgeIngestionResult> {
   if (!isKnowledgeFile(attachment)) {
-    throw new Error('Jetbase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekliyor.');
+    throw new Error('JetBase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekliyor.');
   }
   return ingestKnowledgeFile(workspaceId, attachmentToFile(attachment), 'global', onStatus);
 }
@@ -344,7 +344,7 @@ export async function deleteKnowledgeSource(source: KnowledgeSourceSummary): Pro
     const { error: storageError } = await supabase.storage
       .from(KNOWLEDGE_BUCKET)
       .remove([source.storagePath]);
-    if (storageError) console.warn('Jetbase source file could not be removed:', storageError);
+    if (storageError) console.warn('JetBase source file could not be removed:', storageError);
   }
 }
 
@@ -367,7 +367,7 @@ export async function searchKnowledgeCatalog(
     id: row.object_id,
     projectId: row.scope_type,
     content: [
-      `Kapsam: ${row.scope_type === 'project' ? 'Proje Jetbase' : 'Jetbase Global'}`,
+      `Kapsam: ${row.scope_type === 'project' ? 'Proje JetBase' : 'JetBase Global'}`,
       `Kaynak: ${row.source_name}`,
       `Nesne: ${row.canonical_key}`,
       row.summary || row.title,
