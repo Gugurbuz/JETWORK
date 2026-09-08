@@ -1,8 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle, Archive, CheckCircle2, Database, FileText, FolderKanban,
-  GitBranch, Globe2, History, Loader2, RefreshCw, RotateCcw, Search,
-  ShieldCheck, Trash2, Upload, X,
+  AlertCircle,
+  Archive,
+  Check,
+  Clock3,
+  Database,
+  FileSpreadsheet,
+  FileText,
+  FolderKanban,
+  Globe2,
+  History,
+  Image as ImageIcon,
+  Loader2,
+  MoreHorizontal,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
 } from 'lucide-react';
 import {
   type KnowledgeScope,
@@ -24,21 +43,7 @@ import {
 } from '../services/knowledgeAdminRepository';
 
 interface Props { workspaceId: string; onClose: () => void; }
-type Filter = 'all' | 'published' | 'draft' | 'archived' | 'failed';
-type AdminTab = 'sources' | 'review' | 'health';
-
-const label = (source: KnowledgeSourceSummary) => source.ingestionStatus === 'failed' ? 'İşleme hatası'
-  : source.ingestionStatus !== 'ready' ? 'İşleniyor'
-  : source.publicationStatus === 'published' ? 'Yayında'
-  : source.publicationStatus === 'archived' ? 'Arşivde' : 'İnceleme bekliyor';
-
-const reviewLabel: Record<KnowledgeReviewItem['reviewType'], string> = {
-  possible_duplicate: 'Olası tekrar',
-  possible_conflict: 'Olası çelişki',
-  low_confidence_relation: 'Düşük güvenli ilişki',
-  synthetic_endpoint: 'Eksik graph nesnesi',
-  source_version_candidate: 'Kaynak sürüm eşleştirmesi',
-};
+type LibrarySection = 'all' | 'recent' | 'images' | 'documents' | 'tables' | 'admin';
 
 const emptyHealth: KnowledgeGraphHealth = {
   objectCount: 0,
@@ -48,21 +53,77 @@ const emptyHealth: KnowledgeGraphHealth = {
   openReviewCount: 0,
 };
 
+const formatDate = (value: string) => new Intl.DateTimeFormat('tr-TR', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+}).format(new Date(value));
+
+const fileType = (source: KnowledgeSourceSummary) => {
+  const mime = source.mediaType.toLocaleLowerCase('en-US');
+  const name = source.name.toLocaleLowerCase('en-US');
+  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i.test(name)) return 'image';
+  if (mime.includes('spreadsheet') || mime.includes('excel') || /\.(xlsx|xls|csv|tsv)$/i.test(name)) return 'table';
+  return 'document';
+};
+
+const fileTypeLabel = (source: KnowledgeSourceSummary) => {
+  const name = source.name.toLocaleLowerCase('en-US');
+  if (name.endsWith('.pdf')) return 'PDF';
+  if (name.endsWith('.docx')) return 'Word';
+  if (name.endsWith('.pptx')) return 'PowerPoint';
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) return 'Excel';
+  if (name.endsWith('.md')) return 'Markdown';
+  if (name.endsWith('.txt')) return 'TXT';
+  if (name.endsWith('.csv')) return 'CSV';
+  if (fileType(source) === 'image') return 'Görsel';
+  return source.documentType || 'Doküman';
+};
+
+const sourceStatus = (source: KnowledgeSourceSummary) => {
+  if (source.ingestionStatus === 'failed') return { label: 'Hata', tone: 'text-red-600 bg-red-500/10' };
+  if (source.ingestionStatus !== 'ready') return { label: 'İşleniyor', tone: 'text-amber-600 bg-amber-500/10' };
+  if (source.publicationStatus === 'published') return { label: 'Hazır', tone: 'text-emerald-600 bg-emerald-500/10' };
+  if (source.publicationStatus === 'archived') return { label: 'Arşivde', tone: 'text-theme-text-muted bg-theme-surface' };
+  return { label: 'Taslak', tone: 'text-theme-text-muted bg-theme-surface' };
+};
+
+const reviewLabel: Record<KnowledgeReviewItem['reviewType'], string> = {
+  possible_duplicate: 'Olası tekrar',
+  possible_conflict: 'Olası çelişki',
+  low_confidence_relation: 'Düşük güvenli ilişki',
+  synthetic_endpoint: 'Eksik graph nesnesi',
+  source_version_candidate: 'Kaynak sürüm eşleştirmesi',
+};
+
+const SourceGlyph = ({ source, size = 'md' }: { source: KnowledgeSourceSummary; size?: 'sm' | 'md' | 'lg' }) => {
+  const kind = fileType(source);
+  const Icon = kind === 'image' ? ImageIcon : kind === 'table' ? FileSpreadsheet : FileText;
+  const box = size === 'lg' ? 'h-16 w-16 rounded-2xl' : size === 'sm' ? 'h-8 w-8 rounded-lg' : 'h-10 w-10 rounded-xl';
+  const iconSize = size === 'lg' ? 28 : size === 'sm' ? 15 : 18;
+  return (
+    <div className={`grid ${box} shrink-0 place-items-center border border-theme-border/70 bg-theme-surface text-theme-text-muted`}>
+      <Icon size={iconSize} />
+    </div>
+  );
+};
+
 export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
   const [scope, setScope] = useState<KnowledgeScope>('global');
-  const [tab, setTab] = useState<AdminTab>('sources');
+  const [section, setSection] = useState<LibrarySection>('all');
   const [hasProjectScope, setHasProjectScope] = useState(false);
   const [sources, setSources] = useState<KnowledgeSourceSummary[]>([]);
   const [versions, setVersions] = useState<KnowledgeSourceVersion[]>([]);
   const [reviewItems, setReviewItems] = useState<KnowledgeReviewItem[]>([]);
   const [health, setHealth] = useState<KnowledgeGraphHealth>(emptyHealth);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
+  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,8 +152,11 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
       setHealth(nextHealth);
       setReviewItems(nextReviewItems);
       setVersions(nextVersions);
+      setSelectedSourceId(current => current && nextSources.some(source => source.id === current)
+        ? current
+        : nextSources[0]?.id || null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'JetBase yönetim verileri okunamadı.');
+      setError(e instanceof Error ? e.message : 'JetBase verileri okunamadı.');
     } finally {
       setLoading(false);
     }
@@ -100,22 +164,20 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const visible = useMemo(() => sources.filter(source => {
-    const matchesFilter = filter === 'all'
-      || (filter === 'failed' ? source.ingestionStatus === 'failed' : source.publicationStatus === filter);
-    return matchesFilter
-      && [source.name, source.documentType]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase('tr-TR')
-        .includes(query.trim().toLocaleLowerCase('tr-TR'));
-  }), [sources, query, filter]);
-
-  const versionsBySource = useMemo(() => {
-    const map = new Map<string, KnowledgeSourceVersion[]>();
-    for (const version of versions) map.set(version.sourceId, [...(map.get(version.sourceId) || []), version]);
-    return map;
-  }, [versions]);
+  const uploadFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of files) await ingestKnowledgeFile(workspaceId, file, scope);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'JetBase kaynağı yüklenemedi.');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const act = async (source: KnowledgeSourceSummary, action: 'publish' | 'archive' | 'delete') => {
     setBusyId(source.id);
@@ -127,155 +189,304 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
       setConfirmDeleteId(null);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Kaynak güncellenemedi. Bu kaynak başka bir kullanıcı tarafından yönetiliyor olabilir.');
+      setError(e instanceof Error ? e.message : 'Kaynak güncellenemedi.');
     } finally {
       setBusyId(null);
     }
   };
 
-  const uploadFile = async (file?: File) => {
-    if (!file) return;
-    setUploading(true);
-    setError(null);
-    try {
-      await ingestKnowledgeFile(workspaceId, file, scope);
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'JetBase kaynağı yüklenemedi.');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+  const visibleSources = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('tr-TR');
+    let next = sources.filter(source => !normalized || [source.name, source.documentType, fileTypeLabel(source)]
+      .filter(Boolean)
+      .join(' ')
+      .toLocaleLowerCase('tr-TR')
+      .includes(normalized));
+    if (section === 'images') next = next.filter(source => fileType(source) === 'image');
+    if (section === 'documents') next = next.filter(source => fileType(source) === 'document');
+    if (section === 'tables') next = next.filter(source => fileType(source) === 'table');
+    if (section === 'recent') next = next.slice(0, 12);
+    return next;
+  }, [query, section, sources]);
+
+  const selectedSource = sources.find(source => source.id === selectedSourceId) || null;
+  const selectedVersions = useMemo(() => selectedSource
+    ? versions.filter(version => version.sourceId === selectedSource.id)
+    : [], [selectedSource, versions]);
+
+  const counts = useMemo(() => ({
+    all: sources.length,
+    recent: Math.min(sources.length, 12),
+    images: sources.filter(source => fileType(source) === 'image').length,
+    documents: sources.filter(source => fileType(source) === 'document').length,
+    tables: sources.filter(source => fileType(source) === 'table').length,
+  }), [sources]);
+
+  const navItems = [
+    { id: 'all' as const, label: 'Tüm Kaynaklar', icon: Database, count: counts.all },
+    { id: 'recent' as const, label: 'Son Eklenenler', icon: Clock3, count: counts.recent },
+    { id: 'images' as const, label: 'Görseller', icon: ImageIcon, count: counts.images },
+    { id: 'documents' as const, label: 'Dokümanlar', icon: FileText, count: counts.documents },
+    { id: 'tables' as const, label: 'Tablolar', icon: FileSpreadsheet, count: counts.tables },
+  ];
+
+  const onDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setDragging(false);
+    void uploadFiles(Array.from(event.dataTransfer.files));
   };
 
-  const scopeDescription = scope === 'global'
-    ? 'Tüm JetWork kullanıcıları ve projeleri için ortak, kalıcı bilgi katmanı.'
-    : 'Yalnızca bu projede kullanılan proje özelindeki bilgi katmanı.';
-
-  const healthCards = [
-    ['Nesne', health.objectCount, Database],
-    ['İlişki', health.activeRelationCount, GitBranch],
-    ['Sentetik', health.syntheticObjectCount, AlertCircle],
-    ['Dangling', health.danglingRelationCount, ShieldCheck],
-    ['İnceleme', health.openReviewCount, Search],
-  ] as const;
-
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-theme-border bg-theme-bg shadow-2xl">
-        <header className="flex items-center gap-3 border-b border-theme-border px-5 py-4">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-theme-primary/10 text-theme-primary"><Database size={20} /></div>
-          <div className="min-w-0">
-            <h2 className="font-semibold text-theme-text">JetBase</h2>
-            <p className="truncate text-xs text-theme-text-muted">{scopeDescription}</p>
+    <div
+      className="fixed inset-0 z-[120] flex flex-col bg-theme-bg text-theme-text"
+      onDragOver={event => { event.preventDefault(); setDragging(true); }}
+      onDragLeave={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-4 z-50 grid place-items-center rounded-3xl border-2 border-dashed border-theme-primary bg-theme-primary/5 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-theme-border bg-theme-bg px-8 py-7 shadow-2xl">
+            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-theme-primary/10 text-theme-primary"><Upload size={22} /></div>
+            <div className="text-center"><p className="font-semibold">JetBase'e bırak</p><p className="mt-1 text-xs text-theme-text-muted">Dosyalar yüklenip AI ile anlamlandırılacak</p></div>
           </div>
-          <button type="button" onClick={() => void refresh()} className="ml-auto rounded-lg p-2 hover:bg-theme-surface" title="Yenile">
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-theme-surface" aria-label="Kapat"><X size={18} /></button>
-        </header>
+        </div>
+      )}
 
-        <div className="flex flex-wrap items-center gap-1 border-b border-theme-border px-4 pt-2">
-          <button type="button" onClick={() => setScope('global')} className={`inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition ${scope === 'global' ? 'border-theme-text text-theme-text' : 'border-transparent text-theme-text-muted hover:text-theme-text'}`}>
-            <Globe2 size={15} /> JetBase
-          </button>
-          {hasProjectScope && (
-            <button type="button" onClick={() => setScope('project')} className={`inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition ${scope === 'project' ? 'border-theme-text text-theme-text' : 'border-transparent text-theme-text-muted hover:text-theme-text'}`}>
-              <FolderKanban size={15} /> Proje JetBase
-            </button>
-          )}
-          <div className="ml-auto flex items-center gap-1">
-            {(['sources','review','health'] as AdminTab[]).map(value => (
-              <button key={value} type="button" onClick={() => setTab(value)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${tab === value ? 'bg-theme-surface text-theme-text' : 'text-theme-text-muted hover:text-theme-text'}`}>
-                {value === 'sources' ? 'Kaynaklar' : value === 'review' ? `İnceleme${health.openReviewCount ? ` (${health.openReviewCount})` : ''}` : 'Sağlık'}
-              </button>
-            ))}
+      <header className="flex h-16 shrink-0 items-center gap-4 border-b border-theme-border px-5 lg:px-7">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-theme-text text-theme-bg"><Database size={17} /></div>
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold tracking-tight">JetBase</h1>
+            <p className="hidden text-[11px] text-theme-text-muted sm:block">Kurumsal bilgi çalışma alanı</p>
           </div>
         </div>
 
-        {tab === 'sources' && (
-          <div className="border-b border-theme-border p-4">
-            <div className="space-y-3 sm:flex sm:items-center sm:space-y-0 sm:gap-3">
-              <div className="relative flex-1">
-                <Search size={15} className="absolute left-3 top-2.5 text-theme-text-muted" />
-                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="JetBase kaynağı ara" className="w-full rounded-lg border border-theme-border bg-theme-surface py-2 pl-9 pr-3 text-sm outline-none" />
-              </div>
-              <select value={filter} onChange={e => setFilter(e.target.value as Filter)} className="rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-sm">
-                <option value="all">Tümü</option><option value="published">Yayında</option><option value="draft">Taslak</option><option value="archived">Arşivde</option><option value="failed">Hatalı</option>
-              </select>
-              <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.svg,.pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.heic,.heif,image/*" className="hidden" onChange={event => void uploadFile(event.target.files?.[0])} />
-              <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-theme-text px-3.5 py-2 text-sm font-semibold text-theme-bg disabled:opacity-50">
-                {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                JetBase'e Ekle
-              </button>
-            </div>
-            <p className="mt-2 text-[11px] text-theme-text-muted">Image · PDF · Word · Excel · TXT · MD desteklenir. Görsel içerik AI ile anlamlandırılır; orijinal dosya korunur.</p>
+        {section !== 'admin' && (
+          <div className="relative mx-auto hidden w-full max-w-xl md:block">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-text-muted" />
+            <input
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              placeholder="JetBase'te ara..."
+              className="h-9 w-full rounded-xl border border-theme-border bg-theme-surface/70 pl-9 pr-3 text-sm outline-none transition focus:border-theme-text/30 focus:bg-theme-bg"
+            />
           </div>
         )}
 
-        <div className="overflow-y-auto p-5">
-          {error && <div className="mb-4 flex gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600"><AlertCircle size={16} />{error}</div>}
-          {loading && sources.length === 0 ? (
-            <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-theme-text-muted"><Loader2 className="animate-spin" size={18} />JetBase okunuyor…</div>
-          ) : tab === 'health' ? (
-            <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                {healthCards.map(([title, value, Icon]) => (
-                  <div key={title} className="rounded-xl border border-theme-border bg-theme-surface/50 p-4">
-                    <div className="flex items-center gap-2 text-xs text-theme-text-muted"><Icon size={14} />{title}</div>
-                    <div className="mt-2 text-2xl font-semibold text-theme-text">{value}</div>
-                  </div>
-                ))}
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.svg,.pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.heic,.heif,image/*"
+            className="hidden"
+            onChange={event => void uploadFiles(Array.from(event.target.files || []))}
+          />
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex h-9 items-center gap-2 rounded-xl bg-theme-text px-3.5 text-xs font-semibold text-theme-bg transition hover:opacity-90 disabled:opacity-50"
+          >
+            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            <span className="hidden sm:inline">Kaynak Ekle</span>
+          </button>
+          <button type="button" onClick={() => void refresh()} className="grid h-9 w-9 place-items-center rounded-xl text-theme-text-muted hover:bg-theme-surface hover:text-theme-text" title="Yenile">
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-xl text-theme-text-muted hover:bg-theme-surface hover:text-theme-text" aria-label="JetBase'i kapat">
+            <X size={17} />
+          </button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-[220px] shrink-0 flex-col border-r border-theme-border px-3 py-4 md:flex">
+          <div className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-theme-text-muted">Kütüphane</div>
+          <nav className="space-y-0.5">
+            {navItems.map(item => {
+              const Icon = item.icon;
+              const active = section === item.id;
+              return (
+                <button key={item.id} type="button" onClick={() => setSection(item.id)} className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition ${active ? 'bg-theme-surface font-semibold text-theme-text' : 'text-theme-text-muted hover:bg-theme-surface/70 hover:text-theme-text'}`}>
+                  <Icon size={15} /><span className="flex-1">{item.label}</span><span className="text-[10px] tabular-nums opacity-70">{item.count}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="mt-5 px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-theme-text-muted">Kapsam</div>
+          <div className="space-y-0.5">
+            <button type="button" onClick={() => setScope('global')} className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs ${scope === 'global' ? 'bg-theme-surface font-semibold' : 'text-theme-text-muted hover:bg-theme-surface/70'}`}>
+              <Globe2 size={15} /> Global JetBase
+            </button>
+            {hasProjectScope && (
+              <button type="button" onClick={() => setScope('project')} className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs ${scope === 'project' ? 'bg-theme-surface font-semibold' : 'text-theme-text-muted hover:bg-theme-surface/70'}`}>
+                <FolderKanban size={15} /> Proje JetBase
+              </button>
+            )}
+          </div>
+
+          <div className="mt-auto border-t border-theme-border pt-3">
+            <button type="button" onClick={() => setSection('admin')} className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs ${section === 'admin' ? 'bg-theme-surface font-semibold' : 'text-theme-text-muted hover:bg-theme-surface/70 hover:text-theme-text'}`}>
+              <Settings2 size={15} /> Yönetim
+              {health.openReviewCount > 0 && <span className="ml-auto rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-600">{health.openReviewCount}</span>}
+            </button>
+          </div>
+        </aside>
+
+        <main className="flex min-w-0 flex-1 flex-col">
+          <div className="border-b border-theme-border px-5 py-4 lg:px-7">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold tracking-tight">
+                  {section === 'admin' ? 'JetBase Yönetimi' : navItems.find(item => item.id === section)?.label || 'Kaynaklar'}
+                </h2>
+                <p className="mt-0.5 text-xs text-theme-text-muted">
+                  {section === 'admin'
+                    ? 'Kalite ve graph kontrolleri normal çalışma alanından ayrı tutulur.'
+                    : `${scope === 'global' ? 'Global' : 'Proje'} kapsamı · ${visibleSources.length} kaynak`}
+                </p>
               </div>
-              <div className={`rounded-xl border p-4 text-sm ${health.danglingRelationCount === 0 ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-                <p className="font-semibold">Graph bütünlüğü: {health.danglingRelationCount === 0 ? 'Sağlıklı' : 'Müdahale gerekli'}</p>
-                <p className="mt-1 text-xs text-theme-text-muted">Aktif relation endpoint’lerinin source ve target nesneleri bulunmalıdır. Sentetik nesneler eksik endpoint’in kaybolmasını önler ve inceleme kuyruğuna alınır.</p>
+              <div className="md:hidden">
+                <select value={section} onChange={event => setSection(event.target.value as LibrarySection)} className="rounded-lg border border-theme-border bg-theme-surface px-2 py-1.5 text-xs">
+                  <option value="all">Tüm Kaynaklar</option><option value="recent">Son Eklenenler</option><option value="images">Görseller</option><option value="documents">Dokümanlar</option><option value="tables">Tablolar</option><option value="admin">Yönetim</option>
+                </select>
               </div>
             </div>
-          ) : tab === 'review' ? (
-            reviewItems.length === 0 ? (
-              <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-theme-border text-center">
-                <ShieldCheck size={28} className="mb-3 text-emerald-600" /><p className="text-sm font-medium">Açık inceleme yok</p><p className="mt-1 text-xs text-theme-text-muted">Semantic compiler veya graph validator belirsiz bir kayıt üretmemiş.</p>
+            {section !== 'admin' && (
+              <div className="relative mt-3 md:hidden">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-theme-text-muted" />
+                <input value={query} onChange={event => setQuery(event.target.value)} placeholder="JetBase'te ara..." className="h-9 w-full rounded-xl border border-theme-border bg-theme-surface pl-9 pr-3 text-sm outline-none" />
               </div>
-            ) : (
-              <div className="space-y-3">{reviewItems.map(item => (
-                <article key={item.id} className="rounded-xl border border-theme-border bg-theme-surface/50 p-4">
-                  <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{reviewLabel[item.reviewType]}</span>{item.confidence != null && <span className="text-[10px] text-theme-text-muted">güven %{Math.round(item.confidence * 100)}</span>}</div>
-                  <p className="mt-2 break-all text-sm font-semibold">{item.canonicalKey || 'Kaynak eşleştirmesi'}{item.relatedCanonicalKey ? ` → ${item.relatedCanonicalKey}` : ''}</p>
-                  <p className="mt-1 text-xs text-theme-text-muted">{new Date(item.createdAt).toLocaleString('tr-TR')}</p>
-                </article>
-              ))}</div>
-            )
-          ) : visible.length === 0 ? (
-            <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-theme-border text-center">
-              <FileText size={28} className="mb-3 text-theme-text-muted" /><p className="text-sm font-medium">Bu kapsamda henüz JetBase kaynağı yok</p>
+            )}
+          </div>
+
+          {error && <div className="mx-5 mt-4 flex gap-2 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-600 lg:mx-7"><AlertCircle size={15} />{error}</div>}
+
+          {section === 'admin' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-7">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-theme-border bg-theme-surface/40 p-4"><p className="text-xs text-theme-text-muted">İndekslenen nesne</p><p className="mt-2 text-2xl font-semibold">{health.objectCount}</p></div>
+                <div className="rounded-2xl border border-theme-border bg-theme-surface/40 p-4"><p className="text-xs text-theme-text-muted">Açık inceleme</p><p className="mt-2 text-2xl font-semibold">{health.openReviewCount}</p></div>
+                <div className="rounded-2xl border border-theme-border bg-theme-surface/40 p-4"><p className="text-xs text-theme-text-muted">Graph bütünlüğü</p><p className="mt-2 flex items-center gap-2 text-sm font-semibold">{health.danglingRelationCount === 0 ? <><ShieldCheck size={17} className="text-emerald-600" /> Sağlıklı</> : <><AlertCircle size={17} className="text-amber-600" /> İnceleme gerekli</>}</p></div>
+              </div>
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold">İnceleme kuyruğu</h3>
+                <p className="mt-1 text-xs text-theme-text-muted">Yalnızca veri yöneticisinin müdahale etmesi gereken kayıtlar.</p>
+                <div className="mt-3 space-y-2">
+                  {reviewItems.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-theme-border p-8 text-center text-sm text-theme-text-muted">Açık inceleme yok.</div>
+                  ) : reviewItems.map(item => (
+                    <div key={item.id} className="rounded-xl border border-theme-border px-4 py-3">
+                      <div className="flex items-center gap-2"><span className="text-xs font-semibold">{reviewLabel[item.reviewType]}</span>{item.confidence != null && <span className="text-[10px] text-theme-text-muted">%{Math.round(item.confidence * 100)} güven</span>}</div>
+                      <p className="mt-1 truncate text-xs text-theme-text-muted">{item.canonicalKey || item.relatedCanonicalKey || 'Kaynak eşleştirmesi'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <details className="mt-6 rounded-xl border border-theme-border px-4 py-3 text-xs text-theme-text-muted">
+                <summary className="cursor-pointer font-medium text-theme-text">Teknik graph ayrıntıları</summary>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3"><span>İlişki: {health.activeRelationCount}</span><span>Sentetik: {health.syntheticObjectCount}</span><span>Dangling: {health.danglingRelationCount}</span></div>
+              </details>
+            </div>
+          ) : loading && sources.length === 0 ? (
+            <div className="grid min-h-0 flex-1 place-items-center"><div className="flex items-center gap-2 text-sm text-theme-text-muted"><Loader2 size={17} className="animate-spin" />JetBase hazırlanıyor…</div></div>
+          ) : visibleSources.length === 0 ? (
+            <div className="grid min-h-0 flex-1 place-items-center p-6">
+              <div className="w-full max-w-lg rounded-3xl border border-dashed border-theme-border px-6 py-10 text-center">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-theme-surface text-theme-text-muted"><Upload size={22} /></div>
+                <h3 className="mt-4 text-sm font-semibold">{query ? 'Eşleşen kaynak bulunamadı' : 'JetBase’i kaynaklarla besleyin'}</h3>
+                <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-theme-text-muted">Image, PDF, Word, Excel, TXT ve Markdown dosyaları yüklenebilir. Görseller AI ile anlamlandırılır, orijinal dosya korunur.</p>
+                {!query && <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-theme-text px-4 py-2 text-xs font-semibold text-theme-bg"><Upload size={14} />Dosya seç</button>}
+              </div>
             </div>
           ) : (
-            <div className="space-y-3">{visible.map(source => {
-              const published = source.publicationStatus === 'published';
-              const canPublish = source.ingestionStatus === 'ready' && !published;
-              const sourceVersions = versionsBySource.get(source.id) || [];
-              return (
-                <article key={source.id} className="rounded-xl border border-theme-border bg-theme-surface/50 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                    <FileText size={18} className="mt-0.5 shrink-0 text-theme-primary" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2"><p className="truncate text-sm font-semibold">{source.name}</p><span className="rounded-full bg-theme-bg px-2 py-0.5 text-[10px] font-semibold">{label(source)}</span><span className="rounded-full border border-theme-border px-2 py-0.5 text-[10px] text-theme-text-muted">{scope === 'global' ? 'GLOBAL' : 'PROJECT'}</span>{source.multimodal?.visionApplied && <span className="rounded-full border border-theme-primary/30 bg-theme-primary/5 px-2 py-0.5 text-[10px] font-semibold text-theme-primary">Multimodal AI</span>}</div>
-                      <p className="mt-1 text-xs text-theme-text-muted">v{source.latestVersion} · {source.objectCount} nesne · {source.relationCount} ilişki{source.documentType ? ` · ${source.documentType}` : ''}</p>
-                      {source.multimodal && source.multimodal.embeddedImagesDetected > 0 && <p className="mt-1 text-[10px] text-theme-text-muted">{source.multimodal.embeddedImagesDescribed}/{source.multimodal.embeddedImagesDetected} gömülü görsel AI ile anlamlandırıldı · orijinal dosya korundu</p>}
-                      {sourceVersions.length > 0 && <p className="mt-1 flex items-center gap-1 text-[10px] text-theme-text-muted"><History size={11} />{sourceVersions.length} saklanan sürüm · son derleyici: {sourceVersions[0]?.parserVersion || '—'}</p>}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {published ? <span className="flex items-center gap-1 text-xs font-medium text-emerald-600"><CheckCircle2 size={15} />AI kullanabilir</span> : <button type="button" disabled={!canPublish || busyId === source.id} onClick={() => void act(source, 'publish')} className="flex items-center gap-1 rounded-lg bg-theme-primary px-3 py-1.5 text-xs font-semibold text-theme-primary-fg disabled:opacity-50"><RotateCcw size={13} />Yayınla</button>}
-                      {source.publicationStatus !== 'archived' && <button type="button" disabled={busyId === source.id} onClick={() => void act(source, 'archive')} className="rounded-lg border border-theme-border p-2 text-theme-text-muted" title="Arşivle"><Archive size={14} /></button>}
-                      {confirmDeleteId === source.id ? <><button type="button" onClick={() => void act(source, 'delete')} disabled={busyId === source.id} className="rounded-lg bg-red-600 px-2 py-1.5 text-xs font-semibold text-white">Evet, sil</button><button type="button" onClick={() => setConfirmDeleteId(null)} className="text-xs">Vazgeç</button></> : <button type="button" onClick={() => setConfirmDeleteId(source.id)} className="rounded-lg border border-red-500/30 p-2 text-red-500" title="Kalıcı sil"><Trash2 size={14} /></button>}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 sm:px-5 lg:px-7">
+              <div className="hidden grid-cols-[minmax(0,1fr)_110px_100px_105px] gap-4 border-b border-theme-border px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-theme-text-muted lg:grid">
+                <span>Kaynak</span><span>Tür</span><span>Durum</span><span>Güncelleme</span>
+              </div>
+              <div className="divide-y divide-theme-border/70">
+                {visibleSources.map(source => {
+                  const status = sourceStatus(source);
+                  const selected = source.id === selectedSourceId;
+                  return (
+                    <button
+                      key={source.id}
+                      type="button"
+                      onClick={() => setSelectedSourceId(source.id)}
+                      className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-3 text-left transition lg:grid-cols-[minmax(0,1fr)_110px_100px_105px] lg:gap-4 ${selected ? 'bg-theme-surface/80' : 'hover:bg-theme-surface/45'}`}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <SourceGlyph source={source} />
+                        <div className="min-w-0"><p className="truncate text-sm font-medium">{source.name}</p><p className="mt-0.5 truncate text-[11px] text-theme-text-muted">v{source.latestVersion}{source.multimodal?.visionApplied ? ' · AI analizli' : ''}</p></div>
+                      </div>
+                      <span className="hidden text-xs text-theme-text-muted lg:block">{fileTypeLabel(source)}</span>
+                      <span className={`hidden w-fit rounded-full px-2 py-1 text-[10px] font-semibold lg:block ${status.tone}`}>{status.label}</span>
+                      <span className="hidden text-[11px] text-theme-text-muted lg:block">{formatDate(source.updatedAt)}</span>
+                      <span className="lg:hidden"><MoreHorizontal size={16} className="text-theme-text-muted" /></span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           )}
-        </div>
+        </main>
+
+        {section !== 'admin' && selectedSource && (
+          <aside className="hidden w-[360px] shrink-0 overflow-y-auto border-l border-theme-border xl:block">
+            <div className="p-5">
+              <div className="flex items-start gap-3">
+                <SourceGlyph source={selectedSource} size="lg" />
+                <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold leading-5">{selectedSource.name}</p><p className="mt-1 text-xs text-theme-text-muted">{fileTypeLabel(selectedSource)} · {scope === 'global' ? 'Global' : 'Proje'} JetBase</p></div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-theme-border bg-theme-surface/40 p-4">
+                <div className="flex items-center gap-2"><Sparkles size={15} className="text-theme-primary" /><h3 className="text-xs font-semibold">AI Anlayışı</h3></div>
+                <p className="mt-2 text-xs leading-relaxed text-theme-text-muted">
+                  {selectedSource.multimodal?.visionApplied
+                    ? 'Görsel içerik AI ile analiz edildi ve aranabilir bağlama dönüştürüldü.'
+                    : 'Kaynağın yapısal içeriği ayrıştırıldı ve JetBase aramasına hazırlandı.'}
+                </p>
+                {selectedSource.multimodal?.embeddedImagesDetected ? (
+                  <div className="mt-3 flex items-center gap-2 rounded-xl bg-theme-bg px-3 py-2 text-[11px] text-theme-text-muted"><ImageIcon size={13} />{selectedSource.multimodal.embeddedImagesDescribed}/{selectedSource.multimodal.embeddedImagesDetected} gömülü görsel anlamlandırıldı</div>
+                ) : null}
+                {selectedSource.multimodal?.originalBinaryPreserved && <div className="mt-2 flex items-center gap-2 text-[11px] text-emerald-600"><Check size={13} />Orijinal dosya korundu</div>}
+              </div>
+
+              <div className="mt-5">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.1em] text-theme-text-muted">Kaynak bilgisi</h3>
+                <div className="mt-2 divide-y divide-theme-border/70 rounded-xl border border-theme-border">
+                  <div className="flex items-center justify-between px-3 py-2.5 text-xs"><span className="text-theme-text-muted">Durum</span><span>{sourceStatus(selectedSource).label}</span></div>
+                  <div className="flex items-center justify-between px-3 py-2.5 text-xs"><span className="text-theme-text-muted">Sürüm</span><span>v{selectedSource.latestVersion}</span></div>
+                  <div className="flex items-center justify-between px-3 py-2.5 text-xs"><span className="text-theme-text-muted">İndekslenen bölüm</span><span>{selectedSource.objectCount}</span></div>
+                  <div className="flex items-center justify-between px-3 py-2.5 text-xs"><span className="text-theme-text-muted">Güncellendi</span><span>{formatDate(selectedSource.updatedAt)}</span></div>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="flex items-center gap-2"><History size={14} className="text-theme-text-muted" /><h3 className="text-xs font-semibold">Sürümler</h3></div>
+                <div className="mt-2 space-y-1.5">
+                  {selectedVersions.length === 0 ? <p className="text-xs text-theme-text-muted">Sürüm kaydı bulunamadı.</p> : selectedVersions.slice(0, 5).map(version => (
+                    <div key={version.sourceVersionId} className="flex items-center justify-between rounded-lg bg-theme-surface/60 px-3 py-2 text-xs"><span>v{version.versionNumber}</span><span className="text-[10px] text-theme-text-muted">{formatDate(version.createdAt)}</span></div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap gap-2 border-t border-theme-border pt-4">
+                {selectedSource.publicationStatus !== 'published' && selectedSource.ingestionStatus === 'ready' && (
+                  <button type="button" disabled={busyId === selectedSource.id} onClick={() => void act(selectedSource, 'publish')} className="inline-flex items-center gap-1.5 rounded-lg bg-theme-text px-3 py-2 text-xs font-semibold text-theme-bg disabled:opacity-50"><RotateCcw size={13} />Yayınla</button>
+                )}
+                {selectedSource.publicationStatus !== 'archived' && <button type="button" disabled={busyId === selectedSource.id} onClick={() => void act(selectedSource, 'archive')} className="inline-flex items-center gap-1.5 rounded-lg border border-theme-border px-3 py-2 text-xs text-theme-text-muted hover:text-theme-text"><Archive size={13} />Arşivle</button>}
+                {confirmDeleteId === selectedSource.id ? (
+                  <><button type="button" disabled={busyId === selectedSource.id} onClick={() => void act(selectedSource, 'delete')} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white">Kalıcı sil</button><button type="button" onClick={() => setConfirmDeleteId(null)} className="px-2 py-2 text-xs text-theme-text-muted">Vazgeç</button></>
+                ) : <button type="button" onClick={() => setConfirmDeleteId(selectedSource.id)} className="grid h-8 w-8 place-items-center rounded-lg text-theme-text-muted hover:bg-red-500/10 hover:text-red-600" title="Kalıcı sil"><Trash2 size={14} /></button>}
+              </div>
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );
