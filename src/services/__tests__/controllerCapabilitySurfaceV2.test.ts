@@ -12,7 +12,7 @@ describe('controller capability surface v3', () => {
   it('exposes the complete registered JetWork tool surface without semantic Top-K filtering', () => {
     const surface = buildControllerCapabilitySurface([])
 
-    expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v3-full')
+    expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v3-adaptive-work-v1')
     expect(surface.toolNames).toContain('search_knowledge_catalog')
     expect(surface.toolNames).toContain('get_knowledge_object')
     expect(surface.toolNames).toContain('get_related_objects')
@@ -28,6 +28,17 @@ describe('controller capability surface v3', () => {
     expect(surface.candidates).toEqual([])
   })
 
+  it('separates ranked discovery, exact detail and enumeration semantics without routing the model', () => {
+    const surface = buildControllerCapabilitySurface([])
+    const byName = new Map(surface.tools.map(tool => [tool.name, tool]))
+    expect(String(byName.get('search_knowledge_catalog')?.description)).toContain('ranked candidate discovery')
+    expect(String(byName.get('search_knowledge_catalog')?.description)).toContain('jointly meaningful user terms together')
+    expect(String(byName.get('get_abap_source')?.description)).toContain('remaining evidence gap')
+    expect(String(byName.get('list_knowledge_catalog')?.description)).toContain('enumeration capability')
+    expect(String(byName.get('list_knowledge_catalog')?.description)).toContain('nextCursor only means more records exist')
+    expect(String(byName.get('list_knowledge_catalog')?.description)).toContain('never an instruction to fetch the next page')
+  })
+
   it('ignores legacy candidate input for semantic availability', () => {
     const surface = buildControllerCapabilitySurface([{
       id: 'legacy:candidate',
@@ -39,7 +50,7 @@ describe('controller capability surface v3', () => {
     expect(surface.candidateIds).toEqual([])
   })
 
-  it('returns an observation that leaves retrieval and stop decisions to the controller model', () => {
+  it('returns an observation that leaves retrieval, evidence-gap and stop decisions to the controller model', () => {
     const surface = buildControllerCapabilitySurface([])
     const observation = capabilitySessionObservation({
       version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
@@ -50,9 +61,10 @@ describe('controller capability surface v3', () => {
 
     expect(observation.discoveryMode).toBe('full_surface')
     expect(observation.instruction).toContain('retrieval strategy')
+    expect(observation.instruction).toContain('evidence-gap evaluation')
     expect(observation.instruction).toContain('controller model')
+    expect(observation.instruction).toContain('nextCursor only signals availability')
     expect(observation.instruction).not.toContain('must verify')
-    expect(observation.instruction).not.toContain('nextCursor')
     expect(observation.instruction).not.toContain('pendingCandidateKeys')
   })
 
