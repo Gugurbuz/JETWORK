@@ -27,6 +27,13 @@ describe('latest production chat hardening contract', () => {
     expect(artifactToolSource).toContain('ARTIFACT_REVISION_INVARIANT_FAILED')
   })
 
+  it('surfaces completed artifact verification back to the controller so it can stop without a redundant inspect', () => {
+    expect(artifactToolSource).toContain('verificationComplete')
+    expect(artifactToolSource).toContain('artifactVerification: input.artifactVerification')
+    expect(artifactToolSource).toContain('officeRevisionVerification: input.officeRevisionVerification')
+    expect(artifactToolSource).toContain('No additional inspect_file_attachment call is required solely to verify this tool result.')
+  })
+
   it('keeps evidence sufficiency and narrow artifact revision as controller decisions', () => {
     expect(controllerPolicySource).toContain('Kanıt stratejisinin amacı daha fazla arama yapmak değil')
     expect(controllerPolicySource).toContain('Mevcut veya bu konuşmada daha önce üretilmiş bir artifact')
