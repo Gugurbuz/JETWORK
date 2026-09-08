@@ -6,11 +6,25 @@ import {
 } from '../context/contextTools.ts'
 import type { RuntimeToolSchema } from './registry.ts'
 
-export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v3-full'
+export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v3-adaptive-work-v1'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
+
+const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSchema => {
+  const tool = { ...raw }
+  if (tool.name === 'search_knowledge_catalog' || tool.name === 'search_document') {
+    tool.description = `${String(tool.description || '').trim()} This is ranked candidate discovery, not exhaustive enumeration. Prefer one semantically complete query that keeps jointly meaningful user terms together. If a strong candidate is found, deepen that candidate with an exact/detail/source capability instead of repeatedly broadening the search.`
+  }
+  if (tool.name === 'list_knowledge_catalog' || tool.name === 'list_class_inventory') {
+    tool.description = `${String(tool.description || '').trim()} This is an enumeration capability for genuine list/inventory/coverage needs, not a fallback for a failed exact search. A nextCursor only means more records exist; it is never an instruction to fetch the next page. Request another page only when the current user goal materially requires broader coverage.`
+  }
+  if (['get_abap_source','get_message_detail','get_document_content','get_knowledge_object','get_knowledge_objects','get_related_objects'].includes(tool.name)) {
+    tool.description = `${String(tool.description || '').trim()} Use this to deepen a known candidate when the remaining evidence gap requires exact/detail/source/relation evidence.`
+  }
+  return tool
+}
 
 // Evidence/source tools are intentionally presented before procedural discovery.
 // This is not semantic routing: the model still sees the complete surface and
@@ -18,7 +32,7 @@ export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
 // unambiguous — knowledge tools access enterprise evidence, while skill tools
 // describe procedures/capabilities and are never a substitute for source access.
 const runtimeTools = [
-  ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as RuntimeToolSchema[]),
+  ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as RuntimeToolSchema[]).map(withControllerRetrievalContract),
   ...(ASSISTANT_CONTEXT_TOOLS as unknown as RuntimeToolSchema[]),
   ...(ASSISTANT_SKILL_TOOLS as unknown as RuntimeToolSchema[]),
 ]
@@ -51,7 +65,7 @@ export const REQUEST_LARGE_CONTEXT_TOOL: RuntimeToolSchema = {
 export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: REPORT_PROGRESS_TOOL_NAME,
-  description: 'Publishes a short user-visible Agent Work update. It has no retrieval, planning, permission or execution authority.',
+  description: 'Publishes a short user-visible Agent Work update. It has no retrieval, planning, permission or execution authority. For multi-step/tool work use start for the resolved goal + concise work plan, finding for a material verified finding, plan_change when evidence changes the approach, and blocked only for a real blocker. Never expose private chain-of-thought.',
   strict: true,
   parameters: {
     type: 'object',
@@ -169,5 +183,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: [],
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. Public-web discovery is available both as provider-native web when healthy and as the search_web custom discovery capability; url_context can inspect concrete URLs. Provider availability handling is mechanical and never chooses a query or source. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
+  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. Candidate search, exact/detail retrieval and enumeration are distinct capability types: nextCursor only signals availability and never mandates pagination. Public-web discovery is available both as provider-native web when healthy and as the search_web custom discovery capability; url_context can inspect concrete URLs. Provider availability handling is mechanical and never chooses a query or source. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions, evidence-gap evaluation and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
 })
