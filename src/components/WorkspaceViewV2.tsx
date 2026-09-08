@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Menu } from 'lucide-react';
 import { ChatPanel } from './ChatPanel';
 import { FileViewer } from './FileViewer';
@@ -11,6 +11,7 @@ import { useDocumentStore } from '../store/useDocumentStore';
 import { useUIStore } from '../store/useUIStore';
 import { useMessageStore } from '../store/useMessageStore';
 import { cn } from '../lib/utils';
+import { fileVisualMeta } from '../lib/files/fileMeta';
 import '../jetwork-conversation-shell.css';
 import '../workspace-file-panel.css';
 import '../workspace-right-panel.css';
@@ -81,6 +82,7 @@ export function WorkspaceView(props: WorkspaceViewProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<WorkspacePanelTab>('files');
   const [selectedFile, setSelectedFile] = useState<MessageAttachment | null>(null);
+  const layoutRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelectedFile(null);
@@ -102,8 +104,65 @@ export function WorkspaceView(props: WorkspaceViewProps) {
 
   const closeFile = useCallback(() => setSelectedFile(null), []);
 
+  const fileByName = useCallback((name: string) => files.find(file => file.name === name), [files]);
+
+  useEffect(() => {
+    const root = layoutRef.current;
+    if (!root) return;
+
+    const decorateFileCards = () => {
+      root.querySelectorAll<HTMLButtonElement>('button[title$="dosyasını indir"], button[title$="dosyasını sağda aç"]').forEach(button => {
+        const rawTitle = button.getAttribute('title') || '';
+        const name = rawTitle
+          .replace(/\s+dosyasını indir$/u, '')
+          .replace(/\s+dosyasını sağda aç$/u, '')
+          .trim();
+        if (!name) return;
+
+        const file = fileByName(name);
+        const visual = fileVisualMeta(file || { name, mimeType: '' });
+        button.dataset.jetworkFileName = name;
+        button.dataset.jetworkFileKind = visual.kind;
+        button.classList.add('jetwork-generated-file-card');
+        button.setAttribute('title', `${name} dosyasını sağda aç`);
+        button.setAttribute('aria-label', `${visual.label}: ${name}. Sağ panelde aç`);
+
+        const typeLabel = button.querySelector<HTMLDivElement>('div.min-w-0 > div:first-child');
+        if (typeLabel && typeLabel.textContent !== visual.label) typeLabel.textContent = visual.label;
+
+        const action = button.querySelector<HTMLSpanElement>('span:last-child');
+        if (action) {
+          Array.from(action.childNodes).forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE && node.textContent?.includes('İndir')) node.textContent = ' Aç';
+          });
+        }
+      });
+    };
+
+    const handleGeneratedFileOpen = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const button = target?.closest<HTMLButtonElement>('button[data-jetwork-file-name]');
+      if (!button || !root.contains(button)) return;
+      const file = fileByName(button.dataset.jetworkFileName || '');
+      if (!file) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openFile(file);
+    };
+
+    decorateFileCards();
+    const observer = new MutationObserver(decorateFileCards);
+    observer.observe(root, { childList: true, subtree: true });
+    root.addEventListener('click', handleGeneratedFileOpen, true);
+
+    return () => {
+      observer.disconnect();
+      root.removeEventListener('click', handleGeneratedFileOpen, true);
+    };
+  }, [fileByName, openFile, messages.length]);
+
   return (
-    <div className={cn('jetwork-conversation-shell relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row', selectedFile && 'jetwork-conversation-shell--file-open')}>
+    <div ref={layoutRef} className={cn('jetwork-conversation-shell relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row', selectedFile && 'jetwork-conversation-shell--file-open')}>
       {!selectedFile && (
         <div className="pointer-events-auto absolute right-3 top-2.5 z-30 hidden items-center gap-2 lg:flex">
           {currentWorkspaceId && (

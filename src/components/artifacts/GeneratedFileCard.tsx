@@ -1,8 +1,8 @@
 import React from 'react';
-import { Download, ExternalLink } from 'lucide-react';
+import { Download, ExternalLink, File, FileSpreadsheet, FileText, Image as ImageIcon, Presentation } from 'lucide-react';
 import type { MessageAttachment } from '../../types';
 import { cn } from '../../lib/utils';
-import { fileVisualMeta } from '../../lib/files/fileMeta';
+import { fileVisualMeta, type FileVisualKind } from '../../lib/files/fileMeta';
 import { artifactAttachmentMeta, type ArtifactAwareAttachment } from '../../services/artifactAttachment';
 import { createAssistantFileDownloadUrl } from '../../services/assistantFileRepository';
 import { ArtifactStatusBadge } from './ArtifactStatusBadge';
@@ -15,6 +15,14 @@ interface GeneratedFileCardProps {
   showDownload?: boolean;
   className?: string;
 }
+
+const fileTypeIcon = (kind: FileVisualKind) => {
+  if (kind === 'excel') return <FileSpreadsheet size={18} aria-hidden="true" />;
+  if (kind === 'powerpoint') return <Presentation size={18} aria-hidden="true" />;
+  if (kind === 'image') return <ImageIcon size={18} aria-hidden="true" />;
+  if (kind === 'file') return <File size={18} aria-hidden="true" />;
+  return <FileText size={18} aria-hidden="true" />;
+};
 
 export function GeneratedFileCard({ file, onOpen, compact = false, showDownload = true, className }: GeneratedFileCardProps) {
   const visual = fileVisualMeta(file);
@@ -54,8 +62,8 @@ export function GeneratedFileCard({ file, onOpen, compact = false, showDownload 
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         aria-label={`${visual.label}: ${file.name || 'JetWork çıktısı'}. Aç`}
       >
-        <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-[11px] font-bold tracking-tight', visual.tileClass)}>
-          {visual.mark}
+        <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border', visual.tileClass)}>
+          {fileTypeIcon(visual.kind)}
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-1.5">
