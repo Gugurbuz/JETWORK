@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ASSISTANT_CONTEXT_TOOLS,
@@ -6,19 +7,26 @@ import {
 } from '../../../supabase/functions/_shared/context/contextTools'
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface'
 
+const coreIndexSource = readFileSync(
+  new URL('../../../supabase/functions/openai-assistant-core-v2/index.ts', import.meta.url),
+  'utf8',
+)
+
 describe('Controller V3 quota-independent web discovery', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('keeps web discovery model-visible without injecting provider-native Google Search', () => {
+  it('keeps both native and quota-independent web discovery model-visible behind a mechanical provider circuit', () => {
     const surface = buildControllerCapabilitySurface()
     expect(surface.toolNames).toContain(SEARCH_WEB_TOOL_NAME)
-    expect(surface.providerWebVisible).toBe(false)
+    expect(surface.providerWebVisible).toBe(true)
 
     const schema = ASSISTANT_CONTEXT_TOOLS.find(tool => tool.name === SEARCH_WEB_TOOL_NAME)
     expect(schema).toBeTruthy()
     expect(schema?.description).toContain('discovery candidates')
+    expect(coreIndexSource).toContain("import { installGeminiProviderWebQuotaFallback }")
+    expect(coreIndexSource).toContain('installGeminiProviderWebQuotaFallback()')
   })
 
   it('returns every RSS item delivered by the mechanical search endpoint without a runtime source-count cap', async () => {
