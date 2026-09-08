@@ -22,6 +22,7 @@ on:
       - src/services/__tests__/agentWorkCompletionBarrier.test.ts
       - src/services/__tests__/agentControllerV2RuntimeBoundary.test.ts
       - src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
+      - src/services/__tests__/webDiscoveryFallback.test.ts
       - src/store/useMessageStore.ts
       - src/store/__tests__/useMessageStoreAgentWorkPersistence.test.ts
       - supabase/functions/openai-assistant-core-v2/index.ts
@@ -30,6 +31,7 @@ on:
       - supabase/functions/openai-assistant-v2-entry-router/index.ts
       - supabase/functions/_shared/runtime/runtimeFlags.ts
       - supabase/functions/_shared/capabilities/controllerSurface.ts
+      - supabase/functions/_shared/context/contextTools.ts
       - supabase/functions/_shared/agentWorkDurableStream.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
