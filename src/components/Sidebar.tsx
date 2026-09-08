@@ -1,13 +1,16 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Archive,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
+  FlaskConical,
   Folder,
   FolderInput,
+  FolderOpen,
   Loader2,
   LogOut,
   MessageSquarePlus,
@@ -34,6 +37,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { STANDALONE_PROJECT_ID } from '../hooks/useProjects';
 import { setWorkspaceProject } from '../services/workspaceScopeRepository';
 import { JetWorkLogo } from './JetWorkLogo';
+import { FileLibrary } from './FileLibrary';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 type Lifecycle = 'active' | 'archived' | 'trash';
@@ -96,7 +100,9 @@ interface ConversationActionsMenuProps {
   onDelete: () => void;
 }
 
-const PAGE_SIZE = 30;
+const PROJECT_PAGE_SIZE = 30;
+const STANDALONE_CHAT_PAGE_SIZE = 10;
+const PROJECT_CHAT_PAGE_SIZE = 8;
 const RECENT_CHAT_LIMIT = 7;
 const SIDEBAR_COLLAPSED_KEY = 'jetwork:global-sidebar:collapsed';
 const CHAT_MENU_WIDTH = 224;
@@ -120,6 +126,10 @@ const conversationSectionLabel: Record<Lifecycle, string> = {
   archived: 'Arşivlenen sohbetler',
   trash: 'Çöp kutusundaki sohbetler',
 };
+
+const sortWorkspacesByRecent = (workspaces: Workspace[]) => (
+  [...workspaces].sort((a, b) => Number(b.lastUpdated || 0) - Number(a.lastUpdated || 0))
+);
 
 function ConversationRow({
   workspace,
@@ -321,6 +331,7 @@ function ConversationActionsMenu({
 }
 
 export function Sidebar(props: SidebarProps) {
+  const navigate = useNavigate();
   const {
     user,
     onSelectWorkspace,
@@ -356,9 +367,12 @@ export function Sidebar(props: SidebarProps) {
   const [query, setQuery] = React.useState('');
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [showFilters, setShowFilters] = React.useState(false);
-  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  const [visibleProjectCount, setVisibleProjectCount] = React.useState(PROJECT_PAGE_SIZE);
+  const [visibleStandaloneCount, setVisibleStandaloneCount] = React.useState(STANDALONE_CHAT_PAGE_SIZE);
+  const [visibleProjectChats, setVisibleProjectChats] = React.useState<Record<string, number>>({});
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [showUserMenu, setShowUserMenu] = React.useState(false);
+  const [filesOpen, setFilesOpen] = React.useState(false);
   const [chatMenu, setChatMenu] = React.useState<ChatMenuState | null>(null);
   const [pendingChatId, setPendingChatId] = React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -406,19 +420,23 @@ export function Sidebar(props: SidebarProps) {
 
   const getVisibleProjectWorkspaces = React.useCallback((project: Project) => {
     if (lifecycle === 'active') {
-      return project.workspaces.filter(workspace => !workspace.deletedAt && !workspace.archivedAt);
+      return sortWorkspacesByRecent(project.workspaces.filter(workspace => !workspace.deletedAt && !workspace.archivedAt));
     }
     if (lifecycle === 'archived') {
       if (project.archivedAt && !project.deletedAt) {
-        return project.workspaces.filter(workspace => !workspace.deletedAt);
+        return sortWorkspacesByRecent(project.workspaces.filter(workspace => !workspace.deletedAt));
       }
-      return project.workspaces.filter(workspace => !workspace.deletedAt && Boolean(workspace.archivedAt));
+      return sortWorkspacesByRecent(project.workspaces.filter(workspace => !workspace.deletedAt && Boolean(workspace.archivedAt)));
     }
-    if (project.deletedAt) return project.workspaces;
-    return project.workspaces.filter(workspace => Boolean(workspace.deletedAt));
+    if (project.deletedAt) return sortWorkspacesByRecent(project.workspaces);
+    return sortWorkspacesByRecent(project.workspaces.filter(workspace => Boolean(workspace.deletedAt)));
   }, [lifecycle]);
 
-  React.useEffect(() => setVisibleCount(PAGE_SIZE), [scope, lifecycle, query]);
+  React.useEffect(() => {
+    setVisibleProjectCount(PROJECT_PAGE_SIZE);
+    setVisibleStandaloneCount(STANDALONE_CHAT_PAGE_SIZE);
+    setVisibleProjectChats({});
+  }, [scope, lifecycle, query]);
 
   React.useEffect(() => {
     try {
@@ -434,6 +452,26 @@ export function Sidebar(props: SidebarProps) {
     setScope(activeProject.ownerId === user?.uid ? 'owned' : 'shared');
     setLifecycle(activeProject.deletedAt ? 'trash' : activeProject.archivedAt ? 'archived' : 'active');
   }, [activeProject, user?.uid]);
+
+  React.useEffect(() => {
+    if (!activeProject || !currentWorkspaceId) return;
+    const visibleWorkspaces = getVisibleProjectWorkspaces(activeProject);
+    const activeIndex = visibleWorkspaces.findIndex(workspace => workspace.id === currentWorkspaceId);
+    if (activeIndex < 0) return;
+    setVisibleProjectChats(previous => ({
+      ...previous,
+      [activeProject.id]: Math.max(previous[activeProject.id] || PROJECT_CHAT_PAGE_SIZE, activeIndex + 1),
+    }));
+  }, [activeProject, currentWorkspaceId, getVisibleProjectWorkspaces]);
+
+  React.useEffect(() => {
+    if (activeProject || !currentWorkspaceId) return;
+    const ordered = sortWorkspacesByRecent(standaloneWorkspaces.filter(workspaceMatchesLifecycle));
+    const activeIndex = ordered.findIndex(workspace => workspace.id === currentWorkspaceId);
+    if (activeIndex >= 0) {
+      setVisibleStandaloneCount(current => Math.max(current, activeIndex + 1));
+    }
+  }, [activeProject, currentWorkspaceId, standaloneWorkspaces, workspaceMatchesLifecycle]);
 
   React.useEffect(() => {
     if (!chatMenu) return;
@@ -483,10 +521,9 @@ export function Sidebar(props: SidebarProps) {
 
   const visibleStandalone = React.useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('tr-TR');
-    return standaloneWorkspaces
+    return sortWorkspacesByRecent(standaloneWorkspaces
       .filter(workspaceMatchesLifecycle)
-      .filter(workspace => !normalized || workspace.title.toLocaleLowerCase('tr-TR').includes(normalized))
-      .sort((a, b) => Number(b.lastUpdated || 0) - Number(a.lastUpdated || 0));
+      .filter(workspace => !normalized || workspace.title.toLocaleLowerCase('tr-TR').includes(normalized)));
   }, [query, standaloneWorkspaces, workspaceMatchesLifecycle]);
 
   const recentWorkspaces = React.useMemo(() => {
@@ -526,6 +563,8 @@ export function Sidebar(props: SidebarProps) {
   };
 
   const openNewProject = () => runMobileAction(() => setShowNewProjectModal(true));
+  const openFiles = () => runMobileAction(() => setFilesOpen(true));
+  const openQualityLab = () => runMobileAction(() => navigate('/quality'));
   const canManageProject = (project: Project) => project.ownerId === user?.uid;
   const canManageWorkspace = (workspace: Workspace) => workspace.ownerId === user?.uid;
 
@@ -631,6 +670,7 @@ export function Sidebar(props: SidebarProps) {
   );
 
   const navRowClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors hover:bg-theme-surface-hover';
+  const moreButtonClass = 'mt-1 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text';
 
   const content = (
     <motion.aside
@@ -673,6 +713,13 @@ export function Sidebar(props: SidebarProps) {
           </button>
           <button type="button" onClick={openSearch} className={compactActionClass} title="Ara" aria-label="Ara">
             <Search size={19} />
+          </button>
+          <div className="my-1 h-px w-7 bg-theme-border/60" />
+          <button type="button" onClick={openFiles} className={compactActionClass} title="Dosyalar" aria-label="Dosyalar">
+            <FolderOpen size={19} />
+          </button>
+          <button type="button" onClick={openQualityLab} className={compactActionClass} title="AI Quality Lab" aria-label="AI Quality Lab">
+            <FlaskConical size={18} />
           </button>
           <button type="button" onClick={() => setCollapsed(false)} className={compactActionClass} title="Projeler" aria-label="Projeler">
             <Folder size={19} />
@@ -724,13 +771,30 @@ export function Sidebar(props: SidebarProps) {
                 <span>Ara</span>
               </button>
             )}
+
+            <div className="pt-2">
+              <div className="mb-1 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-theme-text-muted/80">Çalışma alanı</div>
+              <button type="button" onClick={openFiles} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
+                <FolderOpen size={18} />
+                <span>Dosyalar</span>
+              </button>
+              <button type="button" onClick={openQualityLab} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
+                <FlaskConical size={18} />
+                <span>AI Quality Lab</span>
+              </button>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3 scrollbar-hide">
             <section className="mb-5">
-              <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">{conversationSectionLabel[lifecycle]}</div>
+              <div className="mb-1.5 flex items-center justify-between px-2">
+                <span className="text-[11px] font-medium text-theme-text-muted">{conversationSectionLabel[lifecycle]}</span>
+                {visibleStandalone.length > STANDALONE_CHAT_PAGE_SIZE && (
+                  <span className="text-[10px] tabular-nums text-theme-text-muted/70">{visibleStandalone.length}</span>
+                )}
+              </div>
               <div className="space-y-0.5">
-                {visibleStandalone.map(workspace => (
+                {visibleStandalone.slice(0, visibleStandaloneCount).map(workspace => (
                   <ConversationRow
                     key={workspace.id}
                     workspace={workspace}
@@ -744,10 +808,20 @@ export function Sidebar(props: SidebarProps) {
                 ))}
                 {visibleStandalone.length === 0 && (
                   <div className="px-3 py-2 text-xs text-theme-text-muted">
-                    {query ? 'Aramana uygun bağımsız sohbet yok.' : `Bu görünümde bağımsız sohbet yok.`}
+                    {query ? 'Aramana uygun bağımsız sohbet yok.' : 'Bu görünümde bağımsız sohbet yok.'}
                   </div>
                 )}
               </div>
+              {visibleStandalone.length > visibleStandaloneCount && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleStandaloneCount(count => count + STANDALONE_CHAT_PAGE_SIZE)}
+                  className={moreButtonClass}
+                >
+                  <ChevronDown size={13} /> Daha fazla göster
+                  <span className="ml-0.5 text-[10px] opacity-70">+{Math.min(STANDALONE_CHAT_PAGE_SIZE, visibleStandalone.length - visibleStandaloneCount)}</span>
+                </button>
+              )}
             </section>
 
             {recentWorkspaces.length > 0 && !query && (
@@ -864,11 +938,13 @@ export function Sidebar(props: SidebarProps) {
               )}
 
               <div className="space-y-0.5">
-                {filtered.slice(0, visibleCount).map(project => {
+                {filtered.slice(0, visibleProjectCount).map(project => {
                   const isProjectActive = currentProjectId === project.id || activeProject?.id === project.id;
                   const open = Boolean(expanded[project.id]);
                   const projectLifecycleMatch = projectMatchesLifecycle(project);
                   const visibleWorkspaces = getVisibleProjectWorkspaces(project);
+                  const projectChatLimit = visibleProjectChats[project.id] || PROJECT_CHAT_PAGE_SIZE;
+                  const shownWorkspaces = visibleWorkspaces.slice(0, projectChatLimit);
 
                   return (
                     <div key={project.id} className={cn('group/project rounded-xl', isProjectActive && 'bg-theme-surface-hover/60')}>
@@ -891,6 +967,9 @@ export function Sidebar(props: SidebarProps) {
                         >
                           <Folder size={15} className="shrink-0 opacity-70" />
                           <span className="truncate">{project.name}</span>
+                          {visibleWorkspaces.length > PROJECT_CHAT_PAGE_SIZE && (
+                            <span className="ml-auto mr-1 text-[10px] tabular-nums text-theme-text-muted/70">{visibleWorkspaces.length}</span>
+                          )}
                         </button>
                         {canManageProject(project) && projectLifecycleMatch && (
                           <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/project:opacity-100 focus-within:opacity-100">
@@ -915,7 +994,7 @@ export function Sidebar(props: SidebarProps) {
 
                       {open && (
                         <div className="mb-1 ml-7 space-y-0.5 pl-2">
-                          {visibleWorkspaces.map(workspace => (
+                          {shownWorkspaces.map(workspace => (
                             <ConversationRow
                               key={workspace.id}
                               workspace={workspace}
@@ -931,6 +1010,19 @@ export function Sidebar(props: SidebarProps) {
                           {visibleWorkspaces.length === 0 && (
                             <div className="px-2 py-1.5 text-[11px] text-theme-text-muted">Bu görünümde sohbet yok.</div>
                           )}
+                          {visibleWorkspaces.length > projectChatLimit && (
+                            <button
+                              type="button"
+                              onClick={() => setVisibleProjectChats(previous => ({
+                                ...previous,
+                                [project.id]: (previous[project.id] || PROJECT_CHAT_PAGE_SIZE) + PROJECT_CHAT_PAGE_SIZE,
+                              }))}
+                              className={moreButtonClass}
+                            >
+                              <ChevronDown size={12} /> Daha fazla göster
+                              <span className="ml-0.5 text-[10px] opacity-70">+{Math.min(PROJECT_CHAT_PAGE_SIZE, visibleWorkspaces.length - projectChatLimit)}</span>
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -944,13 +1036,13 @@ export function Sidebar(props: SidebarProps) {
                 </div>
               )}
 
-              {filtered.length > visibleCount && (
+              {filtered.length > visibleProjectCount && (
                 <button
                   type="button"
-                  onClick={() => setVisibleCount(count => count + PAGE_SIZE)}
+                  onClick={() => setVisibleProjectCount(count => count + PROJECT_PAGE_SIZE)}
                   className="mt-2 flex w-full items-center justify-center gap-1 rounded-xl py-2 text-xs text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text"
                 >
-                  <ChevronDown size={14} /> Daha fazla
+                  <ChevronDown size={14} /> Daha fazla proje göster
                 </button>
               )}
             </section>
@@ -1049,6 +1141,7 @@ export function Sidebar(props: SidebarProps) {
         />
       )}
       {content}
+      {filesOpen && <FileLibrary onClose={() => setFilesOpen(false)} />}
       {chatMenu && typeof document !== 'undefined' && createPortal(
         <ConversationActionsMenu
           key={`${chatMenu.workspace.id}-${chatMenu.projectId || 'standalone'}-${lifecycle}`}
