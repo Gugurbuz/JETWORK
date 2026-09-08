@@ -3,13 +3,14 @@ import { AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS } from '../agenticRuntimeV2Scenario
 
 describe('Agentic Runtime V2 golden contract', () => {
   it('covers each P6 release category exactly once in the seed suite', () => {
-    expect(AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS).toHaveLength(7)
-    expect(new Set(AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS.map(item => item.id)).size).toBe(7)
+    expect(AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS).toHaveLength(8)
+    expect(new Set(AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS.map(item => item.id)).size).toBe(8)
     expect(new Set(AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS.map(item => item.category))).toEqual(new Set([
       'exact_technical',
       'broad_analysis',
       'follow_up_continuity',
       'artifact_completion',
+      'artifact_revision',
       'current_web',
       'memory_correction',
       'mixed_capabilities',
@@ -34,6 +35,18 @@ describe('Agentic Runtime V2 golden contract', () => {
       'persistence_required',
     ]))
     expect(artifact.forbiddenBehaviors).toContain('claim_completion_before_reload')
+  })
+
+  it('locks the latest-chat revision scenario to existing-artifact edit + invariant verification', () => {
+    const revision = AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS.find(item => item.category === 'artifact_revision')!
+    expect(revision.requiredCapabilities).toEqual(expect.arrayContaining([
+      'list_action_attachments',
+      'edit_office_file',
+      'artifact_verifier',
+      'resolved_context',
+    ]))
+    expect(revision.assertions).toContain('revision_invariant_verified')
+    expect(revision.forbiddenBehaviors).toContain('artifact_regenerated_for_narrow_revision')
   })
 
   it('locks memory correction to user authority and supersede semantics', () => {

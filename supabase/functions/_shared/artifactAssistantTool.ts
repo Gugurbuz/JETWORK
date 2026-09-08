@@ -31,6 +31,7 @@ const ACTIONABLE_MIMES = new Set([
   'text/csv','text/tab-separated-values','text/plain','text/markdown','application/json',
 ])
 const ACTIONABLE_EXT = /\.(xlsx|pdf|docx|pptx|png|jpe?g|webp|gif|svg|csv|tsv|txt|md|json)$/i
+const ACTIONABLE_PURPOSES = new Set(['tool_input', 'tool_output'])
 
 const asActionAttachment = (value: unknown): ActionAttachmentRef | null => {
   if (!value || typeof value !== 'object') return null
@@ -41,7 +42,10 @@ const asActionAttachment = (value: unknown): ActionAttachmentRef | null => {
   const mimeType = clean(item.mimeType, 160).toLocaleLowerCase('en-US')
   const storageBucket = clean(item.storageBucket, 120)
   const storagePath = clean(item.storagePath, 1_000)
-  if (purpose !== 'tool_input' || !attachmentId || !name || !storagePath || storageBucket !== ASSISTANT_FILES_BUCKET) return null
+  // User inputs and previously generated JetWork outputs are both legitimate
+  // revision targets. They are still restricted to private workspace-scoped
+  // assistant-files references returned through the RLS-protected message query.
+  if (!ACTIONABLE_PURPOSES.has(purpose) || !attachmentId || !name || !storagePath || storageBucket !== ASSISTANT_FILES_BUCKET) return null
   if (!ACTIONABLE_EXT.test(name) && !ACTIONABLE_MIMES.has(mimeType)) return null
   return { attachmentId, name, mimeType, storageBucket, storagePath }
 }

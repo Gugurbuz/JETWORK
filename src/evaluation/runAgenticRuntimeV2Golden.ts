@@ -29,6 +29,7 @@ export type AgenticRuntimeV2ScenarioExecutor = (
 const isCriticalScenario = (scenario: AgenticRuntimeV2GoldenScenario) => (
   scenario.category === 'exact_technical'
   || scenario.category === 'artifact_completion'
+  || scenario.category === 'artifact_revision'
   || scenario.category === 'memory_correction'
   || scenario.category === 'mixed_capabilities'
 )

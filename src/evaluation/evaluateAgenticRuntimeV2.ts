@@ -11,6 +11,7 @@ export interface AgenticRuntimeTrace {
     reloadVerified: boolean
     integrityVerified: boolean
     persisted: boolean
+    revisionInvariantVerified?: boolean
   }
 }
 
@@ -39,14 +40,18 @@ export const evaluateAgenticRuntimeV2 = (
   const missingAssertions = scenario.assertions.filter(assertion => !satisfied.has(assertion))
   const forbiddenBehaviorsObserved = scenario.forbiddenBehaviors.filter(behavior => observed.has(behavior))
 
-  const completionInvariantPassed = scenario.category !== 'artifact_completion'
-    && scenario.category !== 'mixed_capabilities'
+  const artifactCompletionRequired = scenario.category === 'artifact_completion'
+    || scenario.category === 'artifact_revision'
+    || scenario.category === 'mixed_capabilities'
+  const artifactRevisionRequired = scenario.category === 'artifact_revision'
+  const completionInvariantPassed = !artifactCompletionRequired
     ? true
     : Boolean(
       trace.artifact?.executorSucceeded
       && trace.artifact.reloadVerified
       && trace.artifact.integrityVerified
       && trace.artifact.persisted
+      && (!artifactRevisionRequired || trace.artifact.revisionInvariantVerified === true)
       && trace.completed
     )
 
