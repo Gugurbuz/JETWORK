@@ -12,22 +12,20 @@ describe('active document card UX regression guard', () => {
     expect(workspaceV2Source).toContain("import { fileVisualMeta } from '../lib/files/fileMeta'");
     expect(workspaceV2Source).toContain('jetwork-generated-file-card');
     expect(workspaceV2Source).toContain('data-jetwork-file-name');
-    expect(workspaceV2Source).toContain('data-jetwork-file-kind');
+    expect(workspaceV2Source).toContain('dataset.jetworkFileKind');
     expect(workspaceV2Source).toContain('dosyasını sağda aç');
-    expect(workspaceV2Source).toContain("typeLabel.textContent = visual.label");
+    expect(workspaceV2Source).toContain('typeLabel.textContent = visual.label');
     expect(workspaceV2Source).toContain('openFile(file)');
   });
 
-  it('renders recognizable file icons instead of raw W/X/P/PDF text marks', () => {
+  it('renders recognizable file icons instead of visible raw W/X/P/PDF marks', () => {
     expect(generatedCardSource).toContain('FileSpreadsheet');
     expect(generatedCardSource).toContain('Presentation');
     expect(generatedCardSource).toContain('Image as ImageIcon');
     expect(generatedCardSource).toContain('fileTypeIcon(visual.kind)');
     expect(generatedCardSource).not.toContain('{visual.mark}');
     expect(fileCardCss).toContain('background-image: url("data:image/svg+xml');
-    expect(fileCardCss).not.toContain('content: "W"');
-    expect(fileCardCss).not.toContain('content: "X"');
-    expect(fileCardCss).not.toContain('content: "P"');
-    expect(fileCardCss).not.toContain('content: "PDF"');
+    expect(fileCardCss).toContain('color: transparent');
+    expect(fileCardCss).toContain('font-size: 0');
   });
 });
