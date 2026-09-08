@@ -129,7 +129,10 @@ export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly un
   return {
     version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
     tools,
-    providerWebVisible: true,
+    // Web discovery remains model-visible through search_web. The provider-native
+    // Google Search built-in is deliberately not injected while the account's
+    // grounding quota is unavailable; url_context and code_execution remain native.
+    providerWebVisible: false,
     candidateIds: [],
     toolNames: tools.map(tool => tool.name),
     skillKeys: [],
@@ -169,5 +172,5 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   candidates: [],
   visibleToolNames: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
+  instruction: 'All registered JetWork capabilities are visible. Knowledge tools access enterprise evidence directly. search_web provides public-web discovery candidates, while provider url_context can inspect concrete URLs. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions and stop/final decisions belong to the controller model. Runtime supplies execution and mechanical safety only.',
 })
