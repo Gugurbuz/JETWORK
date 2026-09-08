@@ -61,7 +61,7 @@ const GEMINI_PRO_MODEL = 'gemini-3.8-flash'
 const gemini38DefaultEnabled = () => String(Deno.env.get('GEMINI_38_PRODUCTION_DEFAULT') ?? 'true').trim().toLocaleLowerCase('en-US') !== 'false'
 const DEFAULT_GEMINI_RUNTIME_MODEL = 'gemini-3.8-flash'
 const AUTO_GEMINI_RUNTIME_MODEL = () => gemini38DefaultEnabled() ? DEFAULT_GEMINI_RUNTIME_MODEL : 'gemini-3.5-flash'
-const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol'
+const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna'
 const AUTO_PROVIDER_CIRCUIT_BREAKER_MS = 5 * 60 * 1000
 const CONTEXT_SENSITIVE_ACKNOWLEDGEMENTS = new Set(['tamam', 'ok', 'okay'])
 

@@ -61,7 +61,7 @@ const corsHeaders = {
 }
 
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses'
-const DEFAULT_MODEL = 'gpt-5.6-sol'
+const DEFAULT_MODEL = 'gpt-5.6-luna'
 const AUTO_MODEL = 'auto'
 const ENGINE_VERSION = `reasoning-engine-v2+${AGENT_CONTROLLER_VERSION}`
 const PROVIDER_WEB_CAPABILITY_MARKER = '[JETWORK_CAPABILITY:provider_web]'
@@ -101,11 +101,11 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 
 const userFacingAssistantError = (error: unknown) => {
   const detail = errorMessage(error)
-  if (/no credits remaining|insufficient_quota|billing/i.test(detail)) {
-    return 'OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.'
-  }
-  if (/resource_exhausted|quota exceeded|gemini.*quota/i.test(detail)) {
+  if (/resource_exhausted|quota exceeded|gemini.*quota|generativelanguage\.googleapis\.com/i.test(detail)) {
     return 'Gemini API kullanım kotası tükendi. Yönetici kotayı yeniledikten sonra tekrar deneyin.'
+  }
+  if (/no credits remaining|insufficient_quota|openai.*(?:quota|billing)|api\.openai\.com/i.test(detail)) {
+    return 'OpenAI API kullanım kredisi tükendi. Yönetici hesaba bakiye ekledikten sonra tekrar deneyin.'
   }
   return 'Asistan yanıtı tamamlanamadı. Lütfen tekrar deneyin.'
 }

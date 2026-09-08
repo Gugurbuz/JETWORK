@@ -11,6 +11,7 @@ const WORK_MODES: Array<{ value: WorkMode; label: string; detail: string }> = [
 
 const OPTIONS = [
   { value: 'auto', label: 'Otomatik', detail: 'JetWork en uygun modeli seçer' },
+  { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', detail: 'OpenAI • hızlı / ekonomik' },
   { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', detail: 'OpenAI' },
   { value: 'gpt-5.6', label: 'GPT-5.6', detail: 'OpenAI' },
   { value: PUBLIC_GEMINI_MODEL, label: 'Gemini 3.8 Flash', detail: 'Google' },

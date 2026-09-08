@@ -1,7 +1,7 @@
 import { GoogleGenAI } from 'npm:@google/genai@2.21.0'
 import { normalizeGeminiFunctionCalls } from './geminiFunctionContract.ts'
 
-export const OPENAI_MODELS = new Set(['gpt-5.6-sol', 'gpt-5.6'])
+export const OPENAI_MODELS = new Set(['gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6'])
 export const GEMINI_MODELS = new Set([
   'gemini-3-flash-preview',
   'gemini-3.1-pro-preview',
