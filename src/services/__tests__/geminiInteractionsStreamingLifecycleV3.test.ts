@@ -72,7 +72,7 @@ describe('Gemini Interactions streaming lifecycle V3', () => {
     ]))
   })
 
-  it('uses persisted previous_interaction_id without replaying prior conversation and records telemetry', async () => {
+  it('uses persisted previous_interaction_id for a tool-enabled follow-up without replaying prior conversation', async () => {
     let requestBody: Record<string, unknown> = {}
     vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>
@@ -93,7 +93,7 @@ describe('Gemini Interactions streaming lifecycle V3', () => {
         { role: 'user', content: 'Devam et' },
       ],
       tools: [],
-      allowTools: false,
+      allowTools: true,
       allowProviderWeb: false,
       maxOutputTokens: 1_000,
       onText: () => {},

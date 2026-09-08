@@ -6,6 +6,7 @@ import {
   isDocumentRevisionRequest,
   isGroundedRequirementRequest,
 } from '../_shared/documentArtifactRouting.ts'
+import { createDurableAgentWorkStream } from '../_shared/agentWorkDurableStream.ts'
 import { isAgentControllerV2Enabled } from '../_shared/runtime/runtimeFlags.ts'
 
 const corsHeaders = {
@@ -25,12 +26,6 @@ const eventName = (frame: string) => frame
   .find(line => line.startsWith('event:'))
   ?.slice('event:'.length)
   .trim() || ''
-
-const eventData = (frame: string) => frame
-  .split(/\r?\n/u)
-  .filter(line => line.startsWith('data:'))
-  .map(line => line.slice('data:'.length).trimStart())
-  .join('\n')
 
 const encodeEvent = (encoder: TextEncoder, name: string, payload: unknown) => encoder.encode(
   `${name ? `event: ${name}\n` : ''}data: ${typeof payload === 'string' ? payload : JSON.stringify(payload)}\n\n`,
@@ -182,13 +177,13 @@ async function forwardControllerV2(input: {
 }) {
   let upstream: Response
   try {
-    upstream = await fetch(`${input.supabaseUrl}/functions/v1/openai-assistant-v2-internal`, {
+    upstream = await fetch(`${input.supabaseUrl}/functions/v1/openai-assistant-core-v3`, {
       method: 'POST',
       headers: {
         Authorization: input.authorization,
         apikey: input.anonKey,
         'Content-Type': 'application/json',
-        'x-client-info': 'jetwork-agent-controller-v2-entry/v1',
+        'x-client-info': 'jetwork-agent-controller-v3-entry/v1',
       },
       body: JSON.stringify(input.payload),
     })
@@ -199,15 +194,27 @@ async function forwardControllerV2(input: {
   const headers = new Headers(upstream.headers)
   headers.set('Access-Control-Allow-Origin', '*')
   headers.set('Access-Control-Expose-Headers', 'x-jetwork-runtime-route')
-  headers.set('x-jetwork-runtime-route', 'agent-controller-v2')
+  headers.set('x-jetwork-runtime-route', 'agent-controller-v3')
 
   const contentType = upstream.headers.get('Content-Type') || upstream.headers.get('content-type') || ''
   if (!upstream.body || !contentType.includes('text/event-stream')) {
     return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers })
   }
 
+  const enriched = enrichAssistantSse(
+    upstream.body,
+    () => loadPersistedArtifacts(input.client, input.workspaceId, input.messageId),
+  )
   return new Response(
-    enrichAssistantSse(upstream.body, () => loadPersistedArtifacts(input.client, input.workspaceId, input.messageId)),
+    createDurableAgentWorkStream({
+      stream: enriched,
+      supabaseUrl: input.supabaseUrl,
+      anonKey: input.anonKey,
+      authorization: input.authorization,
+      workspaceId: input.workspaceId,
+      messageId: input.messageId,
+      onPersistenceMiss: observation => console.warn('AGENT_WORK_PERSISTENCE_MISSED', JSON.stringify(observation)),
+    }),
     { status: upstream.status, statusText: upstream.statusText, headers },
   )
 }
@@ -238,11 +245,10 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false },
   })
 
-  // P1 invariant: with Controller V2 enabled the entry layer performs no
-  // keyword/regex/length-based semantic routing. Every semantic turn goes to the
-  // full controller runtime, which can itself select knowledge/web/skill/artifact
-  // capabilities. The entire legacy router remains below as rollback behavior
-  // while AGENT_CONTROLLER_V2 is OFF.
+  // Agent Controller production invariant: no keyword/regex/length-based semantic
+  // routing runs before the active LLM. The entry layer only authenticates,
+  // forwards, canonicalizes public Agent Work events, recovers persisted artifacts,
+  // and durably records the public event chronology.
   if (isAgentControllerV2Enabled()) {
     return forwardControllerV2({
       supabaseUrl,
@@ -255,6 +261,7 @@ Deno.serve(async (req: Request) => {
     })
   }
 
+  // Rollback-only legacy routing remains isolated below the controller gate.
   const routeDecision = classifyDocumentArtifactRequest(message)
   const artifactContext = !routeDecision.artifactRoute
     ? await loadRecentArtifactContext(client, workspaceId, messageId, message)

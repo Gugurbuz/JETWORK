@@ -20,4 +20,11 @@ describe('AssistantWorkIndicator stop portal lifecycle', () => {
     expect(cleanup).toContain('sendButton.style.display = previousDisplay');
     expect(cleanup).not.toContain('setTarget(null)');
   });
+
+  it('renders a hydrated canonical chronology synchronously ahead of fallback rows', () => {
+    expect(source).toContain('export const selectRenderedAgentWorkEvents');
+    expect(source).toContain('const selected = canonicalEvents.length');
+    expect(source).toContain('canonicalEvents.reduce(reduceAgentActivityEvents');
+    expect(source).toContain('selectRenderedAgentWorkEvents(canonicalWorkEvents, events)');
+  });
 });

@@ -1,13 +1,15 @@
 name: Agent Work Live Canary
 
-# Live rollout gate targets the PR #215 immutable release gateway. The gateway
-# wraps the isolated Controller V3 core with the canonical Agent Work SSE adapter,
-# so the authenticated browser test exercises the same stream contract production uses.
+# Authenticated rollout gate for the canonical Agent Work / Controller V3 path.
+# The target release gateway is repinned to the exact hardening head before the
+# release decision, so the browser test exercises the same entry-router contract
+# intended for production.
 on:
   workflow_dispatch:
   push:
     branches:
       - fix/agent-work-meaningful-runtime-v2
+      - release/agent-work-v3-production-hardening
     paths:
       - .github/workflows/agent-work-live-canary.yml
       - e2e/agent-work-live-canary.spec.ts
@@ -18,13 +20,21 @@ on:
       - src/services/sseParser.ts
       - src/services/messageRepository.ts
       - src/services/__tests__/agentWorkCompletionBarrier.test.ts
+      - src/services/__tests__/agentControllerV2RuntimeBoundary.test.ts
       - src/services/__tests__/geminiTerminalSynthesisContinuation.test.ts
       - src/store/useMessageStore.ts
       - src/store/__tests__/useMessageStoreAgentWorkPersistence.test.ts
       - supabase/functions/openai-assistant-core-v2/index.ts
+      - supabase/functions/openai-assistant-core-v3/index.ts
+      - supabase/functions/openai-assistant-core-v3/import_map.json
+      - supabase/functions/openai-assistant-v2-entry-router/index.ts
+      - supabase/functions/_shared/runtime/runtimeFlags.ts
+      - supabase/functions/_shared/capabilities/controllerSurface.ts
+      - supabase/functions/_shared/agentWorkDurableStream.ts
       - supabase/functions/_shared/agentWorkSseAdapter.ts
       - supabase/functions/_shared/safeStreamSink.ts
       - supabase/functions/_shared/geminiInteractionsTransportGA.ts
+      - supabase/functions/_shared/geminiProviderWebQuotaFallback.ts
 
 permissions:
   contents: read

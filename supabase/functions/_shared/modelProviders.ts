@@ -34,6 +34,7 @@ export type AssistantProvider = 'openai' | 'gemini' | 'ollama'
 
 export const PUBLIC_GEMINI_MODEL = 'gemini-3.8-flash'
 export const DEFAULT_GEMINI_MODEL = PUBLIC_GEMINI_MODEL
+const TERMINAL_SYNTHESIS_MARKER = 'Mekanik runtime tur sınırına ulaşıldı.'
 const LEGACY_GEMINI_MODEL_ALIASES = [
   'gemini-3-flash-preview',
   'gemini-3.1-pro-preview',
@@ -83,6 +84,7 @@ type GeminiRequestInput = {
  */
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   const runtimeObservation = extractGeminiRuntimeObservationInstruction(input.instructions)
+  const terminalSynthesis = input.instructions.includes(TERMINAL_SYNTHESIS_MARKER)
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
@@ -90,6 +92,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     items: input.items,
     tools: input.tools,
     allowTools: input.allowTools,
+    terminalSynthesis,
     allowProviderWeb: input.allowProviderWeb,
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,

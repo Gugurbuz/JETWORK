@@ -4,11 +4,19 @@ export const DENO_DEPLOYMENT_ID_ENV = 'DENO_DEPLOYMENT_ID'
 
 // Existing JETWORK Edge Functions reserved for non-production Agentic Runtime
 // validation. These UUIDs are Supabase function identities, not user-controlled
-// request data. Production assistant function IDs are deliberately absent.
+// request data.
 export const AGENT_CONTROLLER_V2_CANARY_FUNCTION_IDS = new Set([
   '8889f9e7-b72b-4549-b793-0045311043d6', // openai-assistant-golden-canary
   '7806a5b9-17a7-4cae-a15e-c3e2d6ec8eac', // assistant-primary-agent-core-canary
   '83401d13-c940-4530-a4c9-fc0b9be60940', // agent-work-core-v3-canary
+])
+
+// Production rollout is code-owned and function-identity scoped. Request data,
+// headers, workspace/user content and the legacy flag cannot opt a deployment in.
+// Rollback is one code/deploy change: remove the production identity or deploy a
+// prior gateway version.
+export const AGENT_CONTROLLER_V2_PRODUCTION_FUNCTION_IDS = new Set([
+  '0f38ecb0-e3c9-4adb-8aec-a52c3474d266', // openai-assistant-v2
 ])
 
 type EnvReader = (name: string) => string | undefined
@@ -28,24 +36,33 @@ const defaultEnvReader: EnvReader = (name) => {
   return runtime.Deno?.env?.get?.(name)
 }
 
-const isExplicitAgenticCanaryDeployment = (deploymentId: string | undefined) => {
+const deploymentMatches = (deploymentId: string | undefined, functionIds: Set<string>) => {
   const normalized = String(deploymentId || '').trim()
   if (!normalized) return false
-  return [...AGENT_CONTROLLER_V2_CANARY_FUNCTION_IDS].some(functionId => normalized.includes(`_${functionId}_`))
+  return [...functionIds].some(functionId => normalized.includes(`_${functionId}_`))
 }
+
+const isExplicitAgenticCanaryDeployment = (deploymentId: string | undefined) => (
+  deploymentMatches(deploymentId, AGENT_CONTROLLER_V2_CANARY_FUNCTION_IDS)
+)
+
+const isExplicitAgenticProductionDeployment = (deploymentId: string | undefined) => (
+  deploymentMatches(deploymentId, AGENT_CONTROLLER_V2_PRODUCTION_FUNCTION_IDS)
+)
 
 /**
  * Canonical Agentic Runtime rollout decision.
  *
- * Normal production deployments can only be enabled by AGENT_CONTROLLER_V2.
- * Missing/invalid canonical configuration remains OFF even if the legacy flag is
- * true. The only additional enable path is an explicit, code-owned Supabase
- * canary function identity used for P6/P7 live-like validation. No request
- * header/body/user input participates in this decision.
+ * The canonical environment flag can enable a normal deployment. In addition,
+ * explicitly code-owned Supabase canary and production function identities are
+ * rollout authorities. Missing/invalid configuration remains OFF everywhere else,
+ * even if the legacy flag is true. No request header/body/user input participates.
  */
 export const isAgentControllerV2Enabled = (readEnv: EnvReader = defaultEnvReader): boolean => {
   if (parseBooleanFlag(readEnv(AGENT_CONTROLLER_V2_FLAG)) === true) return true
-  return isExplicitAgenticCanaryDeployment(readEnv(DENO_DEPLOYMENT_ID_ENV))
+  const deploymentId = readEnv(DENO_DEPLOYMENT_ID_ENV)
+  return isExplicitAgenticCanaryDeployment(deploymentId)
+    || isExplicitAgenticProductionDeployment(deploymentId)
 }
 
 /**
