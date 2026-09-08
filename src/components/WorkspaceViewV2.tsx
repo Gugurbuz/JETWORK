@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Menu } from 'lucide-react';
+import { Activity, BookOpenText, Files, Menu, MoreHorizontal } from 'lucide-react';
 import { ChatPanel } from './ChatPanel';
 import { FileViewer } from './FileViewer';
 import { CompactModelControl } from './CompactModelControl';
@@ -82,24 +82,48 @@ export function WorkspaceView(props: WorkspaceViewProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<WorkspacePanelTab>('files');
   const [selectedFile, setSelectedFile] = useState<MessageAttachment | null>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const layoutRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelectedFile(null);
     setPanelOpen(false);
     setPanelTab('files');
+    setActionsMenuOpen(false);
   }, [currentWorkspaceId]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-workspace-actions-root="true"]')) return;
+      setActionsMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActionsMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [actionsMenuOpen]);
 
   const openPanel = useCallback((tab: WorkspacePanelTab) => {
     setPanelTab(tab);
     setPanelOpen(true);
     setSelectedFile(null);
+    setActionsMenuOpen(false);
   }, []);
 
   const openFile = useCallback((file: MessageAttachment) => {
     setPanelOpen(true);
     setPanelTab('files');
     setSelectedFile(file);
+    setActionsMenuOpen(false);
   }, []);
 
   const closeFile = useCallback(() => setSelectedFile(null), []);
@@ -161,27 +185,86 @@ export function WorkspaceView(props: WorkspaceViewProps) {
     };
   }, [fileByName, openFile, messages.length]);
 
+  const actionsMenu = (mobile: boolean) => (
+    <div
+      data-testid={mobile ? 'workspace-actions-menu-mobile' : 'workspace-actions-menu'}
+      className={cn(
+        'absolute right-0 top-11 z-50 w-72 overflow-hidden rounded-2xl border border-theme-border/80 bg-theme-bg/98 shadow-2xl backdrop-blur-xl',
+        mobile && 'w-[min(18rem,calc(100vw-1rem))]',
+      )}
+      role="menu"
+      aria-label="Sohbet araçları"
+    >
+      <div className="border-b border-theme-border/60 px-4 py-3">
+        <p className="text-sm font-semibold text-theme-text">Sohbet araçları</p>
+        <p className="mt-0.5 text-[11px] leading-4 text-theme-text-muted">Bu konuşmaya ait içerik ve çalışma izleri</p>
+      </div>
+      <div className="p-1.5">
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => openPanel('files')}
+          className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-theme-surface-hover', panelOpen && panelTab === 'files' && 'bg-theme-surface-hover')}
+        >
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-theme-surface text-theme-text"><Files size={17} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-theme-text">Dosyalar</span>
+            <span className="block truncate text-[11px] text-theme-text-muted">Bu sohbette oluşturulan çıktılar</span>
+          </span>
+          {files.length > 0 && <span className="min-w-5 rounded-full bg-theme-surface px-1.5 text-center text-[10px] font-semibold leading-5 text-theme-text-muted">{files.length}</span>}
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => openPanel('sources')}
+          className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-theme-surface-hover', panelOpen && panelTab === 'sources' && 'bg-theme-surface-hover')}
+        >
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-theme-surface text-theme-text"><BookOpenText size={17} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-theme-text">Kaynaklar</span>
+            <span className="block truncate text-[11px] text-theme-text-muted">Yanıtlarda kullanılan referanslar</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => openPanel('work')}
+          className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-theme-surface-hover', panelOpen && panelTab === 'work' && 'bg-theme-surface-hover')}
+        >
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-theme-surface text-theme-text"><Activity size={17} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-theme-text">Agent Work</span>
+            <span className="block truncate text-[11px] text-theme-text-muted">Ajanın adımları, araçları ve çalışma akışı</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div ref={layoutRef} className={cn('jetwork-conversation-shell relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row', selectedFile && 'jetwork-conversation-shell--file-open')}>
       {!selectedFile && (
         <div className="pointer-events-auto absolute right-3 top-2.5 z-30 hidden items-center gap-2 lg:flex">
           {currentWorkspaceId && (
-            <button
-              type="button"
-              data-testid="workspace-panel-toggle"
-              onClick={() => panelOpen ? setPanelOpen(false) : openPanel('files')}
-              className={cn(
-                'inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-medium shadow-sm transition-colors',
-                panelOpen ? 'border-theme-text-muted/30 bg-theme-surface-hover text-theme-text' : 'border-theme-border/70 bg-theme-bg/90 text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
-              )}
-              aria-expanded={panelOpen}
-              aria-controls="workspace-right-panel"
-              title="Dosyalar, kaynaklar ve Agent Work"
-            >
-              <Activity size={15} />
-              <span>Çalışma alanı</span>
-              {files.length > 0 && <span className="rounded-full bg-theme-surface px-1.5 py-0.5 text-[10px] tabular-nums">{files.length}</span>}
-            </button>
+            <div className="relative" data-workspace-actions-root="true">
+              <button
+                type="button"
+                data-testid="workspace-actions-menu-toggle"
+                onClick={() => setActionsMenuOpen(open => !open)}
+                className={cn(
+                  'relative inline-flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition-colors',
+                  actionsMenuOpen ? 'border-theme-text-muted/30 bg-theme-surface-hover text-theme-text' : 'border-theme-border/70 bg-theme-bg/90 text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
+                )}
+                aria-expanded={actionsMenuOpen}
+                aria-haspopup="menu"
+                title="Sohbet araçları"
+                aria-label="Sohbet araçlarını aç"
+              >
+                <MoreHorizontal size={18} />
+                {files.length > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-theme-text px-1 text-center text-[9px] font-semibold leading-4 text-theme-bg">{files.length}</span>}
+              </button>
+              {actionsMenuOpen && actionsMenu(false)}
+            </div>
           )}
           <CompactModelControl disabled={isGenerating || isDiscussing} />
         </div>
@@ -191,10 +274,21 @@ export function WorkspaceView(props: WorkspaceViewProps) {
         <button type="button" onClick={() => setMobileSidebarOpen(true)} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text" aria-label="Ana menüyü aç"><Menu size={19} /></button>
         <div className="min-w-0 flex-1 px-1"><p className="truncate text-sm font-semibold text-theme-text">{currentWorkspace?.title || 'Sohbet'}</p></div>
         {currentWorkspaceId && (
-          <button type="button" onClick={() => panelOpen ? setPanelOpen(false) : openPanel('files')} className={cn('relative inline-flex h-9 w-9 items-center justify-center rounded-full', panelOpen ? 'bg-theme-surface-hover text-theme-text' : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text')} aria-label="Çalışma alanını aç" aria-expanded={panelOpen}>
-            <Activity size={18} />
-            {files.length > 0 && <span className="absolute right-0 top-0 min-w-4 rounded-full bg-theme-text px-1 text-center text-[9px] font-semibold leading-4 text-theme-bg">{files.length}</span>}
-          </button>
+          <div className="relative" data-workspace-actions-root="true">
+            <button
+              type="button"
+              data-testid="workspace-actions-menu-toggle-mobile"
+              onClick={() => setActionsMenuOpen(open => !open)}
+              className={cn('relative inline-flex h-9 w-9 items-center justify-center rounded-full', actionsMenuOpen ? 'bg-theme-surface-hover text-theme-text' : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text')}
+              aria-label="Sohbet araçlarını aç"
+              aria-expanded={actionsMenuOpen}
+              aria-haspopup="menu"
+            >
+              <MoreHorizontal size={19} />
+              {files.length > 0 && <span className="absolute right-0 top-0 min-w-4 rounded-full bg-theme-text px-1 text-center text-[9px] font-semibold leading-4 text-theme-bg">{files.length}</span>}
+            </button>
+            {actionsMenuOpen && actionsMenu(true)}
+          </div>
         )}
         <CompactModelControl mobile disabled={isGenerating || isDiscussing} />
       </header>
