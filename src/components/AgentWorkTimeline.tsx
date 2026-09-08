@@ -17,7 +17,7 @@ import '../agent-work-timeline.css';
 
 const GENERIC_KNOWLEDGE_ACTIVITY = /^(?:bilgi bankası sorgusu|bilgi bankasında sorgu|bilgi bankası işlemi)/iu;
 const GENERIC_WEB_ACTIVITY = /^(?:web araması|web sorgusu|google araması|internet araması)/iu;
-const NUMERIC_SOURCE_ACTIVITY = /^\d+\s+(?:kurumsal|web) kayna(?:ğı|gi)\s+(?:bulundu|kullanıldı)/iu;
+const NUMERIC_SOURCE_ACTIVITY = /^\d+\s+(?:kurumsal|web)\s+kaynak(?:\s+|\s*·\s*|$).*(?:bulundu|kullanıldı|incelendi)?/iu;
 
 const StateIcon = ({ state }: { state: AgentWorkEvent['state'] }) => {
   if (state === 'failed') return <XCircle aria-hidden="true" />;
