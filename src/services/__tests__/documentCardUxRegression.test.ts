@@ -28,4 +28,15 @@ describe('active document card UX regression guard', () => {
     expect(fileCardCss).toContain('color: transparent');
     expect(fileCardCss).toContain('font-size: 0');
   });
+
+  it('uses a JETWORK chat actions menu instead of a visible workspace button', () => {
+    expect(workspaceV2Source).toContain('workspace-actions-menu-toggle');
+    expect(workspaceV2Source).toContain('Sohbet araçları');
+    expect(workspaceV2Source).toContain("openPanel('files')");
+    expect(workspaceV2Source).toContain("openPanel('sources')");
+    expect(workspaceV2Source).toContain("openPanel('work')");
+    expect(workspaceV2Source).toContain('MoreHorizontal');
+    expect(workspaceV2Source).not.toContain('<span>Çalışma alanı</span>');
+    expect(workspaceV2Source).not.toContain('data-testid="workspace-panel-toggle"');
+  });
 });
