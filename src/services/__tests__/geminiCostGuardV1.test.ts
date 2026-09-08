@@ -61,7 +61,7 @@ describe('Gemini cost and primary-agent boundaries', () => {
     expect(providerWrapperSource).toContain('model: requestedModel')
     expect(providerWrapperSource).toContain('const primaryAgentInstruction = AGENT_CONTROLLER_INSTRUCTION')
     expect(controllerPolicySource).toContain('semantic controller ve assistant modelisin')
-    expect(controllerPolicySource).toContain('bir sonraki en değerli aksiyona kendin karar ver')
+    expect(controllerPolicySource).toContain('bir sonraki en değerli aksiyona')
     expect(providerWrapperSource).toContain('primary_llm_agent_calls')
     expect(providerWrapperSource).not.toContain('buildDeterministicKnowledgeDispatch')
     expect(providerWrapperSource).not.toContain('shouldUseDeterministicKnowledgeDispatch')
@@ -76,8 +76,9 @@ describe('Gemini cost and primary-agent boundaries', () => {
   })
 
   it('removes the paid semantic provider preflight from execution authority', () => {
-    expect(semanticSource).toContain("SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v1'")
+    expect(semanticSource).toContain("SEMANTIC_ORCHESTRATOR_VERSION = 'primary-llm-agent-v2-adaptive-work-context'")
     expect(semanticSource).toContain('semantic_planner_provider_calls_avoided')
+    expect(semanticSource).toContain('short_context_bridge_enabled')
     expect(semanticSource).not.toContain('OPENAI_RESPONSES_URL')
     expect(semanticSource).not.toContain('GEMINI_GENERATE_CONTENT_BASE_URL')
     expect(semanticSource).not.toContain('requestGeminiPlan')
