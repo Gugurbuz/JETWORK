@@ -156,47 +156,213 @@ async function extractXlsxText(bytes: Uint8Array) {
   return output.join('\n\n')
 }
 
-async function callGeminiGenerateText(bytes: Uint8Array, mimeType: string, fileName: string) {
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+}
+
+const imageMimeFromPath = (path: string) => {
+  const extension = path.toLocaleLowerCase('en-US').match(/\.([a-z0-9]+)$/)?.[1] || ''
+  return IMAGE_MIME_BY_EXTENSION[extension] || null
+}
+
+const geminiExtractionPrompt = (mimeType: string) => {
+  const normalizedMime = mimeType.toLocaleLowerCase('en-US')
+  if (normalizedMime.startsWith('image/')) {
+    return [
+      'Analyze this image for JetBase ingestion and return faithful Markdown.',
+      'Describe the visual meaning in Turkish without guessing, while preserving all readable source text, numbers, technical identifiers, UI labels and codes exactly.',
+      'If the image contains a table, chart, diagram, form or application screen, explain its structure and relationships so the content remains searchable later.',
+      'Use the headings "## Görsel açıklaması", "## Görünen metin" and "## Yapısal öğeler" when applicable; omit empty sections.',
+      'Do not invent information that is not visible in the image.',
+    ].join(' ')
+  }
+  if (normalizedMime === 'application/pdf') {
+    return [
+      'Process this PDF for JetBase as faithful Markdown using native visual document understanding.',
+      'Preserve headings, paragraphs, tables, labels, technical identifiers, code names, API names, database/table names and sequence/flow information.',
+      'Also describe meaningful images, diagrams, charts, screenshots and layout relationships that would be lost by plain text extraction.',
+      'Use page-oriented headings when useful so visual context stays attached to the surrounding text.',
+      'Do not summarize and do not add information that is not present in the PDF.',
+    ].join(' ')
+  }
+  return [
+    'Extract the readable content from this file as faithful Markdown.',
+    'Preserve headings, tables, labels, technical identifiers, code names, API names, database/table names, and sequence/flow information.',
+    'Do not summarize and do not add information that is not present in the file.',
+  ].join(' ')
+}
+
+async function callGeminiGenerateText(bytes: Uint8Array, mimeType: string, fileName: string, maxOutputTokens = 16_000) {
   const apiKey = Deno.env.get('GEMINI_API_KEY')
-  if (!apiKey) throw new Error(`${fileName} dosyası için metin çıkarımı GEMINI_API_KEY gerektiriyor.`)
+  if (!apiKey) throw new Error(`${fileName} dosyasının AI ile anlamlandırılması GEMINI_API_KEY gerektiriyor.`)
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
-        { text: [
-          'Extract the readable content from this file as faithful Markdown.',
-          'Preserve headings, tables, labels, technical identifiers, code names, API names, database/table names, and sequence/flow information.',
-          'Do not summarize and do not add information that is not present in the file.',
-        ].join(' ') },
+        { text: geminiExtractionPrompt(mimeType) },
         { inlineData: { mimeType, data: bytesToBase64(bytes) } },
       ] }],
-      generationConfig: { maxOutputTokens: 16_000 },
+      generationConfig: { maxOutputTokens },
     }),
   })
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`Gemini metin çıkarımı başarısız oldu (${response.status}): ${detail.slice(0, 500)}`)
+    throw new Error(`Gemini içerik çıkarımı başarısız oldu (${response.status}): ${detail.slice(0, 500)}`)
   }
   const payload = await response.json()
   const text = payload?.candidates?.[0]?.content?.parts
     ?.map((part: Record<string, unknown>) => typeof part.text === 'string' ? part.text : '').join('\n').trim()
-  if (!text) throw new Error(`${fileName} dosyasından metin çıkarılamadı.`)
+  if (!text) throw new Error(`${fileName} dosyasından anlamlı içerik çıkarılamadı.`)
   return text
 }
 
-async function extractSourceText(bytes: Uint8Array, mimeType: string, fileName: string) {
+interface OfficeMediaExtraction {
+  markdown: string
+  detected: number
+  described: number
+  warnings: string[]
+}
+
+async function extractOfficeMediaDescriptions(bytes: Uint8Array, prefixes: string[], sourceFileName: string): Promise<OfficeMediaExtraction> {
+  const zip = await JSZip.loadAsync(bytes)
+  const allMedia = Object.keys(zip.files)
+    .filter(path => prefixes.some(prefix => path.startsWith(prefix)) && !zip.files[path].dir)
+    .sort((left, right) => left.localeCompare(right, 'en-US', { numeric: true }))
+  if (allMedia.length === 0) return { markdown: '', detected: 0, described: 0, warnings: [] }
+
+  const configuredLimit = Number(Deno.env.get('JETBASE_MAX_EMBEDDED_IMAGES') || 24)
+  const maxImages = Number.isFinite(configuredLimit) ? Math.max(1, Math.min(Math.trunc(configuredLimit), 64)) : 24
+  const warnings: string[] = []
+  const candidates = allMedia.filter(path => imageMimeFromPath(path))
+  const unsupported = allMedia.length - candidates.length
+  if (unsupported > 0) warnings.push(`${unsupported} gömülü medya nesnesi desteklenen raster görsel formatında olmadığı için AI açıklamasına alınmadı.`)
+  if (candidates.length > maxImages) warnings.push(`Gömülü görsel sayısı ${maxImages} sınırını aştı; kalan görseller orijinal dosyada korunuyor.`)
+  if (!Deno.env.get('GEMINI_API_KEY')) {
+    warnings.push(`${candidates.length} gömülü görsel orijinal dosyada korundu ancak GEMINI_API_KEY olmadığı için AI ile anlamlandırılamadı.`)
+    return { markdown: '', detected: allMedia.length, described: 0, warnings }
+  }
+
+  const parts: string[] = []
+  let described = 0
+  for (const mediaPath of candidates.slice(0, maxImages)) {
+    const mimeType = imageMimeFromPath(mediaPath)
+    const file = zip.file(mediaPath)
+    if (!mimeType || !file) continue
+    const imageBytes = new Uint8Array(await file.async('uint8array'))
+    if (imageBytes.byteLength > 8 * 1024 * 1024) {
+      warnings.push(`${mediaPath} 8 MB gömülü görsel analiz sınırını aştı; görsel orijinal dosyada korunuyor.`)
+      continue
+    }
+    try {
+      const description = await callGeminiGenerateText(imageBytes, mimeType, `${sourceFileName}:${mediaPath}`, 3_000)
+      parts.push(`## Gömülü görsel — ${mediaPath}\n${description}`)
+      described += 1
+    } catch (error) {
+      warnings.push(`${mediaPath} AI ile anlamlandırılamadı: ${ingestionErrorMessage(error).slice(0, 240)}`)
+    }
+  }
+  return { markdown: parts.join('\n\n'), detected: allMedia.length, described, warnings }
+}
+
+interface ExtractedSourceContent {
+  text: string
+  extractionMethod: string
+  multimodal: {
+    mode: 'text' | 'image_vision' | 'pdf_native_vision' | 'office_hybrid'
+    visionApplied: boolean
+    embeddedImagesDetected: number
+    embeddedImagesDescribed: number
+    originalBinaryPreserved: boolean
+  }
+  warnings: string[]
+}
+
+async function extractSourceText(bytes: Uint8Array, mimeType: string, fileName: string): Promise<ExtractedSourceContent> {
   const lowerName = fileName.toLocaleLowerCase('en-US')
   const normalizedMime = mimeType.toLocaleLowerCase('en-US')
   if (normalizedMime.startsWith('text/') || ['application/json','application/xml','image/svg+xml'].includes(normalizedMime)
     || /\.(txt|md|csv|tsv|json|xml|svg)$/i.test(lowerName)) {
     const text = decodeTextBytes(bytes)
-    return { text: normalizedMime === 'text/html' || /\.(html|htm)$/i.test(lowerName) ? htmlToText(text) : text, extractionMethod: 'direct_text' }
+    return {
+      text: normalizedMime === 'text/html' || /\.(html|htm)$/i.test(lowerName) ? htmlToText(text) : text,
+      extractionMethod: 'direct_text',
+      multimodal: { mode: 'text', visionApplied: false, embeddedImagesDetected: 0, embeddedImagesDescribed: 0, originalBinaryPreserved: true },
+      warnings: [],
+    }
   }
-  if (normalizedMime === 'text/html' || /\.(html|htm)$/i.test(lowerName)) return { text: htmlToText(decodeTextBytes(bytes)), extractionMethod: 'html_text' }
-  if (/\.docx$/i.test(lowerName) || normalizedMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return { text: await extractDocxText(bytes), extractionMethod: 'office_docx_xml' }
-  if (/\.pptx$/i.test(lowerName) || normalizedMime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return { text: await extractPptxText(bytes), extractionMethod: 'office_pptx_xml' }
-  if (/\.xlsx$/i.test(lowerName) || normalizedMime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || normalizedMime === 'application/vnd.ms-excel') return { text: await extractXlsxText(bytes), extractionMethod: 'office_xlsx_xml' }
-  return { text: await callGeminiGenerateText(bytes, normalizedMime || 'application/octet-stream', fileName), extractionMethod: 'gemini_file_extraction' }
+  if (normalizedMime === 'text/html' || /\.(html|htm)$/i.test(lowerName)) return {
+    text: htmlToText(decodeTextBytes(bytes)),
+    extractionMethod: 'html_text',
+    multimodal: { mode: 'text', visionApplied: false, embeddedImagesDetected: 0, embeddedImagesDescribed: 0, originalBinaryPreserved: true },
+    warnings: [],
+  }
+  if (/\.docx$/i.test(lowerName) || normalizedMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    const [text, media] = await Promise.all([
+      extractDocxText(bytes),
+      extractOfficeMediaDescriptions(bytes, ['word/media/'], fileName),
+    ])
+    return {
+      text: [text, media.markdown].filter(Boolean).join('\n\n'),
+      extractionMethod: media.detected > 0 ? 'office_docx_xml+gemini_media' : 'office_docx_xml',
+      multimodal: { mode: 'office_hybrid', visionApplied: media.described > 0, embeddedImagesDetected: media.detected, embeddedImagesDescribed: media.described, originalBinaryPreserved: true },
+      warnings: media.warnings,
+    }
+  }
+  if (/\.pptx$/i.test(lowerName) || normalizedMime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+    const [text, media] = await Promise.all([
+      extractPptxText(bytes),
+      extractOfficeMediaDescriptions(bytes, ['ppt/media/'], fileName),
+    ])
+    return {
+      text: [text, media.markdown].filter(Boolean).join('\n\n'),
+      extractionMethod: media.detected > 0 ? 'office_pptx_xml+gemini_media' : 'office_pptx_xml',
+      multimodal: { mode: 'office_hybrid', visionApplied: media.described > 0, embeddedImagesDetected: media.detected, embeddedImagesDescribed: media.described, originalBinaryPreserved: true },
+      warnings: media.warnings,
+    }
+  }
+  if (/\.xlsx$/i.test(lowerName) || normalizedMime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || normalizedMime === 'application/vnd.ms-excel') {
+    const [text, media] = await Promise.all([
+      extractXlsxText(bytes),
+      extractOfficeMediaDescriptions(bytes, ['xl/media/'], fileName),
+    ])
+    return {
+      text: [text, media.markdown].filter(Boolean).join('\n\n'),
+      extractionMethod: media.detected > 0 ? 'office_xlsx_xml+gemini_media' : 'office_xlsx_xml',
+      multimodal: { mode: 'office_hybrid', visionApplied: media.described > 0, embeddedImagesDetected: media.detected, embeddedImagesDescribed: media.described, originalBinaryPreserved: true },
+      warnings: media.warnings,
+    }
+  }
+  if (normalizedMime === 'application/pdf' || /\.pdf$/i.test(lowerName)) {
+    return {
+      text: await callGeminiGenerateText(bytes, 'application/pdf', fileName),
+      extractionMethod: 'gemini_pdf_native_vision',
+      multimodal: { mode: 'pdf_native_vision', visionApplied: true, embeddedImagesDetected: 0, embeddedImagesDescribed: 0, originalBinaryPreserved: true },
+      warnings: [],
+    }
+  }
+  if (normalizedMime.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i.test(lowerName)) {
+    const resolvedMime = normalizedMime.startsWith('image/') ? normalizedMime : imageMimeFromPath(lowerName) || 'image/jpeg'
+    return {
+      text: await callGeminiGenerateText(bytes, resolvedMime, fileName, 4_000),
+      extractionMethod: 'gemini_image_vision',
+      multimodal: { mode: 'image_vision', visionApplied: true, embeddedImagesDetected: 0, embeddedImagesDescribed: 0, originalBinaryPreserved: true },
+      warnings: [],
+    }
+  }
+  return {
+    text: await callGeminiGenerateText(bytes, normalizedMime || 'application/octet-stream', fileName),
+    extractionMethod: 'gemini_file_extraction',
+    multimodal: { mode: 'text', visionApplied: false, embeddedImagesDetected: 0, embeddedImagesDescribed: 0, originalBinaryPreserved: true },
+    warnings: [],
+  }
 }
 
 async function callGeminiEmbedding(text: string, purpose: 'RETRIEVAL_DOCUMENT' | 'RETRIEVAL_QUERY') {
@@ -261,7 +427,7 @@ serve(async (req) => {
   try {
     const { data: authData, error: authError } = await client.auth.getUser()
     if (authError || !authData.user) return jsonResponse({ error: 'A valid user session is required.' }, 401)
-    if (authData.user.is_anonymous) return jsonResponse({ error: 'Knowledge ingestion requires a permanent user account.' }, 403)
+    if (authData.user.is_anonymous) return jsonResponse({ error: 'JetBase ingestion requires a permanent user account.' }, 403)
 
     const body = await req.json()
     const knowledgeSpaceId = String(body?.knowledgeSpaceId || '').trim()
@@ -269,15 +435,15 @@ serve(async (req) => {
     const fileName = String(body?.fileName || '').trim()
     const mimeType = String(body?.mimeType || 'text/plain').trim().toLowerCase()
     const sourceKey = cleanSourceKey(String(body?.sourceKey || '')) || sourceIdentityKey(fileName)
-    const supportedExtensions = /\.(txt|md|csv|tsv|html?|json|xml|svg|pdf|docx|pptx|xlsx)$/i
-    const allowedMimeTypes = new Set(['','text/plain','text/markdown','text/csv','text/tab-separated-values','text/html','application/json','application/xml','image/svg+xml','application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'])
+    const supportedExtensions = /\.(txt|md|csv|tsv|html?|json|xml|svg|pdf|docx|pptx|xlsx|png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i
+    const allowedMimeTypes = new Set(['','text/plain','text/markdown','text/csv','text/tab-separated-values','text/html','application/json','application/xml','image/svg+xml','image/png','image/jpeg','image/jpg','image/webp','image/gif','image/bmp','image/avif','image/heic','image/heif','application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'])
 
     if (!knowledgeSpaceId || !storagePath || !fileName) return jsonResponse({ error: 'knowledgeSpaceId, storagePath and fileName are required.' }, 400)
-    if (storagePath.includes('..') || !storagePath.startsWith(`${authData.user.id}/${knowledgeSpaceId}/`)) return jsonResponse({ error: 'Storage path is outside the authenticated knowledge scope.' }, 403)
-    if (!supportedExtensions.test(fileName) || !allowedMimeTypes.has(mimeType)) return jsonResponse({ error: 'Bilgi bankası TXT, MD, CSV, HTML, JSON, PDF, DOCX, PPTX ve XLSX dosyalarını destekler.' }, 415)
+    if (storagePath.includes('..') || !storagePath.startsWith(`${authData.user.id}/${knowledgeSpaceId}/`)) return jsonResponse({ error: 'Storage path is outside the authenticated JetBase scope.' }, 403)
+    if (!supportedExtensions.test(fileName) || !allowedMimeTypes.has(mimeType)) return jsonResponse({ error: 'JetBase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekler.' }, 415)
 
     const { data: canWrite, error: accessError } = await client.rpc('can_write_knowledge_space', { target_space_id: knowledgeSpaceId })
-    if (accessError || !canWrite) return jsonResponse({ error: 'Knowledge space access denied.' }, 403)
+    if (accessError || !canWrite) return jsonResponse({ error: 'JetBase space access denied.' }, 403)
 
     const { data: sourceCandidates, error: sourceLookupError } = await adminClient
       .from('knowledge_sources_v2')
@@ -303,23 +469,28 @@ serve(async (req) => {
     const { data: job, error: jobError } = await adminClient.from('knowledge_ingestion_jobs_v2').insert({
       knowledge_space_id: knowledgeSpaceId, owner_id: authData.user.id, status: 'running', phase: 'reading_source', started_at: new Date().toISOString(),
     }).select('id').single()
-    if (jobError || !job) throw jobError || new Error('Ingestion job could not be created.')
+    if (jobError || !job) throw jobError || new Error('JetBase ingestion job could not be created.')
     jobId = job.id
 
     const { data: fileData, error: downloadError } = await adminClient.storage.from('knowledge-sources').download(storagePath)
-    if (downloadError || !fileData) throw downloadError || new Error('Knowledge source could not be downloaded.')
-    if (fileData.size > 20 * 1024 * 1024) throw new Error('Knowledge source exceeds the 20 MB limit.')
+    if (downloadError || !fileData) throw downloadError || new Error('JetBase source could not be downloaded.')
+    if (fileData.size > 20 * 1024 * 1024) throw new Error('JetBase kaynağı 20 MB sınırını aşıyor.')
 
     const bytes = new Uint8Array(await fileData.arrayBuffer())
     const extracted = await extractSourceText(bytes, mimeType, fileName)
     const rawText = extracted.text.trim()
-    if (!rawText) throw new Error('Bilgi kaynağından okunabilir metin çıkarılamadı.')
-    if (new TextEncoder().encode(rawText).byteLength > 5 * 1024 * 1024) throw new Error('Çıkarılan metin 5 MB sınırını aşıyor; kaynak dosyayı daha küçük bölümlere ayırın.')
+    if (!rawText) throw new Error('JetBase kaynağından aranabilir içerik çıkarılamadı.')
+    if (new TextEncoder().encode(rawText).byteLength > 5 * 1024 * 1024) throw new Error('Çıkarılan içerik 5 MB sınırını aşıyor; kaynak dosyayı daha küçük bölümlere ayırın.')
 
     const contentHash = await sha256(bytes)
     const deterministic = parseKnowledgeSource(fileName, rawText)
     const parsed = await compileKnowledgeSource(fileName, rawText, deterministic)
     const embeddingStats = await attachDocumentEmbeddings(parsed.objects)
+    const warnings = [
+      ...parsed.warnings,
+      ...extracted.warnings,
+      ...(embeddingStats.embedded === 0 ? ['Embedding üretilemedi; hybrid arama metinsel sinyallerle çalışacak.'] : []),
+    ]
 
     await adminClient.from('knowledge_ingestion_jobs_v2').update({
       phase: 'persisting_catalog',
@@ -329,6 +500,7 @@ serve(async (req) => {
         chunkCount: parsed.objects.reduce((count, object) => count + (object.chunks?.length || 0), 0),
         embeddingStats,
         extractionMethod: extracted.extractionMethod,
+        multimodal: extracted.multimodal,
         compilerVersion: parsed.compilerVersion,
         compileStats: parsed.compileStats,
         sourceKey,
@@ -348,7 +520,7 @@ serve(async (req) => {
       p_document_type: parsed.documentType,
       p_objects: parsed.objects,
       p_relations: parsed.relations,
-      p_warnings: [...parsed.warnings, ...(embeddingStats.embedded === 0 ? ['Embedding üretilemedi; hybrid arama metinsel sinyallerle çalışacak.'] : [])],
+      p_warnings: warnings,
     })
     if (ingestError) throw ingestError
     sourceId = String(result?.sourceId || '')
@@ -364,6 +536,11 @@ serve(async (req) => {
           logicalIdentityVersion: 'v3',
           compilerVersion: parsed.compilerVersion,
           compileStats: parsed.compileStats,
+          jetbase: {
+            ingestionVersion: 'multimodal-v1',
+            originalBinaryPreserved: true,
+            multimodal: extracted.multimodal,
+          },
         },
         updated_at: new Date().toISOString(),
       }).eq('id', sourceId)
@@ -389,15 +566,16 @@ serve(async (req) => {
       chunkCount: parsed.objects.reduce((count, object) => count + (object.chunks?.length || 0), 0),
       embeddingStats,
       extractionMethod: extracted.extractionMethod,
+      multimodal: extracted.multimodal,
       compilerVersion: parsed.compilerVersion,
       compileStats: parsed.compileStats,
       sourceKey,
       sourceReconciled: Boolean(reconciledSourceId),
-      warnings: parsed.warnings,
+      warnings,
     })
   } catch (error) {
     const message = ingestionErrorMessage(error)
-    console.error('Knowledge ingestion failed:', error)
+    console.error('JetBase ingestion failed:', error)
     if (reconciledSourceId && previousStoragePath) {
       await adminClient.from('knowledge_sources_v2').update({ storage_path: previousStoragePath, updated_at: new Date().toISOString() }).eq('id', reconciledSourceId).catch(() => undefined)
     }
