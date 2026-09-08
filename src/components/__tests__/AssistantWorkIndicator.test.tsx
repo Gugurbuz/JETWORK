@@ -112,7 +112,7 @@ describe('AssistantWorkIndicator', () => {
     expect(html).toContain('assistant-work__logo');
   });
 
-  it('keeps source facts in the timeline but leaves evidence cards to ChatPanel source panels', () => {
+  it('keeps rolling source counts out of the work narrative and leaves evidence cards to ChatPanel source panels', () => {
     const html = renderToStaticMarkup(
       <AssistantWorkIndicator
         isActive
@@ -126,7 +126,8 @@ describe('AssistantWorkIndicator', () => {
       />,
     );
 
-    expect(html).toContain('1 kurumsal kaynak bulundu');
+    expect(html).toContain('Kaynaklar değerlendiriliyor');
+    expect(html).not.toContain('1 kurumsal kaynak bulundu');
     expect(html).not.toContain('CRM Function Envanteri');
   });
 
