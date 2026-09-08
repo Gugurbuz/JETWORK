@@ -118,6 +118,7 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
     expect(liveHtml).toContain('Bulduğum bilgiyi ek kaynaklarla doğruluyorum...');
     expect(liveHtml).not.toContain('Soru ve konuşma bağlamı hazırlandı');
     expect(liveHtml).not.toContain('Uygun kaynak ve araçlar değerlendirildi');
+    expect(liveHtml).not.toContain('3 kurumsal kaynak bulundu');
 
     let state: AgentWorkEvent[] = [];
     for (const event of parsed) {
@@ -134,7 +135,7 @@ describe('CHECK_ZTKS Agent Work acceptance', () => {
     expect(state.every(event => event.state !== 'active')).toBe(true);
 
     const timelineHtml = renderToStaticMarkup(<AgentWorkTimeline events={state} />);
-    expect(timelineHtml).toContain('3 kurumsal kaynak bulundu');
+    expect(timelineHtml).not.toContain('3 kurumsal kaynak bulundu');
     expect(timelineHtml).toContain('Bulduğum bilgi ek kaynaklarla doğrulandı');
     expect(timelineHtml).not.toContain('Çalışma araçları hazırlandı');
 
