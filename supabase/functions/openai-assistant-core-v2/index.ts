@@ -6,6 +6,7 @@ import { installGeminiProviderWebQuotaFallback } from '../_shared/geminiProvider
 import { OLLAMA_MODELS, OPENAI_MODELS } from '../_shared/modelProviders.ts'
 import { installOllamaResponsesBridge } from '../_shared/ollamaResponsesBridge.ts'
 import { installOpenAiCircuitBreaker } from '../_shared/providerCircuitBreaker.ts'
+import { installOpenAiRequestCompatibility } from '../_shared/openAiRequestCompatibility.ts'
 import { isAgentControllerV2Enabled } from '../_shared/runtime/runtimeFlags.ts'
 
 // The durable core builds its allow-list from OPENAI_MODELS. Register the local
@@ -15,12 +16,15 @@ import { isAgentControllerV2Enabled } from '../_shared/runtime/runtimeFlags.ts'
 for (const model of OLLAMA_MODELS) OPENAI_MODELS.add(model)
 
 // Keep the existing OpenAI circuit breaker around real OpenAI traffic. The
-// Ollama bridge is installed afterwards so ollama:* requests are diverted before
-// they can affect OpenAI provider health state. Gemini's provider-web guard is
-// purely mechanical: it removes only the upstream google_search primitive after
-// an actual quota failure and retries the same Gemini request with all remaining
+// request compatibility layer is mechanical: it only removes unsupported JSON
+// Schema annotations from function definitions before the same request reaches
+// OpenAI. The Ollama bridge is installed afterwards so ollama:* requests are
+// diverted before they can affect OpenAI provider health state. Gemini's
+// provider-web guard removes only the upstream google_search primitive after an
+// actual quota failure and retries the same Gemini request with all remaining
 // model-visible capabilities intact.
 installOpenAiCircuitBreaker()
+installOpenAiRequestCompatibility()
 installOllamaResponsesBridge()
 installGeminiFinalSynthesisThinkingGuard()
 installGeminiProviderWebQuotaFallback()
