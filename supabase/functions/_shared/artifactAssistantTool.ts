@@ -93,6 +93,36 @@ async function removeGeneratedArtifact(client: any, artifact: AssistantGenerated
   await client.storage.from(artifact.storageBucket).remove([artifact.storagePath]).catch(() => undefined)
 }
 
+const verifiedModelOutput = (input: {
+  output: string
+  toolName: string
+  artifactVerification: Record<string, unknown> | null
+  officeRevisionVerification: Record<string, unknown> | null
+}) => {
+  if (!input.artifactVerification) return input.output
+  const reloadVerified = input.artifactVerification.reloadVerified === true
+  const integrityVerified = input.artifactVerification.integrityVerified === true
+  const revisionInvariantVerified = input.artifactVerification.revisionInvariantVerified
+  const verificationComplete = reloadVerified
+    && integrityVerified
+    && (input.toolName !== 'edit_office_file' || revisionInvariantVerified === true)
+  try {
+    const parsed = JSON.parse(input.output)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return input.output
+    return JSON.stringify({
+      ...parsed,
+      artifactVerification: input.artifactVerification,
+      officeRevisionVerification: input.officeRevisionVerification,
+      verificationComplete,
+      verificationObservation: verificationComplete
+        ? 'The output artifact was already reloaded from private storage and passed integrity verification. For office revision edits, the before/after revision invariant was also verified. No additional inspect_file_attachment call is required solely to verify this tool result.'
+        : 'Artifact verification is not complete; use the returned verification fields to decide the next action.',
+    })
+  } catch {
+    return input.output
+  }
+}
+
 export async function executeArtifactAssistantTool(
   client: any,
   workspaceId: string,
@@ -168,21 +198,31 @@ export async function executeArtifactAssistantTool(
     }
   }
 
+  const artifactVerificationSummary = artifactVerification ? {
+    version: artifactVerification.version,
+    reloadVerified: artifactVerification.reloadVerified,
+    integrityVerified: artifactVerification.integrityVerified,
+    artifactCount: artifactVerification.artifacts.length,
+    revisionInvariantVerified: officeRevisionVerification?.verified ?? null,
+  } : null
+  const officeRevisionSummary = officeRevisionVerification
+    ? officeRevisionVerification as unknown as Record<string, unknown>
+    : null
+
   return {
-    output: execution.output,
+    output: verifiedModelOutput({
+      output: execution.output,
+      toolName,
+      artifactVerification: artifactVerificationSummary,
+      officeRevisionVerification: officeRevisionSummary,
+    }),
     sources: [],
     artifacts: execution.artifacts,
     summary: {
       ...execution.summary,
       executionOnly: true,
       citationReady: false,
-      artifactVerification: artifactVerification ? {
-        version: artifactVerification.version,
-        reloadVerified: artifactVerification.reloadVerified,
-        integrityVerified: artifactVerification.integrityVerified,
-        artifactCount: artifactVerification.artifacts.length,
-        revisionInvariantVerified: officeRevisionVerification?.verified ?? null,
-      } : null,
+      artifactVerification: artifactVerificationSummary,
       officeRevisionVerification,
     },
   }
