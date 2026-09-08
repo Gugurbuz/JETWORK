@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isKnowledgeFile } from '../knowledgeCatalogRepository';
 
-describe('Jetbase file type contract', () => {
+describe('JetBase file type contract', () => {
   it.each([
     ['diagram.png', 'image/png'],
     ['screen.jpg', 'image/jpeg'],
@@ -15,7 +15,7 @@ describe('Jetbase file type contract', () => {
     expect(isKnowledgeFile({ name, mimeType })).toBe(true);
   });
 
-  it('accepts browser octet-stream when the extension is a Jetbase type', () => {
+  it('accepts browser octet-stream when the extension is a JetBase type', () => {
     expect(isKnowledgeFile({ name: 'photo.heic', mimeType: 'application/octet-stream' })).toBe(true);
   });
 
