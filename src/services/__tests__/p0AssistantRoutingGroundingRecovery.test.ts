@@ -78,7 +78,7 @@ describe('P0 primary LLM agent boundaries', () => {
     expect(plan.enterpriseGroundingRequired).toBe(false)
     expect(plan.verificationRequired).toBe(false)
     expect(plan.evidenceQueries).toEqual([])
-    expect(plan.orchestratorVersion).toBe('primary-llm-agent-v1')
+    expect(plan.orchestratorVersion).toBe('primary-llm-agent-v2-adaptive-work-context')
     // Transitional compatibility flag: knowledge capability is exposed to the
     // primary model, but empty evidenceQueries means no mandatory preflight RAG.
     expect(plan.knowledgeRequired).toBe(true)
