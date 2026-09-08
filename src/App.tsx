@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Sidebar, ThemeType } from './components/Sidebar';
 import { ModalsContainer } from './components/ModalsContainer';
 import { AISettingsModal } from './components/AISettingsModal';
-import { WorkspaceView } from './components/WorkspaceView';
+import { WorkspaceView } from './components/WorkspaceViewV2';
 import { MainContent } from './components/MainContent';
 import { LandingPage } from './components/LandingPage';
 import { OnboardingPage } from './components/OnboardingPage';

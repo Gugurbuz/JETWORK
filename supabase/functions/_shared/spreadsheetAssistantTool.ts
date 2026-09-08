@@ -2,9 +2,11 @@ import {
   executeExecutionTool,
   isExecutionTool,
   type AssistantExecutionAttachmentRef,
+  type AssistantGeneratedFileRef,
 } from './executionTools.ts'
 import type { AssistantToolExecution } from './assistantTools.ts'
 import { requireVerifiedArtifactOutputs } from './artifact/storageVerifier.ts'
+import { persistVerifiedArtifactOutputs } from './artifact/domainRepository.ts'
 
 const clean = (value: unknown, max = 240) => String(value ?? '').trim().slice(0, max)
 const ASSISTANT_FILES_BUCKET = 'assistant-files'
@@ -47,6 +49,11 @@ async function loadWorkspaceExecutionAttachments(client: any, workspaceId: strin
     }
   }
   return [...byId.values()].slice(0, 12)
+}
+
+async function removeGeneratedArtifact(client: any, artifact: AssistantGeneratedFileRef) {
+  if (!artifact.storageBucket || !artifact.storagePath) return
+  await client.storage.from(artifact.storageBucket).remove([artifact.storagePath]).catch(() => undefined)
 }
 
 export async function executeSpreadsheetAssistantTool(
@@ -93,10 +100,27 @@ export async function executeSpreadsheetAssistantTool(
     ? await requireVerifiedArtifactOutputs(client, execution.artifacts)
     : null
 
+  let persistedArtifacts: AssistantGeneratedFileRef[] = execution.artifacts
+  if (requiresOutputArtifact && artifactVerification) {
+    try {
+      persistedArtifacts = await persistVerifiedArtifactOutputs({
+        client,
+        workspaceId,
+        toolName,
+        args,
+        artifacts: execution.artifacts,
+        verification: artifactVerification,
+      })
+    } catch (error) {
+      await Promise.all(execution.artifacts.map(artifact => removeGeneratedArtifact(client, artifact)))
+      throw error
+    }
+  }
+
   return {
     output: execution.output,
     sources: [],
-    artifacts: execution.artifacts,
+    artifacts: persistedArtifacts,
     summary: {
       ...execution.summary,
       executionOnly: true,
@@ -106,6 +130,7 @@ export async function executeSpreadsheetAssistantTool(
         reloadVerified: artifactVerification.reloadVerified,
         integrityVerified: artifactVerification.integrityVerified,
         artifactCount: artifactVerification.artifacts.length,
+        canonicalPersistence: requiresOutputArtifact ? 'completed' : null,
       } : null,
     },
   }
