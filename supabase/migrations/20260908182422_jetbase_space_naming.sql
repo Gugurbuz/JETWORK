@@ -1,9 +1,9 @@
 update public.knowledge_spaces
-set name = 'Jetbase'
+set name = 'JetBase'
 where scope_type = 'global';
 
 update public.knowledge_spaces
-set name = regexp_replace(name, ' · Proje Bilgisi$', ' · Jetbase')
+set name = regexp_replace(name, ' · Proje Bilgisi$', ' · JetBase')
 where scope_type = 'project'
   and name like '% · Proje Bilgisi';
 
@@ -41,7 +41,7 @@ begin
 
   if resolved_global_id is null then
     insert into public.knowledge_spaces(scope_type, name, created_by)
-    values ('global', 'Jetbase', (select auth.uid()))
+    values ('global', 'JetBase', (select auth.uid()))
     on conflict do nothing;
 
     select s.id
@@ -57,7 +57,7 @@ begin
     end if;
 
     insert into public.knowledge_spaces(scope_type, project_id, name, created_by)
-    select 'project', p.id, p.name || ' · Jetbase', (select auth.uid())
+    select 'project', p.id, p.name || ' · JetBase', (select auth.uid())
     from public.projects p
     where p.id = current_project_id
     on conflict do nothing;
