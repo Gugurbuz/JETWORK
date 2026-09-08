@@ -350,7 +350,12 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
                     : `${scope === 'global' ? 'Global' : 'Proje'} kapsamı · ${visibleSources.length} kaynak`}
                 </p>
               </div>
-              <div className="md:hidden">
+              <div className="flex items-center gap-2 md:hidden">
+                {hasProjectScope && (
+                  <select value={scope} onChange={event => setScope(event.target.value as KnowledgeScope)} className="rounded-lg border border-theme-border bg-theme-surface px-2 py-1.5 text-xs">
+                    <option value="global">Global</option><option value="project">Proje</option>
+                  </select>
+                )}
                 <select value={section} onChange={event => setSection(event.target.value as LibrarySection)} className="rounded-lg border border-theme-border bg-theme-surface px-2 py-1.5 text-xs">
                   <option value="all">Tüm Kaynaklar</option><option value="recent">Son Eklenenler</option><option value="images">Görseller</option><option value="documents">Dokümanlar</option><option value="tables">Tablolar</option><option value="admin">Yönetim</option>
                 </select>
