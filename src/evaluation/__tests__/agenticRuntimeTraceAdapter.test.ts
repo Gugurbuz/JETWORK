@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   adaptAgenticRuntimeTelemetry,
   telemetryHasControllerArtifactCompletion,
+  telemetryHasControllerArtifactRevision,
 } from '../agenticRuntimeTraceAdapter'
 
 const artifactVerification = {
@@ -75,6 +76,56 @@ describe('Agentic Runtime V2 telemetry adapter', () => {
         status: 'completed',
         selectedByController: true,
         summary: { artifactVerification: { ...artifactVerification, reloadVerified: false } },
+      }],
+    })).toBe(false)
+  })
+
+  it('requires edit executor + reload + integrity + revision invariant for artifact revision', () => {
+    const verifiedRevisionInput = {
+      completed: true,
+      toolRuns: [
+        { toolName: 'list_action_attachments', status: 'completed' as const, selectedByController: true },
+        {
+          toolName: 'edit_office_file',
+          status: 'completed' as const,
+          selectedByController: true,
+          summary: {
+            artifactVerification: {
+              ...artifactVerification,
+              revisionInvariantVerified: true,
+            },
+          },
+        },
+      ],
+    }
+
+    const trace = adaptAgenticRuntimeTelemetry(verifiedRevisionInput)
+    expect(trace.selectedCapabilities).toEqual(expect.arrayContaining([
+      'list_action_attachments',
+      'edit_office_file',
+      'artifact_verifier',
+    ]))
+    expect(trace.artifact).toEqual({
+      executorSucceeded: true,
+      reloadVerified: true,
+      integrityVerified: true,
+      persisted: true,
+      revisionInvariantVerified: true,
+    })
+    expect(telemetryHasControllerArtifactRevision(verifiedRevisionInput)).toBe(true)
+
+    expect(telemetryHasControllerArtifactRevision({
+      completed: true,
+      toolRuns: [{
+        toolName: 'edit_office_file',
+        status: 'completed',
+        selectedByController: true,
+        summary: {
+          artifactVerification: {
+            ...artifactVerification,
+            revisionInvariantVerified: false,
+          },
+        },
       }],
     })).toBe(false)
   })
