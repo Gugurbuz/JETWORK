@@ -1,3 +1,5 @@
+@import './generated-file-cards.css';
+
 @keyframes jetwork-file-panel-enter {
   from {
     opacity: 0;
@@ -9,9 +11,45 @@
   }
 }
 
+.workspace-files-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 38;
+  border: 0;
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(1px);
+}
+
+.workspace-files-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  width: min(88vw, 360px);
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid color-mix(in srgb, var(--theme-border) 72%, transparent);
+  background: var(--theme-bg);
+  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.09);
+  animation: jetwork-file-panel-enter 180ms ease-out both;
+}
+
 @media (min-width: 1024px) {
-  /* Do not rely on Tailwind's responsive flex utility here. The file workspace
-     must be physically pinned to the right and must never fall below chat. */
+  .workspace-files-drawer {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    z-index: 10;
+    width: clamp(280px, 24vw, 340px);
+    flex: 0 0 clamp(280px, 24vw, 340px);
+    box-shadow: none;
+  }
+
+  /* The selected file workspace is physically pinned to the right and never falls below chat. */
   .jetwork-conversation-shell--file-open {
     flex-direction: row !important;
     flex-wrap: nowrap !important;
@@ -63,6 +101,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workspace-files-drawer,
   .workspace-side-file-viewer,
   .jetwork-conversation-shell--file-open > [data-testid="workspace-chat-surface"] {
     animation: none !important;
