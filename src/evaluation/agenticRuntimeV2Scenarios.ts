@@ -3,6 +3,7 @@ export type AgenticGoldenCategory =
   | 'broad_analysis'
   | 'follow_up_continuity'
   | 'artifact_completion'
+  | 'artifact_revision'
   | 'current_web'
   | 'memory_correction'
   | 'mixed_capabilities'
@@ -53,6 +54,41 @@ export const AGENTIC_RUNTIME_V2_GOLDEN_SCENARIOS: AgenticRuntimeV2GoldenScenario
     requiredCapabilities: ['load_document_contract', 'create_document_file', 'artifact_verifier'],
     forbiddenBehaviors: ['claim_completion_before_executor', 'claim_completion_before_reload'],
     assertions: ['executor_success_required', 'reload_required', 'integrity_required', 'persistence_required'],
+  },
+  {
+    id: 'agent-v2-04b-latest-chat-revision-continuity',
+    category: 'artifact_revision',
+    turns: [
+      'zcrm2 hata mesajlarına ihtiyacım var',
+      '356 nasıl düzeltilir',
+      'emin misin',
+      'asgari tüketim kuralı 50000 olarak değiştirilmeli kodda ne yapmalıyız',
+      'bu iş için analiz dokümanı yaz',
+      'talep no = SAGILE-22333',
+      'önceki doküman içeriğini bozma; sadece talep no eklenmeli',
+      'Bu yanıtı daha derin araştır. Gerektiğinde bilgi bankasını ve web kaynaklarını kullan; bulguları kaynaklarla karşılaştırıp doğrula.',
+    ],
+    requiredCapabilities: [
+      'knowledge',
+      'load_document_contract',
+      'create_document_file',
+      'list_action_attachments',
+      'edit_office_file',
+      'artifact_verifier',
+      'resolved_context',
+    ],
+    forbiddenBehaviors: [
+      'artifact_regenerated_for_narrow_revision',
+      'forced_retrieval_on_confidence_only',
+      'unsupported_literal_code_presented_as_verified',
+    ],
+    assertions: [
+      'knowledge_rule_grounded',
+      'evidence_sufficiency_controller_owned',
+      'continuation_without_reasking',
+      'revision_invariant_verified',
+      'deep_research_replans_after_observations',
+    ],
   },
   {
     id: 'agent-v2-05-current-web-decision',
