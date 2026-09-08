@@ -177,7 +177,7 @@ const geminiExtractionPrompt = (mimeType: string) => {
   const normalizedMime = mimeType.toLocaleLowerCase('en-US')
   if (normalizedMime.startsWith('image/')) {
     return [
-      'Analyze this image for Jetbase ingestion and return faithful Markdown.',
+      'Analyze this image for JetBase ingestion and return faithful Markdown.',
       'Describe the visual meaning in Turkish without guessing, while preserving all readable source text, numbers, technical identifiers, UI labels and codes exactly.',
       'If the image contains a table, chart, diagram, form or application screen, explain its structure and relationships so the content remains searchable later.',
       'Use the headings "## Görsel açıklaması", "## Görünen metin" and "## Yapısal öğeler" when applicable; omit empty sections.',
@@ -186,7 +186,7 @@ const geminiExtractionPrompt = (mimeType: string) => {
   }
   if (normalizedMime === 'application/pdf') {
     return [
-      'Process this PDF for Jetbase as faithful Markdown using native visual document understanding.',
+      'Process this PDF for JetBase as faithful Markdown using native visual document understanding.',
       'Preserve headings, paragraphs, tables, labels, technical identifiers, code names, API names, database/table names and sequence/flow information.',
       'Also describe meaningful images, diagrams, charts, screenshots and layout relationships that would be lost by plain text extraction.',
       'Use page-oriented headings when useful so visual context stays attached to the surrounding text.',
@@ -427,7 +427,7 @@ serve(async (req) => {
   try {
     const { data: authData, error: authError } = await client.auth.getUser()
     if (authError || !authData.user) return jsonResponse({ error: 'A valid user session is required.' }, 401)
-    if (authData.user.is_anonymous) return jsonResponse({ error: 'Jetbase ingestion requires a permanent user account.' }, 403)
+    if (authData.user.is_anonymous) return jsonResponse({ error: 'JetBase ingestion requires a permanent user account.' }, 403)
 
     const body = await req.json()
     const knowledgeSpaceId = String(body?.knowledgeSpaceId || '').trim()
@@ -439,11 +439,11 @@ serve(async (req) => {
     const allowedMimeTypes = new Set(['','text/plain','text/markdown','text/csv','text/tab-separated-values','text/html','application/json','application/xml','image/svg+xml','image/png','image/jpeg','image/jpg','image/webp','image/gif','image/bmp','image/avif','image/heic','image/heif','application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel'])
 
     if (!knowledgeSpaceId || !storagePath || !fileName) return jsonResponse({ error: 'knowledgeSpaceId, storagePath and fileName are required.' }, 400)
-    if (storagePath.includes('..') || !storagePath.startsWith(`${authData.user.id}/${knowledgeSpaceId}/`)) return jsonResponse({ error: 'Storage path is outside the authenticated Jetbase scope.' }, 403)
-    if (!supportedExtensions.test(fileName) || !allowedMimeTypes.has(mimeType)) return jsonResponse({ error: 'Jetbase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekler.' }, 415)
+    if (storagePath.includes('..') || !storagePath.startsWith(`${authData.user.id}/${knowledgeSpaceId}/`)) return jsonResponse({ error: 'Storage path is outside the authenticated JetBase scope.' }, 403)
+    if (!supportedExtensions.test(fileName) || !allowedMimeTypes.has(mimeType)) return jsonResponse({ error: 'JetBase; görsel, PDF, Word (DOCX), Excel (XLSX), TXT ve MD dosyalarını destekler.' }, 415)
 
     const { data: canWrite, error: accessError } = await client.rpc('can_write_knowledge_space', { target_space_id: knowledgeSpaceId })
-    if (accessError || !canWrite) return jsonResponse({ error: 'Jetbase space access denied.' }, 403)
+    if (accessError || !canWrite) return jsonResponse({ error: 'JetBase space access denied.' }, 403)
 
     const { data: sourceCandidates, error: sourceLookupError } = await adminClient
       .from('knowledge_sources_v2')
@@ -469,17 +469,17 @@ serve(async (req) => {
     const { data: job, error: jobError } = await adminClient.from('knowledge_ingestion_jobs_v2').insert({
       knowledge_space_id: knowledgeSpaceId, owner_id: authData.user.id, status: 'running', phase: 'reading_source', started_at: new Date().toISOString(),
     }).select('id').single()
-    if (jobError || !job) throw jobError || new Error('Jetbase ingestion job could not be created.')
+    if (jobError || !job) throw jobError || new Error('JetBase ingestion job could not be created.')
     jobId = job.id
 
     const { data: fileData, error: downloadError } = await adminClient.storage.from('knowledge-sources').download(storagePath)
-    if (downloadError || !fileData) throw downloadError || new Error('Jetbase source could not be downloaded.')
-    if (fileData.size > 20 * 1024 * 1024) throw new Error('Jetbase kaynağı 20 MB sınırını aşıyor.')
+    if (downloadError || !fileData) throw downloadError || new Error('JetBase source could not be downloaded.')
+    if (fileData.size > 20 * 1024 * 1024) throw new Error('JetBase kaynağı 20 MB sınırını aşıyor.')
 
     const bytes = new Uint8Array(await fileData.arrayBuffer())
     const extracted = await extractSourceText(bytes, mimeType, fileName)
     const rawText = extracted.text.trim()
-    if (!rawText) throw new Error('Jetbase kaynağından aranabilir içerik çıkarılamadı.')
+    if (!rawText) throw new Error('JetBase kaynağından aranabilir içerik çıkarılamadı.')
     if (new TextEncoder().encode(rawText).byteLength > 5 * 1024 * 1024) throw new Error('Çıkarılan içerik 5 MB sınırını aşıyor; kaynak dosyayı daha küçük bölümlere ayırın.')
 
     const contentHash = await sha256(bytes)
@@ -575,7 +575,7 @@ serve(async (req) => {
     })
   } catch (error) {
     const message = ingestionErrorMessage(error)
-    console.error('Jetbase ingestion failed:', error)
+    console.error('JetBase ingestion failed:', error)
     if (reconciledSourceId && previousStoragePath) {
       await adminClient.from('knowledge_sources_v2').update({ storage_path: previousStoragePath, updated_at: new Date().toISOString() }).eq('id', reconciledSourceId).catch(() => undefined)
     }
