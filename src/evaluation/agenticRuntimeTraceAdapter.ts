@@ -53,6 +53,9 @@ export const adaptAgenticRuntimeTelemetry = (input: AgenticRuntimeTelemetryInput
   for (const row of completedTools) {
     if (row.toolName === 'load_document_contract') selectedCapabilities.add('load_document_contract')
     if (row.toolName === 'create_document_file') selectedCapabilities.add('create_document_file')
+    if (row.toolName === 'list_action_attachments') selectedCapabilities.add('list_action_attachments')
+    if (row.toolName === 'inspect_file_attachment') selectedCapabilities.add('inspect_file_attachment')
+    if (row.toolName === 'edit_office_file') selectedCapabilities.add('edit_office_file')
     if (row.toolName === 'record_project_memory') selectedCapabilities.add('project_memory')
     if (row.toolName === 'discover_more_capabilities') selectedCapabilities.add('capability_discovery')
     if (row.toolName === 'review_evidence_coverage' || row.summary?.evidenceReview === true || row.toolName.includes('critic')) {
@@ -69,11 +72,15 @@ export const adaptAgenticRuntimeTelemetry = (input: AgenticRuntimeTelemetryInput
 
   const artifactTool = [...completedTools].reverse().find(row => row.summary?.artifactVerification)
   const artifactVerification = artifactTool?.summary?.artifactVerification as Record<string, unknown> | undefined
+  const revisionInvariantKnown = typeof artifactVerification?.revisionInvariantVerified === 'boolean'
   const artifact = artifactTool ? {
     executorSucceeded: true,
     reloadVerified: artifactVerification?.reloadVerified === true,
     integrityVerified: artifactVerification?.integrityVerified === true,
     persisted: artifactVerification?.reloadVerified === true && artifactVerification?.integrityVerified === true,
+    ...(revisionInvariantKnown
+      ? { revisionInvariantVerified: artifactVerification?.revisionInvariantVerified === true }
+      : {}),
   } : undefined
 
   return {
@@ -92,5 +99,17 @@ export const telemetryHasControllerArtifactCompletion = (input: AgenticRuntimeTe
     && completedTools.some(row => {
       const verification = row.summary?.artifactVerification as Record<string, unknown> | undefined
       return verification?.reloadVerified === true && verification?.integrityVerified === true
+    })
+}
+
+export const telemetryHasControllerArtifactRevision = (input: AgenticRuntimeTelemetryInput) => {
+  const completedTools = completedControllerTools(input.toolRuns)
+  return includesTool(completedTools, 'edit_office_file')
+    && completedTools.some(row => {
+      if (row.toolName !== 'edit_office_file') return false
+      const verification = row.summary?.artifactVerification as Record<string, unknown> | undefined
+      return verification?.reloadVerified === true
+        && verification?.integrityVerified === true
+        && verification?.revisionInvariantVerified === true
     })
 }
