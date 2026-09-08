@@ -92,14 +92,22 @@ const artifactIntegrityFromTurns = (
   scenario: AgenticRuntimeV2GoldenScenario,
   turns: readonly AgenticRuntimeStagingGoldenTurn[],
 ): boolean | null => {
-  if (scenario.category !== 'artifact_completion' && scenario.category !== 'mixed_capabilities') return null
-  const artifactTools = turns.flatMap(turn => turn.debug.telemetry.toolRuns).filter(row => row.toolName === 'create_document_file')
+  const artifactScenario = scenario.category === 'artifact_completion'
+    || scenario.category === 'artifact_revision'
+    || scenario.category === 'mixed_capabilities'
+  if (!artifactScenario) return null
+
+  const revision = scenario.category === 'artifact_revision'
+  const targetTool = revision ? 'edit_office_file' : 'create_document_file'
+  const artifactTools = turns.flatMap(turn => turn.debug.telemetry.toolRuns).filter(row => row.toolName === targetTool)
   if (!artifactTools.length) return false
   return artifactTools.some(row => {
     const verification = row.summary?.artifactVerification
     if (!verification || typeof verification !== 'object') return false
     const value = verification as Record<string, unknown>
-    return value.reloadVerified === true && value.integrityVerified === true
+    return value.reloadVerified === true
+      && value.integrityVerified === true
+      && (!revision || value.revisionInvariantVerified === true)
   })
 }
 
