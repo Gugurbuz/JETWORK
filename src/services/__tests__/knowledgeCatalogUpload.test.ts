@@ -98,7 +98,7 @@ describe('ingestKnowledgeFile', () => {
     const file = new File(['test'], 'source.md', { type: 'text/markdown' });
 
     await expect(ingestKnowledgeFile('workspace-1', file, 'global')).rejects.toThrow(
-      'Jetbase dosyası yüklenirken Supabase bağlantısı kurulamadı. İnternet bağlantısını kontrol edip tekrar deneyin.',
+      'JetBase dosyası yüklenirken Supabase bağlantısı kurulamadı. İnternet bağlantısını kontrol edip tekrar deneyin.',
     );
     expect(invokeMock).not.toHaveBeenCalled();
   });
