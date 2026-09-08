@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const workspaceSource = readFileSync(new URL('../../components/WorkspaceView.tsx', import.meta.url), 'utf8');
+const sidebarSource = readFileSync(new URL('../../components/Sidebar.tsx', import.meta.url), 'utf8');
 const mainContentSource = readFileSync(new URL('../../components/MainContent.tsx', import.meta.url), 'utf8');
 const fileViewerSource = readFileSync(new URL('../../components/FileViewer.tsx', import.meta.url), 'utf8');
 const fileViewerLoadingCss = readFileSync(new URL('../../components/file-viewer-loading.css', import.meta.url), 'utf8');
@@ -9,16 +10,21 @@ const fileLibrarySource = readFileSync(new URL('../../components/FileLibrary.tsx
 const modelControlSource = readFileSync(new URL('../../components/CompactModelControl.tsx', import.meta.url), 'utf8');
 const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
 const filePanelCss = readFileSync(new URL('../../workspace-file-panel.css', import.meta.url), 'utf8');
+const fileCardCss = readFileSync(new URL('../../generated-file-cards.css', import.meta.url), 'utf8');
 const previewWorkerSource = readFileSync(new URL('../../../api/artifact-preview.py', import.meta.url), 'utf8');
 const assistantRuntimeSource = readFileSync(new URL('../assistantRuntimeClient.ts', import.meta.url), 'utf8');
 
 describe('JetWork 2.0 conversation + file experience', () => {
-  it('keeps generated files inline and pins the selected file to a temporary right-side workspace', () => {
+  it('keeps generated files inline, lists them in a right drawer, and pins the selected file to the workspace', () => {
     expect(workspaceSource).toContain("import { FileViewer } from './FileViewer'");
+    expect(workspaceSource).toContain('data-testid="workspace-files-toggle"');
+    expect(workspaceSource).toContain('data-testid="workspace-files-drawer"');
+    expect(workspaceSource).toContain('Bu sohbetteki dosyalar');
     expect(workspaceSource).toContain('data-testid="workspace-right-file-panel"');
     expect(workspaceSource).toContain('workspace-side-file-viewer');
     expect(workspaceSource).toContain('dosyasını sağda aç');
     expect(workspaceSource).toContain('<FileViewer file={selectedFile} onClose={closeFile} />');
+    expect(filePanelCss).toContain('width: clamp(280px, 24vw, 340px)');
     expect(filePanelCss).toContain('clamp(320px, 34%, 560px)');
     expect(filePanelCss).toContain('flex-direction: row !important');
     expect(filePanelCss).toContain('position: absolute;');
@@ -27,21 +33,36 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(workspaceSource).not.toContain("import { ArtifactWorkspace } from './ArtifactWorkspace'");
     expect(workspaceSource).not.toContain('role="separator"');
     expect(workspaceSource).not.toContain('chatPercent');
-    expect(workspaceSource).not.toContain('artifact-workspace-open');
-    expect(workspaceSource).not.toContain('artifact-workspace-mobile-switch');
   });
 
-  it('does not auto-open newly generated files and leaves the file card under the response', () => {
-    expect(workspaceSource).toContain('const [selectedFile, setSelectedFile]');
-    expect(workspaceSource).toContain('Compatibility bridge for the current ChatPanel output card');
+  it('keeps the files drawer user-controlled while making every generated output discoverable', () => {
+    expect(workspaceSource).toContain('const [filesPanelOpen, setFilesPanelOpen] = useState(false)');
+    expect(workspaceSource).toContain('onClick={() => setFilesPanelOpen(open => !open)}');
+    expect(workspaceSource).toContain('files.map((file, index) =>');
     expect(workspaceSource).not.toContain('latestArtifact');
     expect(workspaceSource).not.toContain('UNINITIALIZED_ARTIFACT_KEY');
     expect(workspaceSource).not.toContain('openArtifact(latestArtifact)');
   });
 
-  it('restores the original sidebar surface while keeping the separate Dosyalar entry', () => {
-    expect(mainContentSource).toContain('<AppUtilityDock />');
-    expect(mainContentSource).not.toContain('SidebarSurfaceEnhancer');
+  it('uses native sidebar sections for Files and AI Quality Lab instead of a floating footer utility dock', () => {
+    expect(mainContentSource).not.toContain('AppUtilityDock');
+    expect(sidebarSource).toContain('Çalışma alanı');
+    expect(sidebarSource).toContain('<span>Dosyalar</span>');
+    expect(sidebarSource).toContain('<span>AI Quality Lab</span>');
+    expect(sidebarSource).toContain("navigate('/quality')");
+  });
+
+  it('uses recognizable file-type language and color treatments instead of raw DOCX/XLSX/PPTX output labels', () => {
+    expect(workspaceSource).toContain("label: 'Word belgesi'");
+    expect(workspaceSource).toContain("label: 'Excel çalışma kitabı'");
+    expect(workspaceSource).toContain("label: 'PowerPoint sunumu'");
+    expect(workspaceSource).toContain("label: 'PDF belgesi'");
+    expect(fileCardCss).toContain('data-jetwork-file-kind="word"');
+    expect(fileCardCss).toContain('data-jetwork-file-kind="excel"');
+    expect(fileCardCss).toContain('data-jetwork-file-kind="powerpoint"');
+    expect(fileCardCss).toContain('content: "W"');
+    expect(fileCardCss).toContain('content: "X"');
+    expect(fileCardCss).toContain('content: "P"');
   });
 
   it('uses user-facing file language instead of artifact language', () => {
@@ -94,12 +115,15 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(mainContentSource).toContain('element.style.transform = `translate3d(');
   });
 
-  it('provides a global Dosyalar library over generated tool outputs', () => {
+  it('provides a global Files library with generated/uploaded origin filters and typed cards', () => {
     expect(fileLibrarySource).toContain(".from('messages')");
-    expect(fileLibrarySource).toContain("file.purpose !== 'tool_output'");
+    expect(fileLibrarySource).toContain("file.purpose === 'tool_output' ? 'generated' : 'uploaded'");
     expect(fileLibrarySource).toContain('Dosyalarda ara');
-    expect(fileLibrarySource).toContain('Belgeler');
-    expect(fileLibrarySource).toContain('Sunumlar');
+    expect(fileLibrarySource).toContain('Oluşturulanlar');
+    expect(fileLibrarySource).toContain('Yüklenenler');
+    expect(fileLibrarySource).toContain("label: 'Word belgesi'");
+    expect(fileLibrarySource).toContain("label: 'Excel çalışma kitabı'");
+    expect(fileLibrarySource).toContain("label: 'PowerPoint sunumu'");
   });
 
   it('keeps viewer keyboard behavior accessible', () => {
