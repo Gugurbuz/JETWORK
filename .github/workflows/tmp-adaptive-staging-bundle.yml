@@ -1,0 +1,72 @@
+name: TEMP Adaptive Staging Bundle
+
+on:
+  push:
+    branches:
+      - fix/controller-adaptive-work-plan-v1
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize staging runtime bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/adaptive-staging evaluation/bundles
+          cat > .tmp/adaptive-staging/public.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-v2-entry-router/index.ts')
+          EOF
+          cat > .tmp/adaptive-staging/internal.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-v2/index.ts')
+          EOF
+          cat > .tmp/adaptive-staging/core.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-core-v2/index.ts')
+          EOF
+          for target in public internal core; do
+            pnpm dlx esbuild@0.25.12 ".tmp/adaptive-staging/${target}.ts" \
+              --bundle \
+              --format=esm \
+              --platform=neutral \
+              --target=es2022 \
+              --external:'https://*' \
+              --external:'http://*' \
+              --external:'npm:*' \
+              --external:'jsr:*' \
+              --external:'@google/genai' \
+              --outfile="evaluation/bundles/${target}.mjs"
+          done
+          grep -R "raw.githubusercontent.com/Gugurbuz/JETWORK" evaluation/bundles && exit 1 || true
+          wc -c evaluation/bundles/*.mjs
+
+      - name: Upload staging runtime bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-staging-runtime-bundles-${{ github.sha }}
+          path: evaluation/bundles/*.mjs
+          if-no-files-found: error
+          retention-days: 1
