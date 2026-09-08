@@ -72,7 +72,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
         if (!cancelled) setHasProjectScope(Boolean(context.projectSpaceId));
       })
       .catch(error => {
-        if (!cancelled) setError(error instanceof Error ? error.message : 'Jetbase kapsamı çözümlenemedi.');
+        if (!cancelled) setError(error instanceof Error ? error.message : 'JetBase kapsamı çözümlenemedi.');
       });
     return () => { cancelled = true; };
   }, [workspaceId]);
@@ -92,7 +92,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
       setReviewItems(nextReviewItems);
       setVersions(nextVersions);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Jetbase yönetim verileri okunamadı.');
+      setError(e instanceof Error ? e.message : 'JetBase yönetim verileri okunamadı.');
     } finally {
       setLoading(false);
     }
@@ -141,7 +141,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
       await ingestKnowledgeFile(workspaceId, file, scope);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Jetbase kaynağı yüklenemedi.');
+      setError(e instanceof Error ? e.message : 'JetBase kaynağı yüklenemedi.');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -166,7 +166,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
         <header className="flex items-center gap-3 border-b border-theme-border px-5 py-4">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-theme-primary/10 text-theme-primary"><Database size={20} /></div>
           <div className="min-w-0">
-            <h2 className="font-semibold text-theme-text">Jetbase</h2>
+            <h2 className="font-semibold text-theme-text">JetBase</h2>
             <p className="truncate text-xs text-theme-text-muted">{scopeDescription}</p>
           </div>
           <button type="button" onClick={() => void refresh()} className="ml-auto rounded-lg p-2 hover:bg-theme-surface" title="Yenile">
@@ -177,11 +177,11 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
 
         <div className="flex flex-wrap items-center gap-1 border-b border-theme-border px-4 pt-2">
           <button type="button" onClick={() => setScope('global')} className={`inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition ${scope === 'global' ? 'border-theme-text text-theme-text' : 'border-transparent text-theme-text-muted hover:text-theme-text'}`}>
-            <Globe2 size={15} /> Jetbase
+            <Globe2 size={15} /> JetBase
           </button>
           {hasProjectScope && (
             <button type="button" onClick={() => setScope('project')} className={`inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition ${scope === 'project' ? 'border-theme-text text-theme-text' : 'border-transparent text-theme-text-muted hover:text-theme-text'}`}>
-              <FolderKanban size={15} /> Proje Jetbase
+              <FolderKanban size={15} /> Proje JetBase
             </button>
           )}
           <div className="ml-auto flex items-center gap-1">
@@ -198,7 +198,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
             <div className="space-y-3 sm:flex sm:items-center sm:space-y-0 sm:gap-3">
               <div className="relative flex-1">
                 <Search size={15} className="absolute left-3 top-2.5 text-theme-text-muted" />
-                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Jetbase kaynağı ara" className="w-full rounded-lg border border-theme-border bg-theme-surface py-2 pl-9 pr-3 text-sm outline-none" />
+                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="JetBase kaynağı ara" className="w-full rounded-lg border border-theme-border bg-theme-surface py-2 pl-9 pr-3 text-sm outline-none" />
               </div>
               <select value={filter} onChange={e => setFilter(e.target.value as Filter)} className="rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-sm">
                 <option value="all">Tümü</option><option value="published">Yayında</option><option value="draft">Taslak</option><option value="archived">Arşivde</option><option value="failed">Hatalı</option>
@@ -206,7 +206,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
               <input ref={fileInputRef} type="file" accept=".txt,.md,.csv,.tsv,.html,.htm,.json,.xml,.svg,.pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.heic,.heif,image/*" className="hidden" onChange={event => void uploadFile(event.target.files?.[0])} />
               <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-theme-text px-3.5 py-2 text-sm font-semibold text-theme-bg disabled:opacity-50">
                 {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                Jetbase'e Ekle
+                JetBase'e Ekle
               </button>
             </div>
             <p className="mt-2 text-[11px] text-theme-text-muted">Image · PDF · Word · Excel · TXT · MD desteklenir. Görsel içerik AI ile anlamlandırılır; orijinal dosya korunur.</p>
@@ -216,7 +216,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
         <div className="overflow-y-auto p-5">
           {error && <div className="mb-4 flex gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600"><AlertCircle size={16} />{error}</div>}
           {loading && sources.length === 0 ? (
-            <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-theme-text-muted"><Loader2 className="animate-spin" size={18} />Jetbase okunuyor…</div>
+            <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-theme-text-muted"><Loader2 className="animate-spin" size={18} />JetBase okunuyor…</div>
           ) : tab === 'health' ? (
             <div className="space-y-5">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -248,7 +248,7 @@ export function KnowledgeBankModal({ workspaceId, onClose }: Props) {
             )
           ) : visible.length === 0 ? (
             <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-theme-border text-center">
-              <FileText size={28} className="mb-3 text-theme-text-muted" /><p className="text-sm font-medium">Bu kapsamda henüz Jetbase kaynağı yok</p>
+              <FileText size={28} className="mb-3 text-theme-text-muted" /><p className="text-sm font-medium">Bu kapsamda henüz JetBase kaynağı yok</p>
             </div>
           ) : (
             <div className="space-y-3">{visible.map(source => {
