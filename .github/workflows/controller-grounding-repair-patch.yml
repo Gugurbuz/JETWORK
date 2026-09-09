@@ -1,0 +1,35 @@
+name: Controller Grounding Repair Patch
+
+on:
+  push:
+    branches:
+      - fix/controller-grounding-repair-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/controller-grounding-repair-v1
+          fetch-depth: 0
+
+      - name: Apply exact bounded repair patch
+        run: python .github/scripts/apply_controller_grounding_repair_v1.py
+
+      - name: Commit product patch
+        shell: bash
+        run: |
+          git config user.name "jetwork-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No patch changes"
+            exit 0
+          fi
+          git commit -m "fix(agent): add bounded grounding repair"
+          git push origin HEAD:fix/controller-grounding-repair-v1
