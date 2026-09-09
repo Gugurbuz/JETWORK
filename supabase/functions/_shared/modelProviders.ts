@@ -85,7 +85,7 @@ const mergeUsage = (
  * Controller V4 provider boundary.
  *
  * Gemini 3.8 Flash is invoked through the GA Interactions API transport. JetWork
- * does not run a second semantic planner or choose a domain/tool sequence before
+ * does not run a second planner or choose a domain/tool sequence before
  * the active model. It enforces one mechanical lifecycle rule: if the model decides
  * to do substantive tool-backed work, the first tool round can only publish the
  * model's own public resolved-goal/work-plan snapshot. After that start observation
