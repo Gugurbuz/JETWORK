@@ -81,14 +81,26 @@ type GeminiRequestInput = {
  * Interactions conversation history may be resumed by a validated provider-state
  * marker. Tools, system instruction and generation config are nevertheless
  * re-specified on every interaction because those fields are interaction-scoped.
+ *
+ * The versioned product prompt is part of the same Controller's stable system
+ * contract. It was previously accepted by this boundary but accidentally omitted
+ * from the Interactions systemInstruction during the V3 cutover, which meant
+ * active prompt revisions could not affect Gemini behavior. Restoring it does not
+ * add a planner or router; it gives the sole Controller the configured product
+ * policy that the caller already selected for this turn.
  */
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   const runtimeObservation = extractGeminiRuntimeObservationInstruction(input.instructions)
   const terminalSynthesis = input.instructions.includes(TERMINAL_SYNTHESIS_MARKER)
+  const stableProductInstruction = String(input.stableInstructions || '').trim()
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
-    systemInstruction: [AGENT_CONTROLLER_INSTRUCTION, runtimeObservation].filter(Boolean).join('\n\n'),
+    systemInstruction: [
+      stableProductInstruction,
+      AGENT_CONTROLLER_INSTRUCTION,
+      runtimeObservation,
+    ].filter(Boolean).join('\n\n'),
     items: input.items,
     tools: input.tools,
     allowTools: input.allowTools,
