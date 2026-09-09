@@ -14,6 +14,8 @@ describe('bounded grounding repair v1', () => {
     expect(coreSource).toContain('grounding_repair_requested')
     expect(coreSource).toContain('maxControllerRound = Math.min(MAX_TOOL_ROUNDS + 2')
     expect(coreSource).toContain('roundText = groundingFailureText()')
+    expect(coreSource).toContain("const canLiveStreamProviderText = activeProvider === 'gemini'")
+    expect(coreSource).toContain('&& totalToolCalls === 0')
   })
 
   it('does not hard-code a semantic recovery tool or query', () => {
