@@ -2,6 +2,7 @@ export const OLLAMA_MODEL_PREFIX = 'ollama:'
 export const DEFAULT_OLLAMA_MODEL = 'ollama:qwen3:4b-instruct'
 export const OLLAMA_MODELS = new Set([DEFAULT_OLLAMA_MODEL])
 export const OLLAMA_CONTROLLER_CONTEXT_TOKENS = 16_384
+export const OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS = 120
 
 export type OllamaNormalizedResponse = {
   id?: string
@@ -63,13 +64,61 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 )
 
-// llama.cpp currently compiles all function schemas into one GBNF grammar before
-// generation starts. A single zero-property object schema makes that combined
-// grammar invalid. Its repetition cap is also effectively inclusive: a schema
-// maxLength of exactly 2,000 already exceeds the representable GBNF repetition
-// range because of an off-by-one expansion. Keep JetWork's canonical tool
-// contracts intact and normalize only the provider-facing Ollama copy.
-const OLLAMA_GRAMMAR_MAX_REPETITION = 2_000
+// Ollama/llama.cpp receives a provider-facing copy of JetWork tool schemas.
+// Keep the canonical OpenAI/Gemini contracts untouched, but remove validation
+// metadata that the JetWork runtime already enforces and that needlessly expands
+// local-model prompt/grammar size. Structural fields, enums and required keys stay.
+const OLLAMA_SCHEMA_DROP_KEYS = new Set([
+  'description',
+  'title',
+  '$comment',
+  'examples',
+  'example',
+  'default',
+  'readOnly',
+  'writeOnly',
+  'deprecated',
+  'minLength',
+  'maxLength',
+  'minimum',
+  'maximum',
+  'multipleOf',
+  'minItems',
+  'maxItems',
+  'uniqueItems',
+  'minProperties',
+  'maxProperties',
+  'additionalProperties',
+])
+
+const OLLAMA_DESCRIPTION_OVERRIDES: Record<string, string> = {
+  search_knowledge_catalog: 'Search Jetbase for ranked candidate knowledge. Results are discovery candidates, not exact citation-ready records.',
+  list_knowledge_catalog: 'Enumerate published Jetbase objects by type or prefix and return page, count and cursor.',
+  list_class_inventory: 'Enumerate the published ABAP class inventory.',
+  get_abap_source: 'Read exact published ABAP class, method or function source by canonical key.',
+  get_message_detail: 'Read exact published CRM or ABAP message detail by message code.',
+  search_document: 'Search published Jetbase documents and business rules for candidate evidence.',
+  get_document_content: 'Read exact published document or business-rule content by canonical key.',
+  get_knowledge_object: 'Read one exact published Jetbase object by canonical key.',
+  get_knowledge_objects: 'Read a bounded set of exact published Jetbase objects by canonical keys.',
+  get_related_objects: 'Read published relations and related objects for one canonical Jetbase object.',
+  get_knowledge_evidence_pack: 'Read a bounded published Jetbase evidence subgraph for one canonical object.',
+  search_web: 'Search the public web for discovery candidates. Results are not citation-ready evidence.',
+  record_project_memory: 'Persist one durable user-stated project decision, fact or correction with an exact source quote.',
+  review_evidence_coverage: 'Review current-turn verified evidence coverage, gaps and conflicts. Does not choose the next tool.',
+  report_progress: 'Publish a short user-visible Agent Work update. No retrieval, planning or execution authority.',
+  request_large_context: 'Read a larger bounded slice of prior JetWork conversation context when materially needed.',
+}
+
+export const compactOllamaToolDescription = (name: string, description: unknown): string => {
+  const override = OLLAMA_DESCRIPTION_OVERRIDES[name]
+  const source = clean(override || description).replace(/\s+/gu, ' ')
+  if (!source) return ''
+  const firstSentence = source.match(/^.*?[.!?](?:\s|$)/u)?.[0]?.trim() || source
+  return firstSentence.length <= OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS
+    ? firstSentence
+    : `${firstSentence.slice(0, OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS - 1).trimEnd()}…`
+}
 
 const normalizeOllamaSchemaNode = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(normalizeOllamaSchemaNode)
@@ -77,9 +126,7 @@ const normalizeOllamaSchemaNode = (value: unknown): unknown => {
 
   const normalized: Record<string, unknown> = {}
   for (const [key, nested] of Object.entries(value)) {
-    if (key === 'maxLength' && typeof nested === 'number' && nested >= OLLAMA_GRAMMAR_MAX_REPETITION) {
-      continue
-    }
+    if (OLLAMA_SCHEMA_DROP_KEYS.has(key)) continue
     normalized[key] = normalizeOllamaSchemaNode(nested)
   }
 
@@ -90,11 +137,10 @@ const normalizeOllamaSchemaNode = (value: unknown): unknown => {
     && Object.keys(properties).length === 0
   ) {
     // `{ type: 'object', properties: {} }` is valid JSON Schema but affected
-    // llama.cpp versions emit invalid `space space` GBNF for it. A plain object
-    // schema keeps a no-argument tool callable while avoiding that compiler path.
+    // llama.cpp versions emit invalid GBNF for it. A plain object schema keeps
+    // a no-argument tool callable while avoiding that compiler path.
     delete normalized.properties
     delete normalized.required
-    delete normalized.additionalProperties
   }
 
   return normalized
@@ -184,7 +230,7 @@ export const toOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => 
     type: 'function',
     function: {
       name,
-      description: clean(tool.description),
+      description: compactOllamaToolDescription(name, tool.description),
       parameters: normalizeOllamaToolParameters(tool.parameters),
     },
   }]
@@ -216,6 +262,9 @@ export async function requestOllamaResponse(input: {
 
   const model = ollamaExecutionModel(input.model)
   const tools = input.allowTools ? toOllamaTools(input.tools) : []
+  const messages = toOllamaMessages(input.instructions, input.items, input.maxContextCharacters ?? 14_000)
+  const toolPayloadCharacters = tools.length ? JSON.stringify(tools).length : 0
+  const messagePayloadCharacters = JSON.stringify(messages).length
   const requestStartedAt = performance.now()
   const response = await fetch(`${gatewayUrl}/api/chat`, {
     method: 'POST',
@@ -226,7 +275,7 @@ export async function requestOllamaResponse(input: {
     },
     body: JSON.stringify({
       model,
-      messages: toOllamaMessages(input.instructions, input.items, input.maxContextCharacters ?? 14_000),
+      messages,
       ...(tools.length ? { tools } : {}),
       think: false,
       stream: false,
@@ -284,6 +333,9 @@ export async function requestOllamaResponse(input: {
       ollama_prompt_eval_ms: durationMs(payload.prompt_eval_duration),
       ollama_eval_ms: durationMs(payload.eval_duration),
       ollama_tool_calls: toolCalls.length,
+      ollama_tool_count: tools.length,
+      ollama_tool_payload_chars: toolPayloadCharacters,
+      ollama_message_payload_chars: messagePayloadCharacters,
     },
   }
 }

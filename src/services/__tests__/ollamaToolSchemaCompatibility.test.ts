@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 import {
   OLLAMA_CONTROLLER_CONTEXT_TOKENS,
+  OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS,
   normalizeOllamaToolParameters,
   toOllamaTools,
 } from '../../../supabase/functions/_shared/ollamaProvider.ts'
@@ -24,9 +25,7 @@ const grammarHazards = (value: unknown, path = '$'): string[] => {
   ) {
     hazards.push(`${path}: empty object properties`)
   }
-  if (typeof value.maxLength === 'number' && value.maxLength >= 2_000) {
-    hazards.push(`${path}: maxLength ${value.maxLength}`)
-  }
+  if ('maxLength' in value) hazards.push(`${path}: maxLength retained`)
 
   return [
     ...hazards,
@@ -34,12 +33,21 @@ const grammarHazards = (value: unknown, path = '$'): string[] => {
   ]
 }
 
+const canonicalProviderShape = (tools: ReadonlyArray<Record<string, unknown>>) => tools.map(tool => ({
+  type: 'function',
+  function: {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+  },
+}))
+
 describe('Ollama tool schema compatibility', () => {
   it('keeps enough context headroom for the Controller prompt plus full tool surface', () => {
     expect(OLLAMA_CONTROLLER_CONTEXT_TOKENS).toBeGreaterThanOrEqual(16_384)
   })
 
-  it('removes the llama.cpp zero-property object grammar hazard without removing the tool', () => {
+  it('removes zero-property object grammar hazards without removing the tool', () => {
     const normalized = normalizeOllamaToolParameters({
       type: 'object',
       properties: {},
@@ -50,33 +58,44 @@ describe('Ollama tool schema compatibility', () => {
     expect(normalized).toEqual({ type: 'object' })
   })
 
-  it('drops grammar-unsafe maxLength constraints at or above the llama.cpp repetition threshold', () => {
+  it('drops provider-redundant validation metadata while retaining structure and enums', () => {
     const normalized = normalizeOllamaToolParameters({
       type: 'object',
+      description: 'verbose root description',
       properties: {
-        compact: { type: 'string', maxLength: 500 },
-        boundary: { type: 'string', minLength: 1, maxLength: 2_000 },
-        large: { type: 'string', minLength: 1, maxLength: 24_000 },
+        mode: { type: 'string', enum: ['exact', 'search'], description: 'verbose', minLength: 1, maxLength: 2_000 },
+        limit: { type: ['integer', 'null'], minimum: 1, maximum: 20 },
       },
-      required: ['compact', 'boundary', 'large'],
+      required: ['mode', 'limit'],
       additionalProperties: false,
     })
 
-    const properties = normalized.properties as Record<string, Record<string, unknown>>
-    expect(properties.compact.maxLength).toBe(500)
-    expect(properties.boundary.minLength).toBe(1)
-    expect(properties.boundary).not.toHaveProperty('maxLength')
-    expect(properties.large.minLength).toBe(1)
-    expect(properties.large).not.toHaveProperty('maxLength')
+    expect(normalized).toEqual({
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['exact', 'search'] },
+        limit: { type: ['integer', 'null'] },
+      },
+      required: ['mode', 'limit'],
+    })
   })
 
-  it('keeps the complete Controller V3 tool surface intact and grammar-safe', () => {
+  it('keeps the complete Controller V3 tool surface intact, compact and grammar-safe', () => {
     const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
     const ollamaTools = toOllamaTools(canonical)
 
     expect(canonical.length).toBeGreaterThan(30)
     expect(ollamaTools).toHaveLength(canonical.length)
     expect(grammarHazards(ollamaTools)).toEqual([])
+
+    const canonicalChars = JSON.stringify(canonicalProviderShape(canonical)).length
+    const ollamaChars = JSON.stringify(ollamaTools).length
+    expect(ollamaChars).toBeLessThan(canonicalChars * 0.8)
+
+    for (const tool of ollamaTools) {
+      const fn = tool.function as Record<string, unknown>
+      expect(String(fn.description || '').length).toBeLessThanOrEqual(OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS)
+    }
 
     const names = ollamaTools.map(tool => String((tool.function as Record<string, unknown>)?.name || ''))
     expect(names).toContain('list_spreadsheet_attachments')
