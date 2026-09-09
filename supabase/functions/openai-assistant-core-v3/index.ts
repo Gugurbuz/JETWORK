@@ -10,6 +10,12 @@ const RECOVERY_GEMINI_MODEL = 'gemini-3.5-flash'
 const GEMINI_INTERACTIONS_PATH = '/v1/interactions'
 const GEMINI_QUOTA_PATTERN = /quota|billing|resource_exhausted|rate.?limit/i
 const MODEL_RECOVERY_CIRCUIT_MS = 60_000
+const CONTROLLER_EVIDENCE_COMPLETION_POLICY = [
+  'EVIDENCE_COMPLETION_POLICY: When an exact or canonical enterprise candidate has been found for the user request, do not conclude that context is missing merely because the first search was ambiguous.',
+  'For exact technical answers, messages, ABAP, implementation, or source-code requests, inspect enough of the candidate detail, evidence, relations, or literal source before deciding that the answer is unavailable or asking the user for context already represented by verified enterprise evidence.',
+  'If the exact object is only a structural endpoint, signature, summary, or relation and no verified implementation body is available, preserve the exact object name and state clearly that the full implementation source is not available; never invent the body.',
+  'Capability choice, query formulation, evidence traversal, further research, and the stop/final decision remain solely yours as the Controller LLM. This policy does not select a tool, query, route, or answer.',
+].join(' ')
 
 let geminiModelRecoveryUntil = 0
 let geminiModelRecoveryInstalled = false
@@ -32,6 +38,14 @@ const parseJsonBody = (body: BodyInit | null | undefined): Record<string, unknow
   }
 }
 
+const withControllerEvidenceCompletionPolicy = (body: Record<string, unknown>) => ({
+  ...body,
+  system_instruction: [
+    String(body.system_instruction || '').trim(),
+    CONTROLLER_EVIDENCE_COMPLETION_POLICY,
+  ].filter(Boolean).join('\n\n'),
+})
+
 const isGeminiQuotaResponse = async (response: Response) => {
   if (response.status !== 429) return false
   const text = await response.clone().text().catch(() => '')
@@ -47,7 +61,9 @@ const normalizedGeminiQuotaResponse = () => new Response(
 )
 
 /**
- * Mechanical provider-availability recovery.
+ * Mechanical provider-availability recovery plus Controller-level evidence
+ * completion guidance. The guidance changes only the same Controller LLM's
+ * system instruction; it never selects a capability, query, route, or answer.
  *
  * Gemini remains the selected provider and semantic controller. The public
  * primary stays Gemini 3.8 Flash. Only a real upstream 429/quota condition opens
@@ -61,14 +77,18 @@ const installGeminiModelQuotaRecovery = () => {
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input)
-    const body = parseJsonBody(init?.body)
+    const parsedBody = parseJsonBody(init?.body)
     if (
       !url.includes('generativelanguage.googleapis.com')
       || !url.includes(GEMINI_INTERACTIONS_PATH)
-      || !body
-      || String(body.model || '') !== PRIMARY_GEMINI_MODEL
+      || !parsedBody
     ) {
       return originalFetch(input, init)
+    }
+
+    const body = withControllerEvidenceCompletionPolicy(parsedBody)
+    if (String(body.model || '') !== PRIMARY_GEMINI_MODEL) {
+      return originalFetch(input, { ...init, body: JSON.stringify(body) })
     }
 
     const recoveryBody = {
@@ -87,7 +107,7 @@ const installGeminiModelQuotaRecovery = () => {
 
     if (Date.now() < geminiModelRecoveryUntil) return retryRecovery()
 
-    const response = await originalFetch(input, init)
+    const response = await originalFetch(input, { ...init, body: JSON.stringify(body) })
     if (!await isGeminiQuotaResponse(response)) return response
 
     geminiModelRecoveryUntil = Date.now() + MODEL_RECOVERY_CIRCUIT_MS

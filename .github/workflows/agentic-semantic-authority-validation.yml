@@ -7,6 +7,7 @@ on:
       - 'supabase/functions/openai-assistant-v2-entry-router/**'
       - 'supabase/functions/openai-assistant-v2/**'
       - 'supabase/functions/openai-assistant-core-v2/**'
+      - 'supabase/functions/openai-assistant-core-v3/**'
       - 'supabase/functions/_shared/**'
       - '.github/workflows/agentic-semantic-authority-validation.yml'
 
@@ -56,7 +57,10 @@ jobs:
           Deno.env.set('AGENT_CONTROLLER_V2', 'true')
           await import('../../supabase/functions/openai-assistant-core-v2/index.ts')
           EOF
-          for target in public internal core; do
+          cat > .tmp/agentic-validation/core-v3.ts <<'EOF'
+          await import('../../supabase/functions/openai-assistant-core-v3/index.ts')
+          EOF
+          for target in public internal core core-v3; do
             pnpm dlx esbuild@0.25.12 ".tmp/agentic-validation/${target}.ts" \
               --bundle \
               --format=esm \
