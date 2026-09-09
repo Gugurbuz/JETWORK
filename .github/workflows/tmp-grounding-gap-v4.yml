@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,7 +113,6 @@ jobs:
           test_path.write_text(tests)
           PY
           git diff --check
-          git diff -- supabase/functions/_shared/groundingGuard.ts src/services/__tests__/groundingCoverageRegression.test.ts
       - name: Commit patch
         shell: bash
         run: |
