@@ -84,7 +84,7 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
         items: { type: 'string', minLength: 2, maxLength: 320 },
         maxItems: 8,
       },
-      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 }, maxItems: 12 },
+      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 } },
     },
     required: ['kind', 'message', 'resolvedGoal', 'planSteps', 'evidenceGaps', 'sourceRefs'],
     additionalProperties: false,
@@ -96,7 +96,7 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
  *
  * Controller V4 exposes the complete JetWork semantic capability surface after
  * the public work-start gate. The old discovery tool name stays exported while
- * stale callers/tests are migrated, but it is deliberately not model-visible.
+ * stale callers/tests are migrated, but it is deliberately not included in the model-visible surface.
  */
 export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
   type: 'function',
