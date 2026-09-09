@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 import {
+  OLLAMA_CONTROLLER_CONTEXT_TOKENS,
   normalizeOllamaToolParameters,
   toOllamaTools,
 } from '../../../supabase/functions/_shared/ollamaProvider.ts'
@@ -34,6 +35,10 @@ const grammarHazards = (value: unknown, path = '$'): string[] => {
 }
 
 describe('Ollama tool schema compatibility', () => {
+  it('keeps enough context headroom for the Controller prompt plus full tool surface', () => {
+    expect(OLLAMA_CONTROLLER_CONTEXT_TOKENS).toBeGreaterThanOrEqual(16_384)
+  })
+
   it('removes the llama.cpp zero-property object grammar hazard without removing the tool', () => {
     const normalized = normalizeOllamaToolParameters({
       type: 'object',
