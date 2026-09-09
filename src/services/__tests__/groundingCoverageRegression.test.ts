@@ -239,4 +239,49 @@ describe('grounding claim coverage P0', () => {
     expect(proseWord.ok).toBe(false)
     expect(proseWord.unsupportedIdentifiers).toEqual(['ZORUNLUDUR'])
   })
+
+  it('rejects a CHECK_ZTKS message-list absence claim after verified message records were already found', () => {
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_abap_source',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:zcl_order_save_quotations/check_ztks',
+          objectType: 'method',
+          title: 'CHECK_ZTKS',
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:zcl_order_save_quotations/check_ztks',
+        objectType: 'method',
+        title: 'CHECK_ZTKS',
+        sourceId: 's-check-ztks',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+    const message544 = verifiedMessage('ZCRM2-544', 'Doğrulanmış mesaj 544')
+    const message545 = verifiedMessage('ZCRM2-545', 'Doğrulanmış mesaj 545')
+    const bad = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: false, enterpriseGroundingRequired: true },
+      currentUserText: 'CHECK_ZTKS hangi mesajları üretiyor?',
+      sources: [...method.sources, ...message544.sources, ...message545.sources],
+      toolResults: [method, message544, message545],
+      text: '`CHECK_ZTKS` kontrolüne ait kaynak kod ve tetiklenen mesaj listesi mevcut doğrulanmış sistem kayıtları ve kanıtlar arasında bulunmamaktadır.',
+    })
+    expect(bad.ok).toBe(false)
+    expect(bad.unsupportedClaims).toContain('verified_message_list:response_reported_gap')
+    expect(shouldFailClosedGroundedAnswer({ plan: { enterpriseGroundingRequired: true }, coverage: bad })).toBe(true)
+
+    const genuineGap = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: false, enterpriseGroundingRequired: true },
+      currentUserText: 'CHECK_ZTKS hangi mesajları üretiyor?',
+      sources: method.sources,
+      toolResults: [method],
+      text: '`CHECK_ZTKS` için mevcut doğrulanmış kayıtlarda mesaj listesi bulunmamaktadır.',
+    })
+    expect(genuineGap.ok).toBe(true)
+    expect(genuineGap.unsupportedClaims).not.toContain('verified_message_list:response_reported_gap')
+  })
+
 })
