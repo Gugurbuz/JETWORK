@@ -36,7 +36,6 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch users and roles from Firestore
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -72,7 +71,6 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
     fetchData();
   }, []);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -83,13 +81,13 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filteredUsers = dbUsers.filter(user => 
+  const filteredUsers = dbUsers.filter(user =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const toggleUser = (user: DbUser) => {
-    setSelectedUsers(prev => 
+    setSelectedUsers(prev =>
       prev.some(u => u.id === user.id)
         ? prev.filter(u => u.id !== user.id)
         : [...prev, user]
@@ -115,7 +113,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
         team: selectedUsers.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email }))
       });
     } catch (error) {
-      console.error('Failed to submit workspace:', error);
+      console.error('Failed to submit conversation:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -128,7 +126,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 bg-theme-bg/80 sm:items-center">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98, y: 10 }}
@@ -137,9 +135,9 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
         <div className="flex items-center justify-between p-6 border-b border-theme-border bg-theme-surface">
           <h2 className="text-lg font-semibold text-theme-text flex items-center gap-2 tracking-tight">
             <FileText size={18} className="text-theme-primary" />
-            Yeni Çalışma Alanı Başlat
+            Yeni Proje Sohbeti
           </h2>
-          <button 
+          <button
             onClick={onClose}
             className="p-1.5 text-theme-text-muted hover:text-theme-text hover:bg-theme-surface-hover rounded-md transition-colors"
           >
@@ -190,7 +188,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
 
             <div>
               <label className="block text-[10px] font-bold text-theme-text-muted mb-2 uppercase tracking-widest">
-                Çalışma Alanı Başlığı
+                Sohbet Başlığı
               </label>
               <input
                 type="text"
@@ -206,9 +204,9 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
             <div className="relative" ref={dropdownRef}>
               <label className="block text-[10px] font-bold text-theme-text-muted mb-3 uppercase tracking-widest flex items-center gap-2">
                 <Users size={14} />
-                Çalışma Ekibi (Kişiler) <span className="text-theme-text-muted/70 normal-case tracking-normal font-normal">— opsiyonel</span>
+                Katılımcılar <span className="text-theme-text-muted/70 normal-case tracking-normal font-normal">— opsiyonel</span>
               </label>
-              
+
               <div className="flex flex-col gap-2 mb-3">
                 {selectedUsers.map(user => (
                   <div key={user.id} className="flex items-center justify-between bg-theme-primary/10 text-theme-primary px-3 py-2 rounded-md text-xs font-medium border border-theme-primary/20">
@@ -228,8 +226,8 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={() => toggleUser(user)}
                         className="p-1 hover:text-theme-primary-hover hover:bg-theme-primary/20 rounded"
                       >
@@ -257,7 +255,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
 
               <AnimatePresence>
                 {isDropdownOpen && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: -5 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -5 }}
@@ -318,7 +316,7 @@ export function NewItemModal({ projects, currentProjectId, onClose, onSubmit }: 
               aria-busy={isSubmitting}
               className="px-6 py-2.5 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg text-sm font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
-              {isSubmitting ? 'Başlatılıyor...' : 'Çalışma Alanı Başlat'}
+              {isSubmitting ? 'Başlatılıyor...' : 'Sohbeti Başlat'}
             </button>
           </div>
         </form>
