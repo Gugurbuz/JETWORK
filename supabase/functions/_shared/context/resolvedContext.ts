@@ -122,16 +122,17 @@ const itemCharacterCost = (item: Record<string, unknown>) => {
 export const buildResolvedConversationInstruction = (seed: ResolvedConversationContextSeed): string => {
   const lines = [
     '[JETWORK RESOLVED CONVERSATION STATE - NOT EVIDENCE]',
-    'Bu blok yalnız konuşma/görev sürekliliği içindir; kurumsal gerçek veya citation değildir.',
-    seed.resolvedRequest ? `Aktif çözülmüş talep: ${cleanText(seed.resolvedRequest, 1_200)}` : '',
-    seed.topic ? `Aktif konu: ${cleanText(seed.topic, 320)}` : '',
-    seed.activeEntities?.length ? `Aktif varlıklar: ${seed.activeEntities.map(value => cleanText(value, 160)).filter(Boolean).slice(0, 10).join(', ')}` : '',
+    'Bu blok yalnız konuşma/görev sürekliliği için runtime tarafından taşınan advisory contexttir; kurumsal gerçek, citation veya semantik otorite değildir.',
+    seed.resolvedRequest ? `Runtime plan hedef adayı: ${cleanText(seed.resolvedRequest, 1_200)}` : '',
+    seed.topic ? `Runtime konu adayı: ${cleanText(seed.topic, 320)}` : '',
+    seed.activeEntities?.length ? `Aktif varlık adayları: ${seed.activeEntities.map(value => cleanText(value, 160)).filter(Boolean).slice(0, 10).join(', ')}` : '',
     seed.userDecisions?.length ? `Kullanıcı kararları/kısıtları: ${seed.userDecisions.map(value => cleanText(value, 280)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
     seed.rejectedScopes?.length ? `Artık kapsam dışı/reddedilmiş kapsamlar: ${seed.rejectedScopes.map(value => cleanText(value, 240)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
     seed.rejectedHypotheses?.length ? `Reddedilmiş önceki hipotezler: ${seed.rejectedHypotheses.map(value => cleanText(value, 240)).filter(Boolean).slice(0, 5).join(' | ')}` : '',
     seed.openQuestions?.length ? `Açık konular: ${seed.openQuestions.map(value => cleanText(value, 240)).filter(Boolean).slice(0, 6).join(' | ')}` : '',
     seed.retainedContext?.length ? `Korunan yakın bağlam: ${seed.retainedContext.map(value => cleanText(value, 280)).filter(Boolean).slice(-4).join(' | ')}` : '',
     seed.verifiedFactRefs?.length ? `Önceki doğrulanmış kanıt referansları (iddia değil): ${seed.verifiedFactRefs.map(value => cleanText(value, 200)).filter(Boolean).slice(0, 10).join(', ')}` : '',
+    'Runtime hedef/konu adayı son ham kullanıcı mesajını ham biçimde tekrar ediyor olabilir. Bunu tek başına yeni görev veya konu reseti sayma; yakın konuşma, provider continuation ve kullanıcının son düzeltmeleriyle birlikte gerçek hedefi controller olarak kendin çöz.',
     'Yeni kullanıcı mesajı ve kullanıcı düzeltmeleri eski sohbetten üstündür. Reddedilmiş kapsam/hipotezleri kullanıcı yeniden istemedikçe geri getirme. Teknik/kurumsal iddialar için bu blok yerine gerçek knowledge/web kanıtı kullan.',
     '[END JETWORK RESOLVED CONVERSATION STATE]',
   ].filter(Boolean)

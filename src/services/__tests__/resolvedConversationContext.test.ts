@@ -90,9 +90,9 @@ describe('resolved conversation context', () => {
     expect(contentOf(compacted.at(-1) as Record<string, unknown>)).toBe(active)
   })
 
-  it('marks resolved state as continuity context rather than enterprise evidence', () => {
+  it('marks resolved state as advisory continuity context rather than semantic authority or enterprise evidence', () => {
     const instruction = buildResolvedConversationInstruction({
-      resolvedRequest: 'Kalan kalite geliştirmelerini tamamla',
+      resolvedRequest: 'Teklifteki',
       topic: 'conversation quality',
       activeEntities: ['Project Brain'],
       userDecisions: ['Raw history modele yığılmayacak'],
@@ -102,6 +102,10 @@ describe('resolved conversation context', () => {
     })
 
     expect(instruction).toContain('NOT EVIDENCE')
+    expect(instruction).toContain('advisory context')
+    expect(instruction).toContain('Runtime plan hedef adayı: Teklifteki')
+    expect(instruction).not.toContain('Aktif çözülmüş talep: Teklifteki')
+    expect(instruction).toContain('tek başına yeni görev veya konu reseti sayma')
     expect(instruction).toContain('Raw history modele yığılmayacak')
     expect(instruction).toContain('Qwen')
     expect(instruction).toContain('gerçek knowledge/web kanıtı')

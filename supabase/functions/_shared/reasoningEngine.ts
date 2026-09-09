@@ -351,7 +351,7 @@ const controllerV2NeutralPlan = (message: string): ReasoningPlan => {
   return {
     intent: 'analysis',
     complexity: 'medium',
-    goal: currentMessage || 'Kullanıcı talebini doğru ve güvenli biçimde yanıtla.',
+    goal: 'Neutral controller runtime bağlamı: semantik hedef burada tanımlanmaz; controller gerçek hedefi mevcut konuşma, provider continuation ve observationlardan çözer.',
     knowledgeRequired: false,
     enterpriseGroundingRequired: exactTechnicalEvidenceRequired,
     webMode: 'none',
@@ -367,7 +367,7 @@ const controllerV2NeutralPlan = (message: string): ReasoningPlan => {
         : 'Runtime önceden knowledge/web/skill/artifact seçmez; controller observation sonrası yeniden karar verir.',
     }],
     executionMode: 'direct',
-    orchestratorVersion: 'agent-controller-v2-core-neutral-fallback',
+    orchestratorVersion: 'agent-controller-v2-core-neutral-context-fallback-v2',
     promptProfile: 'base',
   }
 }
