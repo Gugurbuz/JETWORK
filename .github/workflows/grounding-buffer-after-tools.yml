@@ -1,0 +1,35 @@
+name: Grounding Buffer After Tools Patch
+
+on:
+  push:
+    branches:
+      - fix/grounding-buffer-after-tools
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/grounding-buffer-after-tools
+          fetch-depth: 0
+
+      - name: Apply exact streaming safety patch
+        run: python .github/scripts/apply_grounding_buffer_after_tools.py
+
+      - name: Commit product patch
+        shell: bash
+        run: |
+          git config user.name "jetwork-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No patch changes"
+            exit 0
+          fi
+          git commit -m "fix(agent): buffer final text after tool evidence"
+          git push origin HEAD:fix/grounding-buffer-after-tools
