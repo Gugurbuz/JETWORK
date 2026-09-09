@@ -4,6 +4,21 @@
  * intentional here because the base reduced-motion rule is bundled later. */
 
 /*
+ * The logo story is a 4.4s loop. Its staircase sequence finishes at 76%, i.e.
+ * 3.344s after the loop begins. Start the Düşünüyor shimmer at that exact point,
+ * then let one full shimmer span the interval until the next staircase finish.
+ * This phase-lock keeps logo motion and text feedback reading as one animation.
+ */
+@keyframes assistant-work-text-shimmer-synced {
+  0% {
+    background-position: 160% 50%;
+  }
+  100% {
+    background-position: -55% 50%;
+  }
+}
+
+/*
  * Regression guard for the live "Düşünüyor" shimmer.
  * The conversation polish layer intentionally strengthens text contrast, but a
  * solid `color` overrides the clipped gradient and makes the shimmer appear
@@ -16,7 +31,8 @@
   -webkit-text-fill-color: transparent !important;
   background-clip: text !important;
   -webkit-background-clip: text !important;
-  animation: assistant-work-text-shimmer 2.4s ease-in-out infinite !important;
+  background-position: 160% 50% !important;
+  animation: assistant-work-text-shimmer-synced 4.4s ease-in-out 3.344s infinite both !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -29,7 +45,7 @@
     animation: assistant-work-logo-story 4.4s cubic-bezier(0.45, 0, 0.2, 1) infinite !important;
   }
 
-  .assistant-work__label {
-    animation: assistant-work-text-shimmer 2.4s ease-in-out infinite !important;
+  .jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label {
+    animation: assistant-work-text-shimmer-synced 4.4s ease-in-out 3.344s infinite both !important;
   }
 }
