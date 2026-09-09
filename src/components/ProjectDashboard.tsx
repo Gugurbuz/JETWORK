@@ -24,7 +24,7 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
         acts.push({
           id: `act-create-${ws.id}`,
           user: ws.collaborators[0],
-          action: 'çalışma alanını oluşturdu',
+          action: 'sohbeti oluşturdu',
           targetName: ws.title,
           workspaceId: ws.id,
           timestamp: ws.createdAt,
@@ -81,19 +81,19 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
             className="flex items-center gap-2 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg px-4 py-2 rounded-md text-sm font-semibold transition-colors shadow-sm"
           >
             <Plus size={16} />
-            Yeni Çalışma Alanı
+            Yeni Sohbet
           </button>
         </div>
 
-        {/* Workspaces Grid */}
+        {/* Chats Grid */}
         <div>
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-bold text-theme-text flex items-center gap-2">
               <FileText size={18} className="text-theme-text-muted" />
-              Çalışma Alanları
+              Sohbetler
             </h2>
             <span className="text-xs font-medium text-theme-text-muted bg-theme-surface px-2 py-1 rounded-md border border-theme-border">
-              {activeWorkspaces.length} Alan
+              {activeWorkspaces.length} Sohbet
             </span>
           </div>
           
@@ -102,16 +102,16 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
               <div className="w-16 h-16 bg-theme-primary/10 rounded-full flex items-center justify-center mb-4">
                 <FileText size={32} className="text-theme-primary" />
               </div>
-              <h3 className="text-lg font-bold text-theme-text mb-2">Henüz Çalışma Alanı Yok</h3>
+              <h3 className="text-lg font-bold text-theme-text mb-2">Henüz Sohbet Yok</h3>
               <p className="text-theme-text-muted text-sm max-w-md mb-6">
-                Bu projede henüz bir çalışma alanı oluşturulmamış. Yeni bir çalışma alanı oluşturarak ekibinizle birlikte çalışmaya başlayabilirsiniz.
+                Bu projede henüz bir sohbet oluşturulmamış. Yeni bir sohbet başlatarak proje üzerinde çalışmaya başlayabilirsiniz.
               </p>
               <button
                 onClick={onNewWorkspace}
                 className="flex items-center gap-2 bg-theme-primary hover:bg-theme-primary-hover text-theme-primary-fg px-6 py-3 rounded-xl text-sm font-semibold transition-colors shadow-sm"
               >
                 <Plus size={16} />
-                İlk Çalışma Alanını Oluştur
+                İlk Sohbeti Başlat
               </button>
             </div>
           ) : (
@@ -246,13 +246,13 @@ export function ProjectDashboard({ project, onSelectWorkspace, onNewWorkspace, o
                       </time>
                     </div>
                     <div className="text-sm text-theme-text-muted">
-                      <span className="text-theme-text font-medium">"{activity.targetName}"</span> alanında {activity.action}.
+                      <span className="text-theme-text font-medium">"{activity.targetName}"</span> sohbetinde {activity.action}.
                     </div>
                     <button 
                       onClick={() => onSelectWorkspace(activity.workspaceId)}
                       className="mt-3 text-xs font-semibold text-theme-primary hover:underline flex items-center gap-1"
                     >
-                      Çalışma alanına git <ArrowRight size={10} />
+                      Sohbete git <ArrowRight size={10} />
                     </button>
                   </div>
                 </div>
