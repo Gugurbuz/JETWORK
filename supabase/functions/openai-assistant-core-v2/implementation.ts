@@ -1152,6 +1152,7 @@ serve(async req => {
               : []
             const hasExactCustomIdentifierInRequest = hasExactTechnicalIdentifier(message)
             const canLiveStreamProviderText = activeProvider === 'gemini'
+              && totalToolCalls === 0
               && plan.enterpriseGroundingRequired !== true
               && plan.intent !== 'sap_diagnosis'
               && plan.executionMode !== 'artifact'
