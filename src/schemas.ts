@@ -8,7 +8,7 @@ export const NewProjectInputSchema = z.object({
 });
 
 export const EditWorkspaceInputSchema = z.object({
-  title: z.string().trim().min(2, "Çalışma alanı adı en az 2 karakter olmalıdır.").max(120, "Çalışma alanı en fazla 120 karakter olabilir."),
+  title: z.string().trim().min(2, "Sohbet başlığı en az 2 karakter olmalıdır.").max(120, "Sohbet başlığı en fazla 120 karakter olabilir."),
 });
 
 export const OnboardingInputSchema = z.object({
@@ -118,54 +118,34 @@ export const chatResponseJsonSchema = {
       type: Type.STRING,
       description: "Bu mesajın veya ajanın yaptığı eylemin kullanicinin gorecegi kadar net, cok kisa ozeti.",
     },
-    score: {
-      type: Type.NUMBER,
-      description: "Kalite puanı veya zero-touch skor alanı.",
-    },
-    scoreExplanation: {
-      type: Type.STRING,
-      description: "Puan açıklaması.",
-    },
-    needsRevision: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: "Revizyon gerektiren alanlar.",
-    },
-    updatedMemory: {
-      type: Type.OBJECT,
-      description: "Kullanıcının mesajından çıkarılan yeni proje kararları, kısıtlamaları veya hedefleri.",
-      additionalProperties: { type: Type.STRING },
-    },
+    score: { type: Type.NUMBER },
+    scoreExplanation: { type: Type.STRING },
+    needsRevision: { type: Type.ARRAY, items: { type: Type.STRING } },
+    updatedMemory: { type: Type.OBJECT, additionalProperties: { type: Type.STRING } },
     questions: {
       type: Type.ARRAY,
-      description: "Kullanıcıya sorulacak netleştirici sorular ve seçenekleri.",
       items: {
         type: Type.OBJECT,
         properties: {
           id: { type: Type.STRING },
           text: { type: Type.STRING },
-          options: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-          },
+          options: { type: Type.ARRAY, items: { type: Type.STRING } },
         },
-        required: ["id", "text", "options"],
+        required: ['id', 'text', 'options'],
       },
     },
     document: {
       type: Type.OBJECT,
-      description: "Sağ paneldeki Çalışma Dokümanı. Şimdilik sadece BA Analiz ve opsiyonel Review üret.",
       properties: {
-        evidenceClaims: {
-          type: Type.ARRAY,
-          items: evidenceClaimJsonType,
-        },
+        evidenceClaims: { type: Type.ARRAY, items: evidenceClaimJsonType },
         businessAnalysis: sectionDataJsonType,
         review: sectionDataJsonType,
+        code: sectionDataJsonType,
+        test: sectionDataJsonType,
+        bpmn: sectionDataJsonType,
       },
+      required: ['businessAnalysis'],
     },
   },
-  required: ["message"],
+  required: ['message'],
 };
-
-export type ZodChatResponse = z.infer<typeof ChatResponseSchema>;
