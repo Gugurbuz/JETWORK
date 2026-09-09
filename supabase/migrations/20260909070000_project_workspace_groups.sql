@@ -23,11 +23,22 @@ create index if not exists project_workspace_groups_project_idx
 alter table public.workspaces
   add column if not exists workspace_group_id text;
 
-alter table public.workspaces
-  add constraint workspaces_workspace_group_project_fkey
-  foreign key (workspace_group_id, project_id)
-  references public.project_workspace_groups(id, project_id)
-  on delete set null (workspace_group_id);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.workspaces'::regclass
+      and conname = 'workspaces_workspace_group_project_fkey'
+  ) then
+    alter table public.workspaces
+      add constraint workspaces_workspace_group_project_fkey
+      foreign key (workspace_group_id, project_id)
+      references public.project_workspace_groups(id, project_id)
+      on delete set null (workspace_group_id);
+  end if;
+end;
+$$;
 
 create index if not exists workspaces_workspace_group_idx
   on public.workspaces(workspace_group_id, last_updated desc)
