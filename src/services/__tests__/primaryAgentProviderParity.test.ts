@@ -37,7 +37,7 @@ describe('primary-agent provider parity', () => {
     expect(reasoning).toContain('PROVIDER_WEB_CAPABILITY_MARKER');
   });
 
-  it('lets the active Gemini controller select provider-native Google Search through Interactions without deterministic pre-execution', () => {
+  it('lets the active Gemini controller select provider-native Google Search after the public-work start boundary without deterministic pre-execution', () => {
     expect(provider).not.toContain("import { runDeterministicGeminiWebResearch");
     expect(provider).not.toContain("plan?.intent === 'research' && providerWebRequested");
     expect(provider).toContain('requestGeminiInteractionsResponse');
@@ -45,7 +45,9 @@ describe('primary-agent provider parity', () => {
     expect(interactions).toContain("tool_choice: 'validated'");
     expect(interactions).toContain('previous_interaction_id');
     expect(interactions).toContain('stream: true');
-    expect(wrapper).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
+    expect(wrapper).toContain('const providerWebRequested = input.allowProviderWeb ?? input.allowTools');
+    expect(wrapper).toContain('const providerWebEnabled = publicWorkGate.providerWebEnabled');
+    expect(wrapper).toContain('gateGeminiAgentToolsForPublicWork');
   });
 
   it('does not silently promote a selected Gemini model before the primary tool loop', () => {

@@ -5,6 +5,11 @@ import {
 import { AGENT_CONTROLLER_INSTRUCTION } from './agentControllerPolicy.ts'
 import { extractGeminiRuntimeObservationInstruction } from './agent/controllerRuntimeObservation.ts'
 import {
+  buildPublicWorkProtocolInstruction,
+  gateGeminiAgentToolsForPublicWork,
+  hasCompletedPublicWorkStart,
+} from './agent/publicWorkProtocol.ts'
+import {
   createGeminiProviderStateItem,
   type GeminiInteractionPublicStepEvent,
   type GeminiInteractionsRequest,
@@ -71,28 +76,38 @@ type GeminiRequestInput = {
   signal?: AbortSignal
 }
 
+const mergeUsage = (
+  current: Record<string, number> | undefined,
+  extra: Record<string, number>,
+): Record<string, number> => ({ ...(current || {}), ...extra })
+
 /**
- * Controller V3 provider boundary.
+ * Controller V4 provider boundary.
  *
  * Gemini 3.8 Flash is invoked through the GA Interactions API transport. JetWork
- * no longer runs a provider-side semantic plan, knowledge/web route, mandatory
- * retrieval sequence or deterministic finalizer before the model gets to decide.
+ * does not run a second planner or choose a domain/tool sequence before
+ * the active model. It enforces one mechanical lifecycle rule: if the model decides
+ * to do substantive tool-backed work, the first tool round can only publish the
+ * model's own public resolved-goal/work-plan snapshot. After that start observation
+ * returns, the complete semantic capability surface is restored.
  *
- * Interactions conversation history may be resumed by a validated provider-state
- * marker. Tools, system instruction and generation config are nevertheless
- * re-specified on every interaction because those fields are interaction-scoped.
- *
- * The versioned product prompt is part of the same Controller's stable system
- * contract. It was previously accepted by this boundary but accidentally omitted
- * from the Interactions systemInstruction during the V3 cutover, which meant
- * active prompt revisions could not affect Gemini behavior. Restoring it does not
- * add a planner or router; it gives the sole Controller the configured product
- * policy that the caller already selected for this turn.
+ * The versioned product prompt remains part of the same Controller's stable system
+ * contract. The lifecycle gate augments that contract; it never replaces or drops
+ * the caller-selected stable product instruction.
  */
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   const runtimeObservation = extractGeminiRuntimeObservationInstruction(input.instructions)
   const terminalSynthesis = input.instructions.includes(TERMINAL_SYNTHESIS_MARKER)
   const stableProductInstruction = String(input.stableInstructions || '').trim()
+  const providerWebRequested = input.allowProviderWeb ?? input.allowTools
+  const publicWorkGate = gateGeminiAgentToolsForPublicWork(input.items, input.tools, providerWebRequested)
+  const publicWorkInstruction = buildPublicWorkProtocolInstruction(
+    input.items,
+    publicWorkGate.reportProgressAvailable,
+  )
+  const effectiveAllowTools = input.allowTools && (
+    publicWorkGate.tools.length > 0 || publicWorkGate.providerWebEnabled
+  )
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
@@ -100,12 +115,13 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       stableProductInstruction,
       AGENT_CONTROLLER_INSTRUCTION,
       runtimeObservation,
+      publicWorkInstruction,
     ].filter(Boolean).join('\n\n'),
     items: input.items,
-    tools: input.tools,
-    allowTools: input.allowTools,
+    tools: effectiveAllowTools ? publicWorkGate.tools : [],
+    allowTools: effectiveAllowTools,
     terminalSynthesis,
-    allowProviderWeb: input.allowProviderWeb,
+    allowProviderWeb: publicWorkGate.providerWebEnabled,
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,
     onText: input.onText,
@@ -113,5 +129,15 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     signal: input.signal,
   }
 
-  return await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
+  const response = await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
+  return {
+    ...response,
+    usage: mergeUsage(response.usage, {
+      public_work_protocol_enabled: publicWorkGate.reportProgressAvailable ? 1 : 0,
+      public_work_started: hasCompletedPublicWorkStart(input.items) ? 1 : 0,
+      public_work_gate_pending: publicWorkGate.reportProgressAvailable && !publicWorkGate.started ? 1 : 0,
+      public_work_visible_tools: publicWorkGate.tools.length,
+      public_work_provider_web_enabled: publicWorkGate.providerWebEnabled ? 1 : 0,
+    }),
+  }
 }

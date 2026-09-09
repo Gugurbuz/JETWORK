@@ -36,9 +36,10 @@ describe('Gemini provider-agnostic controller routing', () => {
     expect(providerSource).not.toContain('budgetFilteredTools');
   });
 
-  it('keeps visible capabilities as controller options rather than deterministic routes', () => {
-    expect(providerSource).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools');
-    expect(providerSource).toContain('tools: effectiveAllowTools ? input.tools : []');
+  it('keeps visible capabilities as controller options while enforcing only the public-work lifecycle boundary', () => {
+    expect(providerSource).toContain('const providerWebRequested = input.allowProviderWeb ?? input.allowTools');
+    expect(providerSource).toContain('gateGeminiAgentToolsForPublicWork');
+    expect(providerSource).toContain('tools: effectiveAllowTools ? publicWorkGate.tools : []');
     expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION');
     expect(controllerSource).toContain('capability ve tool yüzeyi seçeneklerdir')
     expect(controllerSource).toContain('hangi kaynağın kullanılacağına')
@@ -61,6 +62,7 @@ describe('Gemini provider-agnostic controller routing', () => {
 
   it('does not suppress web merely because one exact internal lookup missed', () => {
     expect(providerSource).not.toContain('cost_guard_provider_web_suppressed_after_exact_miss');
+    expect(providerSource).toContain('agent_controller_provider_web_requested');
     expect(providerSource).toContain('agent_controller_provider_web_available');
   });
 });

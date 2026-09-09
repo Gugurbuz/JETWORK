@@ -28,6 +28,11 @@ import { composeAssistantPrompt } from './assistantPromptProfiles.ts'
 import { baAnalysisInstructionForPlan } from './baAnalysisContract.ts'
 import { sanitizeNovelCustomIdentifierClaims } from './providerAnswerabilityGuard.ts'
 import { AGENT_CONTROLLER_INSTRUCTION } from './agentControllerPolicy.ts'
+import {
+  buildPublicWorkProtocolInstruction,
+  gateGeminiAgentToolsForPublicWork,
+  hasCompletedPublicWorkStart,
+} from './agent/publicWorkProtocol.ts'
 
 export const DEFAULT_GEMINI_MODEL = LEGACY_DEFAULT_GEMINI_MODEL
 export const GEMINI_MODELS = new Set([
@@ -295,9 +300,15 @@ export const isTrivialConversationalTurn = (items: Array<Record<string, unknown>
 
 const primaryAgentInstruction = AGENT_CONTROLLER_INSTRUCTION
 
+const publicWorkProtocolEnabledForPlan = (plan: ReturnType<typeof extractSemanticPlanFromItems>) => {
+  const version = String(plan?.orchestratorVersion || '')
+  return version.includes('primary-llm-agent') || version.includes('agent-controller')
+}
+
 const openAiPrimaryAgentDeveloperItem = (items: Array<Record<string, unknown>>) => {
   const plan = extractSemanticPlanFromItems(items)
   const resolvedConversationInstruction = buildResolvedConversationInstruction(resolvedContextSeedForPlan(plan))
+  const publicWorkInstruction = buildPublicWorkProtocolInstruction(items, publicWorkProtocolEnabledForPlan(plan))
   return {
     type: 'message',
     role: 'developer',
@@ -305,6 +316,7 @@ const openAiPrimaryAgentDeveloperItem = (items: Array<Record<string, unknown>>) 
       primaryAgentInstruction,
       baAnalysisInstructionForPlan(plan),
       resolvedConversationInstruction,
+      publicWorkInstruction,
       'Semantic plan alanları advisory contexttir. Uygun tool/capability seçimini aktif controller modeli yapar; intent veya önceden hesaplanmış route bir capabilityyi semantik olarak yasaklamaz.',
     ].filter(Boolean).join('\n\n'),
   }
@@ -332,17 +344,23 @@ export async function requestGeminiResponse(input: {
   const resolvedConversationInstruction = buildResolvedConversationInstruction(contextSeed)
   const compactedProviderItems = compactResolvedConversationItems(sanitizeItems(input.items), contextSeed)
 
-  // Tool availability is intentionally broad. The active LLM decides whether
-  // knowledge, skills or provider-native web are useful on each round.
-  const providerWebEnabled = input.allowProviderWeb ?? input.allowTools
-  const effectiveAllowTools = input.allowTools && (input.tools.length > 0 || providerWebEnabled)
+  // The runtime does not decide which substantive capability to use. It only
+  // enforces the lifecycle boundary: if the controller chooses tool-backed work,
+  // the first tool round can publish its own plan but cannot execute substantive
+  // work before that public start has completed.
+  const providerWebRequested = input.allowProviderWeb ?? input.allowTools
+  const publicWorkGate = gateGeminiAgentToolsForPublicWork(input.items, input.tools, providerWebRequested)
+  const providerWebEnabled = publicWorkGate.providerWebEnabled
+  const effectiveAllowTools = input.allowTools && (publicWorkGate.tools.length > 0 || providerWebEnabled)
   const stableProviderInstructions = sanitizeProviderInstructions(input.stableInstructions || '')
   const providerInstructions = composeAssistantPrompt(sanitizeProviderInstructions(input.instructions), plan)
+  const publicWorkInstruction = buildPublicWorkProtocolInstruction(input.items, publicWorkGate.reportProgressAvailable)
   const geminiStableInstructions = [stableProviderInstructions, primaryAgentInstruction].filter(Boolean).join('\n\n')
   const geminiInstructions = [
     providerInstructions,
     baAnalysisInstruction,
     resolvedConversationInstruction,
+    publicWorkInstruction,
     effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER : '',
   ].filter(Boolean).join('\n\n')
 
@@ -357,7 +375,7 @@ export async function requestGeminiResponse(input: {
     items: effectiveAllowTools
       ? compactGeminiAgentItems(compactedProviderItems)
       : compactedProviderItems,
-    tools: effectiveAllowTools ? input.tools : [],
+    tools: effectiveAllowTools ? publicWorkGate.tools : [],
     allowTools: effectiveAllowTools,
     onText: delta => {
       if (bufferForAnswerability) firstProviderText += delta
@@ -378,6 +396,11 @@ export async function requestGeminiResponse(input: {
     agent_controller_context_items_before: input.items.length,
     agent_controller_context_items_after: compactedProviderItems.length,
     agent_controller_knowledge_tool_calls_seen: executedKnowledgeCalls,
+    public_work_protocol_enabled: publicWorkGate.reportProgressAvailable ? 1 : 0,
+    public_work_started: hasCompletedPublicWorkStart(input.items) ? 1 : 0,
+    public_work_gate_pending: publicWorkGate.reportProgressAvailable && !publicWorkGate.started ? 1 : 0,
+    public_work_visible_tools: publicWorkGate.tools.length,
+    ...(providerWebRequested ? { agent_controller_provider_web_requested: 1 } : {}),
     ...(providerWebEnabled ? { agent_controller_provider_web_available: 1 } : {}),
     ...(answerability.text !== firstProviderText ? {
       grounding_preflight_custom_identifier_segments_removed: answerability.removedSegments,

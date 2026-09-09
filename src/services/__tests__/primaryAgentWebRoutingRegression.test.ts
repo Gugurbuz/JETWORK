@@ -53,13 +53,15 @@ describe('primary agent web routing regression', () => {
     expect(result.plan.webMode).toBe('none')
   })
 
-  it('leaves Gemini provider-native web available when the runtime candidate surface enables it', () => {
+  it('keeps Gemini provider-native web semantically available while mechanically gating execution until public work starts', () => {
     const source = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProvidersBase.ts', import.meta.url),
       'utf8',
     )
 
-    expect(source).toContain('const providerWebEnabled = input.allowProviderWeb ?? input.allowTools')
+    expect(source).toContain('const providerWebRequested = input.allowProviderWeb ?? input.allowTools')
+    expect(source).toContain('const providerWebEnabled = publicWorkGate.providerWebEnabled')
+    expect(source).toContain('gateGeminiAgentToolsForPublicWork')
     expect(source).toContain('effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER')
     expect(source).not.toContain('runDeterministicGeminiWebResearch')
     expect(source).not.toContain('deterministic_web_search_count')

@@ -34,6 +34,7 @@ describe('Live runtime status and grounding regression', () => {
       model: 'gemini-3.1-pro-preview',
       message: suppliedRequirementText,
       conversation: [],
+      agentControllerV2Enabled: false,
     });
 
     expect(result.plan.intent).toBe('analysis');
@@ -85,7 +86,7 @@ describe('Live runtime status and grounding regression', () => {
       .toBe('Asistana bağlanılıyor...');
   });
 
-  it('uses stable Gemini Interactions v1 as the V3 semantic-controller provider path', () => {
+  it('uses stable Gemini Interactions v1 as the V4 semantic-controller provider path with a public-work lifecycle gate', () => {
     const providerSource = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
       'utf8',
@@ -105,6 +106,8 @@ describe('Live runtime status and grounding regression', () => {
 
     expect(providerSource).toContain('requestGeminiInteractionsResponseGA')
     expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION')
+    expect(providerSource).toContain('gateGeminiAgentToolsForPublicWork')
+    expect(providerSource).toContain('publicWorkInstruction')
     expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
     expect(providerSource).not.toContain('extractSemanticPlanFromItems')
     expect(transportSource).toContain("GEMINI_INTERACTIONS_API_VERSION = 'v1'")
@@ -116,9 +119,10 @@ describe('Live runtime status and grounding regression', () => {
     expect(controllerPolicy).toContain('semantic controller ve assistant modelisin')
     expect(controllerPolicy).toContain('Her tool observationından sonra')
     expect(controllerPolicy).toContain('çalışma planı kur')
+    expect(controllerPolicy).toContain('aktif sistem talimatları, çalışma/kurum bağlamı')
   });
 
-  it('uses a full model-visible capability surface while making retrieval semantics explicit', () => {
+  it('uses a full semantic capability surface after the public-work lifecycle gate', () => {
     const runtimeSource = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
@@ -133,10 +137,11 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
     expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
-    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v3-adaptive-work-v1'")
+    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v4-public-work-plan'")
     expect(surfaceSource).toContain('...runtimeTools')
     expect(surfaceSource).toContain('providerWebVisible: true')
     expect(surfaceSource).toContain('nextCursor only means more records exist')
+    expect(surfaceSource).toContain('lifecycle/control capability')
     expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
