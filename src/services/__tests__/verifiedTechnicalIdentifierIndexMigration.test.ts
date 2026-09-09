@@ -22,6 +22,7 @@ describe('Jetbase verified technical identifier index v1', () => {
     expect(migration).toContain('security definer')
     expect(migration).toContain('revoke all on function public.with_verified_technical_identifier_index_v1')
     expect(migration).toContain('grant execute on function public.get_knowledge_object_v2')
-    expect(migration).not.toMatch(/semantic\s+(router|routing|planner)/i)
+    expect(migration).not.toMatch(/create\s+(?:or\s+replace\s+)?function\s+public\.(?:semantic_)?(?:router|planner)/i)
+    expect(migration).not.toContain('controller_decision')
   })
 })
