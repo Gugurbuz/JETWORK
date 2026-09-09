@@ -23,7 +23,7 @@ const grammarHazards = (value: unknown, path = '$'): string[] => {
   ) {
     hazards.push(`${path}: empty object properties`)
   }
-  if (typeof value.maxLength === 'number' && value.maxLength > 2_000) {
+  if (typeof value.maxLength === 'number' && value.maxLength >= 2_000) {
     hazards.push(`${path}: maxLength ${value.maxLength}`)
   }
 
@@ -45,19 +45,22 @@ describe('Ollama tool schema compatibility', () => {
     expect(normalized).toEqual({ type: 'object' })
   })
 
-  it('drops only oversized grammar-level maxLength constraints', () => {
+  it('drops grammar-unsafe maxLength constraints at or above the llama.cpp repetition threshold', () => {
     const normalized = normalizeOllamaToolParameters({
       type: 'object',
       properties: {
         compact: { type: 'string', maxLength: 500 },
+        boundary: { type: 'string', minLength: 1, maxLength: 2_000 },
         large: { type: 'string', minLength: 1, maxLength: 24_000 },
       },
-      required: ['compact', 'large'],
+      required: ['compact', 'boundary', 'large'],
       additionalProperties: false,
     })
 
     const properties = normalized.properties as Record<string, Record<string, unknown>>
     expect(properties.compact.maxLength).toBe(500)
+    expect(properties.boundary.minLength).toBe(1)
+    expect(properties.boundary).not.toHaveProperty('maxLength')
     expect(properties.large.minLength).toBe(1)
     expect(properties.large).not.toHaveProperty('maxLength')
   })
