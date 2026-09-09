@@ -703,6 +703,7 @@ serve(async req => {
       const semanticArtifactRequired = () => planForArtifactCompletion?.executionMode === 'artifact'
       let planForArtifactCompletion: ReasoningPlan | null = null
       let turnCompleted = false
+      let groundingRepairAttempted = false
       const runController = new AbortController()
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
       const streamHeartbeat = setInterval(() => {
@@ -1075,8 +1076,9 @@ serve(async req => {
           emitStatus('synthesizing', 'Kanıtlar ve doğrulama sonucu sentezleniyor...')
         }
 
-        for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
-          const mustSynthesize = round === MAX_TOOL_ROUNDS
+        let maxControllerRound = MAX_TOOL_ROUNDS
+        for (let round = 0; round <= maxControllerRound; round += 1) {
+          const mustSynthesize = round === maxControllerRound
           const deterministicEnumeration = AGENTIC_CONTROLLER_ENABLED
             ? null
             : buildDeterministicEnumerationFinalization(runItems, {
@@ -1289,6 +1291,46 @@ serve(async req => {
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
             const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })
             const groundingBlocked = shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })
+            const mayRequestGroundingRepair = AGENTIC_CONTROLLER_ENABLED
+              && groundingBlocked
+              && !groundingRepairAttempted
+              && !roundTextStreamed
+              && totalToolCalls < MAX_TOOL_CALLS
+            if (mayRequestGroundingRepair) {
+              groundingRepairAttempted = true
+              // Reserve at most one tool-capable repair round plus one terminal synthesis round.
+              // The runtime supplies validation feedback only; semantic next-action choice stays with Controller.
+              maxControllerRound = Math.min(MAX_TOOL_ROUNDS + 2, Math.max(maxControllerRound, round + 2))
+              const verifiedSourceCanonicals = sources
+                .filter(source => source.sourceType !== 'web' && source.canonicalKey)
+                .map(source => String(source.canonicalKey))
+                .slice(0, 24)
+              if (activeProvider === 'gemini' && latestGeminiInteractionId) {
+                runItems.push(createGeminiProviderStateItem(latestGeminiInteractionId))
+              }
+              runItems.push({
+                role: 'developer',
+                content: [
+                  '[GROUNDING_REPAIR_OBSERVATION]',
+                  'Bir önceki aday yanıt final olarak reddedildi. Bu observation semantic plan değildir ve sıradaki aracı seçmez.',
+                  `unsupportedIdentifiers=${JSON.stringify(groundingCoverage.unsupportedIdentifiers)}`,
+                  `messageTextMismatches=${JSON.stringify(groundingCoverage.messageTextMismatches)}`,
+                  `unsupportedClaims=${JSON.stringify(groundingCoverage.unsupportedClaims || [])}`,
+                  `verifiedSourceCanonicals=${JSON.stringify(verifiedSourceCanonicals)}`,
+                  'Mevcut current-turn function_call_output observationlarını yeniden değerlendir. Kanıt soruyu cevaplıyorsa yalnız doğrulanmış sonucu sentezle; doğrulanmamış identifier veya davranış ekleme.',
+                  'Kullanıcı exact implementasyon istiyorsa ve doğrulanan nesne yalnız structural endpoint/call relation ise tam gövde varmış gibi yazma; nesne adını koruyarak tam implementasyon kaynağının bulunmadığını açıkça söyle.',
+                  'Kullanıcı exact mesaj/ABAP satırı istiyorsa ve exact mesaj kaydı doğrulanmışsa, gerekiyorsa literal satırı doğrulamak için görünür knowledge capabilitylerinden hangisinin uygun olduğuna sen karar ver.',
+                  'Sıradaki capability/tool çağrısı, sorgu, ek araştırma veya final cevap kararı yalnız Controller LLM olarak sana aittir.',
+                ].join('\n'),
+              })
+              usage = addUsage(usage, {
+                grounding_repair_requested: 1,
+                grounding_repair_unsupported_identifiers: groundingCoverage.unsupportedIdentifiers.length,
+                grounding_repair_unsupported_claims: groundingCoverage.unsupportedClaims?.length || 0,
+              })
+              emitStatus('verifying', 'Grounding kontrolü aynı Controller’a düzeltme observationı olarak geri verildi')
+              continue
+            }
             if (groundingBlocked) {
               console.warn('ASSISTANT_GROUNDING_COVERAGE_BLOCKED', JSON.stringify({
                 messageId, unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
