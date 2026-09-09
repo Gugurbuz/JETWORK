@@ -102,6 +102,10 @@ function evaluateAssertion(assertion: QualityAssertion, step: AssistantStepResul
         actual = step.responseText;
         passed = !lower(step.responseText).includes(lower(expectedText));
         break;
+      case 'response_nonempty':
+        actual = step.responseText.length;
+        passed = step.responseText.trim().length > 0;
+        break;
       case 'regex':
         actual = step.responseText;
         passed = new RegExp(expectedText, 'iu').test(step.responseText);
@@ -205,6 +209,75 @@ async function loadScenarios(service: any, input: { suiteId?: string; suiteSlug?
   };
 }
 
+async function closeStaleRuns(service: any, requestedBy: string) {
+  const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const { data: staleRuns, error } = await service
+    .from('ai_quality_runs')
+    .select('id,metadata')
+    .eq('requested_by', requestedBy)
+    .eq('status', 'running')
+    .lt('started_at', cutoff);
+  if (error) throw error;
+  for (const stale of staleRuns || []) {
+    await service.from('ai_quality_run_cases').update({
+      status: 'error',
+      failure_summary: 'Runner 15 dakika içinde tamamlanamadı.',
+      completed_at: new Date().toISOString(),
+    }).eq('run_id', stale.id).eq('status', 'running');
+    await service.from('ai_quality_runs').update({
+      status: 'failed',
+      completed_at: new Date().toISOString(),
+      metadata: { ...(stale.metadata || {}), failureReason: 'stale_runner_timeout' },
+    }).eq('id', stale.id);
+  }
+}
+
+async function aggregateRun(service: any, runId: string) {
+  const { data: run, error: runError } = await service.from('ai_quality_runs').select('*').eq('id', runId).single();
+  if (runError) throw runError;
+  const { data: cases, error: caseError } = await service
+    .from('ai_quality_run_cases')
+    .select('*,ai_quality_scenarios(name,slug,severity)')
+    .eq('run_id', runId)
+    .order('started_at');
+  if (caseError) throw caseError;
+
+  const rows = cases || [];
+  const terminal = rows.filter((item: any) => item.status !== 'running');
+  const passedCases = terminal.filter((item: any) => item.status === 'passed').length;
+  const failedCases = terminal.filter((item: any) => item.status !== 'passed').length;
+  const finished = terminal.length >= Number(run.total_cases || 0);
+  const status = finished ? (failedCases > 0 ? 'failed' : 'completed') : 'running';
+  const totalDuration = terminal.reduce((sum: number, item: any) => sum + numberValue(item.duration_ms), 0);
+  const { data: finalRun, error: updateError } = await service.from('ai_quality_runs').update({
+    status,
+    passed_cases: passedCases,
+    failed_cases: failedCases,
+    total_cost_usd: terminal.reduce((sum: number, item: any) => sum + numberValue(item.cost_usd), 0),
+    avg_duration_ms: terminal.length ? Math.round(totalDuration / terminal.length) : 0,
+    completed_at: finished ? new Date().toISOString() : null,
+  }).eq('id', runId).select('*').single();
+  if (updateError) throw updateError;
+
+  return {
+    run: finalRun,
+    cases: rows.map((item: any) => ({
+      id: item.id,
+      scenarioId: item.scenario_id,
+      scenario: item.ai_quality_scenarios?.name,
+      severity: item.ai_quality_scenarios?.severity,
+      status: item.status,
+      score: Number(item.score || 0),
+      durationMs: Number(item.duration_ms || 0),
+      costUsd: Number(item.cost_usd || 0),
+      providerCalls: Number(item.provider_calls || 0),
+      toolCalls: Number(item.tool_calls || 0),
+      failureSummary: item.failure_summary,
+      workspaceId: item.workspace_id,
+    })),
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'Only POST is supported.' }, 405);
@@ -225,31 +298,70 @@ Deno.serve(async (req: Request) => {
   const endpoint = clean(body?.endpoint || 'openai-assistant-v2', 100);
   if (!/^openai-assistant(?:-v2)?$/u.test(endpoint)) return json({ error: 'Unsupported assistant endpoint.' }, 400);
   const trigger = ['ui','ci','schedule','manual','assistant'].includes(body?.trigger) ? body.trigger : 'ui';
+  const operation = ['prepare','execute','fail'].includes(body?.operation) ? body.operation : 'legacy';
 
   try {
+    if (operation === 'fail') {
+      const runId = clean(body?.runId, 100);
+      if (!runId) return json({ error: 'runId is required.' }, 400);
+      const { data: ownedRun, error: ownedRunError } = await service.from('ai_quality_runs')
+        .select('id,metadata').eq('id', runId).eq('requested_by', authData.user.id).maybeSingle();
+      if (ownedRunError) throw ownedRunError;
+      if (!ownedRun) return json({ error: 'Quality run bulunamadı.' }, 404);
+      const failureReason = clean(body?.error, 2_000) || 'Quality runner istemci tarafında kesildi.';
+      await service.from('ai_quality_run_cases').update({ status: 'error', failure_summary: failureReason, completed_at: new Date().toISOString() })
+        .eq('run_id', runId).eq('status', 'running');
+      const { data: failedRun, error: failError } = await service.from('ai_quality_runs').update({
+        status: 'failed',
+        completed_at: new Date().toISOString(),
+        metadata: { ...(ownedRun.metadata || {}), failureReason },
+      }).eq('id', runId).select('*').single();
+      if (failError) throw failError;
+      return json({ run: failedRun });
+    }
+
+    const requestedScenarioIds = operation === 'execute'
+      ? [clean(body?.scenarioId, 100)].filter(Boolean)
+      : (Array.isArray(body?.scenarioIds) ? body.scenarioIds.map((id: unknown) => clean(id, 100)) : undefined);
     const loaded = await loadScenarios(service, {
       suiteId: clean(body?.suiteId, 100) || undefined,
       suiteSlug: clean(body?.suiteSlug, 100) || undefined,
-      scenarioIds: Array.isArray(body?.scenarioIds) ? body.scenarioIds.map((id: unknown) => clean(id, 100)) : undefined,
+      scenarioIds: requestedScenarioIds,
     });
 
-    const { data: run, error: runError } = await service.from('ai_quality_runs').insert({
-      suite_id: loaded.suite?.id || null,
-      requested_by: authData.user.id,
-      trigger,
-      endpoint,
-      status: 'running',
-      total_cases: loaded.scenarios.length,
-      started_at: new Date().toISOString(),
-      metadata: { suiteSlug: loaded.suite?.slug || null },
-    }).select('*').single();
-    if (runError) throw runError;
-
-    let passedCases = 0;
-    let failedCases = 0;
-    let totalCost = 0;
-    let totalDuration = 0;
-    const caseResults: any[] = [];
+    let run: any;
+    if (operation === 'execute') {
+      const runId = clean(body?.runId, 100);
+      if (!runId) return json({ error: 'runId is required.' }, 400);
+      const { data, error } = await service.from('ai_quality_runs').select('*')
+        .eq('id', runId).eq('requested_by', authData.user.id).eq('status', 'running').maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: 'Çalışan quality run bulunamadı.' }, 404);
+      const allowed = Array.isArray(data.metadata?.scenarioIds) ? data.metadata.scenarioIds : [];
+      if (allowed.length && !allowed.includes(loaded.scenarios[0]?.id)) return json({ error: 'Senaryo bu run kapsamına ait değil.' }, 400);
+      const { data: existingCase, error: existingCaseError } = await service.from('ai_quality_run_cases')
+        .select('id,status').eq('run_id', runId).eq('scenario_id', loaded.scenarios[0].id).order('started_at', { ascending: false }).limit(1).maybeSingle();
+      if (existingCaseError) throw existingCaseError;
+      if (existingCase && existingCase.status !== 'running') return json(await aggregateRun(service, runId));
+      if (existingCase) return json({ error: 'Senaryo zaten çalışıyor.', runId, scenarioId: loaded.scenarios[0].id }, 409);
+      run = data;
+    } else {
+      await closeStaleRuns(service, authData.user.id);
+      const scenarioIds = loaded.scenarios.map(scenario => scenario.id);
+      const { data, error } = await service.from('ai_quality_runs').insert({
+        suite_id: loaded.suite?.id || null,
+        requested_by: authData.user.id,
+        trigger,
+        endpoint,
+        status: 'running',
+        total_cases: scenarioIds.length,
+        started_at: new Date().toISOString(),
+        metadata: { suiteSlug: loaded.suite?.slug || null, scenarioIds, orchestration: operation === 'prepare' ? 'case-by-case-v1' : 'legacy' },
+      }).select('*').single();
+      if (error) throw error;
+      run = data;
+      if (operation === 'prepare') return json({ run, scenarioIds, suite: loaded.suite });
+    }
 
     for (const scenario of loaded.scenarios) {
       const workspaceId = crypto.randomUUID();
@@ -423,39 +535,19 @@ Deno.serve(async (req: Request) => {
         last_updated: new Date().toISOString(),
       }).eq('id', workspaceId);
 
-      if (passed) passedCases += 1; else failedCases += 1;
-      totalCost += caseCost;
-      totalDuration += caseDuration;
-      caseResults.push({
-        id: runCase.id,
-        scenarioId: scenario.id,
-        scenario: scenario.name,
-        severity: scenario.severity,
-        status: passed ? 'passed' : (caseError ? 'error' : 'failed'),
-        score,
-        durationMs: caseDuration,
-        costUsd: caseCost,
-        providerCalls,
-        toolCalls,
-        failureSummary,
-        workspaceId,
-      });
     }
 
-    const finalStatus = failedCases > 0 ? 'failed' : 'completed';
-    const { data: finalRun, error: finalRunError } = await service.from('ai_quality_runs').update({
-      status: finalStatus,
-      passed_cases: passedCases,
-      failed_cases: failedCases,
-      total_cost_usd: totalCost,
-      avg_duration_ms: loaded.scenarios.length ? Math.round(totalDuration / loaded.scenarios.length) : 0,
-      completed_at: new Date().toISOString(),
-    }).eq('id', run.id).select('*').single();
-    if (finalRunError) throw finalRunError;
-
-    return json({ run: finalRun, cases: caseResults, suite: loaded.suite });
+    return json({ ...(await aggregateRun(service, run.id)), suite: loaded.suite });
   } catch (error) {
     console.error('AI quality runner failed:', error);
+    const runId = clean(body?.runId, 100);
+    if (operation === 'execute' && runId) {
+      const message = error instanceof Error ? error.message : 'Quality run failed.';
+      await service.from('ai_quality_run_cases').update({ status: 'error', failure_summary: message, completed_at: new Date().toISOString() })
+        .eq('run_id', runId).eq('status', 'running');
+      await service.from('ai_quality_runs').update({ status: 'failed', completed_at: new Date().toISOString() })
+        .eq('id', runId).eq('requested_by', authData.user.id);
+    }
     return json({ error: error instanceof Error ? error.message : 'Quality run failed.' }, 500);
   }
 });

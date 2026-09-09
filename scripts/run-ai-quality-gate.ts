@@ -6,13 +6,6 @@ const loginInput = process.env.E2E_USERNAME;
 const password = process.env.E2E_PASSWORD;
 const suiteSlug = process.env.AI_QUALITY_SUITE || 'smoke';
 const endpoint = process.env.AI_QUALITY_ENDPOINT || 'openai-assistant-v2';
-// Production rate limits are part of the product contract and must not be
-// relaxed for CI. Run serially by default so independent scenarios do not
-// manufacture false HTTP 429 failures against the shared E2E identity.
-const requestedConcurrency = Number(process.env.AI_QUALITY_CONCURRENCY || 1);
-const concurrency = Number.isFinite(requestedConcurrency)
-  ? Math.max(1, Math.min(Math.trunc(requestedConcurrency), 4))
-  : 1;
 
 if (!url || !anonKey || !loginInput || !password) {
   console.error('Quality gate requires Supabase URL/key and E2E_USERNAME/E2E_PASSWORD.');
@@ -37,42 +30,8 @@ if (authError || !auth.session) {
   process.exit(2);
 }
 
-const { data: suite, error: suiteError } = await supabase
-  .from('ai_quality_suites')
-  .select('id,slug,name')
-  .eq('slug', suiteSlug)
-  .eq('enabled', true)
-  .maybeSingle();
-if (suiteError || !suite) {
-  console.error('Quality gate suite lookup failed:', suiteError?.message || suiteSlug);
-  process.exit(2);
-}
-
-const { data: suiteCases, error: suiteCasesError } = await supabase
-  .from('ai_quality_suite_cases')
-  .select('scenario_id,position')
-  .eq('suite_id', suite.id)
-  .eq('enabled', true)
-  .order('position');
-if (suiteCasesError) {
-  console.error('Quality gate suite cases lookup failed:', suiteCasesError.message);
-  process.exit(2);
-}
-
-const scenarioIds = [...new Set((suiteCases || []).map(item => String(item.scenario_id)).filter(Boolean))];
-if (!scenarioIds.length) {
-  console.error(`Quality gate suite ${suiteSlug} has no enabled scenarios.`);
-  process.exit(2);
-}
-
 const startedAt = Date.now();
-const trigger = process.env.GITHUB_ACTIONS ? 'ci' : 'manual';
-const runIds: string[] = [];
-const cases: any[] = new Array(scenarioIds.length);
-const infraErrors: Array<{ scenarioId: string; error: string }> = [];
-let nextIndex = 0;
-
-const runScenario = async (scenarioId: string, index: number) => {
+const invokeRunner = async (body: Record<string, unknown>) => {
   const response = await fetch(`${url}/functions/v1/ai-quality-runner`, {
     method: 'POST',
     headers: {
@@ -81,70 +40,51 @@ const runScenario = async (scenarioId: string, index: number) => {
       'Content-Type': 'application/json',
       'x-client-info': 'jetwork-ai-quality-ci/2.0',
     },
-    body: JSON.stringify({ scenarioIds: [scenarioId], endpoint, trigger }),
+    body: JSON.stringify(body),
   });
-  const payload = await response.json().catch(() => ({}));
+  const raw = await response.text();
+  let payload: any = {};
+  try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
   if (!response.ok || payload?.error) {
-    throw new Error(payload?.error || `HTTP ${response.status}`);
+    throw new Error(`HTTP ${response.status}${payload?.error ? ` · ${payload.error}` : raw ? ` · ${raw.slice(0, 500)}` : ''}`);
   }
-  if (payload?.run?.id) runIds.push(String(payload.run.id));
-  const item = Array.isArray(payload?.cases) ? payload.cases[0] : null;
-  if (!item) throw new Error('Runner returned no case result.');
-  cases[index] = item;
+  return payload;
 };
 
-const worker = async () => {
-  while (true) {
-    const index = nextIndex;
-    nextIndex += 1;
-    if (index >= scenarioIds.length) return;
-    const scenarioId = scenarioIds[index];
-    try {
-      await runScenario(scenarioId, index);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      infraErrors.push({ scenarioId, error: message });
-      cases[index] = {
-        scenarioId,
-        scenario: scenarioId,
-        severity: 'P0',
-        status: 'error',
-        score: 0,
-        costUsd: 0,
-        durationMs: 0,
-        providerCalls: 0,
-        toolCalls: 0,
-        failureSummary: `runner: ${message}`,
-      };
-    }
+const common = { endpoint, trigger: process.env.GITHUB_ACTIONS ? 'ci' : 'manual' };
+const prepared = await invokeRunner({ ...common, operation: 'prepare', suiteSlug });
+const runId = String(prepared?.run?.id || '');
+const scenarioIds = Array.isArray(prepared?.scenarioIds) ? prepared.scenarioIds.map(String) : [];
+if (!runId || !scenarioIds.length) throw new Error('Quality gate runner did not return a run and scenarios.');
+
+let payload = prepared;
+try {
+  for (let index = 0; index < scenarioIds.length; index += 1) {
+    console.log(`Quality gate case ${index + 1}/${scenarioIds.length}: ${scenarioIds[index]}`);
+    payload = await invokeRunner({ ...common, operation: 'execute', runId, scenarioId: scenarioIds[index] });
   }
-};
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  await invokeRunner({ ...common, operation: 'fail', runId, error: message }).catch(() => undefined);
+  console.error('Quality gate runner failed:', message);
+  process.exit(2);
+}
 
-await Promise.all(Array.from({ length: Math.min(concurrency, scenarioIds.length) }, () => worker()));
-
-const completedCases = cases.filter(Boolean);
-const passedCases = completedCases.filter(item => item.status === 'passed').length;
-const failedCases = completedCases.length - passedCases;
-const totalCostUsd = completedCases.reduce((sum, item) => sum + Number(item.costUsd || 0), 0);
-const avgDurationMs = completedCases.length
-  ? Math.round(completedCases.reduce((sum, item) => sum + Number(item.durationMs || 0), 0) / completedCases.length)
-  : 0;
+const run = payload.run || {};
+const cases = Array.isArray(payload.cases) ? payload.cases : [];
 const summary = {
   suite: suiteSlug,
-  runIds,
-  status: failedCases > 0 || infraErrors.length > 0 ? 'failed' : 'completed',
-  totalCases: scenarioIds.length,
-  passedCases,
-  failedCases,
-  passRate: scenarioIds.length ? Math.round((passedCases / scenarioIds.length) * 1000) / 10 : 0,
-  totalCostUsd,
-  avgDurationMs,
+  runId: run.id,
+  status: run.status,
+  totalCases: run.total_cases,
+  passedCases: run.passed_cases,
+  failedCases: run.failed_cases,
+  passRate: Number(run.total_cases || 0) ? Math.round((Number(run.passed_cases || 0) / Number(run.total_cases)) * 1000) / 10 : 0,
+  totalCostUsd: Number(run.total_cost_usd || 0),
+  avgDurationMs: Number(run.avg_duration_ms || 0),
   wallDurationMs: Date.now() - startedAt,
-  concurrency,
-  infraErrors,
-  cases: completedCases.map((item: any) => ({
+  cases: cases.map((item: any) => ({
     scenario: item.scenario,
-    scenarioId: item.scenarioId,
     severity: item.severity,
     status: item.status,
     score: item.score,
@@ -158,10 +98,10 @@ const summary = {
 
 console.log(JSON.stringify(summary, null, 2));
 
-const criticalFailures = completedCases.filter((item: any) => ['P0', 'P1'].includes(item.severity) && item.status !== 'passed');
-if (infraErrors.length > 0 || failedCases > 0 || criticalFailures.length > 0) {
-  console.error(`Quality gate FAIL: ${failedCases}/${scenarioIds.length} failed; ${infraErrors.length} infrastructure errors.`);
+const criticalFailures = cases.filter((item: any) => ['P0', 'P1'].includes(item.severity) && item.status !== 'passed');
+if (Number(run.failed_cases || 0) > 0 || criticalFailures.length > 0) {
+  console.error(`Quality gate FAIL: ${run.failed_cases || 0}/${run.total_cases || 0} failed.`);
   process.exit(1);
 }
 
-console.log(`Quality gate PASS: ${passedCases}/${scenarioIds.length}.`);
+console.log(`Quality gate PASS: ${run.passed_cases || 0}/${run.total_cases || 0}.`);
