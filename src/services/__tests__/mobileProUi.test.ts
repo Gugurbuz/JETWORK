@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const chatPanelSource = readFileSync(new URL('../../components/ChatPanel.tsx', import.meta.url), 'utf8');
 const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
+const workIndicatorSpeedCss = readFileSync(new URL('../../assistant-work-indicator-speed.css', import.meta.url), 'utf8');
 
 describe('mobile-first pro conversation UI', () => {
   it('keeps assistant actions persistent and functional', () => {
@@ -26,5 +27,12 @@ describe('mobile-first pro conversation UI', () => {
     expect(shellCss).toContain('font-size: .9rem !important;');
     expect(shellCss).toContain('font-size: 1.015rem !important;');
     expect(shellCss).toContain('background: var(--theme-bg) !important;');
+  });
+
+  it('preserves the live Düşünüyor shimmer after conversation contrast overrides', () => {
+    expect(workIndicatorSpeedCss).toContain('.jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label');
+    expect(workIndicatorSpeedCss).toContain('color: transparent !important;');
+    expect(workIndicatorSpeedCss).toContain('-webkit-text-fill-color: transparent !important;');
+    expect(workIndicatorSpeedCss).toContain('animation: assistant-work-text-shimmer 2.4s ease-in-out infinite !important;');
   });
 });
