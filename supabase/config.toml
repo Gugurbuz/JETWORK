@@ -9,5 +9,8 @@ verify_jwt = true
 [functions.ingest-knowledge-source]
 verify_jwt = true
 
+[functions.jetbase-embedding-backfill-internal]
+verify_jwt = false
+
 [functions.openai-assistant]
 verify_jwt = true
