@@ -26,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { supabase } from '../supabase';
+import { runQualitySuite } from '../services/qualityRunnerClient';
 import { JetWorkLogo } from './JetWorkLogo';
 
 const cn = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(' ');
@@ -36,6 +37,7 @@ const dateTime = (value: unknown) => value ? new Date(String(value)).toLocaleStr
 const ASSERTION_KINDS = [
   ['contains', 'Cevap içerir'],
   ['not_contains', 'Cevap içermez'],
+  ['response_nonempty', 'Cevap boş değil'],
   ['regex', 'Regex eşleşir'],
   ['source_canonical', 'Canonical kaynak'],
   ['source_name', 'Kaynak adı'],
@@ -257,6 +259,7 @@ function ScenarioEditor({
             <div className="space-y-3">
               {draft.assertions.map((assertion, index) => {
                 const numeric = assertion.kind === 'usage_lte' || assertion.kind === 'usage_gte';
+                const noExpectedValue = assertion.kind === 'response_nonempty';
                 return (
                   <div key={index} className="grid gap-3 rounded-2xl border border-theme-border bg-theme-surface p-4 md:grid-cols-[120px_170px_1fr_36px]">
                     <select value={assertion.target_step || draft.steps.length} onChange={e => updateAssertion(index, { target_step: Number(e.target.value) })} className="rounded-xl border border-theme-border bg-theme-bg px-2 py-2 text-xs">
@@ -267,12 +270,16 @@ function ScenarioEditor({
                     </select>
                     <div className="flex gap-2">
                       {numeric && <input value={assertion.field || ''} onChange={e => updateAssertion(index, { field: e.target.value })} placeholder="usage field" className="min-w-0 flex-1 rounded-xl border border-theme-border bg-theme-bg px-2 py-2 text-xs" />}
-                      <input
-                        value={numeric ? String(assertion.expected_number ?? '') : assertion.expected_text || ''}
-                        onChange={e => numeric ? updateAssertion(index, { expected_number: e.target.value === '' ? null : Number(e.target.value) }) : updateAssertion(index, { expected_text: e.target.value })}
-                        placeholder={numeric ? 'eşik' : 'beklenen değer'}
-                        className="min-w-0 flex-[2] rounded-xl border border-theme-border bg-theme-bg px-2 py-2 text-xs"
-                      />
+                      {noExpectedValue ? (
+                        <div className="min-w-0 flex-[2] rounded-xl border border-dashed border-theme-border bg-theme-bg px-2 py-2 text-xs text-theme-text-muted">Ek değer gerekmez</div>
+                      ) : (
+                        <input
+                          value={numeric ? String(assertion.expected_number ?? '') : assertion.expected_text || ''}
+                          onChange={e => numeric ? updateAssertion(index, { expected_number: e.target.value === '' ? null : Number(e.target.value) }) : updateAssertion(index, { expected_text: e.target.value })}
+                          placeholder={numeric ? 'eşik' : 'beklenen değer'}
+                          className="min-w-0 flex-[2] rounded-xl border border-theme-border bg-theme-bg px-2 py-2 text-xs"
+                        />
+                      )}
                     </div>
                     <button onClick={() => setDraft(current => ({ ...current, assertions: current.assertions.filter((_, i) => i !== index).map((item, i) => ({ ...item, position: i + 1 })) }))} className="flex items-center justify-center text-theme-text-muted hover:text-red-500"><Trash2 size={15} /></button>
                   </div>
@@ -344,6 +351,7 @@ export function QualityLabPage() {
   const [suiteEditor, setSuiteEditor] = React.useState<SuiteEditorState | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [runningKey, setRunningKey] = React.useState<string | null>(null);
+  const [runProgress, setRunProgress] = React.useState<{ completed: number; total: number } | null>(null);
   const [selectedRun, setSelectedRun] = React.useState<any>(null);
   const [selectedRunCases, setSelectedRunCases] = React.useState<any[]>([]);
   const [selectedRunSteps, setSelectedRunSteps] = React.useState<any[]>([]);
@@ -480,18 +488,19 @@ export function QualityLabPage() {
 
   const runQuality = async (key: string, body: Record<string, unknown>) => {
     setRunningKey(key);
+    setRunProgress(null);
     setBanner(null);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-quality-runner', { body: { ...body, endpoint: 'openai-assistant-v2', trigger: 'ui' } });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      const data = await runQualitySuite(supabase, { ...body, endpoint: 'openai-assistant-v2', trigger: 'ui' }, progress => {
+        setRunProgress({ completed: progress.completed, total: progress.total });
+      });
       setBanner({ tone: data.run?.failed_cases > 0 ? 'error' : 'success', text: `${data.run?.passed_cases || 0}/${data.run?.total_cases || 0} case PASS · ${money(data.run?.total_cost_usd)}` });
       setTab('runs');
       await load();
       if (data.run?.id) await openRun(data.run);
     } catch (error) {
       setBanner({ tone: 'error', text: error instanceof Error ? error.message : 'Quality run başlatılamadı.' });
-    } finally { setRunningKey(null); }
+    } finally { setRunningKey(null); setRunProgress(null); }
   };
 
   const openRun = async (run: any) => {
@@ -591,7 +600,7 @@ export function QualityLabPage() {
                       {scenario.description && <div className="mt-1 line-clamp-1 text-xs text-theme-text-muted/80">{scenario.description}</div>}
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <button disabled={!!runningKey} onClick={() => void runQuality(`scenario:${scenario.id}`, { scenarioIds: [scenario.id] })} className="inline-flex items-center gap-1.5 rounded-xl border border-theme-border px-3 py-2 text-xs font-semibold hover:bg-theme-bg disabled:opacity-50">{runningKey === `scenario:${scenario.id}` ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} Çalıştır</button>
+                      <button disabled={!!runningKey} onClick={() => void runQuality(`scenario:${scenario.id}`, { scenarioIds: [scenario.id] })} className="inline-flex items-center gap-1.5 rounded-xl border border-theme-border px-3 py-2 text-xs font-semibold hover:bg-theme-bg disabled:opacity-50">{runningKey === `scenario:${scenario.id}` ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />} {runningKey === `scenario:${scenario.id}` && runProgress ? `${runProgress.completed}/${runProgress.total}` : 'Çalıştır'}</button>
                       <button onClick={() => setEditor(scenarioBundle(scenario))} className="rounded-xl p-2 text-theme-text-muted hover:bg-theme-bg hover:text-theme-text" title="Düzenle"><Edit3 size={15} /></button>
                       <button onClick={() => void duplicateScenario(scenario)} className="rounded-xl p-2 text-theme-text-muted hover:bg-theme-bg hover:text-theme-text" title="Kopyala"><Copy size={15} /></button>
                       <button onClick={() => void deleteScenario(scenario)} className="rounded-xl p-2 text-theme-text-muted hover:bg-red-500/10 hover:text-red-600" title="Sil"><Trash2 size={15} /></button>
@@ -614,7 +623,7 @@ export function QualityLabPage() {
                   <div key={suite.id} className="rounded-2xl border border-theme-border bg-theme-surface p-5 shadow-sm">
                     <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><Layers3 size={16} className="text-theme-primary" /><h3 className="font-semibold">{suite.name}</h3></div><p className="mt-1 text-xs text-theme-text-muted">{suite.description}</p></div><button onClick={() => setSuiteEditor({ ...suite, scenarioIds: ids })} className="rounded-xl p-2 text-theme-text-muted hover:bg-theme-bg"><Settings2 size={15} /></button></div>
                     <div className="my-4 flex flex-wrap gap-1.5">{ids.map(id => scenarios.find(item => item.id === id)).filter(Boolean).map(scenario => <span key={scenario.id} className="rounded-lg bg-theme-bg px-2 py-1 text-[11px] text-theme-text-muted">{scenario.severity} · {scenario.name}</span>)}</div>
-                    <button disabled={!!runningKey || !ids.length} onClick={() => void runQuality(`suite:${suite.slug}`, { suiteSlug: suite.slug })} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-theme-border py-2.5 text-sm font-semibold hover:bg-theme-bg disabled:opacity-50">{runningKey === `suite:${suite.slug}` ? <Loader2 size={15} className="animate-spin" /> : <Activity size={15} />} {ids.length} case çalıştır</button>
+                    <button disabled={!!runningKey || !ids.length} onClick={() => void runQuality(`suite:${suite.slug}`, { suiteSlug: suite.slug })} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-theme-border py-2.5 text-sm font-semibold hover:bg-theme-bg disabled:opacity-50">{runningKey === `suite:${suite.slug}` ? <Loader2 size={15} className="animate-spin" /> : <Activity size={15} />} {runningKey === `suite:${suite.slug}` && runProgress ? `${runProgress.completed}/${runProgress.total} case tamamlandı` : `${ids.length} case çalıştır`}</button>
                   </div>
                 );
               })}
