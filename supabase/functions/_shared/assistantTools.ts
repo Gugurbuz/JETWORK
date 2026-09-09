@@ -182,6 +182,22 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    type: 'function',
+    name: 'get_knowledge_evidence_pack',
+    description: 'Read a bounded 1-2 hop published Jetbase evidence subgraph for one canonical object. Returns relation provenance, relation-derived claims, literal-evidence verification and open review signals. This capability only reads evidence; it does not plan, route or decide the next action.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        canonicalKey: { type: 'string', minLength: 3, maxLength: 320 },
+        hops: { type: 'integer', minimum: 1, maximum: 2 },
+        limit: { type: 'integer', minimum: 1, maximum: 40 },
+      },
+      required: ['canonicalKey', 'hops', 'limit'],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
@@ -594,6 +610,60 @@ async function getRelatedObjects(
   }
 }
 
+async function getKnowledgeEvidencePack(
+  client: any,
+  workspaceId: string,
+  args: Record<string, unknown>,
+): Promise<AssistantToolExecution> {
+  const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
+  if (!canonicalKey) throw new Error('canonicalKey is required.')
+  const hops = clampLimit(args.hops, 1, 2)
+  const limit = clampLimit(args.limit, 24, 40)
+  const { data, error } = await client.rpc('get_knowledge_evidence_pack_v1', {
+    p_workspace_id: workspaceId,
+    p_canonical_key: canonicalKey,
+    p_hops: hops,
+    p_limit: limit,
+  })
+  throwIfError(error)
+
+  const pack = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+  const relations = Array.isArray(pack.relations) ? pack.relations as Array<Record<string, unknown>> : []
+  const objects = Array.isArray(pack.objects) ? pack.objects as Array<Record<string, unknown>> : []
+  const sources = uniqueSources([
+    ...relations.flatMap(relation => relation.sourceId ? [{
+      sourceId: String(relation.sourceId),
+      sourceName: String(relation.sourceName || 'Kurumsal bilgi kaynağı'),
+      canonicalKey: relation.sourceCanonicalKey ? String(relation.sourceCanonicalKey) : undefined,
+    }] : []),
+    ...objects.flatMap(object => object.sourceId ? [{
+      sourceId: String(object.sourceId),
+      sourceName: String(object.sourceName || 'Kurumsal bilgi kaynağı'),
+      canonicalKey: object.canonicalKey ? String(object.canonicalKey) : undefined,
+      objectType: object.objectType ? String(object.objectType) : undefined,
+      title: object.title ? String(object.title) : undefined,
+    }] : []),
+  ])
+  const citationReady = pack.citationReady === true && relations.length > 0
+
+  return {
+    output: citationReady
+      ? verifiedToolOutput('get_knowledge_evidence_pack', pack)
+      : untrustedToolOutput('get_knowledge_evidence_pack', pack),
+    sources: citationReady ? sources : [],
+    summary: {
+      canonicalKey,
+      hops,
+      relationCount: Number(pack.relationCount || relations.length || 0),
+      objectCount: Number(pack.objectCount || objects.length || 0),
+      claimCount: Number(pack.claimCount || 0),
+      reviewSignalCount: Number(pack.reviewSignalCount || 0),
+      citationReady,
+      graphEvidencePack: true,
+    },
+  }
+}
+
 export async function executeAssistantTool(
   client: any,
   workspaceId: string,
@@ -635,6 +705,7 @@ export async function executeAssistantTool(
   }
   if (toolName === 'get_knowledge_objects') return getExactObjects(client, workspaceId, args)
   if (toolName === 'get_related_objects') return getRelatedObjects(client, workspaceId, args)
+  if (toolName === 'get_knowledge_evidence_pack') return getKnowledgeEvidencePack(client, workspaceId, args)
   if (isContextTool(toolName)) return executeContextTool({ client, workspaceId, toolName, args })
   if (isExecutionTool(toolName)) return executeSpreadsheetAssistantTool(client, workspaceId, toolName, args)
   if (isArtifactExecutionTool(toolName)) return executeArtifactAssistantTool(client, workspaceId, toolName, args)
