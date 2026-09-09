@@ -2,6 +2,23 @@
  * the user expects JetWork's live progress feedback to animate. Keep only the
  * active progress motion aligned with the default/mobile cadence. !important is
  * intentional here because the base reduced-motion rule is bundled later. */
+
+/*
+ * Regression guard for the live "Düşünüyor" shimmer.
+ * The conversation polish layer intentionally strengthens text contrast, but a
+ * solid `color` overrides the clipped gradient and makes the shimmer appear
+ * static. Keep the glyph fill transparent only while work is active so the
+ * gradient can move through the label; completed states stay settled/readable.
+ * The extra specificity also makes this stable regardless of stylesheet order.
+ */
+.jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  animation: assistant-work-text-shimmer 2.4s ease-in-out infinite !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .assistant-work__activity--active .assistant-work__activity-icon,
   .assistant-work__live-status svg {
