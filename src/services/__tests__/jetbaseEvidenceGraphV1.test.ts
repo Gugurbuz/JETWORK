@@ -21,7 +21,7 @@ describe('Jetbase Evidence Graph v1 migration contract', () => {
     expect(migration).toContain('create table if not exists public.knowledge_claim_evidence_v1')
     expect(migration).toContain("evidence_kind in ('SUPPORTS','CONTRADICTS','MENTIONS')")
     expect(migration).toContain("verification_status in ('LITERAL','NON_LITERAL','NO_EVIDENCE')")
-    expect(migration).toContain('position(lower(trim(new.evidence)) in lower(coalesce(v_raw_text'))
+    expect(migration).toContain("position(lower(trim(new.evidence)) in lower(coalesce(v_raw_text,'')))")
     expect(migration).toContain('trg_knowledge_relation_claim_sync_v1')
   })
 
