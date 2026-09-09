@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ASSISTANT_ARTIFACT_TOOLS } from '../../../supabase/functions/_shared/artifactExecutionTools.ts'
-import { ASSISTANT_EXECUTION_TOOLS } from '../../../supabase/functions/_shared/executionTools.ts'
+import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 import {
   normalizeOllamaToolParameters,
   toOllamaTools,
@@ -63,18 +62,18 @@ describe('Ollama tool schema compatibility', () => {
     expect(properties.large).not.toHaveProperty('maxLength')
   })
 
-  it('keeps the current execution and artifact tool catalog intact and grammar-safe', () => {
-    const canonical = [
-      ...ASSISTANT_EXECUTION_TOOLS,
-      ...ASSISTANT_ARTIFACT_TOOLS,
-    ] as unknown as ReadonlyArray<Record<string, unknown>>
-
+  it('keeps the complete Controller V3 tool surface intact and grammar-safe', () => {
+    const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
     const ollamaTools = toOllamaTools(canonical)
+
+    expect(canonical.length).toBeGreaterThan(30)
     expect(ollamaTools).toHaveLength(canonical.length)
     expect(grammarHazards(ollamaTools)).toEqual([])
 
     const names = ollamaTools.map(tool => String((tool.function as Record<string, unknown>)?.name || ''))
     expect(names).toContain('list_spreadsheet_attachments')
     expect(names).toContain('list_action_attachments')
+    expect(names).toContain('search_knowledge_catalog')
+    expect(names).toContain('report_progress')
   })
 })
