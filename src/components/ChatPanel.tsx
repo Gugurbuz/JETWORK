@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, memo } from 'react';
 import * as mammoth from 'mammoth';
-import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database, CloudOff, Loader2, Download } from 'lucide-react';
+import { Send, User, Sparkles, Command, Globe, Link2, Search, Brain, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ImagePlus, X, Mic, ArrowRightToLine, SmilePlus, Lightbulb, Wand as Wand2, Plus, ArrowUp, ArrowDown, FileText, Bookmark, Eye, RotateCcw, Check, Zap, Upload, Database, CloudOff, Loader2, Download, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Message, MessageAttachment, MessageSendOptions, Question } from '../types';
 import { cn, stringToColor } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -227,6 +227,7 @@ const MessageItem = memo(({
   isLastMessage?: boolean
 }) => {
   const storeUser = useDataStore(state => state.user);
+  const [copied, setCopied] = useState(false);
 
   if (msg.senderRole === 'System') {
     return (
@@ -253,6 +254,25 @@ const MessageItem = memo(({
   const showsWorkIndicator = msg.role === 'model'
     && (Boolean(msg.isTyping) || Boolean(msg.thinkingText) || msg.thinkingTime !== undefined);
   const isWorkOnly = msg.role === 'model' && Boolean(msg.isTyping) && !msg.text;
+  const sourceCount = sourceView.groundingUrls.length + sourceView.mediaSources.length + sourceView.knowledgeSources.length;
+  const hasCurrentUserReaction = (emoji: string) => Boolean(
+    currentUser?.name
+    && msg.reactions?.some(reaction => reaction.emoji === emoji && reaction.users.includes(currentUser.name)),
+  );
+  const copyMessage = async () => {
+    if (!msg.text) return;
+    try {
+      await navigator.clipboard.writeText(msg.text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch (error) {
+      console.error('Message copy failed:', error);
+      toast.error('Yanıt kopyalanamadı.');
+    }
+  };
+  const focusSources = () => {
+    document.getElementById(`message-sources-${msg.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
   const downloadToolOutput = async (attachment: MessageAttachment) => {
     try {
       const url = attachment.url || await createAssistantFileDownloadUrl(attachment);
@@ -274,6 +294,7 @@ const MessageItem = memo(({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="flex gap-4 group"
+      data-message-id={msg.id}
     >
       <div className="shrink-0 mt-1">
         {msg.role === 'user' ? (
@@ -501,7 +522,10 @@ const MessageItem = memo(({
           )}
           
           {sourceView.groundingUrls.length > 0 && (
-            <div className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50">
+            <div
+              id={`message-sources-${msg.id}`}
+              className="mt-4 pt-3 flex flex-col gap-2 border-t border-theme-border/50"
+            >
               <div className="text-[10px] font-bold uppercase tracking-widest text-theme-text-muted flex items-center gap-1.5">
                 <Globe size={10} /> Kaynaklar
               </div>
@@ -523,7 +547,10 @@ const MessageItem = memo(({
           )}
 
           {sourceView.mediaSources.length > 0 && (
-            <details className="group mt-4 border-t border-theme-border/50 pt-3">
+            <details
+              id={sourceView.groundingUrls.length === 0 ? `message-sources-${msg.id}` : undefined}
+              className="group mt-4 border-t border-theme-border/50 pt-3"
+            >
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
                 <ImagePlus size={10} /> {sourceView.mediaSources.length} medya kaynağı incelendi
                 <ChevronDown size={12} className="ml-auto transition-transform group-open:rotate-180" />
@@ -538,7 +565,10 @@ const MessageItem = memo(({
           )}
 
           {sourceView.knowledgeSources.length > 0 && (
-            <details className="group mt-4 border-t border-theme-border/50 pt-3">
+            <details
+              id={sourceView.groundingUrls.length === 0 && sourceView.mediaSources.length === 0 ? `message-sources-${msg.id}` : undefined}
+              className="group mt-4 border-t border-theme-border/50 pt-3"
+            >
               <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-theme-text-muted transition-colors hover:text-theme-text [&::-webkit-details-marker]:hidden">
                 <Database size={10} />
                 {sourceView.knowledgeSources.length} kurumsal kaynak kullanıldı
@@ -568,20 +598,76 @@ const MessageItem = memo(({
             </details>
           )}
 
-          {msg.isError && msg.retryPayload && onRetryMessage && (
-            <button
-              type="button"
-              onClick={() => onRetryMessage(msg.retryPayload!)}
-              disabled={retryDisabled}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RotateCcw size={13} />
-              Tekrar dene
-            </button>
+          {msg.role === 'model' && !msg.isTyping && Boolean(msg.text) && (
+            <div data-testid="message-action-bar" aria-label="Yanıt işlemleri">
+              <button
+                type="button"
+                onClick={() => void copyMessage()}
+                className="inline-flex items-center gap-1.5 px-2.5 text-[13px] font-medium transition-colors"
+                aria-label="Yanıtı kopyala"
+                title="Kopyala"
+              >
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+                <span className="hidden sm:inline">{copied ? 'Kopyalandı' : 'Kopyala'}</span>
+              </button>
+              {onToggleReaction && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onToggleReaction(msg.id, '👍')}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 text-[13px] font-medium transition-colors",
+                      hasCurrentUserReaction('👍') && 'bg-theme-surface-hover text-theme-text',
+                    )}
+                    aria-label="Yanıt faydalı"
+                    title="Faydalı"
+                  >
+                    <ThumbsUp size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onToggleReaction(msg.id, '👎')}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 text-[13px] font-medium transition-colors",
+                      hasCurrentUserReaction('👎') && 'bg-theme-surface-hover text-theme-text',
+                    )}
+                    aria-label="Yanıt faydalı değil"
+                    title="Faydalı değil"
+                  >
+                    <ThumbsDown size={15} />
+                  </button>
+                </>
+              )}
+              {sourceCount > 0 && (
+                <button
+                  type="button"
+                  onClick={focusSources}
+                  className="inline-flex items-center gap-1.5 px-2.5 text-[13px] font-medium transition-colors"
+                  aria-label="Kaynaklara git"
+                  title="Kaynaklar"
+                >
+                  <Database size={15} />
+                  <span className="hidden sm:inline">Kaynaklar</span>
+                </button>
+              )}
+              {msg.isError && msg.retryPayload && onRetryMessage && (
+                <button
+                  type="button"
+                  onClick={() => onRetryMessage(msg.retryPayload!)}
+                  disabled={retryDisabled}
+                  className="inline-flex items-center gap-1.5 px-2.5 text-[13px] font-medium text-red-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Yanıtı tekrar dene"
+                  title="Tekrar dene"
+                >
+                  <RotateCcw size={15} />
+                  <span className="hidden sm:inline">Tekrar dene</span>
+                </button>
+              )}
+            </div>
           )}
           
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {msg.reactions && msg.reactions.map((reaction, i) => {
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {msg.reactions?.filter(reaction => reaction.emoji !== '👍' && reaction.emoji !== '👎').map((reaction, i) => {
               const hasReacted = currentUser && reaction.users.includes(currentUser.name);
               return (
                 <button
