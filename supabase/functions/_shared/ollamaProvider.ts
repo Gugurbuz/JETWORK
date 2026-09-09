@@ -1,6 +1,7 @@
 export const OLLAMA_MODEL_PREFIX = 'ollama:'
 export const DEFAULT_OLLAMA_MODEL = 'ollama:qwen3:4b-instruct'
 export const OLLAMA_MODELS = new Set([DEFAULT_OLLAMA_MODEL])
+export const OLLAMA_CONTROLLER_CONTEXT_TOKENS = 16_384
 
 export type OllamaNormalizedResponse = {
   id?: string
@@ -230,7 +231,7 @@ export async function requestOllamaResponse(input: {
       think: false,
       stream: false,
       options: {
-        num_ctx: 4096,
+        num_ctx: OLLAMA_CONTROLLER_CONTEXT_TOKENS,
         num_predict: Math.max(64, Math.min(input.maxOutputTokens, 1_200)),
       },
     }),
