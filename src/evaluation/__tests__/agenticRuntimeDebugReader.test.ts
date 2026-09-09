@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readAgenticRuntimeDebugTelemetry } from '../agenticRuntimeDebugReader'
 
 describe('agentic runtime debug reader', () => {
-  it('maps one staging message to mechanical controller telemetry without judge assertions', async () => {
+  it('maps one runtime message to mechanical controller telemetry without judge assertions', async () => {
     const client = {
       rpc: async (name: string) => {
         if (name === 'get_reasoning_debug_runs') {
@@ -63,7 +63,7 @@ describe('agentic runtime debug reader', () => {
     ])
   })
 
-  it('fails when the requested staging message has no reasoning run instead of selecting a nearby run', async () => {
+  it('fails when the requested runtime message has no reasoning run instead of selecting a nearby run', async () => {
     const client = {
       rpc: async () => ({ error: null, data: [{ run_id: 'run-other', message_id: 'other' }] }),
     }
