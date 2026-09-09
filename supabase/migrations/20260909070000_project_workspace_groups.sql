@@ -13,57 +13,25 @@ create table if not exists public.project_workspace_groups (
   last_updated timestamptz not null default now(),
   archived_at timestamptz,
   deleted_at timestamptz,
-  constraint project_workspace_groups_name_check check (char_length(btrim(name)) between 1 and 120)
+  constraint project_workspace_groups_name_check check (char_length(btrim(name)) between 1 and 120),
+  constraint project_workspace_groups_id_project_key unique (id, project_id)
 );
 
 create index if not exists project_workspace_groups_project_idx
   on public.project_workspace_groups(project_id, position, last_updated desc);
 
 alter table public.workspaces
-  add column if not exists workspace_group_id text references public.project_workspace_groups(id) on delete set null;
+  add column if not exists workspace_group_id text;
+
+alter table public.workspaces
+  add constraint workspaces_workspace_group_project_fkey
+  foreign key (workspace_group_id, project_id)
+  references public.project_workspace_groups(id, project_id)
+  on delete set null (workspace_group_id);
 
 create index if not exists workspaces_workspace_group_idx
   on public.workspaces(workspace_group_id, last_updated desc)
   where workspace_group_id is not null;
-
-create or replace function public.validate_workspace_group_scope()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  target_project_id text;
-begin
-  if new.workspace_group_id is null then
-    return new;
-  end if;
-
-  select workspace_group.project_id
-    into target_project_id
-  from public.project_workspace_groups workspace_group
-  where workspace_group.id = new.workspace_group_id
-    and workspace_group.deleted_at is null;
-
-  if target_project_id is null then
-    raise exception 'Workspace group does not exist or is deleted';
-  end if;
-
-  if new.project_id is distinct from target_project_id then
-    raise exception 'Conversation project and workspace group project must match';
-  end if;
-
-  return new;
-end;
-$$;
-
-revoke all on function public.validate_workspace_group_scope() from public, anon, authenticated;
-grant execute on function public.validate_workspace_group_scope() to service_role;
-
-drop trigger if exists validate_workspace_group_scope_trigger on public.workspaces;
-create trigger validate_workspace_group_scope_trigger
-before insert or update of project_id, workspace_group_id on public.workspaces
-for each row execute function public.validate_workspace_group_scope();
 
 alter table public.project_workspace_groups enable row level security;
 grant select, insert, update, delete on table public.project_workspace_groups to authenticated;
