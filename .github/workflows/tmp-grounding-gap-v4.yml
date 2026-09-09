@@ -1,0 +1,126 @@
+name: tmp-grounding-gap-v4
+
+on:
+  push:
+    branches:
+      - fix/verified-message-gap-repair-v4
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/verified-message-gap-repair-v4
+          fetch-depth: 0
+      - name: Patch grounding contradiction and regression tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          guard_path = Path('supabase/functions/_shared/groundingGuard.ts')
+          text = guard_path.read_text()
+          lines = text.splitlines()
+          replacement = r"const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulunamad\w*|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+.{0,180}?(?:kayit|kaynak|bilgi|kanit)\w*.{0,180}?(?:yok|bulunm\w*|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i"
+          found = False
+          for index, line in enumerate(lines):
+              if line.startswith('const EVIDENCE_GAP_PATTERN = '):
+                  lines[index] = replacement
+                  found = True
+                  break
+          if not found:
+              raise SystemExit('EVIDENCE_GAP_PATTERN marker not found')
+          text = '\n'.join(lines) + ('\n' if text.endswith('\n') else '')
+
+          marker = """  if (resolvedNumericMessageGap) {
+            unsupportedClaims.push(`verified_message_number:${requestedMessageNumber}:response_reported_gap`)
+          }
+"""
+          addition = marker + """  const requestedExactMessageList = suppliedIdentifiers.size > 0
+            && /(?:hangi\\s+mesaj(?:lar)?i?|which\\s+messages?)/i.test(normalizeText(suppliedText))
+          const verifiedMessageListGap = Boolean(
+            requestedExactMessageList
+              && titles.size > 0
+              && isEvidenceGapResponse(input.text)
+          )
+          if (verifiedMessageListGap) {
+            unsupportedClaims.push('verified_message_list:response_reported_gap')
+          }
+"""
+          if "verified_message_list:response_reported_gap" not in text:
+              if marker not in text:
+                  raise SystemExit('resolvedNumericMessageGap marker not found')
+              text = text.replace(marker, addition, 1)
+          guard_path.write_text(text)
+
+          test_path = Path('src/services/__tests__/groundingCoverageRegression.test.ts')
+          tests = test_path.read_text()
+          case = r'''
+
+  it('rejects a CHECK_ZTKS message-list absence claim after verified message records were already found', () => {
+    const method = {
+      output: JSON.stringify({
+        securityNotice: 'VERIFIED_KNOWLEDGE_EVIDENCE',
+        tool: 'get_abap_source',
+        citationReady: true,
+        records: [{
+          canonicalKey: 'method:zcl_order_save_quotations/check_ztks',
+          objectType: 'method',
+          title: 'CHECK_ZTKS',
+        }],
+      }),
+      sources: [{
+        canonicalKey: 'method:zcl_order_save_quotations/check_ztks',
+        objectType: 'method',
+        title: 'CHECK_ZTKS',
+        sourceId: 's-check-ztks',
+      }],
+      summary: { citationReady: true, resultCount: 1 },
+    }
+    const message544 = verifiedMessage('ZCRM2-544', 'Doğrulanmış mesaj 544')
+    const message545 = verifiedMessage('ZCRM2-545', 'Doğrulanmış mesaj 545')
+    const bad = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: false, enterpriseGroundingRequired: true },
+      currentUserText: 'CHECK_ZTKS hangi mesajları üretiyor?',
+      sources: [...method.sources, ...message544.sources, ...message545.sources],
+      toolResults: [method, message544, message545],
+      text: '`CHECK_ZTKS` kontrolüne ait kaynak kod ve tetiklenen mesaj listesi mevcut doğrulanmış sistem kayıtları ve kanıtlar arasında bulunmamaktadır.',
+    })
+    expect(bad.ok).toBe(false)
+    expect(bad.unsupportedClaims).toContain('verified_message_list:response_reported_gap')
+    expect(shouldFailClosedGroundedAnswer({ plan: { enterpriseGroundingRequired: true }, coverage: bad })).toBe(true)
+
+    const genuineGap = evaluateGroundedTechnicalClaims({
+      plan: { knowledgeRequired: false, enterpriseGroundingRequired: true },
+      currentUserText: 'CHECK_ZTKS hangi mesajları üretiyor?',
+      sources: method.sources,
+      toolResults: [method],
+      text: '`CHECK_ZTKS` için mevcut doğrulanmış kayıtlarda mesaj listesi bulunmamaktadır.',
+    })
+    expect(genuineGap.ok).toBe(true)
+    expect(genuineGap.unsupportedClaims).not.toContain('verified_message_list:response_reported_gap')
+  })
+'''
+          if "rejects a CHECK_ZTKS message-list absence claim" not in tests:
+              close = tests.rfind('\n})')
+              if close < 0:
+                  raise SystemExit('test suite closing marker not found')
+              tests = tests[:close] + case + tests[close:]
+          test_path.write_text(tests)
+          PY
+          git diff --check
+          git diff -- supabase/functions/_shared/groundingGuard.ts src/services/__tests__/groundingCoverageRegression.test.ts
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/_shared/groundingGuard.ts src/services/__tests__/groundingCoverageRegression.test.ts
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix(agent): reject verified message evidence gaps"
+          git push origin HEAD:fix/verified-message-gap-repair-v4
