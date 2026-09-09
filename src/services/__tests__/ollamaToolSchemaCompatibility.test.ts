@@ -3,6 +3,7 @@ import { buildControllerCapabilitySurface } from '../../../supabase/functions/_s
 import {
   OLLAMA_CONTROLLER_CONTEXT_TOKENS,
   OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS,
+  compactOllamaArgumentSignature,
   normalizeOllamaToolParameters,
   toOllamaTools,
 } from '../../../supabase/functions/_shared/ollamaProvider.ts'
@@ -10,28 +11,6 @@ import {
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 )
-
-const grammarHazards = (value: unknown, path = '$'): string[] => {
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => grammarHazards(item, `${path}[${index}]`))
-  }
-  if (!isRecord(value)) return []
-
-  const hazards: string[] = []
-  if (
-    value.type === 'object'
-    && isRecord(value.properties)
-    && Object.keys(value.properties).length === 0
-  ) {
-    hazards.push(`${path}: empty object properties`)
-  }
-  if ('maxLength' in value) hazards.push(`${path}: maxLength retained`)
-
-  return [
-    ...hazards,
-    ...Object.entries(value).flatMap(([key, nested]) => grammarHazards(nested, `${path}.${key}`)),
-  ]
-}
 
 const canonicalProviderShape = (tools: ReadonlyArray<Record<string, unknown>>) => tools.map(tool => ({
   type: 'function',
@@ -47,18 +26,7 @@ describe('Ollama tool schema compatibility', () => {
     expect(OLLAMA_CONTROLLER_CONTEXT_TOKENS).toBeGreaterThanOrEqual(16_384)
   })
 
-  it('removes zero-property object grammar hazards without removing the tool', () => {
-    const normalized = normalizeOllamaToolParameters({
-      type: 'object',
-      properties: {},
-      required: [],
-      additionalProperties: false,
-    })
-
-    expect(normalized).toEqual({ type: 'object' })
-  })
-
-  it('drops provider-redundant validation metadata while retaining structure and enums', () => {
+  it('retains the compatibility normalizer for direct schema callers', () => {
     const normalized = normalizeOllamaToolParameters({
       type: 'object',
       description: 'verbose root description',
@@ -80,24 +48,46 @@ describe('Ollama tool schema compatibility', () => {
     })
   })
 
-  it('keeps the complete Controller V3 tool surface intact, compact and grammar-safe', () => {
+  it('renders a compact argument signature from canonical top-level fields', () => {
+    expect(compactOllamaArgumentSignature('sample', {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: ['integer', 'null'] },
+        mode: { type: 'string', enum: ['exact', 'search'] },
+      },
+      required: ['query', 'limit'],
+    })).toBe('query:string, limit:integer|null, mode?:string=exact|search')
+  })
+
+  it('keeps all Controller V3 tools while replacing heavy provider schemas with signature contracts', () => {
     const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
     const ollamaTools = toOllamaTools(canonical)
 
     expect(canonical.length).toBeGreaterThan(30)
     expect(ollamaTools).toHaveLength(canonical.length)
-    expect(grammarHazards(ollamaTools)).toEqual([])
-
-    const canonicalChars = JSON.stringify(canonicalProviderShape(canonical)).length
-    const ollamaChars = JSON.stringify(ollamaTools).length
-    expect(ollamaChars).toBeLessThan(canonicalChars * 0.8)
 
     for (const tool of ollamaTools) {
       const fn = tool.function as Record<string, unknown>
+      expect(fn.parameters).toEqual({ type: 'object' })
       expect(String(fn.description || '').length).toBeLessThanOrEqual(OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS)
     }
 
-    const names = ollamaTools.map(tool => String((tool.function as Record<string, unknown>)?.name || ''))
+    const canonicalChars = JSON.stringify(canonicalProviderShape(canonical)).length
+    const ollamaChars = JSON.stringify(ollamaTools).length
+    expect(ollamaChars).toBeLessThan(canonicalChars * 0.4)
+
+    const byName = new Map(ollamaTools.map(tool => {
+      const fn = tool.function as Record<string, unknown>
+      return [String(fn.name || ''), String(fn.description || '')]
+    }))
+
+    expect(byName.get('get_related_objects')).toContain('canonicalKey')
+    expect(byName.get('get_related_objects')).toContain('direction')
+    expect(byName.get('edit_spreadsheet_file')).toContain('actions:[{operation,target,value,number}]')
+    expect(byName.get('review_evidence_coverage')).toContain('evidenceIds')
+
+    const names = [...byName.keys()]
     expect(names).toContain('list_spreadsheet_attachments')
     expect(names).toContain('list_action_attachments')
     expect(names).toContain('search_knowledge_catalog')
