@@ -65,10 +65,8 @@ literal_ranked as (
       10.0 + case
         when lower(o.canonical_key) = a.q or lower(coalesce(o.published_name, '')) = a.q then 1.0
         when regexp_replace(lower(o.canonical_key), '^.*[-_/:]', '') = a.q then 0.99
-        when lower(o.canonical_key) like '%-' || a.q
-          or lower(o.canonical_key) like '%/' || a.q
-          or lower(o.canonical_key) like '%_' || a.q then 0.98
-        when lower(o.canonical_key) like '%' || a.q || '%' then 0.90
+        when right(lower(o.canonical_key), length(a.q) + 1) in ('-' || a.q, '/' || a.q, '_' || a.q, ':' || a.q) then 0.98
+        when position(a.q in lower(o.canonical_key)) > 0 then 0.90
         else 0.85
       end
     )::double precision as score,
@@ -91,8 +89,8 @@ literal_ranked as (
     and s.published_version_id = sv.id
     and (p_object_types is null or o.published_object_type = any(p_object_types))
     and (
-      lower(o.canonical_key) like '%' || a.q || '%'
-      or lower(coalesce(o.published_name, '')) like '%' || a.q || '%'
+      position(a.q in lower(o.canonical_key)) > 0
+      or position(a.q in lower(coalesce(o.published_name, ''))) > 0
     )
 ),
 literal as (
