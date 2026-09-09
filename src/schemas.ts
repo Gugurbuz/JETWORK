@@ -8,7 +8,7 @@ export const NewProjectInputSchema = z.object({
 });
 
 export const EditWorkspaceInputSchema = z.object({
-  title: z.string().trim().min(2, "Çalışma alanı adı en az 2 karakter olmalıdır.").max(120, "Çalışma alanı en fazla 120 karakter olabilir."),
+  title: z.string().trim().min(2, "Sohbet başlığı en az 2 karakter olmalıdır.").max(120, "Sohbet başlığı en fazla 120 karakter olabilir."),
 });
 
 export const OnboardingInputSchema = z.object({

@@ -5,6 +5,7 @@ export async function setWorkspaceProject(workspaceId: string, projectId: string
     .from('workspaces')
     .update({
       project_id: projectId,
+      workspace_group_id: null,
       last_updated: new Date().toISOString(),
     })
     .eq('id', workspaceId)

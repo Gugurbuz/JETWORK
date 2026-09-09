@@ -46,12 +46,14 @@ describe('JetWork 2.0 conversation + file experience', () => {
     expect(workspaceSource).not.toContain('openArtifact(latestArtifact)');
   });
 
-  it('uses native sidebar sections for Files and AI Quality Lab instead of a floating footer utility dock', () => {
+  it('keeps Files and AI Quality Lab as direct global navigation while workspaces live under projects', () => {
     expect(mainContentSource).not.toContain('AppUtilityDock');
-    expect(sidebarSource).toContain('Çalışma alanı');
     expect(sidebarSource).toContain('<span>Dosyalar</span>');
     expect(sidebarSource).toContain('<span>AI Quality Lab</span>');
     expect(sidebarSource).toContain("navigate('/quality')");
+    expect(sidebarSource).toContain('Çalışma alanı oluştur');
+    expect(sidebarSource).toContain('workspaceGroupId');
+    expect(sidebarSource).not.toContain('uppercase tracking-[0.12em] text-theme-text-muted/80">Çalışma alanı</div>');
   });
 
   it('uses recognizable file-type language and color treatments instead of raw DOCX/XLSX/PPTX output labels', () => {

@@ -26,7 +26,7 @@ export function EditWorkspaceModal({ workspace, onClose, onSubmit }: EditWorkspa
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         className="bg-theme-bg w-full max-w-md rounded-2xl shadow-xl overflow-hidden border border-theme-border"
@@ -34,13 +34,13 @@ export function EditWorkspaceModal({ workspace, onClose, onSubmit }: EditWorkspa
         <div className="flex items-center justify-between p-4 border-b border-theme-border bg-theme-surface">
           <div className="flex items-center gap-2 text-theme-text font-bold">
             <FileText size={18} className="text-theme-primary" />
-            Çalışma Alanını Düzenle
+            Sohbeti Düzenle
           </div>
           <button onClick={onClose} className="text-theme-text-muted hover:text-theme-text transition-colors">
             <X size={20} />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {errorMsg && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-md text-red-500 text-xs leading-relaxed">
@@ -49,10 +49,10 @@ export function EditWorkspaceModal({ workspace, onClose, onSubmit }: EditWorkspa
           )}
           <div>
             <label className="block text-xs font-bold text-theme-text-muted uppercase tracking-wider mb-2">
-              Çalışma Alanı Adı
+              Sohbet Başlığı
             </label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={title}
               onChange={e => setTitle(e.target.value)}
               className="w-full bg-theme-surface border border-theme-border rounded-lg px-4 py-2.5 text-sm text-theme-text focus:border-theme-primary outline-none transition-colors"
@@ -60,16 +60,16 @@ export function EditWorkspaceModal({ workspace, onClose, onSubmit }: EditWorkspa
               autoFocus
             />
           </div>
-          
+
           <div className="pt-4 flex justify-end gap-3">
-            <button 
+            <button
               type="button"
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-theme-text-muted hover:text-theme-text transition-colors"
             >
               İptal
             </button>
-            <button 
+            <button
               type="submit"
               disabled={!title.trim()}
               className="px-6 py-2 bg-theme-primary hover:bg-theme-primary/90 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

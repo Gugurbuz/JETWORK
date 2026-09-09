@@ -65,7 +65,7 @@ export function ModalsContainer({
   return (
     <>
       {showSettingsModal && (
-        <SettingsModal 
+        <SettingsModal
           user={user}
           onClose={() => setShowSettingsModal(false)}
           onUpdateUser={handleUpdateUser}
@@ -77,17 +77,17 @@ export function ModalsContainer({
         />
       )}
       {showNewItemModal && (
-        <NewItemModal 
+        <NewItemModal
           projects={projects}
           currentProjectId={currentProjectId}
-          onClose={() => setShowNewItemModal(false)} 
-          onSubmit={handleNewWorkspace} 
+          onClose={() => setShowNewItemModal(false)}
+          onSubmit={handleNewWorkspace}
         />
       )}
       {showNewProjectModal && (
-        <NewProjectModal 
-          onClose={() => setShowNewProjectModal(false)} 
-          onSubmit={handleNewProject} 
+        <NewProjectModal
+          onClose={() => setShowNewProjectModal(false)}
+          onSubmit={handleNewProject}
         />
       )}
       {showManageParticipantsModal && currentWorkspace && user && (
@@ -126,8 +126,8 @@ export function ModalsContainer({
       )}
       {deletingWorkspace && (
         <ConfirmModal
-          title="Çalışma Alanını Sil"
-          message="Bu çalışma alanı çöp kutusuna taşınacak. Daha sonra geri yükleyebilirsiniz."
+          title="Sohbeti Sil"
+          message="Bu sohbet çöp kutusuna taşınacak. Daha sonra geri yükleyebilirsiniz."
           confirmText="Çöp kutusuna taşı"
           onConfirm={handleDeleteWorkspace}
           onCancel={() => setDeletingWorkspace(null)}
