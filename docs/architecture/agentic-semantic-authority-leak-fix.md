@@ -10,7 +10,7 @@ Three independent defects were confirmed:
 2. The alternate deployed `openai-assistant-v2-internal` path imported `openai-assistant-v2/index.ts` from legacy Git commit `3dde3a3b0aac74ff7b36657e6931ffdb7a2dedc5`.
 3. Semantic Top-K could omit `provider:web_search` and foundational knowledge evidence tools, so the active LLM controller could lose a valid capability before it had the opportunity to choose it.
 
-The same staging investigation exposed a deployment-topology defect: JETWORK must not depend on anonymous `raw.githubusercontent.com` imports for private-repository Edge runtime code. Supabase staging returned `Module not found` for the private SHA import. Runtime deployment therefore has to materialize the repository source into the Edge deployment package/bundle instead of treating a private GitHub raw URL as a durable module host.
+The same validation work exposed a deployment-topology defect: JETWORK must not depend on anonymous `raw.githubusercontent.com` imports for private-repository Edge runtime code. Runtime deployment therefore has to materialize repository source into the Edge deployment package/bundle instead of treating a private GitHub raw URL as a durable module host.
 
 ## Invariants
 
@@ -23,7 +23,7 @@ The same staging investigation exposed a deployment-topology defect: JETWORK mus
 7. Search candidates are not evidence. Exact/detail verification remains required before candidate facts can ground final claims.
 8. If a provider attempts an enterprise-grounded final before enough verified evidence exists and mechanical budget remains, the unsafe draft is withheld and the same controller receives a grounding-recovery observation. The runtime does not pick the next semantic capability for it.
 9. Terminal grounding remains fail-closed after the allowed recovery/re-plan budget is exhausted.
-10. Production rollout is blocked until deterministic CI, the original İYS live-like regression, deployment-source/topology verification and grounding/candidate-verification safety gates pass.
+10. Production rollout is blocked until deterministic CI, deployment-source/topology verification, golden scenarios, smoke and canary gates pass.
 
 ## Canonical production topology
 
@@ -80,54 +80,58 @@ Required behavior:
 
 Freshness paraphrases are regression-covered so the invariant does not depend on the literal word `güncel`.
 
-## Staging deployment packaging
+## Deployment packaging validation
 
-The staging workflow materializes three private-repository runtime bundles:
+The repository validation workflow materializes three private-repository runtime bundles:
 
 - public entry/router bundle
 - internal semantic-gateway bundle
 - core runtime bundle
 
-The bundle gate rejects `raw.githubusercontent.com/Gugurbuz/JETWORK` references in the generated runtime artifacts. This validates that the desired Edge deployment payload is self-contained with respect to private JETWORK source.
+The bundle gate rejects `raw.githubusercontent.com/Gugurbuz/JETWORK` references in generated runtime artifacts. This validates that the desired Edge deployment payload is self-contained with respect to private JETWORK source.
 
-A focused staging runner also exists for the exact İYS regression. It verifies:
+This check is environment-neutral and runs independently from provider credentials. Real provider behavior is validated through the normal golden contracts plus production smoke/internal canary flow rather than a separate permanent environment.
 
-- `x-jetwork-runtime-route = agent-controller-v2`
-- completed payload reports `controllerMode=true`
-- explicit `gemini-3.8-flash` is preserved
-- user-visible answer is produced
-- at least one real HTTPS web source exists for this current-web golden scenario
-- no premature generic grounding failure is surfaced
+## Verification model
 
-The live provider run requires the permanent isolated staging user token. The workflow records missing staging credentials as an environment block rather than misclassifying it as a product regression.
+Pre-merge:
+
+1. Typecheck, build, unit and golden tests.
+2. Materialized Edge bundle validation.
+3. Vercel Preview UI/E2E where UI changes are involved.
+4. No production write or rollout side effect.
+
+Post-merge / release:
+
+1. Deploy production Edge functions and Vercel production from the approved SHA.
+2. Run bounded smoke tests with the designated test user/workspace.
+3. Run internal canary scenarios, including semantic-authority/current-web and grounding regressions.
+4. Observe controller route, model isolation, evidence/source behavior, TTFT/latency and failure taxonomy.
+5. Expand rollout only while quality and performance floors remain green.
+6. Roll back with the canonical feature flag/config if a release gate fails.
 
 ## Current verification status
 
-At the latest PR #212 hardening pass:
+At the latest hardening baseline:
 
 - deterministic CI is green on the semantic-authority implementation;
-- materialized runtime bundle generation is green and rejects private GitHub raw imports;
+- materialized runtime bundle generation rejects private GitHub raw imports;
 - the exact İYS scenario is present in the P6 golden contract;
-- the focused live-like runner is implemented;
-- unauthenticated staging gateway access remains correctly rejected with HTTP 401;
-- a gzip/data-URL module loader was proven in isolated staging and the temporary diagnostic was disabled immediately afterwards;
-- the materialized public staging entry/router bundle has been deployed with JWT verification preserved;
-- internal/core staging transport is intentionally not claimed complete until their materialized bundle deployment and boot are verified;
-- live İYS provider execution remains blocked until `AGENTIC_GOLDEN_ANON_KEY` and `AGENTIC_GOLDEN_ACCESS_TOKEN` are available to the manual staging workflow.
-
-This environment block does **not** satisfy the live release gate. Production remains unchanged and must stay unchanged until the authenticated staging run passes.
+- generic Agentic Runtime golden scorer, trace adapter, performance adapter and debug reader remain canonical;
+- dedicated environment-specific probe/suite/executor code is not part of the release architecture;
+- production validation is performed through bounded smoke + internal canary rather than a parallel environment.
 
 ## Rollout gate
 
-Do not merge/deploy to production from this branch until:
+Do not expand production routing until:
 
 1. CI typecheck/build/unit/golden tests are green on the final head SHA.
 2. Materialized Edge deployment artifacts contain no private JETWORK raw runtime import.
-3. The full public/internal/core materialized bundle topology is verified in staging.
-4. Authenticated staging Agent Controller V2 run passes the exact İYS regression and paraphrase invariants.
-5. Staging confirms `providerWebVisible=true` without a web keyword/regex route and the controller actually selects fresh web evidence for the current-web golden scenario.
-6. Staging verifies the core receives the neutral Controller V2 plan rather than a legacy fallback plan.
-7. Candidate-only search output is not accepted as verified evidence.
-8. Grounding recovery/re-plan occurs before terminal fail-closed when budget remains.
-9. Grounding safety regressions remain green.
-10. Staging canary is verified before any production routing change.
+3. Preview validation is green for changed UI/client surfaces.
+4. Production deploy uses the approved SHA and canonical Controller V2 topology.
+5. Production smoke passes authentication, streaming, persistence and basic controller-route checks.
+6. Internal canary passes the exact İYS regression and freshness paraphrase invariants.
+7. Canary confirms `providerWebVisible=true` without a web keyword/regex route and the controller selects fresh web evidence when needed.
+8. Candidate-only search output is not accepted as verified evidence.
+9. Grounding recovery/re-plan occurs before terminal fail-closed when budget remains.
+10. Quality, latency and failure telemetry remain within the accepted release floors before broader rollout.

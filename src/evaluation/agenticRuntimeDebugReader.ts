@@ -50,7 +50,7 @@ const mapToolRun = (raw: unknown): RuntimeToolTraceRow | null => {
 }
 
 /**
- * Reads the authenticated owner's reasoning telemetry for one staging message.
+ * Reads the authenticated owner's reasoning telemetry for one runtime message.
  * This is a mechanical telemetry adapter only: it does not manufacture judge
  * assertions or infer forbidden semantic behavior from answer text.
  */
