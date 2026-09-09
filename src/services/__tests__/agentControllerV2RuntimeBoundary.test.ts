@@ -115,7 +115,8 @@ describe('Agent Controller V2 runtime boundary', () => {
   it('keeps the core semantically neutral even if a V2 gateway is accidentally bypassed', () => {
     expect(reasoningEngineSource).toContain('if (isAgentControllerV2Enabled()) return controllerV2NeutralRoute()')
     expect(reasoningEngineSource).toContain('controller_v2_core_neutral_fallback: 1')
-    expect(reasoningEngineSource).toContain("orchestratorVersion: 'agent-controller-v2-core-neutral-fallback'")
+    expect(reasoningEngineSource).toContain("orchestratorVersion: 'agent-controller-v2-core-neutral-context-fallback-v2'")
+    expect(reasoningEngineSource).toContain('semantik hedef burada tanımlanmaz')
     expect(reasoningEngineSource.indexOf('if (isAgentControllerV2Enabled()) return controllerV2NeutralRoute()'))
       .toBeLessThan(reasoningEngineSource.indexOf('return routeLegacyReasoningRequest(message, attachmentCount)'))
     expect(reasoningEngineSource.indexOf('if (isAgentControllerV2Enabled()) {\n    return {\n      plan: controllerV2NeutralPlan(input.message)'))
