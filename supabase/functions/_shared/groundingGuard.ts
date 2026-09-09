@@ -84,7 +84,7 @@ const TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{
 const VERIFIED_SOURCE_TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:(?:Z[A-Z0-9]*_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?|Z[A-Z0-9_]{2,}-\d{2,4}|CHECK_[A-Z0-9_]+)(?![\p{L}\p{N}_])/giu
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
-const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
+const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulunamad\w*|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
 const EVIDENCE_GAP_CONTRADICTION_PATTERN = /\b(?:ama|ancak|fakat|buna\s+ragmen|however|but|nevertheless)\b/i
 const EXACT_MESSAGE_TEXT_REQUEST_PATTERN = /(?:mesaj\s*metn(?:i|ini|leri|lerini)?|mesaj(?:ın|in)\s+tam\s+metn(?:i|ini)|tam\s+mesaj\s*metn(?:i|ini)|exact\s+message\s+text|message\s+text)/i
 
@@ -130,6 +130,16 @@ const exactTechnicalFactLookupRequested = (text: string, identifiers: Set<string
 )
 
 const exactMessageTextRequested = (text: string) => EXACT_MESSAGE_TEXT_REQUEST_PATTERN.test(normalizeText(text))
+
+// Numeric-only SAP message lookups such as "111 nolu hata" intentionally have no
+// message class in the request. This helper recognizes only explicit number wording;
+// a numeric suffix inside a supplied identifier (for example ZCRM2-545) is excluded.
+const requestedNumericMessageNumber = (text: string) => {
+  const normalized = normalizeText(text)
+  const leading = normalized.match(/\b(\d{2,4})\b(?=[^\n]{0,32}\b(?:nolu|numarali)\b)/i)
+  const trailing = normalized.match(/\b(?:mesaj|hata)\s+(?:no\.?|numara(?:si)?|number)?\s*(\d{2,4})\b/i)
+  return clean(leading?.[1] || trailing?.[1], 8)
+}
 
 const evidenceGapIdentifiers = (text: string) => {
   const identifiers = new Set<string>()
@@ -372,7 +382,9 @@ export const evaluateGroundedTechnicalClaims = (input: {
   const novelResponseIdentifiers = responseIdentifiers.filter(identifier => !suppliedIdentifiers.has(identifier))
   const novelExactMessageClaims = responseMessageClaims.filter(claim => !suppliedExactClaim(claim, suppliedMessageClaims))
   const explicitEnterpriseGrounding = enterpriseGroundingRequiredForPlan(input.plan)
+  const requestedMessageNumber = suppliedIdentifiers.size === 0 ? requestedNumericMessageNumber(suppliedText) : ''
   const exactTechnicalFactLookup = exactTechnicalFactLookupRequested(suppliedText, suppliedIdentifiers)
+    || Boolean(requestedMessageNumber)
   const userSuppliedRequirementsMayCountAsEvidence = !explicitEnterpriseGrounding && !exactTechnicalFactLookup
 
   // User-supplied requirements may be analysed without an unrelated knowledge
@@ -421,6 +433,14 @@ export const evaluateGroundedTechnicalClaims = (input: {
     verifiedEvidence: verifiedEvidenceText(input.sources, verifiedResults),
     exactTechnicalFactLookup,
   })
+  const resolvedNumericMessageGap = Boolean(
+    requestedMessageNumber
+      && [...titles.keys()].some(identifier => identifier.endsWith(`-${requestedMessageNumber}`))
+      && isEvidenceGapResponse(input.text)
+  )
+  if (resolvedNumericMessageGap) {
+    unsupportedClaims.push(`verified_message_number:${requestedMessageNumber}:response_reported_gap`)
+  }
   const userSuppliedTechnicalEvidence = userSuppliedRequirementsMayCountAsEvidence && (
     responseIdentifiers.some(identifier => suppliedIdentifiers.has(identifier))
       || responseMessageClaims.some(claim => suppliedExactClaim(claim, suppliedMessageClaims))
