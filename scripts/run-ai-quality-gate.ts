@@ -6,10 +6,13 @@ const loginInput = process.env.E2E_USERNAME;
 const password = process.env.E2E_PASSWORD;
 const suiteSlug = process.env.AI_QUALITY_SUITE || 'smoke';
 const endpoint = process.env.AI_QUALITY_ENDPOINT || 'openai-assistant-v2';
-const requestedConcurrency = Number(process.env.AI_QUALITY_CONCURRENCY || 3);
+// Production rate limits are part of the product contract and must not be
+// relaxed for CI. Run serially by default so independent scenarios do not
+// manufacture false HTTP 429 failures against the shared E2E identity.
+const requestedConcurrency = Number(process.env.AI_QUALITY_CONCURRENCY || 1);
 const concurrency = Number.isFinite(requestedConcurrency)
   ? Math.max(1, Math.min(Math.trunc(requestedConcurrency), 4))
-  : 3;
+  : 1;
 
 if (!url || !anonKey || !loginInput || !password) {
   console.error('Quality gate requires Supabase URL/key and E2E_USERNAME/E2E_PASSWORD.');
