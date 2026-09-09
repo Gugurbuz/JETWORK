@@ -1,0 +1,81 @@
+name: Agentic Semantic Authority Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'supabase/functions/openai-assistant-v2-entry-router/**'
+      - 'supabase/functions/openai-assistant-v2/**'
+      - 'supabase/functions/openai-assistant-core-v2/**'
+      - 'supabase/functions/_shared/**'
+      - '.github/workflows/agentic-semantic-authority-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentic-semantic-authority-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize private-repo Edge runtime bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/agentic-validation evaluation/bundles
+          cat > .tmp/agentic-validation/public.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-v2-entry-router/index.ts')
+          EOF
+          cat > .tmp/agentic-validation/internal.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-v2/index.ts')
+          EOF
+          cat > .tmp/agentic-validation/core.ts <<'EOF'
+          Deno.env.set('AGENT_CONTROLLER_V2', 'true')
+          await import('../../supabase/functions/openai-assistant-core-v2/index.ts')
+          EOF
+          for target in public internal core; do
+            pnpm dlx esbuild@0.25.12 ".tmp/agentic-validation/${target}.ts" \
+              --bundle \
+              --format=esm \
+              --platform=neutral \
+              --target=es2022 \
+              --external:'https://*' \
+              --external:'http://*' \
+              --external:'npm:*' \
+              --external:'jsr:*' \
+              --external:'@google/genai' \
+              --outfile="evaluation/bundles/${target}.mjs"
+          done
+          grep -R "raw.githubusercontent.com/Gugurbuz/JETWORK" evaluation/bundles && exit 1 || true
+          wc -c evaluation/bundles/*.mjs
+
+      - name: Upload materialized runtime bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentic-runtime-bundles-${{ github.sha }}
+          path: evaluation/bundles/*.mjs
+          if-no-files-found: error
+          retention-days: 3
