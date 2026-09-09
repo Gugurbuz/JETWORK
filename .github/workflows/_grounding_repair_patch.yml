@@ -1,9 +1,0 @@
-name: Grounding Repair Patch
-on:
-  push:
-    branches: [fix/grounding-repair-v1]
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo ok
