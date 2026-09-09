@@ -58,6 +58,51 @@ const parseArguments = (value: unknown): Record<string, unknown> => {
   } catch { return {} }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+)
+
+// llama.cpp currently compiles all function schemas into one GBNF grammar before
+// generation starts. A single zero-property object schema makes that combined
+// grammar invalid, and string maxLength values above the grammar repetition cap
+// can reject the whole request. Keep JetWork's canonical tool contracts intact
+// and normalize only the provider-facing Ollama copy.
+const OLLAMA_GRAMMAR_MAX_REPETITION = 2_000
+
+const normalizeOllamaSchemaNode = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(normalizeOllamaSchemaNode)
+  if (!isRecord(value)) return value
+
+  const normalized: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === 'maxLength' && typeof nested === 'number' && nested > OLLAMA_GRAMMAR_MAX_REPETITION) {
+      continue
+    }
+    normalized[key] = normalizeOllamaSchemaNode(nested)
+  }
+
+  const properties = normalized.properties
+  if (
+    normalized.type === 'object'
+    && isRecord(properties)
+    && Object.keys(properties).length === 0
+  ) {
+    // `{ type: 'object', properties: {} }` is valid JSON Schema but affected
+    // llama.cpp versions emit invalid `space space` GBNF for it. A plain object
+    // schema keeps a no-argument tool callable while avoiding that compiler path.
+    delete normalized.properties
+    delete normalized.required
+    delete normalized.additionalProperties
+  }
+
+  return normalized
+}
+
+export const normalizeOllamaToolParameters = (value: unknown): Record<string, unknown> => {
+  const normalized = normalizeOllamaSchemaNode(value)
+  return isRecord(normalized) ? normalized : { type: 'object' }
+}
+
 const toOllamaMessages = (
   instructions: string,
   items: Array<Record<string, unknown>>,
@@ -129,7 +174,7 @@ const toOllamaMessages = (
   return [...messages, ...recent]
 }
 
-const toOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.flatMap(tool => {
+export const toOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.flatMap(tool => {
   if (clean(tool.type) !== 'function') return []
   const name = clean(tool.name)
   if (!name) return []
@@ -138,9 +183,7 @@ const toOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.f
     function: {
       name,
       description: clean(tool.description),
-      parameters: tool.parameters && typeof tool.parameters === 'object'
-        ? tool.parameters
-        : { type: 'object', properties: {} },
+      parameters: normalizeOllamaToolParameters(tool.parameters),
     },
   }]
 })
