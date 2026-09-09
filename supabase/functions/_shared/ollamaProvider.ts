@@ -64,9 +64,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
 
 // llama.cpp currently compiles all function schemas into one GBNF grammar before
 // generation starts. A single zero-property object schema makes that combined
-// grammar invalid, and string maxLength values above the grammar repetition cap
-// can reject the whole request. Keep JetWork's canonical tool contracts intact
-// and normalize only the provider-facing Ollama copy.
+// grammar invalid. Its repetition cap is also effectively inclusive: a schema
+// maxLength of exactly 2,000 already exceeds the representable GBNF repetition
+// range because of an off-by-one expansion. Keep JetWork's canonical tool
+// contracts intact and normalize only the provider-facing Ollama copy.
 const OLLAMA_GRAMMAR_MAX_REPETITION = 2_000
 
 const normalizeOllamaSchemaNode = (value: unknown): unknown => {
@@ -75,7 +76,7 @@ const normalizeOllamaSchemaNode = (value: unknown): unknown => {
 
   const normalized: Record<string, unknown> = {}
   for (const [key, nested] of Object.entries(value)) {
-    if (key === 'maxLength' && typeof nested === 'number' && nested > OLLAMA_GRAMMAR_MAX_REPETITION) {
+    if (key === 'maxLength' && typeof nested === 'number' && nested >= OLLAMA_GRAMMAR_MAX_REPETITION) {
       continue
     }
     normalized[key] = normalizeOllamaSchemaNode(nested)
