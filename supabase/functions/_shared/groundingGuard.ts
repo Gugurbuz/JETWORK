@@ -131,6 +131,16 @@ const exactTechnicalFactLookupRequested = (text: string, identifiers: Set<string
 
 const exactMessageTextRequested = (text: string) => EXACT_MESSAGE_TEXT_REQUEST_PATTERN.test(normalizeText(text))
 
+// Numeric SAP message follow-ups such as "111 nolu hata" are not themselves a
+// technical identifier because the message class is intentionally unknown. This
+// helper only marks the lookup shape; it never chooses a message class or tool.
+const requestedNumericMessageNumber = (text: string) => {
+  const normalized = normalizeText(text)
+  const leading = normalized.match(/\b(\d{2,4})\b(?=[^\n]{0,48}\b(?:nolu|numarali|mesaj|hata)\b)/i)
+  const trailing = normalized.match(/\b(?:mesaj|hata)[^\n]{0,48}\b(\d{2,4})\b/i)
+  return clean(leading?.[1] || trailing?.[1], 8)
+}
+
 const evidenceGapIdentifiers = (text: string) => {
   const identifiers = new Set<string>()
   const segments = clean(text).split(/(?:\r?\n)+|(?<=[.!?])\s+/)
@@ -372,7 +382,9 @@ export const evaluateGroundedTechnicalClaims = (input: {
   const novelResponseIdentifiers = responseIdentifiers.filter(identifier => !suppliedIdentifiers.has(identifier))
   const novelExactMessageClaims = responseMessageClaims.filter(claim => !suppliedExactClaim(claim, suppliedMessageClaims))
   const explicitEnterpriseGrounding = enterpriseGroundingRequiredForPlan(input.plan)
+  const requestedMessageNumber = requestedNumericMessageNumber(suppliedText)
   const exactTechnicalFactLookup = exactTechnicalFactLookupRequested(suppliedText, suppliedIdentifiers)
+    || Boolean(requestedMessageNumber)
   const userSuppliedRequirementsMayCountAsEvidence = !explicitEnterpriseGrounding && !exactTechnicalFactLookup
 
   // User-supplied requirements may be analysed without an unrelated knowledge
@@ -421,6 +433,14 @@ export const evaluateGroundedTechnicalClaims = (input: {
     verifiedEvidence: verifiedEvidenceText(input.sources, verifiedResults),
     exactTechnicalFactLookup,
   })
+  const resolvedNumericMessageGap = Boolean(
+    requestedMessageNumber
+      && [...titles.keys()].some(identifier => identifier.endsWith(`-${requestedMessageNumber}`))
+      && isEvidenceGapResponse(input.text)
+  )
+  if (resolvedNumericMessageGap) {
+    unsupportedClaims.push(`verified_message_number:${requestedMessageNumber}:response_reported_gap`)
+  }
   const userSuppliedTechnicalEvidence = userSuppliedRequirementsMayCountAsEvidence && (
     responseIdentifiers.some(identifier => suppliedIdentifiers.has(identifier))
       || responseMessageClaims.some(claim => suppliedExactClaim(claim, suppliedMessageClaims))
