@@ -2,17 +2,28 @@ import { createClient } from '@supabase/supabase-js';
 
 const url = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-const email = process.env.E2E_USERNAME;
+const loginInput = process.env.E2E_USERNAME;
 const password = process.env.E2E_PASSWORD;
 const suiteSlug = process.env.AI_QUALITY_SUITE || 'smoke';
 const endpoint = process.env.AI_QUALITY_ENDPOINT || 'openai-assistant-v2';
 
-if (!url || !anonKey || !email || !password) {
+if (!url || !anonKey || !loginInput || !password) {
   console.error('Quality gate requires Supabase URL/key and E2E_USERNAME/E2E_PASSWORD.');
   process.exit(2);
 }
 
 const supabase = createClient(url, anonKey, { auth: { persistSession: false } });
+const resolveEmail = async (input: string) => {
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input)) return input;
+  const { data, error } = await supabase.rpc('resolve_login_email', { p_username: input });
+  if (error || !data) {
+    console.error('Quality gate username could not be resolved:', error?.message || input);
+    process.exit(2);
+  }
+  return String(data);
+};
+
+const email = await resolveEmail(loginInput);
 const { data: auth, error: authError } = await supabase.auth.signInWithPassword({ email, password });
 if (authError || !auth.session) {
   console.error('Quality gate login failed:', authError?.message || 'No session');
