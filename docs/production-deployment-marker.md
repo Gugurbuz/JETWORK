@@ -13,3 +13,5 @@ PR #122 secure spreadsheet output-card frontend deployment triggered on 2026-08-
 Production retry issued after the next Vercel build-rate window opened on 2026-08-14.
 
 PR #229 conversation tools menu production retry issued on 2026-09-09 after the earlier Hobby build-rate-limit block. Current main already includes PR #229 via merge commit 0c9139d640d9b9707f032bf64840627ca49ed29c.
+
+PR #242 synchronized Düşünüyor shimmer production retry issued on 2026-09-09. Runtime code is already merged; this marker only retriggers the standard production deployment path.
