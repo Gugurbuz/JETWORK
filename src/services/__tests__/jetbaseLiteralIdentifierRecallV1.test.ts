@@ -15,14 +15,23 @@ describe('Jetbase literal identifier recall v1', () => {
   it('uses the exact model-authored query beside the existing hybrid engine', () => {
     expect(migration).toContain("lower(trim(coalesce(p_query, ''))) as q")
     expect(migration).toContain('public.hybrid_search_knowledge_catalog_v2_raw(')
-    expect(migration).toContain("lower(o.canonical_key) like '%' || a.q || '%'")
-    expect(migration).toContain("lower(coalesce(o.published_name, '')) like '%' || a.q || '%'")
+    expect(migration).toContain('position(a.q in lower(o.canonical_key)) > 0')
+    expect(migration).toContain("position(a.q in lower(coalesce(o.published_name, ''))) > 0")
+  })
+
+  it('keeps identifier matching literal instead of treating technical separators as SQL wildcards', () => {
+    const literalSection = migration.slice(
+      migration.indexOf('literal_ranked as ('),
+      migration.indexOf('literal as ('),
+    )
+    expect(literalSection).not.toContain("like '%' || a.q || '%'")
+    expect(literalSection).toContain('position(a.q in lower(o.canonical_key)) > 0')
   })
 
   it('preserves project-over-global precedence and published-source pinning', () => {
     expect(migration).toContain("'project'::text as scope_type, 0 as scope_rank")
     expect(migration).toContain("'global'::text as scope_type, 1 as scope_rank")
-    expect(migration).toContain("s.published_version_id = sv.id")
+    expect(migration).toContain('s.published_version_id = sv.id')
     expect(migration).toContain('partition by o.canonical_key')
   })
 
