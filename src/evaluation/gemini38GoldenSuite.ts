@@ -21,5 +21,6 @@ export const GEMINI38_GOLDEN_SUITE: Gemini38GoldenScenario[] = [
   { id: 'G38-13', name: 'Provider isolation', critical: true, contract: 'Explicit Gemini never silently falls back to OpenAI.' },
   { id: 'G38-14', name: 'Unsupported parameters', critical: true, contract: 'Gemini 3.8 builders omit unsupported legacy sampling fields.' },
   { id: 'G38-15', name: 'Multi-tool round', critical: true, contract: 'Parallel function calls and observations retain exact ids.' },
-  { id: 'G38-16', name: 'Adaptive evidence work plan', critical: true, contract: 'Controller resolves the conversational goal, publishes a concise work plan, reports material findings/plan changes, avoids broad enumeration without a real evidence gap, and stops when evidence is sufficient.' },
+  { id: 'G38-16', name: 'Adaptive evidence work plan', critical: true, contract: 'Controller resolves the conversational goal, reports material findings/plan changes, avoids broad enumeration without a real evidence gap, and stops when evidence is sufficient.' },
+  { id: 'G38-17', name: 'Public work lifecycle gate', critical: true, contract: 'Direct answers remain possible, but any tool-backed work must first publish the controller model’s contextual resolved goal and structured plan; one empty discovery observation must trigger re-evaluation rather than an absence claim.' },
 ]
