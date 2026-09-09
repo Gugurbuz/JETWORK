@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Folder,
   FolderInput,
+  FolderKanban,
   FolderOpen,
   Loader2,
   LogOut,
@@ -34,14 +35,32 @@ import { supabase } from '../supabase';
 import { useDataStore } from '../store/useDataStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { STANDALONE_PROJECT_ID } from '../hooks/useProjects';
+import {
+  ConversationWorkspace,
+  ProjectWithWorkspaceGroups,
+  STANDALONE_PROJECT_ID,
+} from '../hooks/useProjects';
 import { setWorkspaceProject } from '../services/workspaceScopeRepository';
+import {
+  createProjectWorkspaceGroup,
+  deleteProjectWorkspaceGroup,
+  ProjectWorkspaceGroup,
+  renameProjectWorkspaceGroup,
+  setConversationWorkspaceGroup,
+} from '../services/projectWorkspaceGroupRepository';
 import { JetWorkLogo } from './JetWorkLogo';
 import { FileLibrary } from './FileLibrary';
+import { ProjectWorkspaceGroupModal } from './ProjectWorkspaceGroupModal';
 
 export type ThemeType = 'monochrome' | 'energetic' | 'ocean';
 type Lifecycle = 'active' | 'archived' | 'trash';
-type ConversationRowSize = 'default' | 'compact';
+type ConversationRowSize = 'default' | 'nested';
+
+type WorkspaceGroupModalState = {
+  mode: 'create' | 'rename';
+  project: ProjectWithWorkspaceGroups;
+  group?: ProjectWorkspaceGroup;
+};
 
 interface SidebarProps {
   user: { uid: string; name: string; role: string; color?: string } | null;
@@ -69,32 +88,34 @@ interface AnchorBox {
 }
 
 interface ChatMenuState {
-  workspace: Workspace;
+  workspace: ConversationWorkspace;
   projectId: string | null;
   anchor: AnchorBox;
 }
 
 interface ConversationRowProps {
-  workspace: Workspace;
+  workspace: ConversationWorkspace;
   projectId: string | null;
   currentWorkspaceId: string | null;
   canManage: boolean;
   menuOpen: boolean;
   size?: ConversationRowSize;
   title?: string;
+  subtitle?: string;
   onSelect: () => void;
   onOpenMenu: (button: HTMLButtonElement) => void;
 }
 
 interface ConversationActionsMenuProps {
   menu: ChatMenuState;
-  projects: Project[];
+  projects: ProjectWithWorkspaceGroups[];
   lifecycle: Lifecycle;
   pending: boolean;
   menuRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onRename: () => void;
-  onMove: (projectId: string | null) => void;
+  onMoveProject: (projectId: string | null) => void;
+  onMoveWorkspaceGroup: (workspaceGroupId: string | null) => void;
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -105,7 +126,12 @@ const STANDALONE_CHAT_PAGE_SIZE = 10;
 const PROJECT_CHAT_PAGE_SIZE = 8;
 const RECENT_CHAT_LIMIT = 7;
 const SIDEBAR_COLLAPSED_KEY = 'jetwork:global-sidebar:collapsed';
-const CHAT_MENU_WIDTH = 224;
+const CHAT_MENU_WIDTH = 232;
+
+const sectionHeadingClass = 'text-[12px] font-semibold leading-5 tracking-[-0.01em] text-theme-text-muted';
+const navRowClass = 'flex h-10 w-full items-center gap-3 rounded-xl px-3 text-[14px] font-medium transition-colors hover:bg-theme-surface-hover';
+const metadataClass = 'text-[11px] font-medium tabular-nums text-theme-text-muted/75';
+const moreButtonClass = 'mt-1 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-[12px] font-medium text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text';
 
 const readCollapsedPreference = (): boolean => {
   try {
@@ -127,8 +153,8 @@ const conversationSectionLabel: Record<Lifecycle, string> = {
   trash: 'Çöp kutusundaki sohbetler',
 };
 
-const sortWorkspacesByRecent = (workspaces: Workspace[]) => (
-  [...workspaces].sort((a, b) => Number(b.lastUpdated || 0) - Number(a.lastUpdated || 0))
+const sortConversationsByRecent = (workspaces: Workspace[]) => (
+  [...workspaces].sort((a, b) => Number(b.lastUpdated || 0) - Number(a.lastUpdated || 0)) as ConversationWorkspace[]
 );
 
 function ConversationRow({
@@ -139,11 +165,12 @@ function ConversationRow({
   menuOpen,
   size = 'default',
   title,
+  subtitle,
   onSelect,
   onOpenMenu,
 }: ConversationRowProps) {
-  const compact = size === 'compact';
   const selected = currentWorkspaceId === workspace.id;
+  const nested = size === 'nested';
 
   return (
     <div
@@ -157,16 +184,19 @@ function ConversationRow({
         onClick={onSelect}
         title={title || workspace.title}
         className={cn(
-          'min-w-0 flex-1 truncate text-left transition-colors',
-          compact ? 'rounded-lg px-2 py-1.5 pr-10 text-xs' : 'rounded-xl px-2.5 py-2 pr-11 text-sm',
-          selected || menuOpen
-            ? 'font-medium text-theme-text'
-            : compact
-              ? 'text-theme-text-muted hover:bg-theme-bg/70 hover:text-theme-text'
-              : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
+          'min-w-0 flex-1 rounded-xl text-left transition-colors',
+          nested ? 'px-2 py-1.5 pr-10' : 'px-2.5 py-2 pr-11',
+          selected || menuOpen ? 'text-theme-text' : 'text-theme-text/80 hover:bg-theme-surface-hover hover:text-theme-text',
         )}
       >
-        {workspace.title}
+        <span className={cn('block truncate text-[14px] leading-5', selected ? 'font-medium' : 'font-normal')}>
+          {workspace.title}
+        </span>
+        {subtitle && !nested && (
+          <span className="mt-0.5 block truncate text-[11px] font-normal leading-4 text-theme-text-muted">
+            {subtitle}
+          </span>
+        )}
       </button>
 
       {canManage && (
@@ -180,9 +210,7 @@ function ConversationRow({
           }}
           className={cn(
             'absolute right-0.5 flex h-9 w-9 items-center justify-center rounded-lg text-theme-text-muted transition-all hover:bg-theme-bg hover:text-theme-text focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-theme-primary/40',
-            menuOpen
-              ? 'opacity-100'
-              : 'opacity-60 md:opacity-0 md:group-hover/chat:opacity-100',
+            menuOpen ? 'opacity-100' : 'opacity-60 md:opacity-0 md:group-hover/chat:opacity-100',
           )}
           title="Sohbet seçenekleri"
           aria-label={`${workspace.title} seçenekleri`}
@@ -204,127 +232,124 @@ function ConversationActionsMenu({
   menuRef,
   onClose,
   onRename,
-  onMove,
+  onMoveProject,
+  onMoveWorkspaceGroup,
   onArchive,
   onRestore,
   onDelete,
 }: ConversationActionsMenuProps) {
-  const [view, setView] = React.useState<'root' | 'move'>('root');
+  const [view, setView] = React.useState<'root' | 'project' | 'workspace'>('root');
   const viewportWidth = typeof window === 'undefined' ? 1280 : window.innerWidth;
   const viewportHeight = typeof window === 'undefined' ? 800 : window.innerHeight;
   const openToRight = menu.anchor.right + 8 + CHAT_MENU_WIDTH <= viewportWidth - 8;
-  const left = openToRight
-    ? menu.anchor.right + 8
-    : Math.max(8, menu.anchor.left - CHAT_MENU_WIDTH - 8);
-  const top = Math.min(menu.anchor.bottom + 4, Math.max(8, viewportHeight - 320));
-  const moveTargets = projects.filter(project => (
-    !project.deletedAt && !project.archivedAt && project.id !== menu.projectId
-  ));
+  const left = openToRight ? menu.anchor.right + 8 : Math.max(8, menu.anchor.left - CHAT_MENU_WIDTH - 8);
+  const top = Math.min(menu.anchor.bottom + 4, Math.max(8, viewportHeight - 340));
+  const moveTargets = projects.filter(project => !project.deletedAt && !project.archivedAt && project.id !== menu.projectId);
+  const currentProject = menu.projectId ? projects.find(project => project.id === menu.projectId) : undefined;
+  const workspaceGroups = (currentProject?.workspaceGroups || []).filter(group => !group.deletedAt && !group.archivedAt);
+  const actionClass = 'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-theme-surface-hover disabled:cursor-not-allowed disabled:opacity-50';
 
-  const actionClass = 'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-theme-surface-hover disabled:cursor-not-allowed disabled:opacity-50';
+  const BackButton = ({ label }: { label: string }) => (
+    <button type="button" onClick={() => setView('root')} className={cn(actionClass, 'mb-1 font-medium text-theme-text')} disabled={pending}>
+      <ChevronLeft size={14} />
+      {label}
+    </button>
+  );
 
   return (
     <div
       ref={menuRef}
       role="menu"
       aria-label={`${menu.workspace.title} sohbet seçenekleri`}
-      className="fixed z-[100] w-56 rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-2xl"
-      style={{ left, top, maxHeight: 'min(420px, calc(100vh - 16px))' }}
+      className="fixed z-[100] w-[232px] rounded-xl border border-theme-border/70 bg-theme-bg p-1.5 shadow-2xl"
+      style={{ left, top, maxHeight: 'min(440px, calc(100vh - 16px))' }}
     >
-      {view === 'move' ? (
-        <div className="max-h-[min(380px,60vh)] overflow-y-auto">
-          <button
-            type="button"
-            onClick={() => setView('root')}
-            className={cn(actionClass, 'mb-1 font-medium text-theme-text')}
-            disabled={pending}
-          >
-            <ChevronLeft size={14} />
-            Projeye taşı
-          </button>
+      {view === 'project' && (
+        <div className="max-h-[min(390px,60vh)] overflow-y-auto">
+          <BackButton label="Projeye taşı" />
           <div className="mb-1 border-t border-theme-border/60" />
-
           {menu.projectId && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => onMove(null)}
-              className={cn(actionClass, 'text-theme-text-muted hover:text-theme-text')}
-              disabled={pending}
-            >
+            <button type="button" role="menuitem" onClick={() => onMoveProject(null)} className={cn(actionClass, 'text-theme-text/80 hover:text-theme-text')} disabled={pending}>
               <MessageSquarePlus size={14} />
-              Bağımsız sohbete taşı
+              Bağımsız sohbetlere taşı
             </button>
           )}
-
           {moveTargets.map(project => (
-            <button
-              type="button"
-              role="menuitem"
-              key={project.id}
-              onClick={() => onMove(project.id)}
-              className={cn(actionClass, 'text-theme-text-muted hover:text-theme-text')}
-              disabled={pending}
-            >
+            <button type="button" role="menuitem" key={project.id} onClick={() => onMoveProject(project.id)} className={cn(actionClass, 'text-theme-text/80 hover:text-theme-text')} disabled={pending}>
               <Folder size={14} className="shrink-0" />
               <span className="truncate">{project.name}</span>
             </button>
           ))}
+        </div>
+      )}
 
-          {!menu.projectId && moveTargets.length === 0 && (
-            <div className="px-2.5 py-3 text-xs text-theme-text-muted">Taşınabilecek aktif proje yok.</div>
+      {view === 'workspace' && (
+        <div className="max-h-[min(390px,60vh)] overflow-y-auto">
+          <BackButton label="Çalışma alanına taşı" />
+          <div className="mb-1 border-t border-theme-border/60" />
+          <button type="button" role="menuitem" onClick={() => onMoveWorkspaceGroup(null)} className={cn(actionClass, 'text-theme-text/80 hover:text-theme-text')} disabled={pending}>
+            <Folder size={14} />
+            Proje kökünde bırak
+          </button>
+          {workspaceGroups.map(group => (
+            <button type="button" role="menuitem" key={group.id} onClick={() => onMoveWorkspaceGroup(group.id)} className={cn(actionClass, 'text-theme-text/80 hover:text-theme-text')} disabled={pending}>
+              <FolderKanban size={14} className="shrink-0" />
+              <span className="truncate">{group.name}</span>
+            </button>
+          ))}
+          {workspaceGroups.length === 0 && (
+            <div className="px-2.5 py-3 text-[12px] text-theme-text-muted">Bu projede henüz çalışma alanı yok.</div>
           )}
         </div>
-      ) : (
+      )}
+
+      {view === 'root' && (
         <>
           {lifecycle === 'active' ? (
             <>
               <button type="button" role="menuitem" onClick={onRename} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
-                <Pencil size={14} />
-                Yeniden adlandır
+                <Pencil size={14} /> Yeniden adlandır
               </button>
-              <button type="button" role="menuitem" onClick={() => setView('move')} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
-                <FolderInput size={14} />
-                Projeye taşı
+              {menu.projectId && (
+                <button type="button" role="menuitem" onClick={() => setView('workspace')} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
+                  <FolderKanban size={14} /> Çalışma alanına taşı
+                  <ChevronRight size={13} className="ml-auto" />
+                </button>
+              )}
+              <button type="button" role="menuitem" onClick={() => setView('project')} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
+                <FolderInput size={14} /> Projeye taşı
                 <ChevronRight size={13} className="ml-auto" />
               </button>
               <button type="button" role="menuitem" onClick={onArchive} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
-                <Archive size={14} />
-                Arşivle
+                <Archive size={14} /> Arşivle
               </button>
               <div className="my-1 border-t border-theme-border/60" />
               <button type="button" role="menuitem" onClick={onDelete} className={cn(actionClass, 'text-red-500 hover:bg-red-500/10')} disabled={pending}>
-                <Trash2 size={14} />
-                Sil
+                <Trash2 size={14} /> Sil
               </button>
             </>
           ) : (
             <>
               <button type="button" role="menuitem" onClick={onRestore} className={cn(actionClass, 'text-theme-text')} disabled={pending}>
-                <RotateCcw size={14} />
-                Geri yükle
+                <RotateCcw size={14} /> Geri yükle
               </button>
               {lifecycle !== 'trash' && (
                 <>
                   <div className="my-1 border-t border-theme-border/60" />
                   <button type="button" role="menuitem" onClick={onDelete} className={cn(actionClass, 'text-red-500 hover:bg-red-500/10')} disabled={pending}>
-                    <Trash2 size={14} />
-                    Sil
+                    <Trash2 size={14} /> Sil
                   </button>
                 </>
               )}
             </>
           )}
-
           {pending && (
             <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-theme-text-muted">
-              <Loader2 size={12} className="animate-spin" />
-              İşleniyor…
+              <Loader2 size={12} className="animate-spin" /> İşleniyor…
             </div>
           )}
         </>
       )}
-
       <button type="button" className="sr-only" onClick={onClose}>Menüyü kapat</button>
     </div>
   );
@@ -349,7 +374,7 @@ export function Sidebar(props: SidebarProps) {
     onOpenSettings,
   } = props;
 
-  const projects = useDataStore(state => state.projects);
+  const projects = useDataStore(state => state.projects) as ProjectWithWorkspaceGroups[];
   const currentProjectId = useDataStore(state => state.currentProjectId);
   const currentWorkspaceId = useDataStore(state => state.currentWorkspaceId);
   const setCurrentWorkspaceId = useDataStore(state => state.setCurrentWorkspaceId);
@@ -370,34 +395,34 @@ export function Sidebar(props: SidebarProps) {
   const [visibleProjectCount, setVisibleProjectCount] = React.useState(PROJECT_PAGE_SIZE);
   const [visibleStandaloneCount, setVisibleStandaloneCount] = React.useState(STANDALONE_CHAT_PAGE_SIZE);
   const [visibleProjectChats, setVisibleProjectChats] = React.useState<Record<string, number>>({});
-  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  const [expandedProjects, setExpandedProjects] = React.useState<Record<string, boolean>>({});
+  const [expandedGroups, setExpandedGroups] = React.useState<Record<string, boolean>>({});
   const [showUserMenu, setShowUserMenu] = React.useState(false);
   const [filesOpen, setFilesOpen] = React.useState(false);
   const [chatMenu, setChatMenu] = React.useState<ChatMenuState | null>(null);
   const [pendingChatId, setPendingChatId] = React.useState<string | null>(null);
+  const [workspaceGroupModal, setWorkspaceGroupModal] = React.useState<WorkspaceGroupModalState | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const chatMenuRef = React.useRef<HTMLDivElement>(null);
 
-  const standaloneGroup = React.useMemo(
-    () => projects.find(project => project.id === STANDALONE_PROJECT_ID),
-    [projects],
-  );
-  const standaloneWorkspaces = standaloneGroup?.workspaces || [];
-  const actualProjects = React.useMemo(
-    () => projects.filter(project => project.id !== STANDALONE_PROJECT_ID),
-    [projects],
-  );
-
+  const standaloneGroup = React.useMemo(() => projects.find(project => project.id === STANDALONE_PROJECT_ID), [projects]);
+  const standaloneWorkspaces = (standaloneGroup?.workspaces || []) as ConversationWorkspace[];
+  const actualProjects = React.useMemo(() => projects.filter(project => project.id !== STANDALONE_PROJECT_ID), [projects]);
   const compact = collapsed && !mobileOpen;
+
   const activeProject = React.useMemo(
     () => actualProjects.find(project => project.workspaces.some(workspace => workspace.id === currentWorkspaceId)),
     [actualProjects, currentWorkspaceId],
   );
   const activeWorkspace = React.useMemo(
     () => standaloneWorkspaces.find(workspace => workspace.id === currentWorkspaceId)
-      || activeProject?.workspaces.find(workspace => workspace.id === currentWorkspaceId),
+      || (activeProject?.workspaces as ConversationWorkspace[] | undefined)?.find(workspace => workspace.id === currentWorkspaceId),
     [activeProject, currentWorkspaceId, standaloneWorkspaces],
   );
+  const activeWorkspaceGroup = React.useMemo(() => {
+    if (!activeProject || !activeWorkspace?.workspaceGroupId) return undefined;
+    return (activeProject.workspaceGroups || []).find(group => group.id === activeWorkspace.workspaceGroupId);
+  }, [activeProject, activeWorkspace]);
 
   const workspaceMatchesLifecycle = React.useCallback((workspace: Workspace) => {
     if (lifecycle === 'trash') return Boolean(workspace.deletedAt);
@@ -418,18 +443,14 @@ export function Sidebar(props: SidebarProps) {
     return (scope === 'owned') === owned;
   }, [scope, user?.uid]);
 
-  const getVisibleProjectWorkspaces = React.useCallback((project: Project) => {
-    if (lifecycle === 'active') {
-      return sortWorkspacesByRecent(project.workspaces.filter(workspace => !workspace.deletedAt && !workspace.archivedAt));
-    }
+  const getVisibleProjectConversations = React.useCallback((project: Project) => {
+    if (lifecycle === 'active') return sortConversationsByRecent(project.workspaces.filter(workspace => !workspace.deletedAt && !workspace.archivedAt));
     if (lifecycle === 'archived') {
-      if (project.archivedAt && !project.deletedAt) {
-        return sortWorkspacesByRecent(project.workspaces.filter(workspace => !workspace.deletedAt));
-      }
-      return sortWorkspacesByRecent(project.workspaces.filter(workspace => !workspace.deletedAt && Boolean(workspace.archivedAt)));
+      if (project.archivedAt && !project.deletedAt) return sortConversationsByRecent(project.workspaces.filter(workspace => !workspace.deletedAt));
+      return sortConversationsByRecent(project.workspaces.filter(workspace => !workspace.deletedAt && Boolean(workspace.archivedAt)));
     }
-    if (project.deletedAt) return sortWorkspacesByRecent(project.workspaces);
-    return sortWorkspacesByRecent(project.workspaces.filter(workspace => Boolean(workspace.deletedAt)));
+    if (project.deletedAt) return sortConversationsByRecent(project.workspaces);
+    return sortConversationsByRecent(project.workspaces.filter(workspace => Boolean(workspace.deletedAt)));
   }, [lifecycle]);
 
   React.useEffect(() => {
@@ -442,40 +463,24 @@ export function Sidebar(props: SidebarProps) {
     try {
       window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
     } catch {
-      // Sidebar remains usable when local storage is blocked.
+      // Sidebar stays usable when local storage is unavailable.
     }
   }, [collapsed]);
 
   React.useEffect(() => {
     if (!activeProject) return;
-    setExpanded(previous => ({ ...previous, [activeProject.id]: true }));
+    setExpandedProjects(previous => ({ ...previous, [activeProject.id]: true }));
     setScope(activeProject.ownerId === user?.uid ? 'owned' : 'shared');
     setLifecycle(activeProject.deletedAt ? 'trash' : activeProject.archivedAt ? 'archived' : 'active');
   }, [activeProject, user?.uid]);
 
   React.useEffect(() => {
-    if (!activeProject || !currentWorkspaceId) return;
-    const visibleWorkspaces = getVisibleProjectWorkspaces(activeProject);
-    const activeIndex = visibleWorkspaces.findIndex(workspace => workspace.id === currentWorkspaceId);
-    if (activeIndex < 0) return;
-    setVisibleProjectChats(previous => ({
-      ...previous,
-      [activeProject.id]: Math.max(previous[activeProject.id] || PROJECT_CHAT_PAGE_SIZE, activeIndex + 1),
-    }));
-  }, [activeProject, currentWorkspaceId, getVisibleProjectWorkspaces]);
-
-  React.useEffect(() => {
-    if (activeProject || !currentWorkspaceId) return;
-    const ordered = sortWorkspacesByRecent(standaloneWorkspaces.filter(workspaceMatchesLifecycle));
-    const activeIndex = ordered.findIndex(workspace => workspace.id === currentWorkspaceId);
-    if (activeIndex >= 0) {
-      setVisibleStandaloneCount(current => Math.max(current, activeIndex + 1));
-    }
-  }, [activeProject, currentWorkspaceId, standaloneWorkspaces, workspaceMatchesLifecycle]);
+    if (!activeWorkspaceGroup) return;
+    setExpandedGroups(previous => ({ ...previous, [activeWorkspaceGroup.id]: true }));
+  }, [activeWorkspaceGroup]);
 
   React.useEffect(() => {
     if (!chatMenu) return;
-
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -484,11 +489,9 @@ export function Sidebar(props: SidebarProps) {
       if (trigger?.getAttribute('data-chat-menu-trigger') === chatMenu.workspace.id) return;
       setChatMenu(null);
     };
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setChatMenu(null);
     };
-
     window.addEventListener('pointerdown', handlePointerDown, true);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
@@ -501,43 +504,45 @@ export function Sidebar(props: SidebarProps) {
     const normalized = query.trim().toLocaleLowerCase('tr-TR');
     return actualProjects.filter(project => {
       if (!projectMatchesScope(project)) return false;
-
       const projectLifecycleMatch = projectMatchesLifecycle(project);
-      const matchingWorkspaces = getVisibleProjectWorkspaces(project);
+      const matchingConversations = getVisibleProjectConversations(project);
       if (lifecycle === 'active') {
         if (!projectLifecycleMatch) return false;
-      } else if (!projectLifecycleMatch && matchingWorkspaces.length === 0) {
+      } else if (!projectLifecycleMatch && matchingConversations.length === 0) {
         return false;
       }
-
       if (!normalized) return true;
-      return [project.name, project.description, ...matchingWorkspaces.map(workspace => workspace.title)]
-        .filter(Boolean)
-        .join(' ')
-        .toLocaleLowerCase('tr-TR')
-        .includes(normalized);
+      return [
+        project.name,
+        project.description,
+        ...(project.workspaceGroups || []).map(group => group.name),
+        ...matchingConversations.map(workspace => workspace.title),
+      ].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR').includes(normalized);
     });
-  }, [actualProjects, getVisibleProjectWorkspaces, lifecycle, projectMatchesLifecycle, projectMatchesScope, query]);
+  }, [actualProjects, getVisibleProjectConversations, lifecycle, projectMatchesLifecycle, projectMatchesScope, query]);
 
   const visibleStandalone = React.useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('tr-TR');
-    return sortWorkspacesByRecent(standaloneWorkspaces
+    return sortConversationsByRecent(standaloneWorkspaces
       .filter(workspaceMatchesLifecycle)
       .filter(workspace => !normalized || workspace.title.toLocaleLowerCase('tr-TR').includes(normalized)));
   }, [query, standaloneWorkspaces, workspaceMatchesLifecycle]);
 
   const recentWorkspaces = React.useMemo(() => {
-    if (lifecycle !== 'active') return [];
-    const rows: Array<{ workspace: Workspace; project: Project }> = [];
+    if (lifecycle !== 'active') return [] as Array<{ workspace: ConversationWorkspace; project: ProjectWithWorkspaceGroups; group?: ProjectWorkspaceGroup }>;
+    const rows: Array<{ workspace: ConversationWorkspace; project: ProjectWithWorkspaceGroups; group?: ProjectWorkspaceGroup }> = [];
     actualProjects.forEach(project => {
       if (!projectMatchesScope(project) || project.deletedAt || project.archivedAt) return;
-      project.workspaces.forEach(workspace => {
-        if (!workspace.deletedAt && !workspace.archivedAt) rows.push({ workspace, project });
+      (project.workspaces as ConversationWorkspace[]).forEach(workspace => {
+        if (workspace.deletedAt || workspace.archivedAt) return;
+        rows.push({
+          workspace,
+          project,
+          group: workspace.workspaceGroupId ? (project.workspaceGroups || []).find(group => group.id === workspace.workspaceGroupId) : undefined,
+        });
       });
     });
-    return rows
-      .sort((a, b) => Number(b.workspace.lastUpdated || 0) - Number(a.workspace.lastUpdated || 0))
-      .slice(0, RECENT_CHAT_LIMIT);
+    return rows.sort((a, b) => Number(b.workspace.lastUpdated || 0) - Number(a.workspace.lastUpdated || 0)).slice(0, RECENT_CHAT_LIMIT);
   }, [actualProjects, lifecycle, projectMatchesScope]);
 
   const runMobileAction = React.useCallback((action: () => void) => {
@@ -546,56 +551,41 @@ export function Sidebar(props: SidebarProps) {
   }, [mobileOpen, setMobileOpen]);
 
   const closeChatMenu = React.useCallback(() => setChatMenu(null), []);
-
   const selectProject = (id: string) => {
     closeChatMenu();
     runMobileAction(() => onSelectProject(id));
   };
-
   const selectWorkspace = (id: string) => {
     closeChatMenu();
     runMobileAction(() => onSelectWorkspace(id));
   };
-
   const startNewChat = () => {
     closeChatMenu();
     runMobileAction(() => onQuickStart?.());
   };
-
   const openNewProject = () => runMobileAction(() => setShowNewProjectModal(true));
   const openFiles = () => runMobileAction(() => setFilesOpen(true));
   const openQualityLab = () => runMobileAction(() => navigate('/quality'));
   const canManageProject = (project: Project) => project.ownerId === user?.uid;
-  const canManageWorkspace = (workspace: Workspace) => workspace.ownerId === user?.uid;
+  const canManageConversation = (workspace: Workspace) => workspace.ownerId === user?.uid;
+  const canManageGroup = (project: Project, group: ProjectWorkspaceGroup) => project.ownerId === user?.uid || group.ownerId === user?.uid;
 
-  const toggleChatMenu = (workspace: Workspace, projectId: string | null, button: HTMLButtonElement) => {
+  const toggleChatMenu = (workspace: ConversationWorkspace, projectId: string | null, button: HTMLButtonElement) => {
     setShowFilters(false);
     setShowUserMenu(false);
     setChatMenu(current => {
       if (current?.workspace.id === workspace.id) return null;
       const rect = button.getBoundingClientRect();
-      return {
-        workspace,
-        projectId,
-        anchor: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
-      };
+      return { workspace, projectId, anchor: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left } };
     });
   };
 
-  const updateWorkspaceLifecycle = async (
-    workspaceId: string,
-    values: { archived_at?: string | null; deleted_at?: string | null },
-  ) => {
-    const { error } = await supabase
-      .from('workspaces')
-      .update({ ...values, last_updated: nowIso() })
-      .eq('id', workspaceId)
-      .select('id')
-      .single();
+  const updateWorkspaceLifecycle = async (workspaceId: string, values: { archived_at?: string | null; deleted_at?: string | null }) => {
+    const { error } = await supabase.from('workspaces').update({ ...values, last_updated: nowIso() }).eq('id', workspaceId).select('id').single();
     if (error) throw error;
   };
 
-  const archiveWorkspace = async (workspace: Workspace) => {
+  const archiveWorkspace = async (workspace: ConversationWorkspace) => {
     setPendingChatId(workspace.id);
     try {
       await updateWorkspaceLifecycle(workspace.id, { archived_at: nowIso(), deleted_at: null });
@@ -610,7 +600,7 @@ export function Sidebar(props: SidebarProps) {
     }
   };
 
-  const restoreWorkspace = async (workspace: Workspace) => {
+  const restoreWorkspace = async (workspace: ConversationWorkspace) => {
     setPendingChatId(workspace.id);
     try {
       await updateWorkspaceLifecycle(workspace.id, { archived_at: null, deleted_at: null });
@@ -624,7 +614,7 @@ export function Sidebar(props: SidebarProps) {
     }
   };
 
-  const moveWorkspace = async (workspace: Workspace, projectId: string | null) => {
+  const moveWorkspace = async (workspace: ConversationWorkspace, projectId: string | null) => {
     setPendingChatId(workspace.id);
     try {
       await setWorkspaceProject(workspace.id, projectId);
@@ -638,16 +628,61 @@ export function Sidebar(props: SidebarProps) {
     }
   };
 
+  const moveWorkspaceGroup = async (workspace: ConversationWorkspace, workspaceGroupId: string | null) => {
+    setPendingChatId(workspace.id);
+    try {
+      await setConversationWorkspaceGroup(workspace.id, workspaceGroupId);
+      setChatMenu(null);
+      toast.success(workspaceGroupId ? 'Sohbet çalışma alanına taşındı.' : 'Sohbet proje köküne taşındı.');
+    } catch (error) {
+      console.error('Failed to move conversation to workspace group:', error);
+      toast.error('Sohbet çalışma alanına taşınamadı.');
+    } finally {
+      setPendingChatId(null);
+    }
+  };
+
   const renameWorkspace = (workspace: Workspace) => {
     setChatMenu(null);
     if (mobileOpen) setMobileOpen(false);
     setEditingWorkspace(workspace);
   };
-
   const deleteWorkspace = (workspaceId: string) => {
     setChatMenu(null);
     if (mobileOpen) setMobileOpen(false);
     setDeletingWorkspace(workspaceId);
+  };
+
+  const submitWorkspaceGroup = async (name: string) => {
+    if (!workspaceGroupModal || !user) return;
+    try {
+      if (workspaceGroupModal.mode === 'create') {
+        const id = await createProjectWorkspaceGroup(workspaceGroupModal.project.id, name, user.uid);
+        setExpandedProjects(previous => ({ ...previous, [workspaceGroupModal.project.id]: true }));
+        setExpandedGroups(previous => ({ ...previous, [id]: true }));
+        toast.success('Çalışma alanı oluşturuldu.');
+      } else if (workspaceGroupModal.group) {
+        await renameProjectWorkspaceGroup(workspaceGroupModal.group.id, name);
+        toast.success('Çalışma alanı yeniden adlandırıldı.');
+      }
+      setWorkspaceGroupModal(null);
+    } catch (error) {
+      console.error('Failed to save project workspace group:', error);
+      toast.error('Çalışma alanı kaydedilemedi.');
+      throw error;
+    }
+  };
+
+  const removeWorkspaceGroup = async (project: ProjectWithWorkspaceGroups, group: ProjectWorkspaceGroup) => {
+    if (!canManageGroup(project, group)) return;
+    if (!window.confirm(`“${group.name}” çalışma alanı silinsin mi? İçindeki sohbetler proje köküne taşınacak.`)) return;
+    try {
+      await deleteProjectWorkspaceGroup(group.id);
+      toast.success('Çalışma alanı silindi; sohbetler proje kökünde bırakıldı.');
+    } catch (error) {
+      console.error('Failed to delete project workspace group:', error);
+      toast.error('Çalışma alanı silinemedi.');
+    }
   };
 
   const openSettings = () => {
@@ -669,13 +704,10 @@ export function Sidebar(props: SidebarProps) {
     'transition-colors duration-150 hover:bg-theme-surface-hover hover:text-theme-text',
   );
 
-  const navRowClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors hover:bg-theme-surface-hover';
-  const moreButtonClass = 'mt-1 flex w-full items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text';
-
   const content = (
     <motion.aside
       initial={false}
-      animate={{ width: compact ? 64 : 268 }}
+      animate={{ width: compact ? 64 : 286 }}
       transition={{ type: 'spring', stiffness: 430, damping: 38 }}
       className={cn(
         'fixed inset-y-0 left-0 z-50 flex h-full max-w-[88vw] shrink-0 flex-col border-r border-theme-border/60 bg-theme-surface shadow-xl md:relative md:z-20 md:shadow-none',
@@ -691,16 +723,10 @@ export function Sidebar(props: SidebarProps) {
           title={compact ? 'Menüyü genişlet' : undefined}
         >
           <JetWorkLogo className={compact ? 'h-[26px] w-[26px]' : 'h-7 w-7'} />
-          {!compact && <span className="text-[15px] font-semibold tracking-tight text-theme-text">JetWork</span>}
+          {!compact && <span className="text-[18px] font-semibold tracking-[-0.02em] text-theme-text">JetWork</span>}
         </button>
         {!compact && (
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            className="hidden h-9 w-9 items-center justify-center rounded-xl text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text md:flex"
-            aria-label="Menüyü daralt"
-            title="Menüyü daralt"
-          >
+          <button type="button" onClick={() => setCollapsed(true)} className="hidden h-9 w-9 items-center justify-center rounded-xl text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text md:flex" aria-label="Menüyü daralt" title="Menüyü daralt">
             <ChevronLeft size={17} />
           </button>
         )}
@@ -708,30 +734,14 @@ export function Sidebar(props: SidebarProps) {
 
       {compact ? (
         <div className="flex flex-1 flex-col items-center gap-1 px-2 py-2">
-          <button type="button" onClick={startNewChat} className={compactActionClass} title="Yeni sohbet" aria-label="Yeni sohbet">
-            <MessageSquarePlus size={19} />
-          </button>
-          <button type="button" onClick={openSearch} className={compactActionClass} title="Ara" aria-label="Ara">
-            <Search size={19} />
-          </button>
+          <button type="button" onClick={startNewChat} className={compactActionClass} title="Yeni sohbet" aria-label="Yeni sohbet"><MessageSquarePlus size={19} /></button>
+          <button type="button" onClick={openSearch} className={compactActionClass} title="Ara" aria-label="Ara"><Search size={19} /></button>
+          <button type="button" onClick={openFiles} className={compactActionClass} title="Dosyalar" aria-label="Dosyalar"><FolderOpen size={19} /></button>
+          <button type="button" onClick={openQualityLab} className={compactActionClass} title="AI Quality Lab" aria-label="AI Quality Lab"><FlaskConical size={18} /></button>
           <div className="my-1 h-px w-7 bg-theme-border/60" />
-          <button type="button" onClick={openFiles} className={compactActionClass} title="Dosyalar" aria-label="Dosyalar">
-            <FolderOpen size={19} />
-          </button>
-          <button type="button" onClick={openQualityLab} className={compactActionClass} title="AI Quality Lab" aria-label="AI Quality Lab">
-            <FlaskConical size={18} />
-          </button>
-          <button type="button" onClick={() => setCollapsed(false)} className={compactActionClass} title="Projeler" aria-label="Projeler">
-            <Folder size={19} />
-          </button>
+          <button type="button" onClick={() => setCollapsed(false)} className={compactActionClass} title="Projeler" aria-label="Projeler"><Folder size={19} /></button>
           {activeWorkspace && (
-            <button
-              type="button"
-              onClick={() => setCollapsed(false)}
-              className={cn(compactActionClass, 'mt-3 bg-theme-surface-hover text-theme-text')}
-              title={activeWorkspace.title}
-              aria-label={`Aktif sohbet: ${activeWorkspace.title}`}
-            >
+            <button type="button" onClick={() => setCollapsed(false)} className={cn(compactActionClass, 'mt-3 bg-theme-surface-hover text-theme-text')} title={activeWorkspace.title} aria-label={`Aktif sohbet: ${activeWorkspace.title}`}>
               <FileText size={18} />
               <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-theme-primary" />
             </button>
@@ -739,59 +749,47 @@ export function Sidebar(props: SidebarProps) {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col px-2 pb-2">
-          <div className="space-y-1 px-1 pb-2">
-            <button type="button" onClick={startNewChat} className={cn(navRowClass, 'font-medium text-theme-text')}>
-              <MessageSquarePlus size={18} />
-              <span>Yeni sohbet</span>
+          <div className="space-y-1 px-1 pb-3">
+            <button type="button" onClick={startNewChat} className={cn(navRowClass, 'text-theme-text')}>
+              <MessageSquarePlus size={19} /> <span>Yeni sohbet</span>
             </button>
             {searchOpen ? (
-              <div className="relative flex w-full items-center rounded-xl bg-theme-bg ring-1 ring-theme-border/60 transition focus-within:ring-theme-text-muted/40">
+              <div className="relative flex h-10 w-full items-center rounded-xl bg-theme-bg ring-1 ring-theme-border/60 transition focus-within:ring-theme-text-muted/40">
                 <Search size={18} className="pointer-events-none absolute left-3 text-theme-text-muted" />
                 <input
                   ref={searchInputRef}
                   value={query}
                   onChange={event => setQuery(event.target.value)}
-                  onBlur={() => {
-                    if (!query.trim()) setSearchOpen(false);
-                  }}
+                  onBlur={() => { if (!query.trim()) setSearchOpen(false); }}
                   onKeyDown={event => {
                     if (event.key === 'Escape') {
                       setSearchOpen(false);
                       setQuery('');
                     }
                   }}
-                  aria-label="Sohbet veya proje ara"
-                  placeholder="Sohbet veya proje ara"
-                  className="w-full rounded-xl bg-transparent py-2 pl-10 pr-3 text-sm text-theme-text outline-none placeholder:text-theme-text-muted"
+                  aria-label="Sohbet, çalışma alanı veya proje ara"
+                  placeholder="Ara"
+                  className="w-full rounded-xl bg-transparent py-2 pl-10 pr-3 text-[14px] text-theme-text outline-none placeholder:text-theme-text-muted"
                 />
               </div>
             ) : (
-              <button type="button" onClick={openSearch} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
-                <Search size={18} />
-                <span>Ara</span>
+              <button type="button" onClick={openSearch} className={cn(navRowClass, 'text-theme-text/80 hover:text-theme-text')}>
+                <Search size={19} /> <span>Ara</span>
               </button>
             )}
-
-            <div className="pt-2">
-              <div className="mb-1 px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-theme-text-muted/80">Çalışma alanı</div>
-              <button type="button" onClick={openFiles} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
-                <FolderOpen size={18} />
-                <span>Dosyalar</span>
-              </button>
-              <button type="button" onClick={openQualityLab} className={cn(navRowClass, 'text-theme-text-muted hover:text-theme-text')}>
-                <FlaskConical size={18} />
-                <span>AI Quality Lab</span>
-              </button>
-            </div>
+            <button type="button" onClick={openFiles} className={cn(navRowClass, 'text-theme-text/80 hover:text-theme-text')}>
+              <FolderOpen size={19} /> <span>Dosyalar</span>
+            </button>
+            <button type="button" onClick={openQualityLab} className={cn(navRowClass, 'text-theme-text/80 hover:text-theme-text')}>
+              <FlaskConical size={18} /> <span>AI Quality Lab</span>
+            </button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3 scrollbar-hide">
-            <section className="mb-5">
+            <section className="mb-6">
               <div className="mb-1.5 flex items-center justify-between px-2">
-                <span className="text-[11px] font-medium text-theme-text-muted">{conversationSectionLabel[lifecycle]}</span>
-                {visibleStandalone.length > STANDALONE_CHAT_PAGE_SIZE && (
-                  <span className="text-[10px] tabular-nums text-theme-text-muted/70">{visibleStandalone.length}</span>
-                )}
+                <span className={sectionHeadingClass}>{conversationSectionLabel[lifecycle]}</span>
+                {visibleStandalone.length > STANDALONE_CHAT_PAGE_SIZE && <span className={metadataClass}>{visibleStandalone.length}</span>}
               </div>
               <div className="space-y-0.5">
                 {visibleStandalone.slice(0, visibleStandaloneCount).map(workspace => (
@@ -800,43 +798,38 @@ export function Sidebar(props: SidebarProps) {
                     workspace={workspace}
                     projectId={null}
                     currentWorkspaceId={currentWorkspaceId}
-                    canManage={canManageWorkspace(workspace)}
+                    canManage={canManageConversation(workspace)}
                     menuOpen={chatMenu?.workspace.id === workspace.id}
                     onSelect={() => selectWorkspace(workspace.id)}
                     onOpenMenu={button => toggleChatMenu(workspace, null, button)}
                   />
                 ))}
                 {visibleStandalone.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-theme-text-muted">
-                    {query ? 'Aramana uygun bağımsız sohbet yok.' : 'Bu görünümde bağımsız sohbet yok.'}
-                  </div>
+                  <div className="px-2.5 py-2 text-[12px] text-theme-text-muted">{query ? 'Aramana uygun bağımsız sohbet yok.' : 'Bu görünümde bağımsız sohbet yok.'}</div>
                 )}
               </div>
               {visibleStandalone.length > visibleStandaloneCount && (
-                <button
-                  type="button"
-                  onClick={() => setVisibleStandaloneCount(count => count + STANDALONE_CHAT_PAGE_SIZE)}
-                  className={moreButtonClass}
-                >
+                <button type="button" onClick={() => setVisibleStandaloneCount(count => count + STANDALONE_CHAT_PAGE_SIZE)} className={moreButtonClass}>
                   <ChevronDown size={13} /> Daha fazla göster
-                  <span className="ml-0.5 text-[10px] opacity-70">+{Math.min(STANDALONE_CHAT_PAGE_SIZE, visibleStandalone.length - visibleStandaloneCount)}</span>
+                  <span className={metadataClass}>+{Math.min(STANDALONE_CHAT_PAGE_SIZE, visibleStandalone.length - visibleStandaloneCount)}</span>
                 </button>
               )}
             </section>
 
             {recentWorkspaces.length > 0 && !query && (
-              <section className="mb-5">
-                <div className="mb-1.5 px-2 text-[11px] font-medium text-theme-text-muted">Son kullanılanlar</div>
+              <section className="mb-6">
+                <div className="mb-1.5 px-2"><span className={sectionHeadingClass}>Son kullanılanlar</span></div>
                 <div className="space-y-0.5">
-                  {recentWorkspaces.map(({ workspace, project }) => (
+                  {recentWorkspaces.map(({ workspace, project, group }) => (
                     <ConversationRow
                       key={`recent-${workspace.id}`}
                       workspace={workspace}
                       projectId={project.id}
                       currentWorkspaceId={currentWorkspaceId}
-                      canManage={canManageWorkspace(workspace)}
+                      canManage={canManageConversation(workspace)}
                       menuOpen={chatMenu?.workspace.id === workspace.id}
-                      title={`${project.name} · ${workspace.title}`}
+                      title={`${project.name}${group ? ` › ${group.name}` : ''} · ${workspace.title}`}
+                      subtitle={`${project.name}${group ? ` › ${group.name}` : ''}`}
                       onSelect={() => selectWorkspace(workspace.id)}
                       onOpenMenu={button => toggleChatMenu(workspace, project.id, button)}
                     />
@@ -846,32 +839,18 @@ export function Sidebar(props: SidebarProps) {
             )}
 
             <section>
-              <div className="relative mb-1 flex items-center justify-between px-2">
-                <span className="text-[11px] font-medium text-theme-text-muted">Projeler</span>
+              <div className="relative mb-1.5 flex items-center justify-between px-2">
+                <span className={sectionHeadingClass}>Projeler</span>
                 <div className="flex items-center gap-0.5">
                   {scope === 'owned' && lifecycle === 'active' && (
-                    <button
-                      type="button"
-                      onClick={openNewProject}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text"
-                      aria-label="Yeni proje"
-                      title="Yeni proje"
-                    >
+                    <button type="button" onClick={openNewProject} className="flex h-7 w-7 items-center justify-center rounded-lg text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text" aria-label="Yeni proje" title="Yeni proje">
                       <Plus size={15} />
                     </button>
                   )}
                   <button
                     type="button"
-                    onClick={() => {
-                      closeChatMenu();
-                      setShowFilters(previous => !previous);
-                    }}
-                    className={cn(
-                      'flex h-7 w-7 items-center justify-center rounded-lg transition-colors',
-                      showFilters || scope === 'shared' || lifecycle !== 'active'
-                        ? 'bg-theme-surface-hover text-theme-text'
-                        : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text',
-                    )}
+                    onClick={() => { closeChatMenu(); setShowFilters(previous => !previous); }}
+                    className={cn('flex h-7 w-7 items-center justify-center rounded-lg transition-colors', showFilters || scope === 'shared' || lifecycle !== 'active' ? 'bg-theme-surface-hover text-theme-text' : 'text-theme-text-muted hover:bg-theme-surface-hover hover:text-theme-text')}
                     aria-label="Sohbet ve proje filtreleri"
                     title="Filtreler"
                   >
@@ -881,33 +860,17 @@ export function Sidebar(props: SidebarProps) {
 
                 {showFilters && (
                   <div className="absolute right-1 top-8 z-30 w-48 rounded-2xl border border-theme-border/70 bg-theme-bg p-2 shadow-xl">
-                    <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-theme-text-muted">Kapsam</div>
+                    <div className="px-2 pb-1 pt-1 text-[11px] font-semibold text-theme-text-muted">Kapsam</div>
                     {(['owned', 'shared'] as const).map(value => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setScope(value)}
-                        className={cn(
-                          'flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-theme-surface-hover',
-                          scope === value ? 'font-medium text-theme-text' : 'text-theme-text-muted',
-                        )}
-                      >
+                      <button key={value} type="button" onClick={() => setScope(value)} className={cn('flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[12px] transition-colors hover:bg-theme-surface-hover', scope === value ? 'font-medium text-theme-text' : 'text-theme-text/75')}>
                         {value === 'owned' ? 'Projelerim' : 'Paylaşılanlar'}
                         {scope === value && <span className="h-1.5 w-1.5 rounded-full bg-theme-primary" />}
                       </button>
                     ))}
                     <div className="my-1 border-t border-theme-border/60" />
-                    <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-theme-text-muted">Durum</div>
+                    <div className="px-2 pb-1 pt-1 text-[11px] font-semibold text-theme-text-muted">Durum</div>
                     {(['active', 'archived', 'trash'] as const).map(value => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setLifecycle(value)}
-                        className={cn(
-                          'flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-theme-surface-hover',
-                          lifecycle === value ? 'font-medium text-theme-text' : 'text-theme-text-muted',
-                        )}
-                      >
+                      <button key={value} type="button" onClick={() => setLifecycle(value)} className={cn('flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[12px] transition-colors hover:bg-theme-surface-hover', lifecycle === value ? 'font-medium text-theme-text' : 'text-theme-text/75')}>
                         {lifecycleLabel[value]}
                         {lifecycle === value && <span className="h-1.5 w-1.5 rounded-full bg-theme-primary" />}
                       </button>
@@ -917,110 +880,147 @@ export function Sidebar(props: SidebarProps) {
               </div>
 
               {(scope === 'shared' || lifecycle !== 'active') && (
-                <div className="mb-2 flex items-center gap-1.5 px-2 text-[10px] text-theme-text-muted">
-                  <span>{scope === 'shared' ? 'Paylaşılanlar' : 'Projelerim'}</span>
-                  <span>·</span>
-                  <span>{lifecycleLabel[lifecycle]}</span>
+                <div className="mb-2 flex items-center gap-1.5 px-2 text-[11px] text-theme-text-muted">
+                  <span>{scope === 'shared' ? 'Paylaşılanlar' : 'Projelerim'}</span><span>·</span><span>{lifecycleLabel[lifecycle]}</span>
                 </div>
               )}
 
               {projectsError && (
-                <div className="mx-1 mb-3 rounded-xl bg-red-500/5 p-3 text-xs text-red-600">
+                <div className="mx-1 mb-3 rounded-xl bg-red-500/5 p-3 text-[12px] text-red-600">
                   <p>Projeler yüklenemedi.</p>
-                  <button type="button" onClick={onRetryProjects} className="mt-2 flex items-center gap-1 font-medium">
-                    <RefreshCw size={12} /> Tekrar dene
-                  </button>
+                  <button type="button" onClick={onRetryProjects} className="mt-2 flex items-center gap-1 font-medium"><RefreshCw size={12} /> Tekrar dene</button>
                 </div>
               )}
+              {isLoadingProjects && projects.length === 0 && <Loader2 className="mx-auto mt-6 animate-spin text-theme-text-muted" size={18} />}
 
-              {isLoadingProjects && projects.length === 0 && (
-                <Loader2 className="mx-auto mt-6 animate-spin text-theme-text-muted" size={18} />
-              )}
-
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {filtered.slice(0, visibleProjectCount).map(project => {
                   const isProjectActive = currentProjectId === project.id || activeProject?.id === project.id;
-                  const open = Boolean(expanded[project.id]);
+                  const open = Boolean(expandedProjects[project.id]);
                   const projectLifecycleMatch = projectMatchesLifecycle(project);
-                  const visibleWorkspaces = getVisibleProjectWorkspaces(project);
+                  const visibleConversations = getVisibleProjectConversations(project);
                   const projectChatLimit = visibleProjectChats[project.id] || PROJECT_CHAT_PAGE_SIZE;
-                  const shownWorkspaces = visibleWorkspaces.slice(0, projectChatLimit);
+                  const rootConversations = visibleConversations.filter(workspace => !workspace.workspaceGroupId);
+                  const activeGroups = (project.workspaceGroups || []).filter(group => !group.deletedAt && !group.archivedAt);
+                  const shownRootConversations = rootConversations.slice(0, projectChatLimit);
 
                   return (
-                    <div key={project.id} className={cn('group/project rounded-xl', isProjectActive && 'bg-theme-surface-hover/60')}>
+                    <div key={project.id} className={cn('group/project rounded-xl', isProjectActive && 'bg-theme-surface-hover/55')}>
                       <div className="flex min-w-0 items-center gap-0.5 pr-1">
                         <button
                           type="button"
-                          onClick={() => setExpanded(state => ({ ...state, [project.id]: !state[project.id] }))}
-                          className="flex h-8 w-7 shrink-0 items-center justify-center text-theme-text-muted"
-                          aria-label={`${project.name} sohbetlerini ${open ? 'daralt' : 'genişlet'}`}
+                          onClick={() => setExpandedProjects(state => ({ ...state, [project.id]: !state[project.id] }))}
+                          className="flex h-9 w-7 shrink-0 items-center justify-center text-theme-text-muted"
+                          aria-label={`${project.name} içeriğini ${open ? 'daralt' : 'genişlet'}`}
                         >
-                          <ChevronRight size={13} className={cn('transition-transform duration-150', open && 'rotate-90')} />
+                          <ChevronRight size={14} className={cn('transition-transform duration-150', open && 'rotate-90')} />
                         </button>
                         <button
                           type="button"
                           onClick={() => selectProject(project.id)}
-                          className={cn(
-                            'flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-sm transition-colors',
-                            isProjectActive ? 'font-medium text-theme-text' : 'text-theme-text-muted hover:text-theme-text',
-                          )}
+                          className={cn('flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-[14px] font-medium transition-colors', isProjectActive ? 'text-theme-text' : 'text-theme-text/80 hover:text-theme-text')}
                         >
-                          <Folder size={15} className="shrink-0 opacity-70" />
+                          <Folder size={16} className="shrink-0 opacity-75" />
                           <span className="truncate">{project.name}</span>
-                          {visibleWorkspaces.length > PROJECT_CHAT_PAGE_SIZE && (
-                            <span className="ml-auto mr-1 text-[10px] tabular-nums text-theme-text-muted/70">{visibleWorkspaces.length}</span>
-                          )}
+                          {visibleConversations.length > PROJECT_CHAT_PAGE_SIZE && <span className={cn('ml-auto mr-1', metadataClass)}>{visibleConversations.length}</span>}
                         </button>
                         {canManageProject(project) && projectLifecycleMatch && (
                           <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/project:opacity-100 focus-within:opacity-100">
-                            {lifecycle === 'active' && (
-                              <button type="button" onClick={() => onArchiveProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-theme-text" title="Arşivle">
-                                <Archive size={12} />
-                              </button>
-                            )}
-                            {lifecycle !== 'active' && (
-                              <button type="button" onClick={() => onRestoreProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-theme-text" title="Geri yükle">
-                                <RotateCcw size={12} />
-                              </button>
-                            )}
-                            {lifecycle !== 'trash' && (
-                              <button type="button" onClick={() => onDeleteProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-red-500" title="Çöp kutusuna taşı">
-                                <Trash2 size={12} />
-                              </button>
-                            )}
+                            {lifecycle === 'active' && <button type="button" onClick={() => onArchiveProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-theme-text" title="Arşivle"><Archive size={12} /></button>}
+                            {lifecycle !== 'active' && <button type="button" onClick={() => onRestoreProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-theme-text" title="Geri yükle"><RotateCcw size={12} /></button>}
+                            {lifecycle !== 'trash' && <button type="button" onClick={() => onDeleteProject?.(project.id)} className="p-1.5 text-theme-text-muted hover:text-red-500" title="Çöp kutusuna taşı"><Trash2 size={12} /></button>}
                           </div>
                         )}
                       </div>
 
                       {open && (
-                        <div className="mb-1 ml-7 space-y-0.5 pl-2">
-                          {shownWorkspaces.map(workspace => (
-                            <ConversationRow
-                              key={workspace.id}
-                              workspace={workspace}
-                              projectId={project.id}
-                              currentWorkspaceId={currentWorkspaceId}
-                              canManage={canManageWorkspace(workspace)}
-                              menuOpen={chatMenu?.workspace.id === workspace.id}
-                              size="compact"
-                              onSelect={() => selectWorkspace(workspace.id)}
-                              onOpenMenu={button => toggleChatMenu(workspace, project.id, button)}
-                            />
-                          ))}
-                          {visibleWorkspaces.length === 0 && (
-                            <div className="px-2 py-1.5 text-[11px] text-theme-text-muted">Bu görünümde sohbet yok.</div>
+                        <div className="mb-1 ml-7 border-l border-theme-border/55 pl-2">
+                          <div className="space-y-0.5">
+                            {shownRootConversations.map(workspace => (
+                              <ConversationRow
+                                key={workspace.id}
+                                workspace={workspace}
+                                projectId={project.id}
+                                currentWorkspaceId={currentWorkspaceId}
+                                canManage={canManageConversation(workspace)}
+                                menuOpen={chatMenu?.workspace.id === workspace.id}
+                                size="nested"
+                                onSelect={() => selectWorkspace(workspace.id)}
+                                onOpenMenu={button => toggleChatMenu(workspace, project.id, button)}
+                              />
+                            ))}
+                          </div>
+
+                          {activeGroups.map(group => {
+                            const groupOpen = Boolean(expandedGroups[group.id]);
+                            const groupConversations = visibleConversations.filter(workspace => workspace.workspaceGroupId === group.id);
+                            return (
+                              <div key={group.id} className="group/workspace mt-1 rounded-lg">
+                                <div className="flex min-w-0 items-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedGroups(state => ({ ...state, [group.id]: !state[group.id] }))}
+                                    className="flex h-8 w-6 shrink-0 items-center justify-center text-theme-text-muted"
+                                    aria-label={`${group.name} çalışma alanını ${groupOpen ? 'daralt' : 'genişlet'}`}
+                                  >
+                                    <ChevronRight size={12} className={cn('transition-transform duration-150', groupOpen && 'rotate-90')} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedGroups(state => ({ ...state, [group.id]: !state[group.id] }))}
+                                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1.5 pr-1 text-left text-[13px] font-medium text-theme-text/78 transition-colors hover:bg-theme-bg/70 hover:text-theme-text"
+                                  >
+                                    <FolderKanban size={14} className="shrink-0 opacity-70" />
+                                    <span className="truncate">{group.name}</span>
+                                    {groupConversations.length > 0 && <span className={cn('ml-auto', metadataClass)}>{groupConversations.length}</span>}
+                                  </button>
+                                  {canManageGroup(project, group) && lifecycle === 'active' && (
+                                    <div className="flex shrink-0 opacity-0 transition-opacity group-hover/workspace:opacity-100 focus-within:opacity-100">
+                                      <button type="button" onClick={() => setWorkspaceGroupModal({ mode: 'rename', project, group })} className="p-1.5 text-theme-text-muted hover:text-theme-text" title="Çalışma alanını yeniden adlandır"><Pencil size={11} /></button>
+                                      <button type="button" onClick={() => void removeWorkspaceGroup(project, group)} className="p-1.5 text-theme-text-muted hover:text-red-500" title="Çalışma alanını sil"><Trash2 size={11} /></button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {groupOpen && (
+                                  <div className="ml-6 border-l border-theme-border/45 pl-2">
+                                    {groupConversations.map(workspace => (
+                                      <ConversationRow
+                                        key={workspace.id}
+                                        workspace={workspace}
+                                        projectId={project.id}
+                                        currentWorkspaceId={currentWorkspaceId}
+                                        canManage={canManageConversation(workspace)}
+                                        menuOpen={chatMenu?.workspace.id === workspace.id}
+                                        size="nested"
+                                        onSelect={() => selectWorkspace(workspace.id)}
+                                        onOpenMenu={button => toggleChatMenu(workspace, project.id, button)}
+                                      />
+                                    ))}
+                                    {groupConversations.length === 0 && <div className="px-2 py-1.5 text-[11px] text-theme-text-muted">Henüz sohbet yok.</div>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {visibleConversations.length === 0 && activeGroups.length === 0 && (
+                            <div className="px-2 py-1.5 text-[11px] text-theme-text-muted">Bu projede henüz sohbet veya çalışma alanı yok.</div>
                           )}
-                          {visibleWorkspaces.length > projectChatLimit && (
+
+                          {rootConversations.length > projectChatLimit && (
+                            <button type="button" onClick={() => setVisibleProjectChats(previous => ({ ...previous, [project.id]: (previous[project.id] || PROJECT_CHAT_PAGE_SIZE) + PROJECT_CHAT_PAGE_SIZE }))} className={moreButtonClass}>
+                              <ChevronDown size={12} /> Daha fazla sohbet göster
+                            </button>
+                          )}
+
+                          {lifecycle === 'active' && (
                             <button
                               type="button"
-                              onClick={() => setVisibleProjectChats(previous => ({
-                                ...previous,
-                                [project.id]: (previous[project.id] || PROJECT_CHAT_PAGE_SIZE) + PROJECT_CHAT_PAGE_SIZE,
-                              }))}
-                              className={moreButtonClass}
+                              onClick={() => setWorkspaceGroupModal({ mode: 'create', project })}
+                              className="mt-1.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-theme-text-muted transition-colors hover:bg-theme-bg/70 hover:text-theme-text"
                             >
-                              <ChevronDown size={12} /> Daha fazla göster
-                              <span className="ml-0.5 text-[10px] opacity-70">+{Math.min(PROJECT_CHAT_PAGE_SIZE, visibleWorkspaces.length - projectChatLimit)}</span>
+                              <Plus size={13} /> Çalışma alanı oluştur
                             </button>
                           )}
                         </div>
@@ -1031,17 +1031,10 @@ export function Sidebar(props: SidebarProps) {
               </div>
 
               {filtered.length === 0 && !isLoadingProjects && (
-                <div className="px-3 py-8 text-center text-xs text-theme-text-muted">
-                  {query ? 'Aramana uygun sonuç yok.' : 'Bu görünümde henüz proje veya proje sohbeti yok.'}
-                </div>
+                <div className="px-3 py-8 text-center text-[12px] text-theme-text-muted">{query ? 'Aramana uygun sonuç yok.' : 'Bu görünümde henüz proje yok.'}</div>
               )}
-
               {filtered.length > visibleProjectCount && (
-                <button
-                  type="button"
-                  onClick={() => setVisibleProjectCount(count => count + PROJECT_PAGE_SIZE)}
-                  className="mt-2 flex w-full items-center justify-center gap-1 rounded-xl py-2 text-xs text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text"
-                >
+                <button type="button" onClick={() => setVisibleProjectCount(count => count + PROJECT_PAGE_SIZE)} className="mt-2 flex w-full items-center justify-center gap-1 rounded-xl py-2 text-[12px] font-medium text-theme-text-muted transition-colors hover:bg-theme-surface-hover hover:text-theme-text">
                   <ChevronDown size={14} /> Daha fazla proje göster
                 </button>
               )}
@@ -1058,20 +1051,15 @@ export function Sidebar(props: SidebarProps) {
             if (compact) setCollapsed(false);
             else setShowUserMenu(previous => !previous);
           }}
-          className={cn(
-            'flex items-center rounded-xl text-theme-text transition-colors hover:bg-theme-surface-hover',
-            compact ? 'justify-center p-2' : 'w-full gap-2.5 px-2.5 py-2',
-          )}
+          className={cn('flex items-center rounded-xl text-theme-text transition-colors hover:bg-theme-surface-hover', compact ? 'justify-center p-2' : 'w-full gap-2.5 px-2.5 py-2')}
           title={compact ? `${user?.name || 'Profil'} — menüyü aç` : undefined}
         >
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-theme-text text-xs font-semibold text-theme-bg">
-            {user?.name?.charAt(0)?.toLocaleUpperCase('tr-TR') || 'U'}
-          </div>
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-theme-text text-xs font-semibold text-theme-bg">{user?.name?.charAt(0)?.toLocaleUpperCase('tr-TR') || 'U'}</div>
           {!compact && (
             <>
               <div className="min-w-0 flex-1 text-left">
-                <p className="truncate text-xs font-medium">{user?.name}</p>
-                <p className="truncate text-[10px] text-theme-text-muted">{user?.role}</p>
+                <p className="truncate text-[14px] font-medium leading-5">{user?.name}</p>
+                <p className="truncate text-[11px] text-theme-text-muted">{user?.role}</p>
               </div>
               <MoreHorizontal size={16} className="text-theme-text-muted" />
             </>
@@ -1080,50 +1068,26 @@ export function Sidebar(props: SidebarProps) {
 
         {showUserMenu && !compact && (
           <div className="absolute bottom-full left-2 right-2 mb-2 max-h-[70vh] overflow-y-auto rounded-2xl border border-theme-border/70 bg-theme-bg p-2 shadow-xl">
-            <button type="button" onClick={openSettings} className="flex w-full items-center gap-2 rounded-xl p-2 text-xs text-theme-text hover:bg-theme-surface-hover">
-              <User size={14} /> Profil ve ayarlar
-            </button>
-
+            <button type="button" onClick={openSettings} className="flex w-full items-center gap-2 rounded-xl p-2 text-[12px] text-theme-text hover:bg-theme-surface-hover"><User size={14} /> Profil ve ayarlar</button>
             <div className="my-1 border-t border-theme-border/60 pt-2">
-              <label htmlFor="sidebar-ai-model" className="mb-1 block px-2 text-[10px] font-medium text-theme-text-muted">Model</label>
-              <select
-                id="sidebar-ai-model"
-                value={selectedModel}
-                onChange={event => setSelectedModel(event.target.value)}
-                className="w-full rounded-xl bg-theme-surface px-2.5 py-2 text-xs text-theme-text outline-none"
-              >
+              <label htmlFor="sidebar-ai-model" className="mb-1 block px-2 text-[11px] font-semibold text-theme-text-muted">Model</label>
+              <select id="sidebar-ai-model" value={selectedModel} onChange={event => setSelectedModel(event.target.value)} className="w-full rounded-xl bg-theme-surface px-2.5 py-2 text-[12px] text-theme-text outline-none">
                 <option value="auto">Otomatik · OpenAI + Gemini</option>
                 <option value="gpt-5.6-sol">OpenAI · GPT-5.6 Sol</option>
                 <option value="gpt-5.6">OpenAI · GPT-5.6</option>
                 <option value="gemini-3.8-flash">Gemini · 3.8 Flash</option>
               </select>
             </div>
-
             <div className="my-1 border-t border-theme-border/60 pt-2">
-              <div className="mb-1 flex items-center gap-1.5 px-2 text-[10px] font-medium text-theme-text-muted">
-                <Settings2 size={11} /> Görünüm
-              </div>
+              <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-semibold text-theme-text-muted"><Settings2 size={11} /> Görünüm</div>
               <div className="grid grid-cols-3 gap-1">
                 {(['monochrome', 'energetic', 'ocean'] as const).map(themeName => (
-                  <button
-                    type="button"
-                    key={themeName}
-                    onClick={() => onThemeChange(themeName)}
-                    className={cn(
-                      'rounded-lg px-1 py-1.5 text-[9px] transition-colors',
-                      theme === themeName ? 'bg-theme-surface-hover font-medium text-theme-text' : 'text-theme-text-muted hover:bg-theme-surface-hover',
-                    )}
-                  >
-                    {themeName}
-                  </button>
+                  <button type="button" key={themeName} onClick={() => onThemeChange(themeName)} className={cn('rounded-lg px-1 py-1.5 text-[10px] transition-colors', theme === themeName ? 'bg-theme-surface-hover font-medium text-theme-text' : 'text-theme-text-muted hover:bg-theme-surface-hover')}>{themeName}</button>
                 ))}
               </div>
             </div>
-
             <div className="my-1 border-t border-theme-border/60" />
-            <button type="button" onClick={onLogout} className="flex w-full items-center gap-2 rounded-xl p-2 text-xs text-red-500 hover:bg-red-500/10">
-              <LogOut size={14} /> Çıkış yap
-            </button>
+            <button type="button" onClick={onLogout} className="flex w-full items-center gap-2 rounded-xl p-2 text-[12px] text-red-500 hover:bg-red-500/10"><LogOut size={14} /> Çıkış yap</button>
           </div>
         )}
       </div>
@@ -1132,16 +1096,16 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <>
-      {mobileOpen && (
-        <button
-          type="button"
-          aria-label="Menüyü kapat"
-          onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[1px] md:hidden"
-        />
-      )}
+      {mobileOpen && <button type="button" aria-label="Menüyü kapat" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[1px] md:hidden" />}
       {content}
       {filesOpen && <FileLibrary onClose={() => setFilesOpen(false)} />}
+      <ProjectWorkspaceGroupModal
+        open={Boolean(workspaceGroupModal)}
+        mode={workspaceGroupModal?.mode || 'create'}
+        initialName={workspaceGroupModal?.group?.name || ''}
+        onClose={() => setWorkspaceGroupModal(null)}
+        onSubmit={submitWorkspaceGroup}
+      />
       {chatMenu && typeof document !== 'undefined' && createPortal(
         <ConversationActionsMenu
           key={`${chatMenu.workspace.id}-${chatMenu.projectId || 'standalone'}-${lifecycle}`}
@@ -1152,7 +1116,8 @@ export function Sidebar(props: SidebarProps) {
           menuRef={chatMenuRef}
           onClose={closeChatMenu}
           onRename={() => renameWorkspace(chatMenu.workspace)}
-          onMove={projectId => void moveWorkspace(chatMenu.workspace, projectId)}
+          onMoveProject={projectId => void moveWorkspace(chatMenu.workspace, projectId)}
+          onMoveWorkspaceGroup={workspaceGroupId => void moveWorkspaceGroup(chatMenu.workspace, workspaceGroupId)}
           onArchive={() => void archiveWorkspace(chatMenu.workspace)}
           onRestore={() => void restoreWorkspace(chatMenu.workspace)}
           onDelete={() => deleteWorkspace(chatMenu.workspace.id)}
