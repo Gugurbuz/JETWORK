@@ -25,13 +25,13 @@ describe('V5.1 low-latency progressive disclosure fast path', () => {
     expect(session.surface.toolNames).toContain('get_abap_source')
   })
 
-  it('tells the Controller to batch progress + discovery and independent calls while keeping semantic authority', async () => {
+  it('keeps legacy disclosure compatible while V5.3 instructs semantic action batching', async () => {
     const session = await startControllerCapabilitySession({ client: null, query: 'test' })
     const instruction = capabilitySessionObservation(session).instruction
     expect(instruction).toContain('sole semantic Controller')
-    expect(instruction).toContain('query="activate:name1,name2"')
-    expect(instruction).toContain('same first model output')
-    expect(instruction).toContain('same model response rather than serializing needless model rounds')
-    expect(instruction).toContain('never infers intent, chooses a capability')
+    expect(instruction).toContain('execute_capabilities')
+    expect(instruction).toContain('both may be emitted in the same model response')
+    expect(instruction).toContain('Batch independent actions whose arguments are already known')
+    expect(instruction).toContain('never infers intent, selects a tool')
   })
 })
