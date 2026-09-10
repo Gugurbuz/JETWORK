@@ -98,10 +98,11 @@ describe('Agent public work protocol', () => {
     expect(instruction).toContain('report_progress(kind=plan_change)')
   })
 
-  it('keeps direct no-tool answers possible while making tool-backed work start with a real public plan', () => {
+  it('keeps direct answers possible only through an explicit first-turn model decision', () => {
     const instruction = buildPublicWorkProtocolInstruction([], true)
-    expect(instruction).toContain('Bu turda araştırma gerekmiyorsa `report_progress` çağırmadan doğrudan cevap verebilirsin')
-    expect(instruction).toContain('ilk ve bu turdaki tek function call `report_progress(kind=start)`')
+    expect(instruction).toContain('gerçekten hiçbir JetWork capability/kurumsal kaynak gerekmiyorsa `answer_directly`')
+    expect(instruction).toContain('araştırma, kurumsal bağlam çözümü veya teknik doğrulama gerekiyorsa `report_progress(kind=start)`')
+    expect(instruction).toContain('Açıklaması verilmemiş kısaltma, ürün/kod, class/method/message identifier')
     expect(instruction).toContain('aktif sistem/çalışma/konuşma bağlamıyla çözdüğün gerçek hedefi')
   })
 })

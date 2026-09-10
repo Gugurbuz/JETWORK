@@ -8,6 +8,8 @@ import {
   buildPublicWorkProtocolInstruction,
   gateGeminiAgentToolsForPublicWork,
   hasCompletedPublicWorkStart,
+  PUBLIC_WORK_DIRECT_ANSWER_TOOL,
+  PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
 } from './agent/publicWorkProtocol.ts'
 import {
   createGeminiProviderStateItem,
@@ -101,12 +103,24 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   const stableProductInstruction = String(input.stableInstructions || '').trim()
   const providerWebRequested = input.allowProviderWeb ?? input.allowTools
   const publicWorkGate = gateGeminiAgentToolsForPublicWork(input.items, input.tools, providerWebRequested)
+  const explicitFirstTurnDecision = Boolean(
+    input.allowTools
+      && publicWorkGate.reportProgressAvailable
+      && !publicWorkGate.started
+      && !terminalSynthesis
+  )
+  const visibleTools = explicitFirstTurnDecision
+    ? [
+        ...publicWorkGate.tools,
+        PUBLIC_WORK_DIRECT_ANSWER_TOOL as unknown as Record<string, unknown>,
+      ]
+    : publicWorkGate.tools
   const publicWorkInstruction = buildPublicWorkProtocolInstruction(
     input.items,
     publicWorkGate.reportProgressAvailable,
   )
   const effectiveAllowTools = input.allowTools && (
-    publicWorkGate.tools.length > 0 || publicWorkGate.providerWebEnabled
+    visibleTools.length > 0 || publicWorkGate.providerWebEnabled
   )
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
@@ -118,10 +132,13 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       publicWorkInstruction,
     ].filter(Boolean).join('\n\n'),
     items: input.items,
-    tools: effectiveAllowTools ? publicWorkGate.tools : [],
+    tools: effectiveAllowTools ? visibleTools : [],
     allowTools: effectiveAllowTools,
     terminalSynthesis,
     allowProviderWeb: publicWorkGate.providerWebEnabled,
+    requiredFunctionNames: explicitFirstTurnDecision
+      ? visibleTools.map(tool => String(tool.name || '')).filter(Boolean)
+      : undefined,
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,
     onText: input.onText,
@@ -130,14 +147,68 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   }
 
   const response = await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
+  let normalizedResponse = response
+
+  if (explicitFirstTurnDecision) {
+    const output = response.output || []
+    const directCalls = output.filter(item => (
+      String(item.type || '') === 'function_call'
+      && String(item.name || '') === PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME
+    ))
+    const otherFunctionCalls = output.filter(item => (
+      String(item.type || '') === 'function_call'
+      && String(item.name || '') !== PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME
+    ))
+
+    if (directCalls.length > 0 && otherFunctionCalls.length === 0) {
+      const directCall = directCalls[0] as Record<string, unknown>
+      let args: Record<string, unknown> = {}
+      try {
+        args = typeof directCall.arguments === 'string'
+          ? JSON.parse(directCall.arguments)
+          : (directCall.arguments && typeof directCall.arguments === 'object'
+              ? directCall.arguments as Record<string, unknown>
+              : {})
+      } catch {
+        args = {}
+      }
+      const answer = String(args.answer || '').trim()
+      if (!answer) throw new Error('Gemini explicit direct-answer decision returned an empty answer.')
+      const interactionId = String(directCall._gemini_interaction_id || response.id || '').trim()
+      input.onText(answer)
+      normalizedResponse = {
+        ...response,
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: answer, annotations: [] }],
+          ...(interactionId ? { _gemini_interaction_id: interactionId } : {}),
+        }],
+        usage: mergeUsage(response.usage, { controller_direct_answer_decision: 1 }),
+      }
+    } else if (directCalls.length > 0 && otherFunctionCalls.length > 0) {
+      normalizedResponse = {
+        ...response,
+        output: output.filter(item => !(
+          String(item.type || '') === 'function_call'
+          && String(item.name || '') === PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME
+        )),
+        usage: mergeUsage(response.usage, { controller_direct_answer_conflict_dropped: directCalls.length }),
+      }
+    } else if (otherFunctionCalls.length === 0) {
+      throw new Error('Gemini explicit first-turn decision gate returned no function decision.')
+    }
+  }
+
   return {
-    ...response,
-    usage: mergeUsage(response.usage, {
+    ...normalizedResponse,
+    usage: mergeUsage(normalizedResponse.usage, {
       public_work_protocol_enabled: publicWorkGate.reportProgressAvailable ? 1 : 0,
       public_work_started: hasCompletedPublicWorkStart(input.items) ? 1 : 0,
       public_work_gate_pending: publicWorkGate.reportProgressAvailable && !publicWorkGate.started ? 1 : 0,
-      public_work_visible_tools: publicWorkGate.tools.length,
+      public_work_visible_tools: visibleTools.length,
       public_work_provider_web_enabled: publicWorkGate.providerWebEnabled ? 1 : 0,
+      controller_first_turn_decision_required: explicitFirstTurnDecision ? 1 : 0,
     }),
   }
 }
