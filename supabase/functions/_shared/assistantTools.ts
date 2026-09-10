@@ -13,6 +13,7 @@ import {
   loadCapabilityGuides,
   resolveCapabilityInvocation,
 } from './capabilities/progressiveDisclosure.ts'
+import { validateCanonicalToolArguments } from './capabilities/canonicalToolValidation.ts'
 import type { RuntimeToolSchema } from './capabilities/registry.ts'
 
 export * from './assistantToolsBase.ts'
@@ -68,6 +69,7 @@ export async function executeAssistantTool(
 
   if (toolName === INVOKE_CAPABILITY_TOOL_NAME) {
     const resolved = await resolveCapabilityInvocation(PROGRESSIVE_EXECUTABLE_TOOLS, args)
+    validateCanonicalToolArguments(PROGRESSIVE_EXECUTABLE_TOOLS, resolved.capabilityName, resolved.args)
     const execution = isSkillTool(resolved.capabilityName)
       ? executeSkillTool(resolved.capabilityName, resolved.args)
       : await base.executeAssistantTool(client, workspaceId, resolved.capabilityName, resolved.args)
@@ -78,6 +80,7 @@ export async function executeAssistantTool(
         progressiveDisclosure: true,
         invokedCapability: resolved.capabilityName,
         disclosureLayer: 4,
+        canonicalArgumentsValidated: true,
       },
     }
   }
