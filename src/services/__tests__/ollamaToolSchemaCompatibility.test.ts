@@ -2,15 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 import {
   OLLAMA_CONTROLLER_CONTEXT_TOKENS,
-  OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS,
+  OLLAMA_TOOL_DISPATCHER_NAME,
+  buildOllamaDispatcherCatalog,
   compactOllamaArgumentSignature,
   normalizeOllamaToolParameters,
   toOllamaTools,
+  unwrapOllamaToolCall,
 } from '../../../supabase/functions/_shared/ollamaProvider.ts'
-
-const isRecord = (value: unknown): value is Record<string, unknown> => (
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-)
 
 const canonicalProviderShape = (tools: ReadonlyArray<Record<string, unknown>>) => tools.map(tool => ({
   type: 'function',
@@ -22,7 +20,7 @@ const canonicalProviderShape = (tools: ReadonlyArray<Record<string, unknown>>) =
 }))
 
 describe('Ollama tool schema compatibility', () => {
-  it('keeps enough context headroom for the Controller prompt plus full tool surface', () => {
+  it('keeps enough context headroom for the Controller prompt', () => {
     expect(OLLAMA_CONTROLLER_CONTEXT_TOKENS).toBeGreaterThanOrEqual(16_384)
   })
 
@@ -60,37 +58,84 @@ describe('Ollama tool schema compatibility', () => {
     })).toBe('query:string, limit:integer|null, mode?:string=exact|search')
   })
 
-  it('keeps all Controller V3 tools while replacing heavy provider schemas with signature contracts', () => {
+  it('keeps every Controller V4 capability logically visible behind one native dispatcher grammar', () => {
     const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
     const ollamaTools = toOllamaTools(canonical)
 
     expect(canonical.length).toBeGreaterThan(30)
-    expect(ollamaTools).toHaveLength(canonical.length)
+    expect(ollamaTools).toHaveLength(1)
 
-    for (const tool of ollamaTools) {
-      const fn = tool.function as Record<string, unknown>
-      expect(fn.parameters).toEqual({ type: 'object' })
-      expect(String(fn.description || '').length).toBeLessThanOrEqual(OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS)
+    const dispatcher = ollamaTools[0].function as Record<string, unknown>
+    expect(dispatcher.name).toBe(OLLAMA_TOOL_DISPATCHER_NAME)
+
+    const parameters = dispatcher.parameters as {
+      properties: { name: { enum: string[] }; arguments_json: { type: string } }
+      required: string[]
     }
+    const canonicalNames = canonical.map(tool => String(tool.name || ''))
+    expect(parameters.properties.name.enum).toEqual(canonicalNames)
+    expect(parameters.properties.arguments_json.type).toBe('string')
+    expect(parameters.required).toEqual(['name', 'arguments_json'])
+
+    const catalog = buildOllamaDispatcherCatalog(canonical)
+    for (const name of canonicalNames) expect(catalog).toContain(name)
+    expect(catalog).toContain('report_progress')
+    expect(catalog).toContain('search_knowledge_catalog')
+    expect(catalog).toContain('get_related_objects')
 
     const canonicalChars = JSON.stringify(canonicalProviderShape(canonical)).length
     const ollamaChars = JSON.stringify(ollamaTools).length
-    expect(ollamaChars).toBeLessThan(canonicalChars * 0.4)
+    expect(ollamaChars).toBeLessThan(canonicalChars * 0.3)
+  })
 
-    const byName = new Map(ollamaTools.map(tool => {
-      const fn = tool.function as Record<string, unknown>
-      return [String(fn.name || ''), String(fn.description || '')]
-    }))
+  it('unwraps one dispatcher call back to the canonical JetWork function call', () => {
+    const allowed = new Set(['search_knowledge_catalog', 'report_progress'])
+    const unwrapped = unwrapOllamaToolCall({
+      function: {
+        name: OLLAMA_TOOL_DISPATCHER_NAME,
+        arguments: {
+          name: 'search_knowledge_catalog',
+          arguments_json: JSON.stringify({ query: 'ZCRM_COST-111', limit: 5 }),
+        },
+      },
+    }, allowed)
 
-    expect(byName.get('get_related_objects')).toContain('canonicalKey')
-    expect(byName.get('get_related_objects')).toContain('direction')
-    expect(byName.get('edit_spreadsheet_file')).toContain('actions:[{operation,target,value,number}]')
-    expect(byName.get('review_evidence_coverage')).toContain('evidenceIds')
+    expect(unwrapped).toEqual({
+      name: 'search_knowledge_catalog',
+      arguments: { query: 'ZCRM_COST-111', limit: 5 },
+    })
+  })
 
-    const names = [...byName.keys()]
-    expect(names).toContain('list_spreadsheet_attachments')
-    expect(names).toContain('list_action_attachments')
-    expect(names).toContain('search_knowledge_catalog')
-    expect(names).toContain('report_progress')
+  it('rejects invented dispatcher targets while tolerating an in-flight legacy direct call', () => {
+    const allowed = new Set(['search_knowledge_catalog'])
+    expect(unwrapOllamaToolCall({
+      function: {
+        name: OLLAMA_TOOL_DISPATCHER_NAME,
+        arguments: { name: 'invented_tool', arguments_json: '{}' },
+      },
+    }, allowed)).toBeNull()
+
+    expect(unwrapOllamaToolCall({
+      function: {
+        name: 'search_knowledge_catalog',
+        arguments: { query: '111' },
+      },
+    }, allowed)).toEqual({
+      name: 'search_knowledge_catalog',
+      arguments: { query: '111' },
+    })
+  })
+
+  it('supports the Controller V4 pre-plan gate with only report_progress logically available', () => {
+    const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
+    const reportProgress = canonical.filter(tool => tool.name === 'report_progress')
+    const ollamaTools = toOllamaTools(reportProgress)
+    const dispatcher = ollamaTools[0].function as Record<string, unknown>
+    const parameters = dispatcher.parameters as { properties: { name: { enum: string[] } } }
+
+    expect(ollamaTools).toHaveLength(1)
+    expect(parameters.properties.name.enum).toEqual(['report_progress'])
+    expect(String(dispatcher.description || '')).toContain('resolvedGoal')
+    expect(String(dispatcher.description || '')).toContain('planSteps')
   })
 })
