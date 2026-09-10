@@ -13,8 +13,9 @@ import {
 } from './progressiveDisclosure.ts'
 import type { RuntimeToolSchema } from './registry.ts'
 
-export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5-progressive-disclosure'
+export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5.3-semantic-action-batch'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
+export const EXECUTE_CAPABILITIES_TOOL_NAME = 'execute_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
@@ -136,6 +137,61 @@ export const getCanonicalCapabilityTool = (name: string): RuntimeToolSchema | nu
   return tool ? { ...tool, parameters: tool.parameters ? structuredClone(tool.parameters) : tool.parameters } : null
 }
 
+const executionCapabilityNames = JETWORK_LOGICAL_CAPABILITY_NAMES.filter(
+  name => ![REPORT_PROGRESS_TOOL_NAME, REQUEST_LARGE_CONTEXT_TOOL_NAME].includes(name),
+)
+
+const requiredArgumentNames = (tool: RuntimeToolSchema | null): string[] => {
+  const required = tool?.parameters && typeof tool.parameters === 'object'
+    ? (tool.parameters as Record<string, unknown>).required
+    : null
+  return Array.isArray(required) ? required.map(value => String(value)).filter(Boolean) : []
+}
+
+const compactExecutionMenu = () => executionCapabilityNames.map(name => {
+  const entry = capabilityIndexEntry(name)
+  const required = requiredArgumentNames(getCanonicalCapabilityTool(name))
+  const signature = required.length ? `${name}(${required.join(', ')})` : `${name}()`
+  return `${signature} — ${entry?.summary || 'JetWork capability'}`
+}).join('\n')
+
+export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
+  type: 'function',
+  name: EXECUTE_CAPABILITIES_TOOL_NAME,
+  description: [
+    'Execute a model-authored batch of JetWork capabilities through one mechanical runtime boundary.',
+    'The active Controller model is the sole semantic authority: it chooses every capability name, every argument and whether more work is needed.',
+    'Runtime only validates exact capability names and canonical argument contracts, enforces permissions/budgets, executes the requested actions, preserves provenance and returns observations.',
+    'Batch only actions whose arguments are fully known from the current observation and that do not depend on another action in this same batch. If an action needs an identifier or value produced by another action, wait for the next Controller round.',
+    'Use one action for a single capability; use multiple actions to avoid needless model round-trips when they are independently justified.',
+    'Compact capability menu (required argument names only):',
+    compactExecutionMenu(),
+  ].join('\n'),
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      actions: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 4,
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 80 },
+            capability: { type: 'string', enum: executionCapabilityNames },
+            argumentsJson: { type: 'string', minLength: 2, maxLength: 12_000 },
+          },
+          required: ['id', 'capability', 'argumentsJson'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['actions'],
+    additionalProperties: false,
+  },
+})
+
 export interface ControllerCapabilitySurface {
   version: typeof CONTROLLER_CAPABILITY_SURFACE_VERSION
   tools: RuntimeToolSchema[]
@@ -178,7 +234,7 @@ export interface ControllerCapabilitySession {
 
 const basePhysicalTools = () => uniqueTools([
   REPORT_PROGRESS_TOOL,
-  DISCOVER_MORE_CAPABILITIES_TOOL,
+  buildExecuteCapabilitiesTool(),
   REQUEST_LARGE_CONTEXT_TOOL,
 ])
 
@@ -317,7 +373,7 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   activatedToolNames: session.activatedToolNames,
   disclosure: session.lastDisclosure,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'JetWork uses progressive capability disclosure and the active model remains the sole semantic Controller. If the request needs no external capability, answer directly. For substantive tool-backed work, report_progress(start) must be the first function call. When capability discovery is already needed, the same first model output may also include discover_more_capabilities with query="index" after report_progress(start), avoiding a needless extra model round. Read the Layer-1 names and purpose summaries, choose up to four exact names yourself, then call query="activate:name1,name2"; runtime returns their Layer-2 guides and activates the exact canonical schemas in that same mechanical disclosure step. On the next model round call the canonical tool itself. When multiple independent activated tool calls are already justified by the same observation, emit them in the same model response rather than serializing needless model rounds. Runtime performs exact-name/order validation only; it never infers intent, chooses a capability, query, source, next tool or stop decision. Activated contracts are options, never mandatory next steps. Legacy compatibility remains query="guide:name1,name2" followed by query="contract:name1,name2", but normal turns should use activate.',
+  instruction: 'JetWork V5.3 uses semantic action batching. The active model remains the sole semantic Controller. If no external capability is needed, answer directly. For substantive work, report_progress(start) must precede execute_capabilities; both may be emitted in the same model response in that order. choose capability names and arguments yourself from the compact menu exposed by execute_capabilities. Batch independent actions whose arguments are already known. When an action depends on a value discovered by a previous action, wait for the observation and use the next model round. Runtime only validates name/schema/permission/budget and executes; it never infers intent, selects a tool, rewrites a query, chooses a source, or decides when to stop. Legacy progressive-disclosure helpers remain implementation compatibility only and are not part of the normal physical surface.',
 })
 
 // Keep registry construction eager so drift between the 33 logical entries and canonical runtime is visible in tests/logs.
