@@ -6,32 +6,23 @@ const coreSource = readFileSync(
   'utf8',
 )
 
-describe('V5 capability disclosure control-plane budget', () => {
-  it('keeps disclosure calls out of the substantive tool-call budget', () => {
-    expect(coreSource).toContain("MAX_CAPABILITY_DISCLOSURE_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_CAPABILITY_DISCLOSURE_CALLS', 8, 3, 12)")
+describe('V5 capability disclosure latency budget', () => {
+  it('keeps disclosure separate from substantive tool calls but caps navigation tightly', () => {
+    expect(coreSource).toContain("MAX_CAPABILITY_DISCLOSURE_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_CAPABILITY_DISCLOSURE_CALLS', 3, 1, 6)")
     expect(coreSource).toContain('let capabilityDisclosureCalls = 0')
     expect(coreSource).toContain('capabilityDisclosureCalls += 1')
     expect(coreSource).toContain('capability_disclosure_control_calls: 1')
     expect(coreSource).toContain('toolName !== DISCOVER_MORE_CAPABILITIES_TOOL_NAME && totalToolCalls >= MAX_TOOL_CALLS')
-
-    const start = coreSource.indexOf('const runCapabilityDiscoveryTool = async')
-    const end = coreSource.indexOf('// Legacy preflight helpers remain available', start)
-    expect(start).toBeGreaterThan(-1)
-    expect(end).toBeGreaterThan(start)
-    const discoveryBody = coreSource.slice(start, end)
-    expect(discoveryBody).not.toContain('totalToolCalls += 1')
-    expect(discoveryBody).not.toContain('totalToolCalls >= MAX_TOOL_CALLS')
   })
 
-  it('does not spend a research round when the model is only navigating disclosure layers', () => {
-    expect(coreSource).toContain('let disclosureControlRounds = 0')
-    expect(coreSource).toContain('const disclosureOnlyRound = functionCalls.length > 0')
-    expect(coreSource).toContain('functionCalls.every((call: Record<string, unknown>) => cleanString(call.name, 120) === DISCOVER_MORE_CAPABILITIES_TOOL_NAME)')
-    expect(coreSource).toContain('maxControllerRound = Math.min(MAX_TOOL_ROUNDS + MAX_CAPABILITY_DISCLOSURE_CALLS, maxControllerRound + 1)')
-    expect(coreSource).toContain('capability_disclosure_control_rounds: 1')
+  it('never grants disclosure-only rounds extra model calls beyond the normal controller budget', () => {
+    expect(coreSource).toContain('let maxControllerRound = MAX_TOOL_ROUNDS')
+    expect(coreSource).not.toContain('let disclosureControlRounds = 0')
+    expect(coreSource).not.toContain('maxControllerRound = Math.min(MAX_TOOL_ROUNDS + MAX_CAPABILITY_DISCLOSURE_CALLS')
+    expect(coreSource).not.toContain('capability_disclosure_control_rounds: 1')
   })
 
-  it('keeps the separation mechanical rather than semantic', () => {
+  it('keeps the latency boundary mechanical rather than semantic', () => {
     expect(coreSource).not.toContain('LRT_CONTROL_PLANE')
     expect(coreSource).not.toContain('CHECK_LRTV3_CONTROL')
     expect(coreSource).not.toContain("if (query.includes('LRT'))")

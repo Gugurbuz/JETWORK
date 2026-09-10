@@ -76,7 +76,7 @@ const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maxi
 
 const MAX_TOOL_ROUNDS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_ROUNDS', 6, 1, 8)
 const MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24, 4, 40)
-const MAX_CAPABILITY_DISCLOSURE_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_CAPABILITY_DISCLOSURE_CALLS', 8, 3, 12)
+const MAX_CAPABILITY_DISCLOSURE_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_CAPABILITY_DISCLOSURE_CALLS', 3, 1, 6)
 const TOOL_TIMEOUT_MS = boundedIntegerEnv('ASSISTANT_TOOL_TIMEOUT_MS', 12_000, 1_000, 30_000)
 const RUN_TIMEOUT_MS = boundedIntegerEnv('ASSISTANT_V2_RUN_TIMEOUT_MS', 145_000, 30_000, 150_000)
 const MAX_OUTPUT_TOKENS = boundedIntegerEnv('ASSISTANT_MAX_OUTPUT_TOKENS', 12_000, 512, 24_000)
@@ -1075,7 +1075,6 @@ serve(async req => {
         }
 
         let maxControllerRound = MAX_TOOL_ROUNDS
-        let disclosureControlRounds = 0
         let evidenceFinalSynthesisAttempted = false
         let evidenceFinalSynthesisPending = false
         for (let round = 0; round <= maxControllerRound; round += 1) {
@@ -1284,13 +1283,6 @@ serve(async req => {
           }
 
           const functionCalls = output.filter((item: Record<string, unknown>) => item.type === 'function_call')
-          const disclosureOnlyRound = functionCalls.length > 0
-            && functionCalls.every((call: Record<string, unknown>) => cleanString(call.name, 120) === DISCOVER_MORE_CAPABILITIES_TOOL_NAME)
-          if (disclosureOnlyRound && disclosureControlRounds < MAX_CAPABILITY_DISCLOSURE_CALLS) {
-            disclosureControlRounds += 1
-            maxControllerRound = Math.min(MAX_TOOL_ROUNDS + MAX_CAPABILITY_DISCLOSURE_CALLS, maxControllerRound + 1)
-            usage = addUsage(usage, { capability_disclosure_control_rounds: 1 })
-          }
           if (!functionCalls.length) {
             const hasVerifiedKnowledgeSource = sources.some(source => source.sourceType !== 'web' && Boolean(source.canonicalKey || source.sourceId))
             if (
