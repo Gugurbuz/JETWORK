@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
+import {
+  buildControllerCapabilitySurface,
+  getCanonicalCapabilityTool,
+} from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 import {
   OLLAMA_CONTROLLER_CONTEXT_TOKENS,
   OLLAMA_TOOL_DISPATCHER_NAME,
@@ -58,11 +61,19 @@ describe('Ollama tool schema compatibility', () => {
     })).toBe('query:string, limit:integer|null, mode?:string=exact|search')
   })
 
-  it('keeps every Controller V4 capability logically visible behind one native dispatcher grammar', () => {
-    const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
-    const ollamaTools = toOllamaTools(canonical)
+  it('keeps every Controller V5 capability logically available while initial physical grammar stays compact', () => {
+    const surface = buildControllerCapabilitySurface()
+    const physical = surface.tools as unknown as ReadonlyArray<Record<string, unknown>>
+    const ollamaTools = toOllamaTools(physical)
 
-    expect(canonical.length).toBeGreaterThan(30)
+    expect(surface.logicalToolNames.length).toBeGreaterThan(30)
+    expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
+    expect(surface.logicalToolNames).toContain('get_related_objects')
+    expect(physical.map(tool => String(tool.name || ''))).toEqual([
+      'report_progress',
+      'discover_more_capabilities',
+      'request_large_context',
+    ])
     expect(ollamaTools).toHaveLength(1)
 
     const dispatcher = ollamaTools[0].function as Record<string, unknown>
@@ -72,20 +83,22 @@ describe('Ollama tool schema compatibility', () => {
       properties: { name: { enum: string[] }; arguments_json: { type: string } }
       required: string[]
     }
-    const canonicalNames = canonical.map(tool => String(tool.name || ''))
-    expect(parameters.properties.name.enum).toEqual(canonicalNames)
+    const physicalNames = physical.map(tool => String(tool.name || ''))
+    expect(parameters.properties.name.enum).toEqual(physicalNames)
     expect(parameters.properties.arguments_json.type).toBe('string')
     expect(parameters.required).toEqual(['name', 'arguments_json'])
 
-    const catalog = buildOllamaDispatcherCatalog(canonical)
-    for (const name of canonicalNames) expect(catalog).toContain(name)
+    const catalog = buildOllamaDispatcherCatalog(physical)
+    for (const name of physicalNames) expect(catalog).toContain(name)
     expect(catalog).toContain('report_progress')
-    expect(catalog).toContain('search_knowledge_catalog')
-    expect(catalog).toContain('get_related_objects')
+    expect(catalog).toContain('discover_more_capabilities')
 
-    const canonicalChars = JSON.stringify(canonicalProviderShape(canonical)).length
+    const allCanonical = surface.logicalToolNames
+      .map(name => getCanonicalCapabilityTool(name))
+      .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool)) as unknown as ReadonlyArray<Record<string, unknown>>
+    const fullCanonicalChars = JSON.stringify(canonicalProviderShape(allCanonical)).length
     const ollamaChars = JSON.stringify(ollamaTools).length
-    expect(ollamaChars).toBeLessThan(canonicalChars * 0.3)
+    expect(ollamaChars).toBeLessThan(fullCanonicalChars * 0.3)
   })
 
   it('unwraps one dispatcher call back to the canonical JetWork function call', () => {
@@ -126,9 +139,9 @@ describe('Ollama tool schema compatibility', () => {
     })
   })
 
-  it('supports the Controller V4 pre-plan gate with only report_progress logically available', () => {
-    const canonical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
-    const reportProgress = canonical.filter(tool => tool.name === 'report_progress')
+  it('supports the Controller V5 pre-plan gate with report_progress still directly available', () => {
+    const physical = buildControllerCapabilitySurface().tools as unknown as ReadonlyArray<Record<string, unknown>>
+    const reportProgress = physical.filter(tool => tool.name === 'report_progress')
     const ollamaTools = toOllamaTools(reportProgress)
     const dispatcher = ollamaTools[0].function as Record<string, unknown>
     const parameters = dispatcher.parameters as { properties: { name: { enum: string[] } } }
