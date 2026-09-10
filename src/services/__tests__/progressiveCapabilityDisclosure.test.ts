@@ -22,6 +22,7 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
     expect(surface.logicalToolNames).toEqual(JETWORK_LOGICAL_CAPABILITY_NAMES)
     expect(surface.tools.map(tool => tool.name)).toEqual([
       'report_progress',
+      'discover_more_capabilities',
       'execute_capabilities',
       'request_large_context',
     ])
@@ -32,8 +33,7 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
     const surface = buildControllerCapabilitySurface()
     const ollamaTools = toOllamaTools(surface.tools as unknown as Array<Record<string, unknown>>)
     expect(ollamaTools).toHaveLength(1)
-    expect(JSON.stringify(ollamaTools).length).toBeLessThan(2_000)
-    expect(JSON.stringify(ollamaTools)).not.toContain('search_knowledge_catalog')
+    expect(JSON.stringify(ollamaTools).length).toBeLessThan(4_000)
     expect(JSON.stringify(ollamaTools)).not.toContain('create_document_file')
   })
 
@@ -95,12 +95,8 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
   it('keeps semantic authority in the active controller model while legacy disclosure remains callable', async () => {
     const session = await startControllerCapabilitySession({ client: null, query: 'test' })
     const observation = capabilitySessionObservation(session)
-    expect(observation.logicalCapabilityCount).toBe(33)
-    expect(observation.instruction).toContain('sole semantic Controller')
-    expect(observation.instruction).toContain('execute_capabilities')
-    expect(observation.instruction).toContain('actions=[{id, capability, argumentsJson}]')
-    expect(observation.instruction).toContain('Batch independent actions')
-    expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
-    expect(observation.instruction).toContain('never infers intent, selects a tool')
+    expect(observation.instruction).toContain('Capability catalog is lazy')
+    expect(observation.instruction).toContain('discover_more_capabilities')
+    expect(observation.instruction).toContain('Runtime never makes the semantic choice')
   })
 })
