@@ -7,10 +7,14 @@ const coreSource = readFileSync(new URL('../../../supabase/functions/openai-assi
 const policySource = readFileSync(new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url), 'utf8')
 
 describe('controller-owned evidence continuity', () => {
-  it('disables runtime semantic grounding as a final-answer authority', () => {
-    expect(coreSource).toContain('const RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED = false')
-    expect(coreSource).toContain('const groundingCoverage = RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED')
-    expect(coreSource).toContain('const groundingBlocked = RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED')
+  it('removes runtime semantic grounding from the live final-answer path', () => {
+    expect(coreSource).not.toContain('RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED')
+    expect(coreSource).not.toContain('evaluateGroundedTechnicalClaims')
+    expect(coreSource).not.toContain('shouldFailClosedGroundedAnswer')
+    expect(coreSource).not.toContain('groundingFailureText')
+    expect(coreSource).not.toContain('[GROUNDING_REPAIR_OBSERVATION]')
+    expect(coreSource).not.toContain('grounding_fail_closed')
+    expect(coreSource).toContain('semanticGroundingGate: false')
     expect(policySource).toContain('Runtime doğal dil iddialarını regex')
   })
 

@@ -28,12 +28,6 @@ import { compactPersistentConversationState } from '../_shared/persistentConvers
 import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
 import {
-  evaluateGroundedTechnicalClaims,
-  groundingFailureText,
-  resultHasVerifiedKnowledgeEvidence,
-  shouldFailClosedGroundedAnswer,
-} from '../_shared/groundingGuard.ts'
-import {
   cleanProviderItemsForOpenAi,
   createGeminiProviderStateItem,
   DEFAULT_GEMINI_MODEL,
@@ -87,11 +81,6 @@ const USER_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_USER_REQUESTS_PER_
 const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQUESTS_PER_MINUTE', 30, 1, 240)
 const AGENTIC_CONTROLLER_ENABLED = String(Deno.env.get('ASSISTANT_AGENTIC_CONTROLLER') ?? 'true')
   .trim().toLocaleLowerCase('en-US') !== 'false'
-
-// Semantic truth/evidence sufficiency belongs to the Controller LLM. Runtime keeps
-// only mechanical provenance/persistence/security responsibilities and must not
-// replace a model answer via regex/identifier-based grounding adjudication.
-const RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED = false
 
 const isEngineEnabled = () => String(Deno.env.get('ASSISTANT_REASONING_ENGINE_V2') ?? 'true')
   .trim().toLocaleLowerCase('en-US') !== 'false'
@@ -708,7 +697,6 @@ serve(async req => {
       const semanticArtifactRequired = () => planForArtifactCompletion?.executionMode === 'artifact'
       let planForArtifactCompletion: ReasoningPlan | null = null
       let turnCompleted = false
-      let groundingRepairAttempted = false
       const runController = new AbortController()
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
       const streamHeartbeat = setInterval(() => {
@@ -1295,78 +1283,10 @@ serve(async req => {
               throw new Error('Required artifact executor did not produce a file.')
             }
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
-            const groundingCoverage = RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED
-              ? evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })
-              : {
-                  ok: true,
-                  verifiedKnowledgeEvidence: [...toolResultCache.values()].some(resultHasVerifiedKnowledgeEvidence),
-                  unsupportedIdentifiers: [],
-                  messageTextMismatches: [],
-                  unsupportedClaims: [],
-                }
-            const groundingBlocked = RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED
-              && shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })
-            const mayRequestGroundingRepair = AGENTIC_CONTROLLER_ENABLED
-              && groundingBlocked
-              && !groundingRepairAttempted
-              && !roundTextStreamed
-              && totalToolCalls < MAX_TOOL_CALLS
-            if (mayRequestGroundingRepair) {
-              groundingRepairAttempted = true
-              // Reserve at most one tool-capable repair round plus one terminal synthesis round.
-              // The runtime supplies validation feedback only; semantic next-action choice stays with Controller.
-              maxControllerRound = Math.min(MAX_TOOL_ROUNDS + 2, Math.max(maxControllerRound, round + 2))
-              const verifiedSourceCanonicals = sources
-                .filter(source => source.sourceType !== 'web' && source.canonicalKey)
-                .map(source => String(source.canonicalKey))
-                .slice(0, 24)
-              if (activeProvider === 'gemini' && latestGeminiInteractionId) {
-                runItems.push(createGeminiProviderStateItem(latestGeminiInteractionId))
-              }
-              runItems.push({
-                role: 'developer',
-                content: [
-                  '[GROUNDING_REPAIR_OBSERVATION]',
-                  'Bir önceki aday yanıt final olarak reddedildi. Bu observation semantic plan değildir ve sıradaki aracı seçmez.',
-                  `unsupportedIdentifiers=${JSON.stringify(groundingCoverage.unsupportedIdentifiers)}`,
-                  `messageTextMismatches=${JSON.stringify(groundingCoverage.messageTextMismatches)}`,
-                  `unsupportedClaims=${JSON.stringify(groundingCoverage.unsupportedClaims || [])}`,
-                  `verifiedSourceCanonicals=${JSON.stringify(verifiedSourceCanonicals)}`,
-                  'Mevcut current-turn function_call_output observationlarını yeniden değerlendir. Kanıt soruyu cevaplıyorsa yalnız doğrulanmış sonucu sentezle; doğrulanmamış identifier veya davranış ekleme.',
-                  'Kullanıcı exact implementasyon istiyorsa ve doğrulanan nesne yalnız structural endpoint/call relation ise tam gövde varmış gibi yazma; nesne adını koruyarak tam implementasyon kaynağının bulunmadığını açıkça söyle.',
-                  'Kullanıcı exact mesaj/ABAP satırı istiyorsa ve exact mesaj kaydı doğrulanmışsa, gerekiyorsa literal satırı doğrulamak için görünür knowledge capabilitylerinden hangisinin uygun olduğuna sen karar ver.',
-                  'Sıradaki capability/tool çağrısı, sorgu, ek araştırma veya final cevap kararı yalnız Controller LLM olarak sana aittir.',
-                ].join('\n'),
-              })
-              usage = addUsage(usage, {
-                grounding_repair_requested: 1,
-                grounding_repair_unsupported_identifiers: groundingCoverage.unsupportedIdentifiers.length,
-                grounding_repair_unsupported_claims: groundingCoverage.unsupportedClaims?.length || 0,
-              })
-              emitStatus('verifying', 'Grounding kontrolü aynı Controller’a düzeltme observationı olarak geri verildi')
-              continue
-            }
-            if (groundingBlocked) {
-              console.warn('ASSISTANT_GROUNDING_COVERAGE_BLOCKED', JSON.stringify({
-                messageId, unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
-                messageTextMismatchCount: groundingCoverage.messageTextMismatches.length,
-                verifiedKnowledgeEvidence: groundingCoverage.verifiedKnowledgeEvidence,
-              }))
-              roundText = groundingFailureText()
-              usage = addUsage(usage, {
-                grounding_fail_closed: 1, grounding_claim_coverage_blocked: 1,
-                grounding_unsupported_identifiers: groundingCoverage.unsupportedIdentifiers.length,
-                grounding_message_text_mismatches: groundingCoverage.messageTextMismatches.length,
-                grounding_unverified_provider_text_discarded: 1,
-              })
-              emitStatus('verifying', 'Kanıt kapsamı dışında kalan teknik iddialar engellendi')
-            }
             const persistedTurnItems: Array<Record<string, unknown>> = [...baseItems, { role: 'assistant', content: roundText }]
-            if (activeProvider === 'gemini' && latestGeminiInteractionId && !groundingBlocked) {
+            if (activeProvider === 'gemini' && latestGeminiInteractionId) {
               persistedTurnItems.push(createGeminiProviderStateItem(latestGeminiInteractionId))
               usage = addUsage(usage, { gemini_interaction_state_persisted: 1 })
-            } else if (activeProvider === 'gemini' && groundingBlocked) {
-              usage = addUsage(usage, { gemini_interaction_state_discarded_grounding: 1 })
             }
             const stateItems = compactConversationState(persistedTurnItems, plan)
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
@@ -1389,10 +1309,11 @@ serve(async req => {
                 webSources: sources.filter(source => source.sourceType === 'web').length,
                 webSearchQueries: geminiWebSearchQueriesUsed,
                 skillToolCalls, loadedSkills: [...loadedSkillKeys],
-                groundingCoverage: {
-                  blocked: !groundingCoverage.ok,
-                  unsupportedIdentifiers: groundingCoverage.unsupportedIdentifiers,
-                  messageTextMismatchCount: groundingCoverage.messageTextMismatches.length,
+                provenance: {
+                  sourceCount: sources.length,
+                  knowledgeSourceCount: sources.filter(source => source.sourceType !== 'web').length,
+                  webSourceCount: sources.filter(source => source.sourceType === 'web').length,
+                  semanticGroundingGate: false,
                 },
               },
               knowledge_used: knowledgeUsed, web_used: webUsed, tool_call_count: totalToolCalls,
