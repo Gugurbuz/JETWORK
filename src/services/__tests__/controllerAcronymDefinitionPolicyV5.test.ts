@@ -11,7 +11,7 @@ describe('Controller acronym definition policy V5', () => {
     expect(policySource).toContain('yalnız kullanım alanını veya ürün ailesini tarif etmek görevi tamamlamaz')
     expect(policySource).toContain('model hafızasına veya aynı Jetbase kavramını tekrar tekrar broad aramaya güvenmek yerine')
     expect(policySource).toContain('public web discovery yap')
-    expect(policySource).toContain('güncel/resmi/primary adayı URL Context ile incele')
+    expect(policySource).toContain('uygun güncel/resmi/primary URL adayı varsa exact wording için URL Context ile o seçtiğin sayfayı incele')
     expect(policySource).toContain('Hangi kaynağın yeterli olduğuna, dış doğrulamanın gerekli olup olmadığına')
   })
 
