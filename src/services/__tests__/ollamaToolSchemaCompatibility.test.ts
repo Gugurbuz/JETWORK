@@ -91,7 +91,7 @@ describe('Ollama tool schema compatibility', () => {
     const catalog = buildOllamaDispatcherCatalog(physical)
     for (const name of physicalNames) expect(catalog).toContain(name)
     expect(catalog).toContain('report_progress')
-    expect(catalog).toContain('discover_more_capabilities')
+    expect(catalog).toContain('execute_capabilities')
 
     const allCanonical = surface.logicalToolNames
       .map(name => getCanonicalCapabilityTool(name))
