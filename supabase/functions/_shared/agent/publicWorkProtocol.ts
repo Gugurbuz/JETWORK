@@ -1,5 +1,21 @@
 export const PUBLIC_WORK_PROGRESS_TOOL_NAME = 'report_progress'
-export const PUBLIC_WORK_PROTOCOL_VERSION = 'public-work-protocol-v1'
+export const PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME = 'answer_directly'
+export const PUBLIC_WORK_PROTOCOL_VERSION = 'public-work-protocol-v2-explicit-decision'
+
+export const PUBLIC_WORK_DIRECT_ANSWER_TOOL = {
+  type: 'function',
+  name: PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
+  description: 'Structured first-turn decision for a response that truly needs no JetWork capability. Use only when the current request is clearly answerable without Jetbase, web, skills, files, actions or enterprise evidence. Do not use for an unexplained acronym, product/code, class/method/message identifier, organization-specific process/term, or any technical/enterprise question whose meaning may differ in the active work context; choose report_progress(kind=start) for those instead. Put only the final user-facing answer in answer.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      answer: { type: 'string', minLength: 1, maxLength: 24_000 },
+    },
+    required: ['answer'],
+    additionalProperties: false,
+  },
+} as const
 
 const SUBSTANTIVE_DISCOVERY_TOOLS = new Set([
   'search_knowledge_catalog',
@@ -92,7 +108,8 @@ export const buildPublicWorkProtocolInstruction = (
       'Bir tool, kurumsal kaynak, web, skill veya artifact kullanmaya karar verirsen ilk ve bu turdaki tek function call `report_progress(kind=start)` olmalıdır.',
       '`start` çağrısında `resolvedGoal` alanına ham kullanıcı cümlesini tekrar etmek yerine aktif sistem/çalışma/konuşma bağlamıyla çözdüğün gerçek hedefi yaz; `planSteps` alanına 2-6 maddelik gerçek çalışma planını koy; `evidenceGaps` yalnız başlangıçta açık olan önemli belirsizlikleri içersin.',
       'Public `message` kısa ve doğal olmalı: ne anladığını ve neyi kontrol edeceğini kullanıcıya anlat. "Bilgi bankası sorgulanıyor", tool adı, provider telemetrysi veya gizli reasoning yazma.',
-      'Bu turda araştırma gerekmiyorsa `report_progress` çağırmadan doğrudan cevap verebilirsin. Araştırma gerekiyorsa public start tamamlanmadan başka tool çağırma.',
+      'İlk model çıktısında serbest metinle bu kararı atlama. Tam olarak iki yol vardır: gerçekten hiçbir JetWork capability/kurumsal kaynak gerekmiyorsa `answer_directly` ile nihai cevabı ver; araştırma, kurumsal bağlam çözümü veya teknik doğrulama gerekiyorsa `report_progress(kind=start)` ile çalışmayı başlat.',
+      'Açıklaması verilmemiş kısaltma, ürün/kod, class/method/message identifier, kurum süreci veya aktif iş bağlamında anlamı değişebilecek teknik terim `answer_directly` için uygun değildir. Böyle bir isteği genel sözlük listesine indirgeme; önce aktif kurumsal bağlamı JetWork capabilityleriyle çöz.',
       '[END JETWORK PUBLIC WORK GATE]',
     ].join('\n')
   }
