@@ -79,11 +79,14 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).toContain('mechanicalValidationOnly: true')
   })
 
-  it('keeps candidate provenance mechanical and prevents candidate refs from masquerading as verified progress sources', () => {
+  it('keeps candidate provenance mechanical without blocking progress or final answers', () => {
     expect(coreSource).toContain('const verifiedEvidence = resultHasVerifiedKnowledgeEvidence(result)')
     expect(coreSource).toContain('candidateOnly')
-    expect(coreSource).toContain('UNVERIFIED_PROGRESS_SOURCE_REF')
-    expect(coreSource).toContain('current turn verified source ledger')
+    expect(coreSource).toContain('acceptedSourceRefs')
+    expect(coreSource).toContain('omittedSourceRefs')
+    expect(coreSource).toContain('public_progress_unverified_source_ref_omitted')
+    expect(coreSource).toContain('without blocking progress or final answer generation')
+    expect(coreSource).not.toContain('UNVERIFIED_PROGRESS_SOURCE_REF')
     expect(surfaceSource).toContain('citationReady=false / verifiedEvidence=false')
     expect(surfaceSource).toContain('not verified source evidence by itself')
   })

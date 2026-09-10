@@ -14,6 +14,22 @@ import { critiqueEvidenceMap, type EvidenceCriticObservation } from './critic.ts
 export const EVIDENCE_RUNTIME_LEDGER_VERSION = 'evidence-runtime-ledger-v2'
 
 const clean = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max)
+
+export const partitionVerifiedSourceRefs = (
+  requestedRefs: readonly string[],
+  sources: readonly ReasoningSourceRef[],
+) => {
+  const verifiedRefs = new Set(sources.flatMap(source => [
+    clean(source.canonicalKey, 500),
+    clean(source.sourceId, 500),
+    clean(source.url, 2_000),
+  ].filter(Boolean)))
+  return {
+    acceptedSourceRefs: requestedRefs.filter(ref => verifiedRefs.has(clean(ref, 2_000))),
+    omittedSourceRefs: requestedRefs.filter(ref => !verifiedRefs.has(clean(ref, 2_000))),
+  }
+}
+
 const stableEvidenceId = (input: { sourceType: string; sourceId?: string; canonicalKey?: string; url?: string; sourceName: string }) => {
   const raw = [input.sourceType, input.sourceId || '', input.canonicalKey || '', input.url || '', input.sourceName].join('|')
   let hash = 2166136261
