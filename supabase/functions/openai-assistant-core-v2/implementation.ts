@@ -24,6 +24,7 @@ import { AGENT_CONTROLLER_VERSION } from '../_shared/agentControllerPolicy.ts'
 import { CONTROLLER_CAPABILITY_SURFACE_VERSION } from '../_shared/capabilities/controllerSurface.ts'
 import { buildGeminiMediaSourceRef, geminiMediaKindForMime, isGeminiInlineMediaMime, MAX_GEMINI_ASSISTANT_REQUEST_BYTES } from '../_shared/geminiMultimodalContract.ts'
 import { buildGeminiContextCachePolicy, clampLargeContextCharacters } from '../_shared/geminiContextCachePolicy.ts'
+import { buildGeminiFinalSynthesisItems } from '../_shared/geminiCostGuard.ts'
 import { compactPersistentConversationState } from '../_shared/persistentConversationState.ts'
 import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
@@ -1071,6 +1072,8 @@ serve(async req => {
         }
 
         let maxControllerRound = MAX_TOOL_ROUNDS
+        let evidenceFinalSynthesisAttempted = false
+        let evidenceFinalSynthesisPending = false
         for (let round = 0; round <= maxControllerRound; round += 1) {
           const mustSynthesize = round === maxControllerRound
           const deterministicEnumeration = AGENTIC_CONTROLLER_ENABLED
@@ -1130,18 +1133,19 @@ serve(async req => {
           const providerRoundStartedAt = performance.now()
 
           const requestActiveProvider = async () => {
-            const skillToolsEnabled = !mustSynthesize
+            const forceEvidenceFinalSynthesis = evidenceFinalSynthesisPending
+            const skillToolsEnabled = !mustSynthesize && !forceEvidenceFinalSynthesis
               && !AGENTIC_CONTROLLER_ENABLED
               && plan.intent !== 'research'
-            const knowledgeToolsEnabled = !mustSynthesize
+            const knowledgeToolsEnabled = !mustSynthesize && !forceEvidenceFinalSynthesis
               && !AGENTIC_CONTROLLER_ENABLED
               && plan.knowledgeRequired
               && !(geminiNativeWebPlanned && knowledgePreflightAttempted && sources.filter(source => source.sourceType !== 'web').length === 0)
-            const providerWebEnabled = !mustSynthesize
+            const providerWebEnabled = !mustSynthesize && !forceEvidenceFinalSynthesis
               && (AGENTIC_CONTROLLER_ENABLED
                 ? capabilitySession?.surface.providerWebVisible === true
                 : plan.webMode !== 'none')
-            const agenticVisibleTools = !mustSynthesize && AGENTIC_CONTROLLER_ENABLED
+            const agenticVisibleTools = !mustSynthesize && !forceEvidenceFinalSynthesis && AGENTIC_CONTROLLER_ENABLED
               ? capabilitySession?.surface.tools || []
               : []
             const hasExactCustomIdentifierInRequest = hasExactTechnicalIdentifier(message)
@@ -1163,10 +1167,16 @@ serve(async req => {
               return await requestGeminiResponse({
                 apiKey: String(geminiApiKey), model: activeModel,
                 stableInstructions: String(prompt.prompt_text || ''),
-                instructions: [synthesisInstruction, finalInstruction].filter(Boolean).join('\n\n'),
+                instructions: [
+                  synthesisInstruction,
+                  finalInstruction,
+                  forceEvidenceFinalSynthesis
+                    ? 'EVIDENCE_FINAL_SYNTHESIS: Bu aynı Controller modelinin final cevap turudur. Yeni tool çağırma. JETWORK_TOOL_EVIDENCE içindeki doğrulanmış kaynakları ve konuşma hedefini birlikte kullan; kaynak hedefi yanıtlıyorsa genel sözlük anlamlarına geri dönme.'
+                    : '',
+                ].filter(Boolean).join('\n\n'),
                 items: runItems, tools,
-                allowTools: tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned,
-                allowProviderWeb: providerWebEnabled || geminiNativeWebPlanned,
+                allowTools: !forceEvidenceFinalSynthesis && (tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned),
+                allowProviderWeb: !forceEvidenceFinalSynthesis && (providerWebEnabled || geminiNativeWebPlanned),
                 workMode,
                 maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => {
@@ -1271,6 +1281,24 @@ serve(async req => {
 
           const functionCalls = output.filter((item: Record<string, unknown>) => item.type === 'function_call')
           if (!functionCalls.length) {
+            const hasVerifiedKnowledgeSource = sources.some(source => source.sourceType !== 'web' && Boolean(source.canonicalKey || source.sourceId))
+            if (
+              activeProvider === 'gemini'
+              && AGENTIC_CONTROLLER_ENABLED
+              && hasVerifiedKnowledgeSource
+              && (!semanticArtifactRequired() || generatedArtifacts.size > 0)
+              && !evidenceFinalSynthesisAttempted
+            ) {
+              evidenceFinalSynthesisAttempted = true
+              evidenceFinalSynthesisPending = true
+              const finalSynthesisItems = buildGeminiFinalSynthesisItems(runItems)
+              runItems.splice(0, runItems.length, ...finalSynthesisItems)
+              if (round >= maxControllerRound) maxControllerRound += 1
+              usage = addUsage(usage, { gemini_evidence_final_synthesis: 1 })
+              emitStatus('synthesizing', 'Toplanan kaynaklar nihai yanıta dönüştürülüyor...')
+              continue
+            }
+            evidenceFinalSynthesisPending = false
             if (semanticArtifactRequired() && generatedArtifacts.size === 0) {
               if (!mustSynthesize && totalToolCalls < MAX_TOOL_CALLS) {
                 runItems.push({
