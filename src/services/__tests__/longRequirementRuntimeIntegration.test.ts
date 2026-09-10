@@ -5,8 +5,9 @@ const core = readFileSync(new URL('../../../supabase/functions/openai-assistant-
 const bridge = readFileSync(new URL('../../../supabase/functions/openai-assistant-v2-primary-bridge-evidence/index.ts', import.meta.url), 'utf8')
 
 describe('long requirement runtime integration', () => {
-  it('passes the current message into grounding coverage', () => {
-    expect(core).toContain('currentUserText: message')
+  it('does not send current user text into a runtime semantic grounding judge', () => {
+    expect(core).not.toContain('currentUserText: message')
+    expect(core).not.toContain('evaluateGroundedTechnicalClaims')
   })
   it('uses the shared technical identifier detector in the primary model router', () => {
     expect(bridge).toContain("import { extractExactTechnicalIdentifiers } from '../_shared/technicalIdentifier.ts'")
