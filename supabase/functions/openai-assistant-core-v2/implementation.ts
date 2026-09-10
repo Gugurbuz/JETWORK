@@ -19,6 +19,7 @@ import {
   parseAndValidateCapabilityInvocation,
   REPORT_PROGRESS_TOOL_NAME,
   REQUEST_LARGE_CONTEXT_TOOL_NAME,
+  REQUEST_OBSERVATION_CONTENT_TOOL_NAME,
   startControllerCapabilitySession,
   type ControllerCapabilitySession,
 } from '../_shared/capabilities/controllerSurface.ts'
@@ -32,6 +33,7 @@ import { buildDeterministicEnumerationFinalization } from '../_shared/enumeratio
 import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
 import { resultHasVerifiedKnowledgeEvidence } from '../_shared/groundingGuard.ts'
 import { partitionVerifiedSourceRefs } from '../_shared/evidence/runtimeLedger.ts'
+import { compactObservation, readObservationContent } from '../_shared/agent/observationBudget.ts'
 import {
   cleanProviderItemsForOpenAi,
   createGeminiProviderStateItem,
@@ -693,6 +695,8 @@ serve(async req => {
       const trace: TraceEntry[] = []
       const evidence: string[] = []
       const toolResultCache = new Map<string, AssistantToolExecution>()
+      const observationContentStore = new Map<string, { toolName: string; output: string }>()
+      let observationReadCalls = 0
       const generatedArtifacts = new Map<string, NonNullable<AssistantToolExecution['artifacts']>[number]>()
       const captureGeneratedArtifacts = (result: AssistantToolExecution) => {
         for (const artifact of result.artifacts || []) {
@@ -1542,9 +1546,11 @@ serve(async req => {
                     type: 'provider_step', operation_id: customOperationId, lifecycle: 'complete',
                     label: customActivity.completedLabel, tool: customActivity.tool, source_type: customActivity.sourceType,
                   })
-                  let observation: unknown = result.output
-                  try { observation = JSON.parse(result.output) } catch { /* keep raw tool output */ }
                   const observationText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
+                  const observationRef = `obs:${callId || 'batch'}:${action.id}`
+                  observationContentStore.set(observationRef, { toolName: action.capability, output: observationText })
+                  const perActionPreviewBudget = Math.max(2_500, Math.floor(14_000 / Math.max(1, validatedActions.length)))
+                  const observation = compactObservation(observationText, observationRef, perActionPreviewBudget)
                   const verifiedEvidence = resultHasVerifiedKnowledgeEvidence(result)
                   const candidateOnly = (
                     action.capability === 'search_knowledge_catalog'
@@ -1563,6 +1569,7 @@ serve(async req => {
                     candidateOnly,
                     emptyDiscovery,
                     observation,
+                    observationTruncated: observation.truncated,
                     sourceRefs: result.sources.map(source => ({
                       canonicalKey: source.canonicalKey || null,
                       sourceId: source.sourceId || null,
@@ -1621,6 +1628,7 @@ serve(async req => {
                   verifiedEvidenceActions: batchResults.filter(result => result.ok && 'verifiedEvidence' in result && result.verifiedEvidence === true).length,
                   candidateOnlyActions: batchResults.filter(result => result.ok && 'candidateOnly' in result && result.candidateOnly === true).length,
                   webCandidateOnly,
+                  truncatedObservationActions: batchResults.filter(result => result.ok && 'observationTruncated' in result && result.observationTruncated === true).length,
                 },
                 sourceRefs: [],
                 status: batchResults.some(result => result.ok) ? 'completed' : 'failed',
@@ -1631,6 +1639,9 @@ serve(async req => {
                 semantic_action_batches: 1,
                 semantic_action_batch_actions: validatedActions.length,
                 semantic_action_batch_validation_failures: validationErrors.length,
+                semantic_action_batch_truncated_observations: batchResults.filter(result => result.ok && 'observationTruncated' in result && result.observationTruncated === true).length,
+                semantic_action_batch_observation_full_characters: batchResults.reduce((sum, result) => sum + (result.ok && 'observation' in result && result.observation && typeof result.observation === 'object' ? Number((result.observation as Record<string, unknown>).fullCharacters || 0) : 0), 0),
+                semantic_action_batch_observation_preview_characters: batchResults.reduce((sum, result) => sum + (result.ok && 'observation' in result && result.observation && typeof result.observation === 'object' ? Number((result.observation as Record<string, unknown>).previewCharacters || 0) : 0), 0),
               })
               runItems.push({
                 type: 'function_call_output',
@@ -1645,6 +1656,52 @@ serve(async req => {
                   instruction: webCandidateOnly
                     ? 'Interpret these observations semantically yourself. A search_web result is public discovery only: its snippets/URLs are candidates, not verified wording. If the unresolved user goal depends on exact public wording and a suitable current/official/primary URL is present, URL Context is available for you to inspect the candidate you choose in the next semantic step; do not return to unrelated enterprise detail as a substitute for that unresolved literal evidence gap. You choose whether inspection is needed and which URL to inspect. Runtime selected neither source nor next action.'
                     : 'Interpret these observations semantically yourself. verifiedEvidence=false/candidateOnly=true means discovery only, even when a canonical identifier is present; do not present it as verified source evidence. If a material claim needs exact evidence and the candidate exposes the identifier required by an exact/detail capability, choose that capability yourself in the next dependency-level round. Runtime did not select or rank the next action.',
+                }),
+              })
+              continue
+            }
+            if (toolName === REQUEST_OBSERVATION_CONTENT_TOOL_NAME) {
+              const observationRef = cleanString(args.observationRef, 200)
+              const stored = observationContentStore.get(observationRef)
+              if (!stored) {
+                runItems.push({
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({ contract: 'controller_observation_content_v1', ok: false, error: 'OBSERVATION_REF_NOT_FOUND', observationRef }),
+                })
+                continue
+              }
+              if (observationReadCalls >= 6) {
+                runItems.push({
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({ contract: 'controller_observation_content_v1', ok: false, error: 'OBSERVATION_READ_BUDGET_EXHAUSTED', observationRef }),
+                })
+                continue
+              }
+              observationReadCalls += 1
+              const read = readObservationContent({
+                output: stored.output,
+                mode: args.mode === 'find' ? 'find' : 'slice',
+                query: args.query === null ? null : cleanString(args.query, 500),
+                offset: args.offset === null ? null : Number(args.offset || 0),
+                maxChars: args.maxChars === null ? null : Number(args.maxChars || 6_000),
+              })
+              const returnedCharacters = typeof (read as Record<string, unknown>).text === 'string'
+                ? String((read as Record<string, unknown>).text).length
+                : 0
+              usage = addUsage(usage, {
+                observation_content_reads: 1,
+                observation_content_returned_characters: returnedCharacters,
+              })
+              runItems.push({
+                type: 'function_call_output',
+                call_id: callId,
+                output: JSON.stringify({
+                  contract: 'controller_observation_content_v1',
+                  observationRef,
+                  sourceTool: stored.toolName,
+                  ...read,
                 }),
               })
               continue
