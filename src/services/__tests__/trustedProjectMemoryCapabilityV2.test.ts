@@ -21,7 +21,7 @@ describe('trusted Project Memory capability v3 surface', () => {
     const surface = buildControllerCapabilitySurface([])
     expect(surface.logicalToolNames).toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
     expect(surface.toolNames).not.toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
-    expect(surface.toolNames).toContain('discover_more_capabilities')
+    expect(surface.toolNames).toContain('execute_capabilities')
     expect(surface.candidateIds).toEqual([])
   })
 
