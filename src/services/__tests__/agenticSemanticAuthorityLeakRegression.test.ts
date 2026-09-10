@@ -65,11 +65,11 @@ describe('Agentic semantic authority leak regressions', () => {
 
   it('exposes the full registered logical surface while lazy-loading physical schemas', () => {
     const surface = buildControllerCapabilitySurface()
-    expect(surface.discoveryMode ?? 'progressive_disclosure').toBe('progressive_disclosure')
     expect(surface.logicalToolNames).toHaveLength(33)
     expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
     expect(surface.logicalToolNames).toContain('create_document_file')
     expect(surface.toolNames).toEqual(expect.arrayContaining(['load_capability_guide', 'load_capability_contract', 'invoke_capability']))
+    expect(surfaceSource).toContain("discoveryMode: 'progressive_disclosure'")
     expect(surfaceSource).toContain('providerWebVisible: true')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
