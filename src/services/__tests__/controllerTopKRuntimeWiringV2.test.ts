@@ -39,6 +39,6 @@ describe('Agent Controller V5 progressive runtime wiring', () => {
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
     expect(surfaceSource).not.toContain('next knowledge call MUST')
     expect(surfaceSource).not.toContain('pendingCandidateKeys')
-    expect(surfaceSource).toContain('Activated contracts are options, never mandatory next steps')
+    expect(surfaceSource).toContain('Runtime only validates name/schema/permission/budget')
   })
 })
