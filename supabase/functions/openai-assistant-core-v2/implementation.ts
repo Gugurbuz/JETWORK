@@ -1721,10 +1721,6 @@ serve(async req => {
               try {
                 const observation = await runCapabilityDiscoveryTool(args)
                 runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify(observation) })
-                runItems.push({
-                  role: 'developer',
-                  content: `CAPABILITY_SURFACE_UPDATED: ${JSON.stringify(observation)}. Bu adayların hiçbiri otomatik seçim değildir; sıradaki tool/capability kararını sen ver.`,
-                })
                 usage = addUsage(usage, { capability_discovery_more: 1 })
               } catch (toolError) {
                 runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ error: 'CAPABILITY_DISCOVERY_FAILED', message: errorMessage(toolError).slice(0, 1_000) }) })
@@ -1764,7 +1760,16 @@ serve(async req => {
               const result = isSkillTool(toolName)
                 ? await runSkillTool(toolName, args, 'model:skill')
                 : await runKnowledgeTool(toolName, args, 'model:capability')
-              runItems.push({ type: 'function_call_output', call_id: callId, output: result.output })
+              const directObservationRef = `obs:${callId || crypto.randomUUID()}:direct`
+              const directObservationText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
+              observationContentStore.set(directObservationRef, { toolName, output: directObservationText })
+              const directObservation = compactObservation(directObservationText, directObservationRef)
+              usage = addUsage(usage, {
+                direct_observation_full_characters: directObservation.fullCharacters,
+                direct_observation_preview_characters: directObservation.previewCharacters,
+                direct_observation_truncated: directObservation.truncated ? 1 : 0,
+              })
+              runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify(directObservation) })
               sendEvent(controller, encoder, 'provider_step', {
                 type: 'provider_step', operation_id: customOperationId, lifecycle: 'complete',
                 label: customActivity.completedLabel, tool: customActivity.tool, source_type: customActivity.sourceType,
