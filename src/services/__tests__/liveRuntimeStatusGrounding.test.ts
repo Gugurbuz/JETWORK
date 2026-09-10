@@ -105,7 +105,7 @@ describe('Live runtime status and grounding regression', () => {
     );
 
     expect(providerSource).toContain('requestGeminiInteractionsResponseGA')
-    expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION')
+    expect(providerSource).toContain('AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION')
     expect(providerSource).toContain('gateGeminiAgentToolsForPublicWork')
     expect(providerSource).toContain('publicWorkInstruction')
     expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
@@ -151,8 +151,8 @@ describe('Live runtime status and grounding regression', () => {
     expect(surfaceSource).toContain('activatedToolNames')
     expect(disclosureSource).toContain('JETWORK_CAPABILITY_INDEX')
     expect(surfaceSource).not.toContain('invoke_capability')
-    expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
-    expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
+    expect(surfaceSource).not.toContain('mandatoryCapability')
+    expect(surfaceSource).toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
   });
 
