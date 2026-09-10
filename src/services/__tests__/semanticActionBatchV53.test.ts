@@ -33,20 +33,20 @@ describe('V5.3 semantic action batching', () => {
     const surface = buildControllerCapabilitySurface()
     expect(surface.toolNames).toEqual([
       'report_progress',
+      'discover_more_capabilities',
       EXECUTE_CAPABILITIES_TOOL_NAME,
       'request_large_context',
     ])
-    expect(surface.toolNames).not.toContain('discover_more_capabilities')
+    expect(surface.toolNames).toContain('discover_more_capabilities')
     expect(surface.logicalToolNames).toHaveLength(33)
   })
 
   it('exposes a compact model-readable menu while keeping canonical schemas runtime-side', () => {
     const tool = buildExecuteCapabilitiesTool()
     expect(tool.name).toBe(EXECUTE_CAPABILITIES_TOOL_NAME)
-    expect(tool.description).toContain('search_knowledge_catalog(query, limit)')
-    expect(tool.description).toContain('get_abap_source')
-    expect(tool.description).toContain('get_message_detail')
-    expect(tool.description).toContain('sole semantic authority')
+    expect(tool.description).toContain('discover_more_capabilities')
+    expect(tool.description).toContain('mechanical runtime')
+    expect(tool.description.length).toBeLessThan(1_600)
     expect(tool.description).not.toContain('LRT')
     expect(tool.description).not.toContain('CHECK_LRTV3')
   })
@@ -74,6 +74,7 @@ describe('V5.3 semantic action batching', () => {
     expect(gated.started).toBe(false)
     expect(gated.tools.map(tool => tool.name)).toEqual([
       'report_progress',
+      'discover_more_capabilities',
       PUBLIC_WORK_BATCH_TOOL_NAME,
     ])
   })
