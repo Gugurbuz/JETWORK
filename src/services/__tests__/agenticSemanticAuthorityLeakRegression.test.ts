@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { buildSemanticExecutionPlan } from '../../../supabase/functions/_shared/semanticOrchestrator.ts'
+import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 
 const internalGatewaySource = readFileSync(
   new URL('../../../supabase/functions/openai-assistant-v2-internal/index.ts', import.meta.url),
@@ -62,9 +63,13 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(providerSource).not.toContain('extractSemanticPlanFromItems')
   })
 
-  it('exposes the full registered capability surface instead of letting semantic Top-K hide options', () => {
-    expect(surfaceSource).toContain("discoveryMode: 'full_surface'")
-    expect(surfaceSource).toContain('...runtimeTools')
+  it('exposes the full registered logical surface while lazy-loading physical schemas', () => {
+    const surface = buildControllerCapabilitySurface()
+    expect(surface.discoveryMode ?? 'progressive_disclosure').toBe('progressive_disclosure')
+    expect(surface.logicalToolNames).toHaveLength(33)
+    expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
+    expect(surface.logicalToolNames).toContain('create_document_file')
+    expect(surface.toolNames).toEqual(expect.arrayContaining(['load_capability_guide', 'load_capability_contract', 'invoke_capability']))
     expect(surfaceSource).toContain('providerWebVisible: true')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
