@@ -89,9 +89,13 @@ export const hasEmptyDiscoveryObservationSinceLastProgress = (items: Array<Recor
       return
     }
     if (type !== 'function_call_output' || index <= latestProgress) return
-    if (!SUBSTANTIVE_DISCOVERY_TOOLS.has(namesByCallId.get(callId) || '')) return
+    const toolName = namesByCallId.get(callId) || ''
     const raw = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
-    if (/"resultCount"\s*:\s*0\b/.test(raw) || /"candidateSourceCount"\s*:\s*0\b/.test(raw)) empty = true
+    if (SUBSTANTIVE_DISCOVERY_TOOLS.has(toolName)) {
+      if (/"resultCount"\s*:\s*0\b/.test(raw) || /"candidateSourceCount"\s*:\s*0\b/.test(raw)) empty = true
+      return
+    }
+    if (toolName === PUBLIC_WORK_BATCH_TOOL_NAME && /"emptyDiscovery"\s*:\s*true\b/.test(raw)) empty = true
   })
 
   return empty
