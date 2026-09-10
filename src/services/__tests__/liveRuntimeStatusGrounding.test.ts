@@ -122,7 +122,7 @@ describe('Live runtime status and grounding regression', () => {
     expect(controllerPolicy).toContain('aktif sistem talimatları, çalışma/kurum bağlamı')
   });
 
-  it('uses progressive physical disclosure while preserving canonical tool identity', () => {
+  it('uses semantic action batching while preserving canonical tool identity', () => {
     const runtimeSource = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
@@ -141,7 +141,7 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
     expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
-    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5-progressive-disclosure'")
+    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5.3-semantic-action-batch'")
     expect(surfaceSource).toContain('surfaceWithActivated')
     expect(surfaceSource).toContain('providerWebVisible: false')
     expect(surfaceSource).toContain('nextCursor only means more records exist')

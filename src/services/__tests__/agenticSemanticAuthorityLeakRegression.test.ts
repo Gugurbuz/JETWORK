@@ -66,12 +66,12 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(providerSource).not.toContain('extractSemanticPlanFromItems')
   })
 
-  it('preserves 33 logical options while activating only model-selected canonical contracts', () => {
-    expect(surfaceSource).toContain("discoveryMode: 'progressive_disclosure'")
+  it('preserves 33 logical options while exposing only the mechanical semantic batch gateway', () => {
+    expect(surfaceSource).toContain("discoveryMode: 'semantic_action_batch'")
     expect(surfaceSource).toContain('logicalToolNames')
-    expect(surfaceSource).toContain('surfaceWithActivated')
-    expect(surfaceSource).toContain('guidedToolNames')
-    expect(surfaceSource).toContain('activatedToolNames')
+    expect(surfaceSource).toContain('buildExecuteCapabilitiesTool')
+    expect(surfaceSource).toContain('parseAndValidateCapabilityInvocation')
+    expect(surfaceSource).toContain('executionCapabilityNames')
     expect(surfaceSource).toContain('providerWebVisible: false')
     expect(surfaceSource).toContain("query.toLocaleLowerCase('en-US') === 'index'")
     expect(surfaceSource).toContain("query.match(/^guide")

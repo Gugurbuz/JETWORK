@@ -12,10 +12,10 @@ describe('controller capability surface v5', () => {
   it('keeps the complete logical JetWork surface while initial physical schemas stay minimal', () => {
     const surface = buildControllerCapabilitySurface([])
 
-    expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5-progressive-disclosure')
+    expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5.3-semantic-action-batch')
     expect(surface.toolNames).toEqual([
       'report_progress',
-      'discover_more_capabilities',
+      'execute_capabilities',
       'request_large_context',
     ])
     expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
@@ -52,7 +52,7 @@ describe('controller capability surface v5', () => {
     const surface = buildControllerCapabilitySurface([])
     const observation = capabilitySessionObservation({
       version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-      discoveryMode: 'progressive_disclosure',
+      discoveryMode: 'semantic_action_batch',
       seenCandidateIds: [],
       guidedToolNames: [],
       activatedToolNames: [],
@@ -60,13 +60,13 @@ describe('controller capability surface v5', () => {
       surface,
     })
 
-    expect(observation.discoveryMode).toBe('progressive_disclosure')
+    expect(observation.discoveryMode).toBe('semantic_action_batch')
     expect(observation.logicalCapabilityCount).toBe(33)
     expect(observation.instruction).toContain('sole semantic Controller')
-    expect(observation.instruction).toContain('query="index"')
-    expect(observation.instruction).toContain('query="guide:name1,name2"')
-    expect(observation.instruction).toContain('query="contract:name1,name2"')
-    expect(observation.instruction).toContain('canonical tool itself')
+    expect(observation.instruction).toContain('execute_capabilities')
+    expect(observation.instruction).toContain('actions=[{id, capability, argumentsJson}]')
+    expect(observation.instruction).toContain('Batch independent actions')
+    expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
     expect(observation.instruction).not.toContain('must verify')
     expect(observation.instruction).not.toContain('pendingCandidateKeys')
   })
@@ -77,7 +77,7 @@ describe('controller capability surface v5', () => {
     expect(source).not.toContain('discoverIndexedCapabilities')
     expect(source).not.toContain('pendingCandidateKeys')
     expect(source).not.toContain('next knowledge call MUST')
-    expect(source).toContain('progressive capability disclosure')
+    expect(source).toContain('semantic action batching')
     expect(source).toContain('semantic Controller')
   })
 })

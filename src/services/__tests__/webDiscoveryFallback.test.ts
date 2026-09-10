@@ -17,11 +17,11 @@ describe('Controller V5 quota-independent web discovery', () => {
     vi.unstubAllGlobals()
   })
 
-  it('keeps quota-independent web discovery logically available behind progressive disclosure', () => {
+  it('keeps quota-independent web discovery logically available behind semantic batching', () => {
     const surface = buildControllerCapabilitySurface()
     expect(surface.logicalToolNames).toContain(SEARCH_WEB_TOOL_NAME)
     expect(surface.toolNames).not.toContain(SEARCH_WEB_TOOL_NAME)
-    expect(surface.toolNames).toContain('discover_more_capabilities')
+    expect(surface.toolNames).toContain('execute_capabilities')
     expect(surface.providerWebVisible).toBe(false)
 
     const schema = ASSISTANT_CONTEXT_TOOLS.find(tool => tool.name === SEARCH_WEB_TOOL_NAME)
