@@ -8,10 +8,11 @@ const providerSource = readFileSync(
 )
 
 describe('Gemini Controller stable prompt regression', () => {
-  it('passes the versioned stable product prompt into the same Controller system instruction', () => {
-    expect(providerSource).toContain("const stableProductInstruction = String(input.stableInstructions || '').trim()")
+  it('compacts the versioned product prompt before composing the Controller system instruction', () => {
+    expect(providerSource).toContain("const rawStableProductInstruction = String(input.stableInstructions || '').trim()")
+    expect(providerSource).toContain('buildProviderProductCore(rawStableProductInstruction)')
     expect(providerSource).toContain('stableProductInstruction,')
-    expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION,')
+    expect(providerSource).toContain('AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION,')
     expect(providerSource).toContain('runtimeObservation,')
     expect(providerSource).not.toContain('semantic planner')
   })
