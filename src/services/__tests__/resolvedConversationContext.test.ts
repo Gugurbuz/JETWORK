@@ -90,7 +90,7 @@ describe('resolved conversation context', () => {
     expect(contentOf(compacted.at(-1) as Record<string, unknown>)).toBe(active)
   })
 
-  it('marks resolved state as continuity context rather than enterprise evidence', () => {
+  it('keeps resolved state non-authoritative while exposing verified provenance for controller reuse', () => {
     const instruction = buildResolvedConversationInstruction({
       resolvedRequest: 'Kalan kalite geliştirmelerini tamamla',
       topic: 'conversation quality',
@@ -104,6 +104,7 @@ describe('resolved conversation context', () => {
     expect(instruction).toContain('NOT EVIDENCE')
     expect(instruction).toContain('Raw history modele yığılmayacak')
     expect(instruction).toContain('Qwen')
-    expect(instruction).toContain('gerçek knowledge/web kanıtı')
+    expect(instruction).toContain('Önceki doğrulanmış evidence provenance refleri: source:123')
+    expect(instruction).toContain('yeniden açılabilir başlangıç noktaları')
   })
 })
