@@ -74,14 +74,15 @@ describe('Controller V3 interaction state + Agent Work', () => {
     expect(complete.payload.state).toBe('failed')
   })
 
-  it('persists interaction state only after an unblocked grounded final in the core wiring', () => {
+  it('persists interaction state after the Controller final without a runtime semantic veto', () => {
     const core = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
     )
-    expect(core).toContain("activeProvider === 'gemini' && latestGeminiInteractionId && !groundingBlocked")
+    expect(core).toContain("activeProvider === 'gemini' && latestGeminiInteractionId")
     expect(core).toContain('createGeminiProviderStateItem(latestGeminiInteractionId)')
-    expect(core).toContain('gemini_interaction_state_discarded_grounding')
+    expect(core).not.toContain('groundingBlocked')
+    expect(core).not.toContain('gemini_interaction_state_discarded_grounding')
     expect(core).toContain("sendEvent(controller, encoder, 'provider_step'")
     expect(core).not.toContain("AGENTIC_CONTROLLER_ENABLED\n          ? 'Controller ilk aksiyonu değerlendiriyor...'")
   })

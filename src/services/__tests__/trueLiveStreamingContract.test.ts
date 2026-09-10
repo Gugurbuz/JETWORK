@@ -76,8 +76,8 @@ describe('true live assistant streaming contract', () => {
     expect(transportSource).toContain('gemini_provider_first_text_ms')
     expect(transportSource).toContain('gemini_previous_interaction_used')
     expect(coreSource).toContain("sendEvent(controller, encoder, 'provider_step'")
-    expect(coreSource).toContain('evaluateGroundedTechnicalClaims')
-    expect(coreSource).toContain('shouldFailClosedGroundedAnswer')
+    expect(coreSource).not.toContain('evaluateGroundedTechnicalClaims')
+    expect(coreSource).not.toContain('shouldFailClosedGroundedAnswer')
   })
 
   it('surfaces real memory and plan activity without router metadata counts', () => {

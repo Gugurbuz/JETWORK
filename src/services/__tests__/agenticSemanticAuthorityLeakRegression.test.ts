@@ -79,9 +79,9 @@ describe('Agentic semantic authority leak regressions', () => {
   })
 
   it('keeps grounding mechanical and fail-closed without choosing a semantic recovery route', () => {
-    expect(coreSource).toContain('evaluateGroundedTechnicalClaims({')
-    expect(coreSource).toContain('shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })')
-    expect(coreSource).toContain('roundText = groundingFailureText()')
+    expect(coreSource).not.toContain('evaluateGroundedTechnicalClaims')
+    expect(coreSource).not.toContain('shouldFailClosedGroundedAnswer')
+    expect(coreSource).not.toContain('groundingFailureText')
     expect(providerSource).not.toContain('[JETWORK GROUNDING RECOVERY REPLAN OBSERVATION]')
     expect(providerSource).not.toContain('grounding_controller_replan_retry')
   })
