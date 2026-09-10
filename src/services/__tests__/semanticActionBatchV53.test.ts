@@ -19,6 +19,14 @@ const surfaceSource = readFileSync(
   new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url),
   'utf8',
 )
+const policySource = readFileSync(
+  new URL('../../../supabase/functions/_shared/agent/controllerPolicy.ts', import.meta.url),
+  'utf8',
+)
+const costGuardSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/geminiCostGuard.ts', import.meta.url),
+  'utf8',
+)
 
 describe('V5.3 semantic action batching', () => {
   it('keeps the provider surface compact without progressive-disclosure round trips', () => {
@@ -89,6 +97,22 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).not.toContain('UNVERIFIED_PROGRESS_SOURCE_REF')
     expect(surfaceSource).toContain('citationReady=false / verifiedEvidence=false')
     expect(surfaceSource).toContain('not verified source evidence by itself')
+  })
+
+  it('accepts the first post-verified-batch no-tool answer without a redundant evidence-only Gemini round', () => {
+    expect(coreSource).toContain('let verifiedSemanticBatchEvidenceSeen = false')
+    expect(coreSource).toContain('semantic_batch_verified_evidence_seen: 1')
+    expect(coreSource).toContain('&& !verifiedSemanticBatchEvidenceSeen')
+  })
+
+  it('treats acronym expansion as a generic semantic completion requirement, not a product-specific route', () => {
+    expect(policySource).toContain('yalnız kullanım alanını veya ürün ailesini tarif etmek görevi tamamlamaz')
+    expect(policySource).toContain('yüksek güvenli standart sektör/genel açılımını')
+    expect(policySource).toContain('yalnız finding yayınlamak için ayrı Controller turu harcama')
+    expect(costGuardSource).toContain('yalnız kurumsal kullanım veya ürün ailesi açıklamasıyla yetinme')
+    expect(costGuardSource).toContain('yüksek güvenli standart/sektörel açılımı model bilginden')
+    expect(policySource).not.toContain('Last Resort Tariff')
+    expect(costGuardSource).not.toContain('Last Resort Tariff')
   })
 
   it('contains no domain-specific semantic routing in the executor', () => {
