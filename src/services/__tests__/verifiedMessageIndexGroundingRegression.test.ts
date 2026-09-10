@@ -42,16 +42,16 @@ describe('verified ABAP message index grounding regression', () => {
     const surface = buildControllerCapabilitySurface([])
     const observation = capabilitySessionObservation({
       version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-      discoveryMode: 'full_surface',
+      discoveryMode: 'progressive_disclosure',
       seenCandidateIds: [],
       surface,
     })
 
-    expect(surface.toolNames).toContain('search_knowledge_catalog')
-    expect(surface.toolNames).toContain('get_knowledge_object')
-    expect(surface.toolNames).toContain('get_knowledge_objects')
-    expect(surface.toolNames).toContain('get_related_objects')
-    expect(observation.instruction).toContain('controller model')
+    expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
+    expect(surface.logicalToolNames).toContain('get_knowledge_object')
+    expect(surface.logicalToolNames).toContain('get_knowledge_objects')
+    expect(surface.logicalToolNames).toContain('get_related_objects')
+    expect(observation.instruction).toContain('aynı Controller')
     expect(observation.instruction).not.toContain('exact-verify')
     expect(observation.instruction).not.toContain('pending candidate')
     expect(observation.instruction).not.toContain('answer code-only')
