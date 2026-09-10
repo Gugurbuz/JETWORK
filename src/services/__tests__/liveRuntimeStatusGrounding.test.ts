@@ -86,7 +86,7 @@ describe('Live runtime status and grounding regression', () => {
       .toBe('Asistana bağlanılıyor...');
   });
 
-  it('uses stable Gemini Interactions v1 as the V4 semantic-controller provider path with a public-work lifecycle gate', () => {
+  it('uses stable Gemini Interactions v1 as the semantic-controller provider path with a public-work lifecycle gate', () => {
     const providerSource = readFileSync(
       new URL('../../../supabase/functions/_shared/modelProviders.ts', import.meta.url),
       'utf8',
@@ -122,7 +122,7 @@ describe('Live runtime status and grounding regression', () => {
     expect(controllerPolicy).toContain('aktif sistem talimatları, çalışma/kurum bağlamı')
   });
 
-  it('uses a full semantic capability surface after the public-work lifecycle gate', () => {
+  it('uses progressive physical disclosure while preserving canonical tool identity', () => {
     const runtimeSource = readFileSync(
       new URL('../../../supabase/functions/openai-assistant-core-v2/implementation.ts', import.meta.url),
       'utf8',
@@ -131,17 +131,26 @@ describe('Live runtime status and grounding regression', () => {
       new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url),
       'utf8',
     );
+    const disclosureSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/capabilities/progressiveDisclosure.ts', import.meta.url),
+      'utf8',
+    );
 
     expect(runtimeSource).toContain('startControllerCapabilitySession({');
     expect(runtimeSource).toContain('capabilitySession?.surface.tools || []');
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
     expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
-    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v4-public-work-plan'")
-    expect(surfaceSource).toContain('...runtimeTools')
-    expect(surfaceSource).toContain('providerWebVisible: true')
+    expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5-progressive-disclosure'")
+    expect(surfaceSource).toContain('surfaceWithActivated')
+    expect(surfaceSource).toContain('providerWebVisible: false')
     expect(surfaceSource).toContain('nextCursor only means more records exist')
-    expect(surfaceSource).toContain('lifecycle/control capability')
+    expect(surfaceSource).toContain('logicalToolNames')
+    expect(surfaceSource).toContain("query.toLocaleLowerCase('en-US') === 'index'")
+    expect(surfaceSource).toContain('guidedToolNames')
+    expect(surfaceSource).toContain('activatedToolNames')
+    expect(disclosureSource).toContain('JETWORK_CAPABILITY_INDEX')
+    expect(surfaceSource).not.toContain('invoke_capability')
     expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')

@@ -26,6 +26,10 @@ const surfaceSource = readFileSync(
   new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url),
   'utf8',
 )
+const disclosureSource = readFileSync(
+  new URL('../../../supabase/functions/_shared/capabilities/progressiveDisclosure.ts', import.meta.url),
+  'utf8',
+)
 
 describe('Agentic semantic authority leak regressions', () => {
   it('materializes the internal gateway locally instead of pinning an old remote runtime', () => {
@@ -43,7 +47,7 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(publicGatewaySource.indexOf(attachedPlan)).toBeLessThan(publicGatewaySource.indexOf(upstreamFetch))
   })
 
-  it('keeps pre-LLM planning semantically neutral while Gemini V3 owns action selection', async () => {
+  it('keeps pre-LLM planning semantically neutral while the active model owns action selection', async () => {
     const result = await buildSemanticExecutionPlan({
       provider: 'gemini',
       model: 'gemini-3.8-flash',
@@ -62,15 +66,23 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(providerSource).not.toContain('extractSemanticPlanFromItems')
   })
 
-  it('exposes the full registered capability surface instead of letting semantic Top-K hide options', () => {
-    expect(surfaceSource).toContain("discoveryMode: 'full_surface'")
-    expect(surfaceSource).toContain('...runtimeTools')
-    expect(surfaceSource).toContain('providerWebVisible: true')
+  it('preserves 33 logical options while activating only model-selected canonical contracts', () => {
+    expect(surfaceSource).toContain("discoveryMode: 'progressive_disclosure'")
+    expect(surfaceSource).toContain('logicalToolNames')
+    expect(surfaceSource).toContain('surfaceWithActivated')
+    expect(surfaceSource).toContain('guidedToolNames')
+    expect(surfaceSource).toContain('activatedToolNames')
+    expect(surfaceSource).toContain('providerWebVisible: false')
+    expect(surfaceSource).toContain("query.toLocaleLowerCase('en-US') === 'index'")
+    expect(surfaceSource).toContain("query.match(/^guide")
+    expect(surfaceSource).toContain("query.match(/^contract")
+    expect(disclosureSource).toContain('JETWORK_CAPABILITY_INDEX')
+    expect(surfaceSource).not.toContain('invoke_capability')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
   })
 
-  it('lets Gemini choose native web/url/code and custom functions in the same interaction', () => {
+  it('keeps provider-native tool primitives available in transport code without making them the V5 semantic web path', () => {
     expect(interactionSource).toContain("{ type: 'google_search'")
     expect(interactionSource).toContain("{ type: 'url_context' }")
     expect(interactionSource).toContain("{ type: 'code_execution' }")
