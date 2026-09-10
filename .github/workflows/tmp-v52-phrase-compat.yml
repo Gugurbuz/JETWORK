@@ -1,0 +1,34 @@
+name: Temporary V5.2 phrase compatibility
+on:
+  push:
+    branches:
+      - fix/capability-menu-latency-v52
+    paths:
+      - .github/workflows/tmp-v52-phrase-compat.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/capability-menu-latency-v52
+      - name: Patch phrase
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/functions/_shared/capabilities/controllerSurface.ts')
+          s=p.read_text()
+          old='same model response rather than serializing extra model rounds'
+          new='same model response rather than serializing needless model rounds'
+          if s.count(old)!=1: raise SystemExit(f'count={s.count(old)}')
+          p.write_text(s.replace(old,new))
+          PY
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/_shared/capabilities/controllerSurface.ts
+          git commit -m 'fix(agent): preserve V5.1 batching contract phrase'
+          git push origin HEAD:fix/capability-menu-latency-v52
