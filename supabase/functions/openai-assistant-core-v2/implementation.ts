@@ -15,6 +15,8 @@ import {
   capabilitySessionObservation,
   discoverMoreForController,
   DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
+  EXECUTE_CAPABILITIES_TOOL_NAME,
+  parseAndValidateCapabilityInvocation,
   REPORT_PROGRESS_TOOL_NAME,
   REQUEST_LARGE_CONTEXT_TOOL_NAME,
   startControllerCapabilitySession,
@@ -686,6 +688,7 @@ serve(async req => {
       let verification: VerificationResult | null = null
       let capabilitySession: ControllerCapabilitySession | null = null
       let commentarySequence = 0
+      let publicWorkStartCompleted = false
       const trace: TraceEntry[] = []
       const evidence: string[] = []
       const toolResultCache = new Map<string, AssistantToolExecution>()
@@ -1391,6 +1394,7 @@ serve(async req => {
                 continue
               }
               commentarySequence += 1
+              if (kind === 'start') publicWorkStartCompleted = true
               sendEvent(controller, encoder, 'commentary', { type: 'commentary', sequence: commentarySequence, kind, message: publicMessage, sourceRefs })
               await logToolRun(adminClient, {
                 conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id, promptVersionId: prompt.id,
@@ -1398,6 +1402,177 @@ serve(async req => {
                 sourceRefs: [], status: 'completed', durationMs: 0,
               })
               runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: true, sequence: commentarySequence, kind }) })
+              continue
+            }
+            if (toolName === EXECUTE_CAPABILITIES_TOOL_NAME) {
+              const batchStartedAt = performance.now()
+              const rawActions = Array.isArray(args.actions) ? args.actions : []
+              if (!publicWorkStartCompleted) {
+                runItems.push({
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({
+                    contract: 'semantic_action_batch_v1',
+                    ok: false,
+                    error: 'PUBLIC_WORK_START_REQUIRED',
+                    message: 'report_progress(kind=start) must be completed before execute_capabilities in the same or an earlier model round.',
+                  }),
+                })
+                continue
+              }
+              if (!rawActions.length || rawActions.length > 4) {
+                runItems.push({
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({
+                    contract: 'semantic_action_batch_v1',
+                    ok: false,
+                    error: 'INVALID_ACTION_BATCH_SIZE',
+                    message: 'actions must contain between 1 and 4 model-authored capability calls.',
+                  }),
+                })
+                continue
+              }
+
+              const ids = new Set<string>()
+              const validatedActions: Array<{ id: string; capability: string; args: Record<string, unknown> }> = []
+              const validationErrors: Array<{ id: string; capability: string; error: string }> = []
+
+              for (const rawAction of rawActions) {
+                const action = rawAction && typeof rawAction === 'object' && !Array.isArray(rawAction)
+                  ? rawAction as Record<string, unknown>
+                  : {}
+                const id = cleanString(action.id, 80)
+                const capability = cleanString(action.capability, 120)
+                const argumentsJson = String(action.argumentsJson || '')
+                if (!id || ids.has(id)) {
+                  validationErrors.push({ id, capability, error: id ? 'DUPLICATE_ACTION_ID' : 'EMPTY_ACTION_ID' })
+                  continue
+                }
+                ids.add(id)
+                const validation = parseAndValidateCapabilityInvocation(capability, argumentsJson)
+                if (!validation.ok) {
+                  validationErrors.push({ id, capability, error: validation.error })
+                  continue
+                }
+                validatedActions.push({ id, capability, args: validation.args })
+              }
+
+              if (validationErrors.length || validatedActions.length !== rawActions.length) {
+                await logToolRun(adminClient, {
+                  conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
+                  promptVersionId: prompt.id, toolName, callId,
+                  arguments: { actionCount: rawActions.length },
+                  resultSummary: {
+                    engine: ENGINE_VERSION,
+                    selectedByController: true,
+                    semanticActionBatch: true,
+                    mechanicalValidationOnly: true,
+                    validationErrors,
+                  },
+                  sourceRefs: [], status: 'failed', durationMs: Math.round(performance.now() - batchStartedAt),
+                  errorMessage: 'One or more model-authored capability calls failed canonical schema validation.',
+                })
+                runItems.push({
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({
+                    contract: 'semantic_action_batch_v1',
+                    ok: false,
+                    error: 'CAPABILITY_BATCH_VALIDATION_FAILED',
+                    validationErrors,
+                  }),
+                })
+                continue
+              }
+
+              if (totalToolCalls + validatedActions.length > MAX_TOOL_CALLS) {
+                runItems.push({
+                  type: 'function_call_output',
+                  call_id: callId,
+                  output: JSON.stringify({
+                    contract: 'semantic_action_batch_v1',
+                    ok: false,
+                    error: 'TOOL_BUDGET_EXHAUSTED',
+                    remaining: Math.max(0, MAX_TOOL_CALLS - totalToolCalls),
+                  }),
+                })
+                continue
+              }
+
+              const batchResults = await Promise.all(validatedActions.map(async action => {
+                const customActivity = publicCustomToolActivity(action.capability)
+                const customOperationId = `custom:${callId || crypto.randomUUID()}:${action.id}`
+                sendEvent(controller, encoder, 'provider_step', {
+                  type: 'provider_step', operation_id: customOperationId, lifecycle: 'start',
+                  label: customActivity.startLabel, tool: customActivity.tool, source_type: customActivity.sourceType,
+                })
+                try {
+                  const result = isSkillTool(action.capability)
+                    ? await runSkillTool(action.capability, action.args, `model:batch:${action.id}`)
+                    : await runKnowledgeTool(action.capability, action.args, `model:batch:${action.id}`)
+                  sendEvent(controller, encoder, 'provider_step', {
+                    type: 'provider_step', operation_id: customOperationId, lifecycle: 'complete',
+                    label: customActivity.completedLabel, tool: customActivity.tool, source_type: customActivity.sourceType,
+                  })
+                  let observation: unknown = result.output
+                  try { observation = JSON.parse(result.output) } catch { /* keep raw tool output */ }
+                  return {
+                    id: action.id,
+                    capability: action.capability,
+                    ok: true,
+                    observation,
+                    sourceRefs: result.sources.map(source => ({
+                      canonicalKey: source.canonicalKey || null,
+                      sourceId: source.sourceId || null,
+                      title: source.title || null,
+                    })),
+                  }
+                } catch (toolError) {
+                  sendEvent(controller, encoder, 'provider_step', {
+                    type: 'provider_step', operation_id: customOperationId, lifecycle: 'complete', failed: true,
+                    label: `${customActivity.tool} işlemi tamamlanamadı`, tool: customActivity.tool, source_type: customActivity.sourceType,
+                  })
+                  return {
+                    id: action.id,
+                    capability: action.capability,
+                    ok: false,
+                    error: 'TOOL_EXECUTION_FAILED',
+                    message: errorMessage(toolError).slice(0, 1_000),
+                  }
+                }
+              }))
+
+              await logToolRun(adminClient, {
+                conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
+                promptVersionId: prompt.id, toolName, callId,
+                arguments: { actions: validatedActions.map(action => ({ id: action.id, capability: action.capability })) },
+                resultSummary: {
+                  engine: ENGINE_VERSION,
+                  selectedByController: true,
+                  semanticActionBatch: true,
+                  mechanicalValidationOnly: true,
+                  actionCount: validatedActions.length,
+                  successfulActions: batchResults.filter(result => result.ok).length,
+                },
+                sourceRefs: [], status: batchResults.every(result => result.ok) ? 'completed' : 'failed',
+                durationMs: Math.round(performance.now() - batchStartedAt),
+                errorMessage: batchResults.every(result => result.ok) ? undefined : 'One or more batched capabilities failed.',
+              })
+              usage = addUsage(usage, {
+                semantic_action_batches: 1,
+                semantic_action_batch_actions: validatedActions.length,
+              })
+              runItems.push({
+                type: 'function_call_output',
+                call_id: callId,
+                output: JSON.stringify({
+                  contract: 'semantic_action_batch_v1',
+                  ok: batchResults.every(result => result.ok),
+                  results: batchResults,
+                  instruction: 'Interpret these observations semantically yourself. If a candidate result exposes an identifier needed for exact evidence, choose the appropriate next capability in the next model round. Runtime did not select or rank the next action.',
+                }),
+              })
               continue
             }
             if (toolName === REQUEST_LARGE_CONTEXT_TOOL_NAME) {
