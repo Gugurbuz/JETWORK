@@ -19,6 +19,7 @@ export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
 export const EXECUTE_CAPABILITIES_TOOL_NAME = 'execute_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
+export const REQUEST_OBSERVATION_CONTENT_TOOL_NAME = 'request_observation_content'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
 
 const MAX_DISCLOSURE_SELECTION = 4
@@ -65,6 +66,25 @@ export const REQUEST_LARGE_CONTEXT_TOOL: RuntimeToolSchema = {
       targetCharacters: { type: ['integer', 'null'], minimum: 36_000, maximum: 240_000 },
     },
     required: ['reason', 'targetCharacters'],
+    additionalProperties: false,
+  },
+}
+
+export const REQUEST_OBSERVATION_CONTENT_TOOL: RuntimeToolSchema = {
+  type: 'function',
+  name: REQUEST_OBSERVATION_CONTENT_TOOL_NAME,
+  description: 'Read a bounded slice from a previously truncated tool observation. The model chooses either a literal find query or an offset slice; runtime performs no semantic selection. Use only when the compact observation says truncated=true and the missing raw detail materially affects the answer.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      observationRef: { type: 'string', minLength: 4, maxLength: 200 },
+      mode: { type: 'string', enum: ['find', 'slice'] },
+      query: { type: ['string', 'null'], maxLength: 500 },
+      offset: { type: ['integer', 'null'], minimum: 0 },
+      maxChars: { type: ['integer', 'null'], minimum: 500, maximum: 12_000 },
+    },
+    required: ['observationRef', 'mode', 'query', 'offset', 'maxChars'],
     additionalProperties: false,
   },
 }
@@ -329,6 +349,7 @@ const basePhysicalTools = () => uniqueTools([
   REPORT_PROGRESS_TOOL,
   DISCOVER_MORE_CAPABILITIES_TOOL,
   buildExecuteCapabilitiesTool(),
+  REQUEST_OBSERVATION_CONTENT_TOOL,
   REQUEST_LARGE_CONTEXT_TOOL,
 ])
 
