@@ -79,6 +79,15 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).toContain('mechanicalValidationOnly: true')
   })
 
+  it('keeps candidate provenance mechanical and prevents candidate refs from masquerading as verified progress sources', () => {
+    expect(coreSource).toContain('const verifiedEvidence = resultHasVerifiedKnowledgeEvidence(result)')
+    expect(coreSource).toContain('candidateOnly')
+    expect(coreSource).toContain('UNVERIFIED_PROGRESS_SOURCE_REF')
+    expect(coreSource).toContain('current turn verified source ledger')
+    expect(surfaceSource).toContain('citationReady=false / verifiedEvidence=false')
+    expect(surfaceSource).toContain('not verified source evidence by itself')
+  })
+
   it('contains no domain-specific semantic routing in the executor', () => {
     expect(surfaceSource).not.toContain("capability === 'search_knowledge_catalog' ?")
     expect(coreSource).not.toContain("if (query === 'LRT')")
