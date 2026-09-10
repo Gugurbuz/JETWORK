@@ -24,6 +24,7 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
       'report_progress',
       'discover_more_capabilities',
       'execute_capabilities',
+      'request_observation_content',
       'request_large_context',
     ])
     expect(surface.providerWebVisible).toBe(false)
