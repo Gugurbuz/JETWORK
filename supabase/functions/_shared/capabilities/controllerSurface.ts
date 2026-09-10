@@ -192,6 +192,106 @@ export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
   },
 })
 
+const jsonType = (value: unknown): string => {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  if (Number.isInteger(value)) return 'integer'
+  if (typeof value === 'number') return 'number'
+  return typeof value
+}
+
+const validateSchemaValue = (
+  value: unknown,
+  rawSchema: unknown,
+  path = '$',
+): string | null => {
+  if (!rawSchema || typeof rawSchema !== 'object' || Array.isArray(rawSchema)) return null
+  const schema = rawSchema as Record<string, unknown>
+  const allowedTypes = Array.isArray(schema.type)
+    ? schema.type.map(type => String(type))
+    : schema.type ? [String(schema.type)] : []
+  const actualType = jsonType(value)
+  if (
+    allowedTypes.length
+    && !allowedTypes.includes(actualType)
+    && !(actualType === 'integer' && allowedTypes.includes('number'))
+  ) return `${path} must be ${allowedTypes.join('|')}; received ${actualType}`
+
+  if (Array.isArray(schema.enum) && !schema.enum.some(candidate => Object.is(candidate, value))) {
+    return `${path} must be one of the canonical enum values`
+  }
+
+  if (typeof value === 'string') {
+    if (typeof schema.minLength === 'number' && value.length < schema.minLength) return `${path} is shorter than minLength`
+    if (typeof schema.maxLength === 'number' && value.length > schema.maxLength) return `${path} exceeds maxLength`
+  }
+
+  if (typeof value === 'number') {
+    if (typeof schema.minimum === 'number' && value < schema.minimum) return `${path} is below minimum`
+    if (typeof schema.maximum === 'number' && value > schema.maximum) return `${path} exceeds maximum`
+  }
+
+  if (Array.isArray(value)) {
+    if (typeof schema.minItems === 'number' && value.length < schema.minItems) return `${path} has too few items`
+    if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) return `${path} has too many items`
+    if (schema.items) {
+      for (let index = 0; index < value.length; index += 1) {
+        const error = validateSchemaValue(value[index], schema.items, `${path}[${index}]`)
+        if (error) return error
+      }
+    }
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const object = value as Record<string, unknown>
+    const properties = schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)
+      ? schema.properties as Record<string, unknown>
+      : {}
+    const required = Array.isArray(schema.required) ? schema.required.map(item => String(item)) : []
+    for (const requiredName of required) {
+      if (!(requiredName in object)) return `${path} is missing required property ${requiredName}`
+    }
+    if (schema.additionalProperties === false) {
+      const unknown = Object.keys(object).find(key => !(key in properties))
+      if (unknown) return `${path} contains unknown property ${unknown}`
+    }
+    for (const [key, child] of Object.entries(object)) {
+      if (!(key in properties)) continue
+      const error = validateSchemaValue(child, properties[key], `${path}.${key}`)
+      if (error) return error
+    }
+  }
+
+  return null
+}
+
+export const parseAndValidateCapabilityInvocation = (
+  capability: string,
+  argumentsJson: string,
+):
+  | { ok: true; tool: RuntimeToolSchema; args: Record<string, unknown> }
+  | { ok: false; error: string } => {
+  const name = String(capability || '').trim()
+  if (!executionCapabilityNames.includes(name)) {
+    return { ok: false, error: `Unknown or non-executable capability: ${name || '(empty)'}` }
+  }
+  const tool = getCanonicalCapabilityTool(name)
+  if (!tool) return { ok: false, error: `Canonical capability contract not found: ${name}` }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(String(argumentsJson || ''))
+  } catch {
+    return { ok: false, error: `argumentsJson for ${name} is not valid JSON` }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: `argumentsJson for ${name} must decode to an object` }
+  }
+  const schemaError = validateSchemaValue(parsed, tool.parameters, '$')
+  if (schemaError) return { ok: false, error: `${name}: ${schemaError}` }
+  return { ok: true, tool, args: parsed as Record<string, unknown> }
+}
+
 export interface ControllerCapabilitySurface {
   version: typeof CONTROLLER_CAPABILITY_SURFACE_VERSION
   tools: RuntimeToolSchema[]
