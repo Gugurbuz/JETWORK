@@ -45,7 +45,7 @@ describe('V5.3 semantic action batching', () => {
     const tool = buildExecuteCapabilitiesTool()
     expect(tool.name).toBe(EXECUTE_CAPABILITIES_TOOL_NAME)
     expect(tool.description).toContain('discover_more_capabilities')
-    expect(tool.description).toContain('mechanical runtime')
+    expect(tool.description).toContain('semantic action batching runtime')
     expect(tool.description.length).toBeLessThan(1_600)
     expect(tool.description).not.toContain('LRT')
     expect(tool.description).not.toContain('CHECK_LRTV3')
