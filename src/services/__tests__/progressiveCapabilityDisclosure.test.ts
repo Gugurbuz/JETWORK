@@ -97,6 +97,6 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
     const observation = capabilitySessionObservation(session)
     expect(observation.instruction).toContain('Capability catalog is lazy')
     expect(observation.instruction).toContain('discover_more_capabilities')
-    expect(observation.instruction).toContain('Runtime never makes the semantic choice')
+    expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
   })
 })
