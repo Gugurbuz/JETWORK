@@ -107,7 +107,7 @@ describe('V5.3 semantic action batching', () => {
 
   it('treats acronym expansion as a generic semantic completion requirement, not a product-specific route', () => {
     expect(policySource).toContain('yalnız kullanım alanını veya ürün ailesini tarif etmek görevi tamamlamaz')
-    expect(policySource).toContain('yüksek güvenli standart sektör/genel açılımını')
+    expect(policySource).toContain('public web discovery yap')
     expect(policySource).toContain('yalnız finding yayınlamak için ayrı Controller turu harcama')
     expect(costGuardSource).toContain('yalnız kurumsal kullanım veya ürün ailesi açıklamasıyla yetinme')
     expect(costGuardSource).toContain('yüksek güvenli standart/sektörel açılımı model bilginden')
