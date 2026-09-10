@@ -71,7 +71,7 @@ describe('Ollama tool schema compatibility', () => {
     expect(surface.logicalToolNames).toContain('get_related_objects')
     expect(physical.map(tool => String(tool.name || ''))).toEqual([
       'report_progress',
-      'discover_more_capabilities',
+      'execute_capabilities',
       'request_large_context',
     ])
     expect(ollamaTools).toHaveLength(1)
