@@ -42,7 +42,7 @@ describe('verified ABAP message index grounding regression', () => {
     const surface = buildControllerCapabilitySurface([])
     const observation = capabilitySessionObservation({
       version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-      discoveryMode: 'progressive_disclosure',
+      discoveryMode: 'semantic_action_batch',
       seenCandidateIds: [],
       guidedToolNames: [],
       activatedToolNames: [],
