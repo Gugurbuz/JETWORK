@@ -1175,8 +1175,8 @@ serve(async req => {
                     : '',
                 ].filter(Boolean).join('\n\n'),
                 items: runItems, tools,
-                allowTools: tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned,
-                allowProviderWeb: providerWebEnabled || geminiNativeWebPlanned,
+                allowTools: !forceEvidenceFinalSynthesis && (tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned),
+                allowProviderWeb: !forceEvidenceFinalSynthesis && (providerWebEnabled || geminiNativeWebPlanned),
                 workMode,
                 maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => {
@@ -1286,6 +1286,7 @@ serve(async req => {
               activeProvider === 'gemini'
               && AGENTIC_CONTROLLER_ENABLED
               && hasVerifiedKnowledgeSource
+              && (!semanticArtifactRequired() || generatedArtifacts.size > 0)
               && !evidenceFinalSynthesisAttempted
             ) {
               evidenceFinalSynthesisAttempted = true
