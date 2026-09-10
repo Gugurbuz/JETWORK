@@ -4,13 +4,29 @@ import {
   ASSISTANT_CONTEXT_TOOLS,
   REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
 } from '../context/contextTools.ts'
+import {
+  buildCapabilityIndex,
+  capabilityIndexText,
+  INVOKE_CAPABILITY_TOOL,
+  INVOKE_CAPABILITY_TOOL_NAME,
+  LOAD_CAPABILITY_CONTRACT_TOOL,
+  LOAD_CAPABILITY_CONTRACT_TOOL_NAME,
+  LOAD_CAPABILITY_GUIDE_TOOL,
+  LOAD_CAPABILITY_GUIDE_TOOL_NAME,
+  type CapabilityIndexEntry,
+} from './progressiveDisclosure.ts'
 import type { RuntimeToolSchema } from './registry.ts'
 
-export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v4-public-work-plan'
+export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5-progressive-disclosure'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
-export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
+export {
+  INVOKE_CAPABILITY_TOOL_NAME,
+  LOAD_CAPABILITY_CONTRACT_TOOL_NAME,
+  LOAD_CAPABILITY_GUIDE_TOOL_NAME,
+  REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
+}
 
 const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSchema => {
   const tool = { ...raw }
@@ -26,11 +42,6 @@ const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSch
   return tool
 }
 
-// Evidence/source tools remain semantically neutral options. The public work tool
-// is intentionally first because it is a lifecycle/control capability rather than
-// a semantic route: if the model decides to do substantive tool work, it must first
-// publish its own resolved goal and plan. The runtime still never chooses the domain,
-// query, source, next tool or stop decision for the model.
 const runtimeTools = [
   ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as RuntimeToolSchema[]).map(withControllerRetrievalContract),
   ...(ASSISTANT_CONTEXT_TOOLS as unknown as RuntimeToolSchema[]),
@@ -91,17 +102,24 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
   },
 }
 
-/**
- * Compatibility declaration only.
- *
- * Controller V4 exposes the complete JetWork semantic capability surface after
- * the public work-start gate. The old discovery tool name stays exported while
- * stale callers/tests are migrated, but it is deliberately not included in the model-visible surface.
- */
+// Logical surface remains the complete JetWork capability set. Physical provider
+// schemas are intentionally smaller and only expose lifecycle + progressive
+// disclosure mechanics; the active Controller still sees every logical option in
+// the Layer-1 index and decides what (if anything) to inspect or invoke.
+const logicalTools = uniqueTools([
+  REPORT_PROGRESS_TOOL,
+  ...runtimeTools,
+  REQUEST_LARGE_CONTEXT_TOOL,
+])
+
+export const CONTROLLER_LOGICAL_CAPABILITY_TOOLS: readonly RuntimeToolSchema[] = logicalTools
+export const CONTROLLER_CAPABILITY_INDEX: readonly CapabilityIndexEntry[] = buildCapabilityIndex(logicalTools)
+
+/** Compatibility declaration only; no longer model-visible in V5. */
 export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
-  description: 'Legacy compatibility tool. Controller V4 already receives the complete capability surface after the public work-start gate.',
+  description: 'Legacy compatibility tool. Controller V5 receives a compact Layer-1 catalog and progressively loads guides/contracts instead.',
   strict: true,
   parameters: {
     type: 'object',
@@ -120,6 +138,8 @@ export interface ControllerCapabilitySurface {
   providerWebVisible: boolean
   candidateIds: string[]
   toolNames: string[]
+  logicalToolNames: string[]
+  capabilityIndex: readonly CapabilityIndexEntry[]
   skillKeys: string[]
   candidates: Array<{
     id: string
@@ -136,7 +156,7 @@ export interface ControllerCapabilitySurface {
 
 export interface ControllerCapabilitySession {
   version: typeof CONTROLLER_CAPABILITY_SURFACE_VERSION
-  discoveryMode: 'full_surface'
+  discoveryMode: 'progressive_disclosure'
   fallbackReason?: string
   seenCandidateIds: string[]
   surface: ControllerCapabilitySurface
@@ -145,7 +165,12 @@ export interface ControllerCapabilitySession {
 export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly unknown[]): ControllerCapabilitySurface => {
   const tools = uniqueTools([
     REPORT_PROGRESS_TOOL,
-    ...runtimeTools,
+    LOAD_CAPABILITY_GUIDE_TOOL,
+    LOAD_CAPABILITY_CONTRACT_TOOL,
+    INVOKE_CAPABILITY_TOOL,
+    // Large-context retrieval is a controller-context primitive rather than a
+    // domain capability, so it stays directly callable and does not require a
+    // three-round disclosure ceremony.
     REQUEST_LARGE_CONTEXT_TOOL,
   ])
 
@@ -155,6 +180,8 @@ export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly un
     providerWebVisible: true,
     candidateIds: [],
     toolNames: tools.map(tool => tool.name),
+    logicalToolNames: logicalTools.map(tool => tool.name),
+    capabilityIndex: CONTROLLER_CAPABILITY_INDEX,
     skillKeys: [],
     candidates: [],
   }
@@ -163,12 +190,12 @@ export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly un
 export async function startControllerCapabilitySession(_input: {
   client: any
   geminiApiKey?: string
-  query: string
+  query: unknown
   topK?: number
 }): Promise<ControllerCapabilitySession> {
   return {
     version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-    discoveryMode: 'full_surface',
+    discoveryMode: 'progressive_disclosure',
     seenCandidateIds: [],
     surface: buildControllerCapabilitySurface(),
   }
@@ -187,8 +214,9 @@ export async function discoverMoreForController(input: {
 export const capabilitySessionObservation = (session: ControllerCapabilitySession) => ({
   version: session.version,
   discoveryMode: session.discoveryMode,
-  candidates: [],
-  visibleToolNames: session.surface.toolNames,
+  logicalCapabilityCount: session.surface.logicalToolNames.length,
+  capabilityIndex: capabilityIndexText(CONTROLLER_LOGICAL_CAPABILITY_TOOLS),
+  visibleTransportTools: session.surface.toolNames,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'All registered JetWork capabilities are semantic options after the public work-start lifecycle gate. Knowledge tools access enterprise evidence directly. Candidate search, exact/detail retrieval and enumeration are distinct capability types: nextCursor only signals availability and never mandates pagination. A zero-result candidate search is not proof of absence. Public-web discovery is available both as provider-native web when healthy and as the search_web custom discovery capability; url_context can inspect concrete URLs. Provider availability handling is mechanical and never chooses a query or source. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions, evidence-gap evaluation and stop/final decisions belong to the controller model. Runtime supplies lifecycle, execution and mechanical safety only.',
+  instruction: 'Layer-1 katalogdaki tüm capabilityler semantic seçenektir, route değildir. Tool-backed işte public start sonrası ciddi adayların Layer-2 guide’ını, sonra hâlâ uygunsa Layer-3 exact contract’ını oku; contract sonrası nihai kararın hâlâ evetse invoke_capability çağır. Runtime capability, sorgu veya sonraki adımı seçmez; her observation sonrası aynı Controller yeniden karar verir.',
 })

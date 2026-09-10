@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_CONTROLLER_INSTRUCTION } from '../../../supabase/functions/_shared/agent/controllerPolicy.ts'
 import { buildControllerCapabilitySurface } from '../../../supabase/functions/_shared/capabilities/controllerSurface.ts'
 
-describe('Agent Controller V4 explicit source requests', () => {
-  it('keeps the complete registered capability surface available after lifecycle start', () => {
+describe('Agent Controller V5 explicit source requests', () => {
+  it('keeps the complete registered logical capability surface available through progressive disclosure', () => {
     const surface = buildControllerCapabilitySurface()
-    expect(surface.version).toBe('controller-capability-surface-v4-public-work-plan')
-    expect(surface.toolNames).toContain('search_knowledge_catalog')
-    expect(surface.toolNames).toContain('get_knowledge_object')
-    expect(surface.toolNames).toContain('report_progress')
+    expect(surface.version).toBe('controller-capability-surface-v5-progressive-disclosure')
+    expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
+    expect(surface.logicalToolNames).toContain('get_knowledge_object')
+    expect(surface.logicalToolNames).toContain('report_progress')
+    expect(surface.logicalToolNames).toHaveLength(33)
     expect(surface.toolNames[0]).toBe('report_progress')
   })
 

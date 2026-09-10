@@ -7,7 +7,7 @@ const controllerSurfaceSource = readFileSync(
   'utf8',
 )
 const assistantToolsSource = readFileSync(
-  new URL('../../../supabase/functions/_shared/assistantTools.ts', import.meta.url),
+  new URL('../../../supabase/functions/_shared/assistantToolsBase.ts', import.meta.url),
   'utf8',
 )
 const groundingSource = readFileSync(
@@ -15,7 +15,7 @@ const groundingSource = readFileSync(
   'utf8',
 )
 
-describe('Agent Controller V3 exact-evidence boundary', () => {
+describe('Agent Controller exact-evidence boundary', () => {
   it('keeps unsupported exact technical claims fail-closed without prescribing retrieval order', () => {
     expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Kuruma özgü veya exact teknik bir iddiayı')
     expect(AGENT_CONTROLLER_INSTRUCTION).toContain('Kanıt eksikse eksikliği açıkça söyle')
