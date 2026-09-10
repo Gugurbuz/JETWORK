@@ -99,7 +99,7 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
 export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
-  description: 'Progressively inspect JetWork capabilities without giving semantic authority to runtime. Use query="index" to load Layer-1 capability names with 1-2 sentence purpose summaries. After choosing up to four exact names yourself, use query="guide:name1,name2" to load Layer-2 operational usage guidance. Only after reading those guides, use query="contract:name1,name2" to activate the exact canonical Layer-3 schemas for those same names on the next model round. Runtime validates only exact names and disclosure order; it never chooses capabilities for you.',
+  description: 'Progressively inspect JetWork capabilities without giving semantic authority to runtime. Normal low-latency path: use query="index" once to load Layer-1 capability names and purpose summaries, choose up to four exact names yourself, then use query="activate:name1,name2" to receive their Layer-2 usage guides and mechanically activate their exact canonical schemas together for the next model round. Legacy query="guide:name1,name2" then query="contract:name1,name2" remains compatibility-only. Runtime validates exact names and disclosure order only; it never chooses capabilities for you.',
   strict: true,
   parameters: {
     type: 'object',
@@ -162,6 +162,7 @@ type CapabilityDisclosure =
   | { layer: 'index'; records: ReturnType<typeof compactCapabilityIndex> }
   | { layer: 'guide'; records: Array<{ name: string; category: string; summary: string; guide: string }> }
   | { layer: 'contract'; records: Array<{ name: string; activated: true }> }
+  | { layer: 'activated'; records: Array<{ name: string; category: string; summary: string; guide: string; activated: true }> }
   | { layer: 'error'; records: []; message: string }
 
 export interface ControllerCapabilitySession {
@@ -241,6 +242,26 @@ export async function discoverMoreForController(input: {
     }
   }
 
+  const activateMatch = query.match(/^activate\s*:(.*)$/isu)
+  if (activateMatch) {
+    const requested = parseExactNames(activateMatch[1], requestedLimit)
+    if (!requested.length) {
+      return { ...input.session, lastDisclosure: { layer: 'error', records: [], message: 'No exact capability names from Layer-1 index were supplied.' } }
+    }
+    const records = requested.flatMap(name => {
+      const entry = capabilityIndexEntry(name)
+      return entry ? [{ name, category: entry.category, summary: entry.summary, guide: entry.guide, activated: true as const }] : []
+    })
+    const activatedToolNames = [...new Set([...input.session.activatedToolNames, ...records.map(record => record.name)])].slice(0, MAX_ACTIVATED_CAPABILITIES)
+    return {
+      ...input.session,
+      guidedToolNames: [...new Set([...input.session.guidedToolNames, ...records.map(record => record.name)])],
+      activatedToolNames,
+      surface: surfaceWithActivated(activatedToolNames),
+      lastDisclosure: { layer: 'activated', records },
+    }
+  }
+
   const guideMatch = query.match(/^guide\s*:(.*)$/isu)
   if (guideMatch) {
     const requested = parseExactNames(guideMatch[1], requestedLimit)
@@ -280,7 +301,7 @@ export async function discoverMoreForController(input: {
     lastDisclosure: {
       layer: 'error',
       records: [],
-      message: 'Use exactly one progressive disclosure command: index, guide:<exact capability names>, or contract:<exact capability names>.',
+      message: 'Use a progressive disclosure command: index, activate:<exact capability names>, or the legacy guide:<names> / contract:<names> sequence.',
     },
   }
 }
@@ -296,7 +317,7 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   activatedToolNames: session.activatedToolNames,
   disclosure: session.lastDisclosure,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'JetWork uses three-layer progressive capability disclosure and the active model remains the sole semantic Controller. If the request needs no external capability, answer directly. If substantive tool-backed work is needed, publish report_progress(start) first. Then call discover_more_capabilities with query="index" to read Layer-1 names plus 1-2 sentence purpose summaries. Choose up to four exact names yourself and call query="guide:name1,name2" to read Layer-2 usage guidance. If a capability still fits, call query="contract:name1,name2" for the same guided names; their exact canonical schemas will then become visible on the next round. Only then call the canonical tool itself. Runtime performs exact-name/order validation only; it never infers intent, chooses a capability, query, source, next tool or stop decision. Activated contracts are options, never mandatory next steps.',
+  instruction: 'JetWork uses progressive capability disclosure and the active model remains the sole semantic Controller. If the request needs no external capability, answer directly. For substantive tool-backed work, report_progress(start) must be the first function call. When capability discovery is already needed, the same first model output may also include discover_more_capabilities with query="index" after report_progress(start), avoiding a needless extra model round. Read the Layer-1 names and purpose summaries, choose up to four exact names yourself, then call query="activate:name1,name2"; runtime returns their Layer-2 guides and activates the exact canonical schemas in that same mechanical disclosure step. On the next model round call the canonical tool itself. When multiple independent activated tool calls are already justified by the same observation, emit them in the same model response rather than serializing needless model rounds. Runtime performs exact-name/order validation only; it never infers intent, chooses a capability, query, source, next tool or stop decision. Activated contracts are options, never mandatory next steps. Legacy compatibility remains query="guide:name1,name2" followed by query="contract:name1,name2", but normal turns should use activate.',
 })
 
 // Keep registry construction eager so drift between the 33 logical entries and canonical runtime is visible in tests/logs.
