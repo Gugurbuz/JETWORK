@@ -87,8 +87,27 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).toContain('mechanicalValidationOnly: true')
   })
 
+  it('executes valid actions even when a sibling action fails schema validation', () => {
+    expect(coreSource).toContain('if (validationErrors.length && validatedActions.length === 0)')
+    expect(coreSource).toContain('const validationFailureResults = validationErrors.map')
+    expect(coreSource).toContain('const allBatchResults = [...batchResults, ...validationFailureResults]')
+    expect(coreSource).toContain('partialExecution: validationErrors.length > 0 && batchResults.some')
+    expect(coreSource).not.toContain('if (validationErrors.length || validatedActions.length !== rawActions.length)')
+  })
+
+  it('keeps public web discovery candidate-only and leaves URL selection to the Controller', () => {
+    expect(coreSource).toContain("result.capability === 'search_web'")
+    expect(coreSource).toContain('A search_web result is public discovery only')
+    expect(coreSource).toContain('URL Context is available for you to inspect the candidate you choose')
+    expect(coreSource).toContain('Runtime selected neither source nor next action')
+    expect(policySource).toContain('Web discovery sonucu candidate-only ise snippet’i doğrulanmış wording sayma')
+    expect(policySource).toContain('exact wording için URL Context ile o seçtiğin sayfayı incele')
+  })
+
   it('keeps candidate provenance mechanical without blocking progress or final answers', () => {
     expect(coreSource).toContain('const verifiedEvidence = resultHasVerifiedKnowledgeEvidence(result)')
+    expect(coreSource).toContain("|| action.capability === 'search_web'")
+    expect(coreSource).toContain('webCandidateOnly')
     expect(coreSource).toContain('candidateOnly')
     expect(coreSource).toContain('acceptedSourceRefs')
     expect(coreSource).toContain('omittedSourceRefs')
