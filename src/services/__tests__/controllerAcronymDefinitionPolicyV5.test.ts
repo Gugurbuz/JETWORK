@@ -10,8 +10,8 @@ describe('Controller acronym definition policy V5', () => {
   it('separates high-confidence standard expansion from verified enterprise usage', () => {
     expect(policySource).toContain('literal açılımı doğrudan yazmıyorsa bunu otomatik olarak')
     expect(policySource).toContain('yüksek güvenli standart sektör/genel açılımını biliyorsan açılımı cevabın başında ver')
-    expect(policySource).toContain('standart/genel açılım ile verified kurumsal kullanım kanıtını ayır')
-    expect(policySource).toContain('Güven düşükse yeni kanıt ara veya belirsizliği söyle')
+    expect(policySource).toContain('standart/sektörel model bilgisi olarak kurumsal evidence’dan ayır')
+    expect(policySource).toContain('Güven düşükse uygun ek araştırmayı seç ya da literal açılımın kurumsal kanıtta doğrulanmadığını açıkça söyle')
   })
 
   it('does not hard-code the LRT acceptance answer or route', () => {
