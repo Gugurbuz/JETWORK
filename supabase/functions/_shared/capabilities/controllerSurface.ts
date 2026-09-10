@@ -323,7 +323,7 @@ type CapabilityDisclosure =
 
 export interface ControllerCapabilitySession {
   version: typeof CONTROLLER_CAPABILITY_SURFACE_VERSION
-  discoveryMode: 'progressive_disclosure'
+  discoveryMode: 'semantic_action_batch'
   fallbackReason?: string
   seenCandidateIds: string[]
   guidedToolNames: string[]
@@ -367,7 +367,7 @@ export async function startControllerCapabilitySession(_input: {
 }): Promise<ControllerCapabilitySession> {
   return {
     version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-    discoveryMode: 'progressive_disclosure',
+    discoveryMode: 'semantic_action_batch',
     seenCandidateIds: [],
     guidedToolNames: [],
     activatedToolNames: [],
@@ -473,7 +473,7 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   activatedToolNames: session.activatedToolNames,
   disclosure: session.lastDisclosure,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'JetWork V5.3 uses semantic action batching. The active model remains the sole semantic Controller. If no external capability is needed, answer directly. For substantive work, report_progress(start) must precede execute_capabilities; both may be emitted in the same model response in that order. choose capability names and arguments yourself from the compact menu exposed by execute_capabilities. Batch independent actions whose arguments are already known. When an action depends on a value discovered by a previous action, wait for the observation and use the next model round. Runtime only validates name/schema/permission/budget and executes; it never infers intent, selects a tool, rewrites a query, chooses a source, or decides when to stop. Legacy progressive-disclosure helpers remain implementation compatibility only and are not part of the normal physical surface.',
+  instruction: `JetWork V5.3 uses semantic action batching. The active model remains the sole semantic Controller. Compact logical capability names: ${executionCapabilityNames.join(', ')}. If no external capability is needed, answer directly. For substantive work, report_progress(start) must precede execute_capabilities; both may be emitted in the same model response in that order. execute_capabilities expects actions=[{id, capability, argumentsJson}], where argumentsJson is one JSON object for the chosen capability. Choose every capability and argument yourself. Batch independent actions whose arguments are already known. When an action depends on a value discovered by a previous action, wait for the observation and use the next model round. Runtime only validates name/schema/permission/budget and executes; it never infers intent, selects a tool, rewrites a query, chooses a source, or decides when to stop. Legacy progressive-disclosure helpers remain implementation compatibility only and are not part of the normal physical surface.`,
 })
 
 // Keep registry construction eager so drift between the 33 logical entries and canonical runtime is visible in tests/logs.
