@@ -51,7 +51,9 @@ describe('Gemini 3.8 G38-01..G38-17 release suite', () => {
     const changed = await buildGeminiContextCachePolicy({ ...base, promptVersionId: 'v13' })
     expect(first.cacheKey).toBe(same.cacheKey)
     expect(first.cacheKey).not.toBe(changed.cacheKey)
-    expect(first.eligible).toBe(true)
+    expect(first.stablePrefixCharacters).toBeLessThan(base.stablePrompt.length)
+    expect(first.estimatedStableTokens).toBeLessThan(4_096)
+    expect(first.eligible).toBe(false)
     expect(clampLargeContextCharacters(999_999)).toBe(240_000)
   })
 
