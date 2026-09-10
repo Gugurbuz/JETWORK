@@ -10,12 +10,12 @@ const surfaceSource = readFileSync(
   'utf8',
 )
 
-describe('Agent Controller V5 progressive runtime wiring', () => {
+describe('Agent Controller V5.3 semantic batch runtime wiring', () => {
   it('keeps the existing session boundary while removing semantic Top-K and initial full-schema exposure', () => {
     expect(coreSource).toContain('startControllerCapabilitySession({')
     expect(coreSource).toContain('capabilitySession?.surface.tools || []')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
-    expect(surfaceSource).toContain("discoveryMode: 'progressive_disclosure'")
+    expect(surfaceSource).toContain("discoveryMode: 'semantic_action_batch'")
     expect(surfaceSource).toContain('surfaceWithActivated')
     expect(surfaceSource).toContain('logicalToolNames')
   })
