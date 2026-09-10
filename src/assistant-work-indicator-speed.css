@@ -5,50 +5,53 @@
 
 /*
  * The logo story is a 4.4s loop. Its staircase sequence finishes at 76%, i.e.
- * 3.344s after the loop begins. Start the Düşünüyor shimmer at that exact point,
- * then let one full shimmer span the interval until the next staircase finish.
+ * 3.344s after the loop begins. Start the Düşünüyor sweep at that exact point,
+ * then let one full sweep span the interval until the next staircase finish.
  * This phase-lock keeps logo motion and text feedback reading as one animation.
+ *
+ * Do not use background-clip:text for the live label here. iOS WebKit can apply
+ * transparent text fill while failing to repaint the clipped gradient, which
+ * makes the word disappear. The base word therefore stays normally painted and
+ * a second yellow copy sweeps across it using clip-path.
  */
 @keyframes assistant-work-text-shimmer-synced {
-  0% {
-    background-position: 160% 50%;
+  0%, 10% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
   }
-  100% {
-    background-position: -55% 50%;
+  22% {
+    opacity: 1;
+  }
+  58% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+  82%, 100% {
+    clip-path: inset(0 0 0 100%);
+    opacity: 0;
   }
 }
 
-/*
- * iOS/Safari hotfix: keep the active label on its own composited paint layer and
- * provide the shimmer gradient explicitly at the high-specificity live selector.
- * In production the animation shorthand was present, but WebKit could still paint
- * the lower-specificity solid-text style, making the label appear static. The
- * exact PR #242 timing remains unchanged.
- */
 .jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label {
+  position: relative;
   display: inline-block;
-  color: transparent !important;
-  -webkit-text-fill-color: transparent !important;
-  background-image: linear-gradient(
-    100deg,
-    color-mix(in srgb, var(--theme-text) 58%, var(--theme-text-muted)) 0%,
-    color-mix(in srgb, var(--theme-text) 58%, var(--theme-text-muted)) 30%,
-    #ff9800 42%,
-    #ffc107 48%,
-    #fff3c4 52%,
-    #ffc107 56%,
-    #ff9800 62%,
-    color-mix(in srgb, var(--theme-text) 58%, var(--theme-text-muted)) 74%,
-    color-mix(in srgb, var(--theme-text) 58%, var(--theme-text-muted)) 100%
-  ) !important;
-  background-size: 300% 100% !important;
-  background-repeat: no-repeat !important;
-  background-clip: text !important;
-  -webkit-background-clip: text !important;
-  background-position: 160% 50% !important;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  will-change: background-position;
+  color: var(--theme-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+  background: none !important;
+  animation: none !important;
+}
+
+.jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label::after {
+  content: attr(data-label);
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  color: #ffc107;
+  -webkit-text-fill-color: #ffc107;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: clip-path, opacity;
   animation: assistant-work-text-shimmer-synced 4.4s ease-in-out 3.344s infinite both !important;
 }
 
@@ -62,7 +65,7 @@
     animation: assistant-work-logo-story 4.4s cubic-bezier(0.45, 0, 0.2, 1) infinite !important;
   }
 
-  .jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label {
+  .jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label::after {
     animation: assistant-work-text-shimmer-synced 4.4s ease-in-out 3.344s infinite both !important;
   }
 }
