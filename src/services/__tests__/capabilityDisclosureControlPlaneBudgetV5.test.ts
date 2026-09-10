@@ -33,6 +33,6 @@ describe('V5 capability disclosure control-plane budget', () => {
   it('keeps the separation mechanical rather than semantic', () => {
     expect(coreSource).not.toContain('LRT_CONTROL_PLANE')
     expect(coreSource).not.toContain('CHECK_LRTV3_CONTROL')
-    expect(coreSource).not.toContain('if (query.includes('LRT'))')
+    expect(coreSource).not.toContain("if (query.includes('LRT'))")
   })
 })
