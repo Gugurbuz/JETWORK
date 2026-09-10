@@ -29,11 +29,10 @@ describe('mobile-first pro conversation UI', () => {
     expect(shellCss).toContain('background: var(--theme-bg) !important;');
   });
 
-  it('preserves and phase-locks the live Düşünüyor shimmer to the logo staircase', () => {
+  it('preserves the live Düşünüyor shimmer after conversation contrast overrides', () => {
     expect(workIndicatorSpeedCss).toContain('.jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label');
     expect(workIndicatorSpeedCss).toContain('color: transparent !important;');
     expect(workIndicatorSpeedCss).toContain('-webkit-text-fill-color: transparent !important;');
-    expect(workIndicatorSpeedCss).toContain('@keyframes assistant-work-text-shimmer-synced');
-    expect(workIndicatorSpeedCss).toContain('animation: assistant-work-text-shimmer-synced 4.4s ease-in-out 3.344s infinite both !important;');
+    expect(workIndicatorSpeedCss).toContain('animation: assistant-work-text-shimmer 2.4s ease-in-out infinite !important;');
   });
 });
