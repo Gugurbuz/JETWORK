@@ -21,6 +21,7 @@ export interface GeminiInteractionsRequest {
   allowTools: boolean
   terminalSynthesis?: boolean
   allowProviderWeb?: boolean
+  requiredFunctionNames?: string[]
   workMode?: GeminiInteractionWorkMode
   maxOutputTokens: number
   onText: (text: string) => void
@@ -245,8 +246,13 @@ export const buildGeminiInteractionsRequest = (input: GeminiInteractionsRequest)
   const freshTerminalSynthesis = input.terminalSynthesis === true
   const functionContinuation = freshTerminalSynthesis ? null : latestFunctionContinuation(input.items)
   const storedState = !freshTerminalSynthesis && !functionContinuation ? latestGeminiProviderState(input.items) : null
+  const requiredFunctionNames = [...new Set((input.requiredFunctionNames || []).map(name => String(name || '').trim()).filter(Boolean))]
+  const explicitDecisionRequired = input.allowTools && requiredFunctionNames.length > 0
   const tools = input.allowTools
-    ? [...builtInToolsForInteractions(input), ...customToolsForInteractions(input.tools)]
+    ? [
+        ...(explicitDecisionRequired ? [] : builtInToolsForInteractions(input)),
+        ...customToolsForInteractions(input.tools),
+      ]
     : []
 
   let previousInteractionId = ''
@@ -272,7 +278,18 @@ export const buildGeminiInteractionsRequest = (input: GeminiInteractionsRequest)
     generation_config: {
       max_output_tokens: Math.max(512, Math.min(Math.trunc(input.maxOutputTokens || 12_000), 65_536)),
       thinking_level: thinkingLevel(input.workMode),
-      ...(tools.length ? { tool_choice: 'validated' } : {}),
+      ...(explicitDecisionRequired
+        ? {
+            tool_choice: {
+              allowed_tools: {
+                mode: 'any',
+                tools: requiredFunctionNames,
+              },
+            },
+          }
+        : tools.length
+          ? { tool_choice: 'validated' }
+          : {}),
     },
     stream: true,
     store: true,
