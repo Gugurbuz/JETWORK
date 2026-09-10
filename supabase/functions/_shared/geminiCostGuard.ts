@@ -409,6 +409,7 @@ export const buildGeminiFinalSynthesisItems = (
     'Araştırma turu tamamlandı. Yeni araç çağrısı yapmadan, mevcut konuşma ve aşağıdaki kurumsal kanıtlarla nihai kullanıcı yanıtını üret.',
     'Kanıt yetersizse bunu açıkça belirt. Kullanıcının reddettiği hipotezleri veya reddettiği dar kapsamları yeni kanıt olmadan yeniden doğru kabul etme.',
     'VERIFIED_KNOWLEDGE_EVIDENCE işaretli factual kayıtlar runtime tarafından doğrulanmış kanıttır; bunlar hedefi yanıtlıyorsa bilgiye erişim yokmuş gibi davranma.',
+    'Kullanıcı bir terimin veya kısaltmanın "ne demek / açılımı nedir" diye doğrudan tanımını soruyorsa yalnız kurumsal kullanım veya ürün ailesi açıklamasıyla yetinme. Kurumsal evidence literal açılımı içermese bile yüksek güvenli standart/sektörel açılımı model bilginden biliyorsan bunu açıkça standart/sektörel bilgi olarak ver ve verified kurum içi kullanımdan ayır. Ürün/kod adlarından yeni bir açılım türetme. Güven düşükse literal açılımın kanıtta doğrulanmadığını söyle.',
     'Listeleme kanıtında totalCount ve nextCursor alanlarını dikkate al. nextCursor null değilse sonuçların kısmi olduğunu gizleme.',
     evidence ? `\n[JETWORK_TOOL_EVIDENCE]\n${evidence}\n[END_JETWORK_TOOL_EVIDENCE]` : '',
     draft ? `\n[JETWORK_AGENT_DRAFT]\n${draft}\n[END_JETWORK_AGENT_DRAFT]` : '',
