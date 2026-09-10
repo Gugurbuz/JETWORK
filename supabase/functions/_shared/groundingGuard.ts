@@ -84,7 +84,7 @@ const TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:Z[A-Z0-9_]{2,}(?:-\d{
 const VERIFIED_SOURCE_TECHNICAL_IDENTIFIER_PATTERN = /(?<![\p{L}\p{N}_])(?:(?:Z[A-Z0-9]*_[A-Z0-9_]+)(?:(?:=>|\/)[A-Z][A-Z0-9_]*)?|Z[A-Z0-9_]{2,}-\d{2,4}|CHECK_[A-Z0-9_]+)(?![\p{L}\p{N}_])/giu
 const CANONICAL_KEY_PATTERN = /\b(?:message|class|method|function|table|interface|document|business_rule):[a-z0-9_./-]+\b/gi
 const MESSAGE_CODE_PATTERN = /\b[A-Z][A-Z0-9_]{2,}-\d{2,4}\b/g
-const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulunamad\w*|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+(?:kayit|kaynak|bilgi|kanit)(?:larda|ta|te)?\s+.*(?:yok|bulunmuyor|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
+const EVIDENCE_GAP_PATTERN = /(?:dogrulan(?:mis|abilir)\s+(?:bir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+bulamad\w*|dogrulayamad\w*|teyit\s+edemed\w*|yeterli\s+(?:guvenilir\s+)?(?:kayit|kaynak|bilgi|kanit)\s+(?:yok|bulunmuyor|bulunamad\w*|bulamad\w*)|kesin\s+(?:olarak\s+)?soyleyemem|mevcut\s+.{0,180}?(?:kayit|kaynak|bilgi|kanit)\w*.{0,180}?(?:yok|bulunm\w*|yer\s+almiyor)|could\s+not\s+verify|couldn'?t\s+verify|no\s+verified\s+(?:record|source|evidence|information)|insufficient\s+(?:reliable\s+)?(?:evidence|information))/i
 const EVIDENCE_GAP_CONTRADICTION_PATTERN = /\b(?:ama|ancak|fakat|buna\s+ragmen|however|but|nevertheless)\b/i
 const EXACT_MESSAGE_TEXT_REQUEST_PATTERN = /(?:mesaj\s*metn(?:i|ini|leri|lerini)?|mesaj(?:ın|in)\s+tam\s+metn(?:i|ini)|tam\s+mesaj\s*metn(?:i|ini)|exact\s+message\s+text|message\s+text)/i
 
@@ -440,6 +440,16 @@ export const evaluateGroundedTechnicalClaims = (input: {
   )
   if (resolvedNumericMessageGap) {
     unsupportedClaims.push(`verified_message_number:${requestedMessageNumber}:response_reported_gap`)
+  }
+  const requestedExactMessageList = suppliedIdentifiers.size > 0
+    && /(?:hangi\s+mesaj(?:lar)?i?|which\s+messages?)/i.test(normalizeText(suppliedText))
+  const verifiedMessageListGap = Boolean(
+    requestedExactMessageList
+      && titles.size > 0
+      && isEvidenceGapResponse(input.text)
+  )
+  if (verifiedMessageListGap) {
+    unsupportedClaims.push('verified_message_list:response_reported_gap')
   }
   const userSuppliedTechnicalEvidence = userSuppliedRequirementsMayCountAsEvidence && (
     responseIdentifiers.some(identifier => suppliedIdentifiers.has(identifier))
