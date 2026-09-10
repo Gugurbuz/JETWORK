@@ -29,7 +29,7 @@ export function AgentWorkHeader({
           <JetWorkLogo className="assistant-work__logo" />
         </span>
       </span>
-      <span className="assistant-work__label" data-label="Düşünüyor">Düşünüyor</span>
+      <span className="assistant-work__label">Düşünüyor</span>
       <span className="assistant-work__separator" aria-hidden="true">·</span>
       <time className="assistant-work__time">{duration}</time>
     </>
