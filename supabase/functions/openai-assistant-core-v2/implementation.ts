@@ -1484,7 +1484,7 @@ serve(async req => {
                 validatedActions.push({ id, capability, args: validation.args })
               }
 
-              if (validationErrors.length || validatedActions.length !== rawActions.length) {
+              if (validationErrors.length && validatedActions.length === 0) {
                 await logToolRun(adminClient, {
                   conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
                   promptVersionId: prompt.id, toolName, callId,
@@ -1495,9 +1495,10 @@ serve(async req => {
                     semanticActionBatch: true,
                     mechanicalValidationOnly: true,
                     validationErrors,
+                    partialExecution: false,
                   },
                   sourceRefs: [], status: 'failed', durationMs: Math.round(performance.now() - batchStartedAt),
-                  errorMessage: 'One or more model-authored capability calls failed canonical schema validation.',
+                  errorMessage: 'All model-authored capability calls failed canonical schema validation.',
                 })
                 runItems.push({
                   type: 'function_call_output',
@@ -1548,6 +1549,7 @@ serve(async req => {
                   const candidateOnly = (
                     action.capability === 'search_knowledge_catalog'
                     || action.capability === 'search_document'
+                    || action.capability === 'search_web'
                   ) && !verifiedEvidence
                   const emptyDiscovery = candidateOnly && (
                     /"resultCount"\s*:\s*0\b/.test(observationText)
@@ -1587,6 +1589,21 @@ serve(async req => {
                 usage = addUsage(usage, { semantic_batch_verified_evidence_seen: 1 })
               }
 
+              const validationFailureResults = validationErrors.map(error => ({
+                id: error.id,
+                capability: error.capability,
+                ok: false,
+                error: 'CAPABILITY_ARGUMENT_VALIDATION_FAILED',
+                message: error.error,
+              }))
+              const allBatchResults = [...batchResults, ...validationFailureResults]
+              const webCandidateOnly = batchResults.some(result => (
+                result.ok
+                && result.capability === 'search_web'
+                && 'candidateOnly' in result
+                && result.candidateOnly === true
+              ))
+
               await logToolRun(adminClient, {
                 conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
                 promptVersionId: prompt.id, toolName, callId,
@@ -1596,28 +1613,38 @@ serve(async req => {
                   selectedByController: true,
                   semanticActionBatch: true,
                   mechanicalValidationOnly: true,
-                  actionCount: validatedActions.length,
+                  requestedActionCount: rawActions.length,
+                  executedActionCount: validatedActions.length,
                   successfulActions: batchResults.filter(result => result.ok).length,
+                  validationFailureCount: validationErrors.length,
+                  partialExecution: validationErrors.length > 0 && validatedActions.length > 0,
                   verifiedEvidenceActions: batchResults.filter(result => result.ok && 'verifiedEvidence' in result && result.verifiedEvidence === true).length,
                   candidateOnlyActions: batchResults.filter(result => result.ok && 'candidateOnly' in result && result.candidateOnly === true).length,
+                  webCandidateOnly,
                 },
-                sourceRefs: [], status: batchResults.every(result => result.ok) ? 'completed' : 'failed',
+                sourceRefs: [],
+                status: batchResults.some(result => result.ok) ? 'completed' : 'failed',
                 durationMs: Math.round(performance.now() - batchStartedAt),
-                errorMessage: batchResults.every(result => result.ok) ? undefined : 'One or more batched capabilities failed.',
+                errorMessage: batchResults.some(result => result.ok) ? undefined : 'No batched capability completed successfully.',
               })
               usage = addUsage(usage, {
                 semantic_action_batches: 1,
                 semantic_action_batch_actions: validatedActions.length,
+                semantic_action_batch_validation_failures: validationErrors.length,
               })
               runItems.push({
                 type: 'function_call_output',
                 call_id: callId,
                 output: JSON.stringify({
                   contract: 'semantic_action_batch_v1',
-                  ok: batchResults.every(result => result.ok),
+                  ok: validationErrors.length === 0 && batchResults.every(result => result.ok),
+                  partialExecution: validationErrors.length > 0 && batchResults.some(result => result.ok),
                   emptyDiscovery: batchResults.some(result => 'emptyDiscovery' in result && result.emptyDiscovery === true),
-                  results: batchResults,
-                  instruction: 'Interpret these observations semantically yourself. verifiedEvidence=false/candidateOnly=true means discovery only, even when a canonical identifier is present; do not present it as verified source evidence. If a material claim needs exact evidence and the candidate exposes the identifier required by an exact/detail capability, choose that capability yourself in the next dependency-level round. Runtime did not select or rank the next action.',
+                  webCandidateOnly,
+                  results: allBatchResults,
+                  instruction: webCandidateOnly
+                    ? 'Interpret these observations semantically yourself. A search_web result is public discovery only: its snippets/URLs are candidates, not verified wording. If the unresolved user goal depends on exact public wording and a suitable current/official/primary URL is present, URL Context is available for you to inspect the candidate you choose in the next semantic step; do not return to unrelated enterprise detail as a substitute for that unresolved literal evidence gap. You choose whether inspection is needed and which URL to inspect. Runtime selected neither source nor next action.'
+                    : 'Interpret these observations semantically yourself. verifiedEvidence=false/candidateOnly=true means discovery only, even when a canonical identifier is present; do not present it as verified source evidence. If a material claim needs exact evidence and the candidate exposes the identifier required by an exact/detail capability, choose that capability yourself in the next dependency-level round. Runtime did not select or rank the next action.',
                 }),
               })
               continue
