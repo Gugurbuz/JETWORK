@@ -73,6 +73,7 @@ describe('Ollama tool schema compatibility', () => {
       'report_progress',
       'discover_more_capabilities',
       'execute_capabilities',
+      'request_observation_content',
       'request_large_context',
     ])
     expect(ollamaTools).toHaveLength(1)
