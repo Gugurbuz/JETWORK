@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const chatPanelSource = readFileSync(new URL('../../components/ChatPanel.tsx', import.meta.url), 'utf8');
-const agentWorkHeaderSource = readFileSync(new URL('../../components/AgentWorkHeader.tsx', import.meta.url), 'utf8');
 const shellCss = readFileSync(new URL('../../jetwork-conversation-shell.css', import.meta.url), 'utf8');
 const workIndicatorSpeedCss = readFileSync(new URL('../../assistant-work-indicator-speed.css', import.meta.url), 'utf8');
 
@@ -30,15 +29,11 @@ describe('mobile-first pro conversation UI', () => {
     expect(shellCss).toContain('background: var(--theme-bg) !important;');
   });
 
-  it('preserves a visible Safari-safe Düşünüyor label and phase-locks its sweep to the logo staircase', () => {
-    expect(agentWorkHeaderSource).toContain('data-label="Düşünüyor"');
+  it('preserves and phase-locks the live Düşünüyor shimmer to the logo staircase', () => {
     expect(workIndicatorSpeedCss).toContain('.jetwork-conversation-shell .assistant-work:not(.assistant-work--completed) .assistant-work__label');
-    expect(workIndicatorSpeedCss).toContain('color: var(--theme-text) !important;');
-    expect(workIndicatorSpeedCss).toContain('-webkit-text-fill-color: currentColor !important;');
-    expect(workIndicatorSpeedCss).toContain('.assistant-work__label::after');
-    expect(workIndicatorSpeedCss).toContain('content: attr(data-label);');
+    expect(workIndicatorSpeedCss).toContain('color: transparent !important;');
+    expect(workIndicatorSpeedCss).toContain('-webkit-text-fill-color: transparent !important;');
     expect(workIndicatorSpeedCss).toContain('@keyframes assistant-work-text-shimmer-synced');
-    expect(workIndicatorSpeedCss).toContain('clip-path: inset(0 100% 0 0);');
     expect(workIndicatorSpeedCss).toContain('animation: assistant-work-text-shimmer-synced 4.4s ease-in-out 3.344s infinite both !important;');
   });
 });
