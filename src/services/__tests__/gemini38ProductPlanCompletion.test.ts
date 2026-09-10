@@ -30,10 +30,11 @@ describe('Gemini 3.8 product plan completion contracts', () => {
     expect(legacy).toContain('_geminiContent: index === 0 ? candidateContent')
   })
 
-  it('has explicit Fast/Balanced/Deep policy without semantic keyword classification', () => {
+  it('has explicit Fast/Balanced/Deep latency policy without semantic keyword classification', () => {
     expect(settings).toContain("export type WorkMode = 'fast' | 'balanced' | 'deep'")
     expect(settings).toContain('assistant_work_mode')
-    expect(interactions).toContain("mode === 'fast' ? 'low' : mode === 'deep' ? 'high' : 'medium'")
+    expect(interactions).toContain("mode === 'deep' ? 'high' : 'low'")
+    expect(interactions).not.toContain("query.includes('LRT')")
   })
 
   it('surfaces public commentary and real provider work as typed SSE events', () => {

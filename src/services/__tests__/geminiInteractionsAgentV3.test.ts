@@ -40,7 +40,7 @@ describe('Gemini Interactions Agent V3', () => {
     expect(request.store).toBe(true)
     expect(request.background).toBe(false)
     expect(request.generation_config).toMatchObject({
-      thinking_level: 'medium',
+      thinking_level: 'low',
       tool_choice: 'validated',
       max_output_tokens: 12_000,
     })

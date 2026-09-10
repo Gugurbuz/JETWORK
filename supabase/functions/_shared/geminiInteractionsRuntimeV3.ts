@@ -238,7 +238,7 @@ export const builtInToolsForInteractions = (input: { allowTools: boolean; allowP
 }
 
 const thinkingLevel = (mode: GeminiInteractionWorkMode | undefined) => (
-  mode === 'fast' ? 'low' : mode === 'deep' ? 'high' : 'medium'
+  mode === 'deep' ? 'high' : 'low'
 )
 
 export const buildGeminiInteractionsRequest = (input: GeminiInteractionsRequest) => {
