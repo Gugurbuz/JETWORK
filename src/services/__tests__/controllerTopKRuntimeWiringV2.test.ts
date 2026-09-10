@@ -10,23 +10,27 @@ const surfaceSource = readFileSync(
   'utf8',
 )
 
-describe('Agent Controller V3 full-surface runtime wiring', () => {
-  it('keeps the existing session call boundary but removes semantic Top-K selection from that boundary', () => {
+describe('Agent Controller V5 progressive runtime wiring', () => {
+  it('keeps the existing session boundary while removing semantic Top-K and initial full-schema exposure', () => {
     expect(coreSource).toContain('startControllerCapabilitySession({')
     expect(coreSource).toContain('capabilitySession?.surface.tools || []')
     expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
-    expect(surfaceSource).toContain("discoveryMode: 'full_surface'")
-    expect(surfaceSource).toContain('...runtimeTools')
+    expect(surfaceSource).toContain("discoveryMode: 'progressive_disclosure'")
+    expect(surfaceSource).toContain('surfaceWithActivated')
+    expect(surfaceSource).toContain('logicalToolNames')
   })
 
-  it('does not expose discover-more because the full registered surface is already visible', () => {
+  it('uses the existing mechanical discover-more boundary for index, guide and contract activation', () => {
     expect(surfaceSource).toContain("DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'")
-    expect(surfaceSource).toContain('deliberately not included in the model-visible surface')
-    expect(surfaceSource).not.toContain('selectedTools.push(DISCOVER_MORE_CAPABILITIES_TOOL)')
+    expect(surfaceSource).toContain('query="index"')
+    expect(surfaceSource).toContain('query="guide:name1,name2"')
+    expect(surfaceSource).toContain('query="contract:name1,name2"')
+    expect(surfaceSource).toContain('guidedToolNames')
+    expect(surfaceSource).toContain('activatedToolNames')
   })
 
-  it('enables provider-native web as a model-visible capability rather than a semantic route', () => {
-    expect(surfaceSource).toContain('providerWebVisible: true')
+  it('routes web through the same progressive disclosure path instead of bypassing it with native provider web', () => {
+    expect(surfaceSource).toContain('providerWebVisible: false')
     expect(coreSource).toContain('capabilitySession?.surface.providerWebVisible === true')
     expect(coreSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'")
   })
@@ -35,5 +39,6 @@ describe('Agent Controller V3 full-surface runtime wiring', () => {
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
     expect(surfaceSource).not.toContain('next knowledge call MUST')
     expect(surfaceSource).not.toContain('pendingCandidateKeys')
+    expect(surfaceSource).toContain('Activated contracts are options, never mandatory next steps')
   })
 })

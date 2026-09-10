@@ -38,20 +38,23 @@ describe('verified ABAP message index grounding regression', () => {
     expect(coverage.unsupportedIdentifiers).toEqual([])
   })
 
-  it('keeps message grounding mechanical instead of encoding a mandatory retrieval sequence in the capability surface', () => {
+  it('keeps message grounding mechanical instead of encoding a mandatory retrieval sequence', () => {
     const surface = buildControllerCapabilitySurface([])
     const observation = capabilitySessionObservation({
       version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-      discoveryMode: 'full_surface',
+      discoveryMode: 'progressive_disclosure',
       seenCandidateIds: [],
+      guidedToolNames: [],
+      activatedToolNames: [],
+      lastDisclosure: { layer: 'ready', records: [] },
       surface,
     })
 
-    expect(surface.toolNames).toContain('search_knowledge_catalog')
-    expect(surface.toolNames).toContain('get_knowledge_object')
-    expect(surface.toolNames).toContain('get_knowledge_objects')
-    expect(surface.toolNames).toContain('get_related_objects')
-    expect(observation.instruction).toContain('controller model')
+    expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
+    expect(surface.logicalToolNames).toContain('get_knowledge_object')
+    expect(surface.logicalToolNames).toContain('get_knowledge_objects')
+    expect(surface.logicalToolNames).toContain('get_related_objects')
+    expect(observation.instruction).toContain('semantic Controller')
     expect(observation.instruction).not.toContain('exact-verify')
     expect(observation.instruction).not.toContain('pending candidate')
     expect(observation.instruction).not.toContain('answer code-only')

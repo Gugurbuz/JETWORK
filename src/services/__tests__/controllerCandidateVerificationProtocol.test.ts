@@ -61,7 +61,7 @@ describe('Agent Controller V3 knowledge execution boundary', () => {
 
   it('treats candidate status as evidence metadata, not a next-tool instruction', () => {
     expect(toolsSource).toContain('Candidate status is evidence metadata, not a runtime instruction about what tool must be called next')
-    expect(surfaceSource).toContain('retrieval strategy')
-    expect(surfaceSource).toContain('controller model')
+    expect(surfaceSource).toContain('sole semantic Controller')
+    expect(surfaceSource).toContain('Runtime performs exact-name/order validation only')
   })
 })

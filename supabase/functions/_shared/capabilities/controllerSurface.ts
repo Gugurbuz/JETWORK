@@ -4,13 +4,23 @@ import {
   ASSISTANT_CONTEXT_TOOLS,
   REVIEW_EVIDENCE_COVERAGE_TOOL_NAME,
 } from '../context/contextTools.ts'
+import {
+  CAPABILITY_DISCLOSURE_VERSION,
+  JETWORK_CAPABILITY_INDEX,
+  JETWORK_LOGICAL_CAPABILITY_NAMES,
+  capabilityIndexEntry,
+  compactCapabilityIndex,
+} from './progressiveDisclosure.ts'
 import type { RuntimeToolSchema } from './registry.ts'
 
-export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v4-public-work-plan'
+export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5-progressive-disclosure'
 export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
+
+const MAX_DISCLOSURE_SELECTION = 4
+const MAX_ACTIVATED_CAPABILITIES = 8
 
 const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSchema => {
   const tool = { ...raw }
@@ -26,12 +36,7 @@ const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSch
   return tool
 }
 
-// Evidence/source tools remain semantically neutral options. The public work tool
-// is intentionally first because it is a lifecycle/control capability rather than
-// a semantic route: if the model decides to do substantive tool work, it must first
-// publish its own resolved goal and plan. The runtime still never chooses the domain,
-// query, source, next tool or stop decision for the model.
-const runtimeTools = [
+const canonicalRuntimeTools = [
   ...(ASSISTANT_KNOWLEDGE_TOOLS as unknown as RuntimeToolSchema[]).map(withControllerRetrievalContract),
   ...(ASSISTANT_CONTEXT_TOOLS as unknown as RuntimeToolSchema[]),
   ...(ASSISTANT_SKILL_TOOLS as unknown as RuntimeToolSchema[]),
@@ -91,27 +96,44 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
   },
 }
 
-/**
- * Compatibility declaration only.
- *
- * Controller V4 exposes the complete JetWork semantic capability surface after
- * the public work-start gate. The old discovery tool name stays exported while
- * stale callers/tests are migrated, but it is deliberately not included in the model-visible surface.
- */
 export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
-  description: 'Legacy compatibility tool. Controller V4 already receives the complete capability surface after the public work-start gate.',
+  description: 'Progressively inspect JetWork capabilities without giving semantic authority to runtime. Use query="index" to load Layer-1 capability names with 1-2 sentence purpose summaries. After choosing up to four exact names yourself, use query="guide:name1,name2" to load Layer-2 operational usage guidance. Only after reading those guides, use query="contract:name1,name2" to activate the exact canonical Layer-3 schemas for those same names on the next model round. Runtime validates only exact names and disclosure order; it never chooses capabilities for you.',
   strict: true,
   parameters: {
     type: 'object',
     properties: {
       query: { type: 'string', minLength: 2, maxLength: 2_000 },
-      limit: { type: ['integer', 'null'], minimum: 1, maximum: 64 },
+      limit: { type: ['integer', 'null'], minimum: 1, maximum: 4 },
     },
     required: ['query', 'limit'],
     additionalProperties: false,
   },
+}
+
+const canonicalTools = uniqueTools([
+  REPORT_PROGRESS_TOOL,
+  ...canonicalRuntimeTools,
+  REQUEST_LARGE_CONTEXT_TOOL,
+])
+const canonicalByName = new Map(canonicalTools.map(tool => [tool.name, tool]))
+const progressivelyDisclosableNames = new Set(
+  canonicalTools
+    .map(tool => tool.name)
+    .filter(name => ![REPORT_PROGRESS_TOOL_NAME, REQUEST_LARGE_CONTEXT_TOOL_NAME].includes(name)),
+)
+
+if (canonicalTools.length !== JETWORK_LOGICAL_CAPABILITY_NAMES.length) {
+  console.warn('JETWORK_CAPABILITY_INDEX_COUNT_MISMATCH', JSON.stringify({
+    canonical: canonicalTools.map(tool => tool.name),
+    indexed: JETWORK_LOGICAL_CAPABILITY_NAMES,
+  }))
+}
+
+export const getCanonicalCapabilityTool = (name: string): RuntimeToolSchema | null => {
+  const tool = canonicalByName.get(name)
+  return tool ? { ...tool, parameters: tool.parameters ? structuredClone(tool.parameters) : tool.parameters } : null
 }
 
 export interface ControllerCapabilitySurface {
@@ -120,6 +142,7 @@ export interface ControllerCapabilitySurface {
   providerWebVisible: boolean
   candidateIds: string[]
   toolNames: string[]
+  logicalToolNames: string[]
   skillKeys: string[]
   candidates: Array<{
     id: string
@@ -134,31 +157,50 @@ export interface ControllerCapabilitySurface {
   }>
 }
 
+type CapabilityDisclosure =
+  | { layer: 'ready'; records: [] }
+  | { layer: 'index'; records: ReturnType<typeof compactCapabilityIndex> }
+  | { layer: 'guide'; records: Array<{ name: string; category: string; summary: string; guide: string }> }
+  | { layer: 'contract'; records: Array<{ name: string; activated: true }> }
+  | { layer: 'error'; records: []; message: string }
+
 export interface ControllerCapabilitySession {
   version: typeof CONTROLLER_CAPABILITY_SURFACE_VERSION
-  discoveryMode: 'full_surface'
+  discoveryMode: 'progressive_disclosure'
   fallbackReason?: string
   seenCandidateIds: string[]
+  guidedToolNames: string[]
+  activatedToolNames: string[]
+  lastDisclosure: CapabilityDisclosure
   surface: ControllerCapabilitySurface
 }
 
-export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly unknown[]): ControllerCapabilitySurface => {
-  const tools = uniqueTools([
-    REPORT_PROGRESS_TOOL,
-    ...runtimeTools,
-    REQUEST_LARGE_CONTEXT_TOOL,
-  ])
+const basePhysicalTools = () => uniqueTools([
+  REPORT_PROGRESS_TOOL,
+  DISCOVER_MORE_CAPABILITIES_TOOL,
+  REQUEST_LARGE_CONTEXT_TOOL,
+])
 
+const surfaceWithActivated = (activatedToolNames: readonly string[]): ControllerCapabilitySurface => {
+  const activated = activatedToolNames
+    .map(name => getCanonicalCapabilityTool(name))
+    .filter((tool): tool is RuntimeToolSchema => Boolean(tool))
+  const tools = uniqueTools([...basePhysicalTools(), ...activated])
   return {
     version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
     tools,
-    providerWebVisible: true,
+    providerWebVisible: false,
     candidateIds: [],
     toolNames: tools.map(tool => tool.name),
+    logicalToolNames: canonicalTools.map(tool => tool.name),
     skillKeys: [],
     candidates: [],
   }
 }
+
+export const buildControllerCapabilitySurface = (_legacyCandidates?: readonly unknown[]): ControllerCapabilitySurface => (
+  surfaceWithActivated([])
+)
 
 export async function startControllerCapabilitySession(_input: {
   client: any
@@ -168,10 +210,18 @@ export async function startControllerCapabilitySession(_input: {
 }): Promise<ControllerCapabilitySession> {
   return {
     version: CONTROLLER_CAPABILITY_SURFACE_VERSION,
-    discoveryMode: 'full_surface',
+    discoveryMode: 'progressive_disclosure',
     seenCandidateIds: [],
+    guidedToolNames: [],
+    activatedToolNames: [],
+    lastDisclosure: { layer: 'ready', records: [] },
     surface: buildControllerCapabilitySurface(),
   }
+}
+
+const parseExactNames = (raw: string, limit: number) => {
+  const names = [...new Set(raw.split(/[\n,]/u).map(name => name.trim()).filter(Boolean))].slice(0, limit)
+  return names.filter(name => progressivelyDisclosableNames.has(name))
 }
 
 export async function discoverMoreForController(input: {
@@ -181,14 +231,73 @@ export async function discoverMoreForController(input: {
   limit?: number | null
   session: ControllerCapabilitySession
 }): Promise<ControllerCapabilitySession> {
-  return input.session
+  const query = String(input.query || '').trim()
+  const requestedLimit = Math.max(1, Math.min(Number(input.limit || MAX_DISCLOSURE_SELECTION), MAX_DISCLOSURE_SELECTION))
+
+  if (query.toLocaleLowerCase('en-US') === 'index') {
+    return {
+      ...input.session,
+      lastDisclosure: { layer: 'index', records: compactCapabilityIndex() },
+    }
+  }
+
+  const guideMatch = query.match(/^guide\s*:(.*)$/isu)
+  if (guideMatch) {
+    const requested = parseExactNames(guideMatch[1], requestedLimit)
+    if (!requested.length) {
+      return { ...input.session, lastDisclosure: { layer: 'error', records: [], message: 'No exact capability names from Layer-1 index were supplied.' } }
+    }
+    const records = requested.flatMap(name => {
+      const entry = capabilityIndexEntry(name)
+      return entry ? [{ name, category: entry.category, summary: entry.summary, guide: entry.guide }] : []
+    })
+    return {
+      ...input.session,
+      guidedToolNames: [...new Set([...input.session.guidedToolNames, ...records.map(record => record.name)])],
+      lastDisclosure: { layer: 'guide', records },
+    }
+  }
+
+  const contractMatch = query.match(/^contract\s*:(.*)$/isu)
+  if (contractMatch) {
+    const requested = parseExactNames(contractMatch[1], requestedLimit)
+    const guided = new Set(input.session.guidedToolNames)
+    const eligible = requested.filter(name => guided.has(name))
+    if (!eligible.length || eligible.length !== requested.length) {
+      return { ...input.session, lastDisclosure: { layer: 'error', records: [], message: 'Layer-3 contract activation requires the same exact capability names to have been loaded through Layer-2 guide first.' } }
+    }
+    const activatedToolNames = [...new Set([...input.session.activatedToolNames, ...eligible])].slice(0, MAX_ACTIVATED_CAPABILITIES)
+    return {
+      ...input.session,
+      activatedToolNames,
+      surface: surfaceWithActivated(activatedToolNames),
+      lastDisclosure: { layer: 'contract', records: eligible.map(name => ({ name, activated: true as const })) },
+    }
+  }
+
+  return {
+    ...input.session,
+    lastDisclosure: {
+      layer: 'error',
+      records: [],
+      message: 'Use exactly one progressive disclosure command: index, guide:<exact capability names>, or contract:<exact capability names>.',
+    },
+  }
 }
 
 export const capabilitySessionObservation = (session: ControllerCapabilitySession) => ({
   version: session.version,
+  disclosureVersion: CAPABILITY_DISCLOSURE_VERSION,
   discoveryMode: session.discoveryMode,
   candidates: [],
   visibleToolNames: session.surface.toolNames,
+  logicalCapabilityCount: session.surface.logicalToolNames.length,
+  guidedToolNames: session.guidedToolNames,
+  activatedToolNames: session.activatedToolNames,
+  disclosure: session.lastDisclosure,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'All registered JetWork capabilities are semantic options after the public work-start lifecycle gate. Knowledge tools access enterprise evidence directly. Candidate search, exact/detail retrieval and enumeration are distinct capability types: nextCursor only signals availability and never mandates pagination. A zero-result candidate search is not proof of absence. Public-web discovery is available both as provider-native web when healthy and as the search_web custom discovery capability; url_context can inspect concrete URLs. Provider availability handling is mechanical and never chooses a query or source. Skill/capability discovery returns procedural metadata only and is never evidence or a substitute for a requested source. Capability choice, retrieval strategy, query formulation, follow-up actions, evidence-gap evaluation and stop/final decisions belong to the controller model. Runtime supplies lifecycle, execution and mechanical safety only.',
+  instruction: 'JetWork uses three-layer progressive capability disclosure and the active model remains the sole semantic Controller. If the request needs no external capability, answer directly. If substantive tool-backed work is needed, publish report_progress(start) first. Then call discover_more_capabilities with query="index" to read Layer-1 names plus 1-2 sentence purpose summaries. Choose up to four exact names yourself and call query="guide:name1,name2" to read Layer-2 usage guidance. If a capability still fits, call query="contract:name1,name2" for the same guided names; their exact canonical schemas will then become visible on the next round. Only then call the canonical tool itself. Runtime performs exact-name/order validation only; it never infers intent, chooses a capability, query, source, next tool or stop decision. Activated contracts are options, never mandatory next steps.',
 })
+
+// Keep registry construction eager so drift between the 33 logical entries and canonical runtime is visible in tests/logs.
+void JETWORK_CAPABILITY_INDEX
