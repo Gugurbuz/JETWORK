@@ -15,7 +15,7 @@ describe('JetWork skill runtime wiring', () => {
     expect(implementationSource).toContain("from '../_shared/skillTools.ts'")
     expect(implementationSource).toContain('ASSISTANT_SKILL_TOOLS')
     expect(implementationSource).toContain('const skillToolResultCache = new Map<string, SkillToolExecution>()')
-    expect(implementationSource).toContain('toolResults: [...toolResultCache.values()]')
+    expect(implementationSource).toContain('const toolResultCache = new Map<string, AssistantToolExecution>()')
     expect(implementationSource).not.toContain('toolResults: [...skillToolResultCache.values()]')
   })
 
