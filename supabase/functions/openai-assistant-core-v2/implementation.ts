@@ -31,6 +31,7 @@ import { compactPersistentConversationState } from '../_shared/persistentConvers
 import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
 import { resultHasVerifiedKnowledgeEvidence } from '../_shared/groundingGuard.ts'
+import { partitionVerifiedSourceRefs } from '../_shared/evidence/runtimeLedger.ts'
 import {
   cleanProviderItemsForOpenAi,
   createGeminiProviderStateItem,
@@ -1393,37 +1394,38 @@ serve(async req => {
                 runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, error: 'Public progress message is empty.' }) })
                 continue
               }
-              if (sourceRefs.length) {
-                const verifiedRefs = new Set(sources.flatMap(source => [
-                  cleanString(source.canonicalKey, 500),
-                  cleanString(source.sourceId, 500),
-                  cleanString(source.url, 1_500),
-                ].filter(Boolean)))
-                const rejectedSourceRefs = sourceRefs.filter(ref => !verifiedRefs.has(ref))
-                if (rejectedSourceRefs.length) {
-                  runItems.push({
-                    type: 'function_call_output',
-                    call_id: callId,
-                    output: JSON.stringify({
-                      ok: false,
-                      error: 'UNVERIFIED_PROGRESS_SOURCE_REF',
-                      rejectedSourceRefs,
-                      instruction: 'These refs are not present in the current turn verified source ledger. Treat candidate identifiers as observations and choose the next semantic action yourself.',
-                    }),
-                  })
-                  usage = addUsage(usage, { public_progress_unverified_source_ref_rejected: rejectedSourceRefs.length })
-                  continue
-                }
+              const { acceptedSourceRefs, omittedSourceRefs } = partitionVerifiedSourceRefs(sourceRefs, sources)
+              if (omittedSourceRefs.length) {
+                usage = addUsage(usage, { public_progress_unverified_source_ref_omitted: omittedSourceRefs.length })
               }
               commentarySequence += 1
               if (kind === 'start') publicWorkStartCompleted = true
-              sendEvent(controller, encoder, 'commentary', { type: 'commentary', sequence: commentarySequence, kind, message: publicMessage, sourceRefs })
+              sendEvent(controller, encoder, 'commentary', { type: 'commentary', sequence: commentarySequence, kind, message: publicMessage, sourceRefs: acceptedSourceRefs })
               await logToolRun(adminClient, {
                 conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id, promptVersionId: prompt.id,
-                toolName, callId, arguments: args, resultSummary: { engine: ENGINE_VERSION, publicCommentary: true, selectedByController: true },
+                toolName, callId, arguments: args, resultSummary: {
+                  engine: ENGINE_VERSION,
+                  publicCommentary: true,
+                  selectedByController: true,
+                  acceptedSourceRefCount: acceptedSourceRefs.length,
+                  omittedUnverifiedSourceRefCount: omittedSourceRefs.length,
+                },
                 sourceRefs: [], status: 'completed', durationMs: 0,
               })
-              runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: true, sequence: commentarySequence, kind }) })
+              runItems.push({
+                type: 'function_call_output',
+                call_id: callId,
+                output: JSON.stringify({
+                  ok: true,
+                  sequence: commentarySequence,
+                  kind,
+                  acceptedSourceRefs,
+                  omittedSourceRefs,
+                  provenanceNote: omittedSourceRefs.length
+                    ? 'Unverified candidate refs were omitted from public source links without blocking progress or final answer generation.'
+                    : undefined,
+                }),
+              })
               continue
             }
             if (toolName === EXECUTE_CAPABILITIES_TOOL_NAME) {

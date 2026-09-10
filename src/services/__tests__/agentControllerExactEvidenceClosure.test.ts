@@ -44,4 +44,13 @@ describe('Agent Controller V3 exact-evidence boundary', () => {
     expect(AGENT_CONTROLLER_INSTRUCTION).not.toContain('CLASS=>METHOD')
     expect(controllerSurfaceSource).not.toContain('never rewrite canonicalKey')
   })
+
+  it('separates facts, inferences and proposals without turning evidence gaps into a no-answer gate', () => {
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('FACT')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('INFERENCE')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('PROPOSAL')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('sırf coverage eksik diye cevapsız bırakma')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('sentetik örnek kodu mevcut implementasyon gibi sunma')
+    expect(AGENT_CONTROLLER_INSTRUCTION).toContain('önceki assistant sentezini source authority sayma')
+  })
 })

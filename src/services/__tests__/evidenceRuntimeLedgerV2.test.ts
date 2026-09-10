@@ -3,11 +3,38 @@ import {
   applyControllerCoverageProposal,
   createEvidenceRuntimeLedger,
   evidenceLedgerObservation,
+  partitionVerifiedSourceRefs,
   recordVerifiedToolEvidence,
   recordVerifiedWebEvidence,
 } from '../../../supabase/functions/_shared/evidence/runtimeLedger.ts'
 
 describe('evidence runtime ledger v2', () => {
+  it('omits unverified progress refs without converting the progress event into an error', () => {
+    const partitioned = partitionVerifiedSourceRefs([
+      'method:unscoped_class/check_lrtv3',
+      'candidate:check_lrtv3',
+      'https://example.com/verified',
+    ], [{
+      sourceId: 'source-1',
+      sourceName: 'CHECK_LRTV3 source',
+      sourceType: 'knowledge',
+      canonicalKey: 'method:unscoped_class/check_lrtv3',
+    }, {
+      sourceId: 'web-1',
+      sourceName: 'Verified page',
+      sourceType: 'web',
+      url: 'https://example.com/verified',
+    }])
+
+    expect(partitioned).toEqual({
+      acceptedSourceRefs: [
+        'method:unscoped_class/check_lrtv3',
+        'https://example.com/verified',
+      ],
+      omittedSourceRefs: ['candidate:check_lrtv3'],
+    })
+  })
+
   it('records only citation-ready knowledge sources and never invents semantic supports', () => {
     const empty = createEvidenceRuntimeLedger('ZCRM2-586 neden oluşur?')
     const ignored = recordVerifiedToolEvidence(empty, {
