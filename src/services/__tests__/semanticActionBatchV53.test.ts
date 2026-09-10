@@ -35,6 +35,7 @@ describe('V5.3 semantic action batching', () => {
       'report_progress',
       'discover_more_capabilities',
       EXECUTE_CAPABILITIES_TOOL_NAME,
+      'request_observation_content',
       'request_large_context',
     ])
     expect(surface.toolNames).toContain('discover_more_capabilities')
