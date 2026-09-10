@@ -1517,10 +1517,19 @@ serve(async req => {
                   })
                   let observation: unknown = result.output
                   try { observation = JSON.parse(result.output) } catch { /* keep raw tool output */ }
+                  const observationText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
+                  const emptyDiscovery = (
+                    action.capability === 'search_knowledge_catalog'
+                    || action.capability === 'search_document'
+                  ) && (
+                    /"resultCount"\s*:\s*0\b/.test(observationText)
+                    || /"candidateSourceCount"\s*:\s*0\b/.test(observationText)
+                  )
                   return {
                     id: action.id,
                     capability: action.capability,
                     ok: true,
+                    emptyDiscovery,
                     observation,
                     sourceRefs: result.sources.map(source => ({
                       canonicalKey: source.canonicalKey || null,
@@ -1569,6 +1578,7 @@ serve(async req => {
                 output: JSON.stringify({
                   contract: 'semantic_action_batch_v1',
                   ok: batchResults.every(result => result.ok),
+                  emptyDiscovery: batchResults.some(result => 'emptyDiscovery' in result && result.emptyDiscovery === true),
                   results: batchResults,
                   instruction: 'Interpret these observations semantically yourself. If a candidate result exposes an identifier needed for exact evidence, choose the appropriate next capability in the next model round. Runtime did not select or rank the next action.',
                 }),
