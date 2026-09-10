@@ -115,8 +115,8 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).toContain('public_progress_unverified_source_ref_omitted')
     expect(coreSource).toContain('without blocking progress or final answer generation')
     expect(coreSource).not.toContain('UNVERIFIED_PROGRESS_SOURCE_REF')
-    expect(surfaceSource).toContain('citationReady=false / verifiedEvidence=false')
-    expect(surfaceSource).toContain('not verified source evidence by itself')
+    expect(surfaceSource).toContain('Discovery is candidate-only')
+    expect(surfaceSource).toContain('exact/detail evidence provenance must be preserved')
   })
 
   it('accepts the first post-verified-batch no-tool answer without a redundant evidence-only Gemini round', () => {
