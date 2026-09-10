@@ -4,6 +4,8 @@ export const OLLAMA_MODELS = new Set([DEFAULT_OLLAMA_MODEL])
 export const OLLAMA_CONTROLLER_CONTEXT_TOKENS = 16_384
 export const OLLAMA_TOOL_DESCRIPTION_MAX_CHARACTERS = 320
 export const OLLAMA_ARGUMENT_SIGNATURE_MAX_CHARACTERS = 210
+export const OLLAMA_TOOL_DISPATCHER_NAME = 'call_jetwork_tool'
+export const OLLAMA_DISPATCHER_ENTRY_MAX_CHARACTERS = 145
 
 export type OllamaNormalizedResponse = {
   id?: string
@@ -66,8 +68,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
 )
 
 // Compatibility normalizer retained for direct callers/tests. Canonical JetWork
-// schemas remain authoritative. Ollama's active tool surface below uses an even
-// smaller signature contract because the canonical runtime validates every call.
+// schemas remain authoritative. Ollama uses a single dispatcher grammar below;
+// JetWork still validates the unwrapped canonical call before execution.
 const OLLAMA_SCHEMA_DROP_KEYS = new Set([
   'description', 'title', '$comment', 'examples', 'example', 'default',
   'readOnly', 'writeOnly', 'deprecated', 'minLength', 'maxLength',
@@ -186,10 +188,83 @@ export const normalizeOllamaToolParameters = (value: unknown): Record<string, un
   return isRecord(normalized) ? normalized : { type: 'object' }
 }
 
+const logicalFunctionTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.flatMap(tool => {
+  if (clean(tool.type) !== 'function') return []
+  const name = clean(tool.name)
+  return name ? [{ ...tool, name }] : []
+})
+
+const dispatcherEntry = (tool: Record<string, unknown>) => {
+  const name = clean(tool.name)
+  const signature = compactOllamaArgumentSignature(name, tool.parameters)
+  const summarySource = clean(OLLAMA_DESCRIPTION_OVERRIDES[name] || tool.description).replace(/\s+/gu, ' ')
+  const summary = summarySource.split(/[.!?]/u)[0]?.trim() || ''
+  const compactSummary = summary.length <= 34 ? summary : `${summary.slice(0, 33).trimEnd()}…`
+  const raw = `${name}${signature ? `(${signature})` : '()'}${compactSummary ? ` — ${compactSummary}` : ''}`
+  return raw.length <= OLLAMA_DISPATCHER_ENTRY_MAX_CHARACTERS
+    ? raw
+    : `${raw.slice(0, OLLAMA_DISPATCHER_ENTRY_MAX_CHARACTERS - 1).trimEnd()}…`
+}
+
+export const buildOllamaDispatcherCatalog = (tools: ReadonlyArray<Record<string, unknown>>) => (
+  logicalFunctionTools(tools).map(dispatcherEntry).join('\n')
+)
+
+// Preserve the complete logical JetWork capability surface, but expose only one
+// native Ollama function. llama.cpp otherwise compiles one constrained grammar per
+// tool and local CPU latency grows before prompt evaluation even starts.
+export const toOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => {
+  const logicalTools = logicalFunctionTools(tools)
+  if (!logicalTools.length) return []
+  const names = logicalTools.map(tool => clean(tool.name))
+  const catalog = logicalTools.map(dispatcherEntry).join('\n')
+  return [{
+    type: 'function',
+    function: {
+      name: OLLAMA_TOOL_DISPATCHER_NAME,
+      description: [
+        'Invoke exactly one available JetWork capability. If no capability is needed, answer normally instead of calling this function.',
+        'Set name to one listed capability. Set arguments_json to one JSON object matching its signature. Never invent a capability name.',
+        'Available capabilities:',
+        catalog,
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', enum: names },
+          arguments_json: { type: 'string' },
+        },
+        required: ['name', 'arguments_json'],
+      },
+    },
+  }]
+}
+
+export const unwrapOllamaToolCall = (
+  call: unknown,
+  allowedToolNames: ReadonlySet<string>,
+): { name: string; arguments: Record<string, unknown> } | null => {
+  if (!isRecord(call) || !isRecord(call.function)) return null
+  const providerName = clean(call.function.name)
+  const providerArguments = parseArguments(call.function.arguments)
+
+  if (providerName === OLLAMA_TOOL_DISPATCHER_NAME) {
+    const name = clean(providerArguments.name)
+    if (!name || !allowedToolNames.has(name)) return null
+    return { name, arguments: parseArguments(providerArguments.arguments_json) }
+  }
+
+  // Backward compatibility for an in-flight response from the former direct
+  // multi-tool representation during a rolling deployment.
+  if (!allowedToolNames.has(providerName)) return null
+  return { name: providerName, arguments: providerArguments }
+}
+
 const toOllamaMessages = (
   instructions: string,
   items: Array<Record<string, unknown>>,
   maxContextCharacters: number,
+  useDispatcher: boolean,
 ): OllamaMessage[] => {
   const callNames = new Map<string, string>()
   const converted: OllamaMessage[] = []
@@ -216,18 +291,28 @@ const toOllamaMessages = (
     if (type === 'function_call') {
       const callId = clean(item.call_id)
       const name = clean(item.name)
-      if (callId) callNames.set(callId, name)
+      const canonicalArguments = parseArguments(item.arguments)
+      const providerName = useDispatcher ? OLLAMA_TOOL_DISPATCHER_NAME : name
+      if (callId) callNames.set(callId, providerName)
       if (name) {
         converted.push({
           role: 'assistant', content: '',
-          tool_calls: [{ type: 'function', function: { name, arguments: parseArguments(item.arguments) } }],
+          tool_calls: [{
+            type: 'function',
+            function: {
+              name: providerName,
+              arguments: useDispatcher
+                ? { name, arguments_json: JSON.stringify(canonicalArguments) }
+                : canonicalArguments,
+            },
+          }],
         })
       }
       continue
     }
     if (type === 'function_call_output') {
       const callId = clean(item.call_id)
-      const name = callNames.get(callId) || 'knowledge_tool'
+      const name = callNames.get(callId) || (useDispatcher ? OLLAMA_TOOL_DISPATCHER_NAME : 'knowledge_tool')
       const content = typeof item.output === 'string' ? item.output : JSON.stringify(item.output ?? '')
       converted.push({ role: 'tool', tool_name: name, content })
     }
@@ -250,23 +335,6 @@ const toOllamaMessages = (
   }
   return [...messages, ...recent]
 }
-
-// Ollama gets the same 33 function names and a concise argument signature in the
-// description. A plain object parameter grammar is intentional: JetWork's
-// canonical runtime still performs all argument validation before execution.
-export const toOllamaTools = (tools: ReadonlyArray<Record<string, unknown>>) => tools.flatMap(tool => {
-  if (clean(tool.type) !== 'function') return []
-  const name = clean(tool.name)
-  if (!name) return []
-  return [{
-    type: 'function',
-    function: {
-      name,
-      description: compactOllamaToolDescription(name, tool.description, tool.parameters),
-      parameters: { type: 'object' },
-    },
-  }]
-})
 
 const durationMs = (value: unknown) => {
   const nanoseconds = Number(value || 0)
@@ -293,8 +361,15 @@ export async function requestOllamaResponse(input: {
   if (!isOllamaModel(input.model)) throw new Error(`Unsupported Ollama model: ${input.model}`)
 
   const model = ollamaExecutionModel(input.model)
-  const tools = input.allowTools ? toOllamaTools(input.tools) : []
-  const messages = toOllamaMessages(input.instructions, input.items, input.maxContextCharacters ?? 14_000)
+  const logicalTools = input.allowTools ? logicalFunctionTools(input.tools) : []
+  const tools = logicalTools.length ? toOllamaTools(logicalTools) : []
+  const useDispatcher = tools.length > 0
+  const messages = toOllamaMessages(
+    input.instructions,
+    input.items,
+    input.maxContextCharacters ?? 14_000,
+    useDispatcher,
+  )
   const toolPayloadCharacters = tools.length ? JSON.stringify(tools).length : 0
   const messagePayloadCharacters = JSON.stringify(messages).length
   const requestStartedAt = performance.now()
@@ -319,16 +394,25 @@ export async function requestOllamaResponse(input: {
   const message = payload?.message && typeof payload.message === 'object' ? payload.message : {}
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : []
   const visibleText = clean(message.content)
-  const output: Array<Record<string, unknown>> = toolCalls.length
-    ? toolCalls.flatMap((call: any) => {
-        const name = clean(call?.function?.name)
-        if (!name) return []
-        const args = parseArguments(call?.function?.arguments)
-        return [{ type: 'function_call', call_id: `ollama:${crypto.randomUUID()}`, name, arguments: JSON.stringify(args) }]
-      })
+  const allowedToolNames = new Set(logicalTools.map(tool => clean(tool.name)))
+  const normalizedToolCalls = toolCalls.flatMap((call: unknown) => {
+    const normalized = unwrapOllamaToolCall(call, allowedToolNames)
+    return normalized ? [normalized] : []
+  })
+  if (toolCalls.length && normalizedToolCalls.length !== toolCalls.length) {
+    throw new Error('Ollama dispatcher returned an unknown or malformed JetWork tool call.')
+  }
+
+  const output: Array<Record<string, unknown>> = normalizedToolCalls.length
+    ? normalizedToolCalls.map(call => ({
+        type: 'function_call',
+        call_id: `ollama:${crypto.randomUUID()}`,
+        name: call.name,
+        arguments: JSON.stringify(call.arguments),
+      }))
     : [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: visibleText, annotations: [] }] }]
 
-  if (!toolCalls.length && visibleText) input.onText(visibleText)
+  if (!normalizedToolCalls.length && visibleText) input.onText(visibleText)
   const promptTokens = Number(payload.prompt_eval_count || 0)
   const outputTokens = Number(payload.eval_count || 0)
   const providerTotalMs = Math.max(0, Math.round(performance.now() - requestStartedAt))
@@ -343,8 +427,9 @@ export async function requestOllamaResponse(input: {
       ollama_load_ms: durationMs(payload.load_duration),
       ollama_prompt_eval_ms: durationMs(payload.prompt_eval_duration),
       ollama_eval_ms: durationMs(payload.eval_duration),
-      ollama_tool_calls: toolCalls.length,
-      ollama_tool_count: tools.length,
+      ollama_tool_calls: normalizedToolCalls.length,
+      ollama_tool_count: logicalTools.length,
+      ollama_native_tool_count: tools.length,
       ollama_tool_payload_chars: toolPayloadCharacters,
       ollama_message_payload_chars: messagePayloadCharacters,
     },
