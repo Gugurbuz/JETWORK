@@ -1,6 +1,7 @@
 export const PUBLIC_WORK_PROGRESS_TOOL_NAME = 'report_progress'
+export const PUBLIC_WORK_BATCH_TOOL_NAME = 'execute_capabilities'
 export const PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME = 'answer_directly'
-export const PUBLIC_WORK_PROTOCOL_VERSION = 'public-work-protocol-v2-explicit-decision'
+export const PUBLIC_WORK_PROTOCOL_VERSION = 'public-work-protocol-v3-semantic-action-batch'
 
 export const PUBLIC_WORK_DIRECT_ANSWER_TOOL = {
   type: 'function',
@@ -105,10 +106,10 @@ export const buildPublicWorkProtocolInstruction = (
   if (!started) {
     return [
       '[JETWORK PUBLIC WORK GATE]',
-      'Bir tool, kurumsal kaynak, web, skill veya artifact kullanmaya karar verirsen ilk ve bu turdaki tek function call `report_progress(kind=start)` olmalıdır.',
+      'Bir tool, kurumsal kaynak, web, skill veya artifact kullanmaya karar verirsen ilk function call `report_progress(kind=start)` olmalıdır. İlk aksiyonların argümanları kullanıcı isteğinden zaten biliniyorsa aynı model çıktısında hemen ardından `execute_capabilities` çağrısını da verebilirsin; böylece yalnız lifecycle için ayrı LLM turu yaratma.',
       '`start` çağrısında `resolvedGoal` alanına ham kullanıcı cümlesini tekrar etmek yerine aktif sistem/çalışma/konuşma bağlamıyla çözdüğün gerçek hedefi yaz; `planSteps` alanına 2-6 maddelik gerçek çalışma planını koy; `evidenceGaps` yalnız başlangıçta açık olan önemli belirsizlikleri içersin.',
       'Public `message` kısa ve doğal olmalı: ne anladığını ve neyi kontrol edeceğini kullanıcıya anlat. "Bilgi bankası sorgulanıyor", tool adı, provider telemetrysi veya gizli reasoning yazma.',
-      'İlk model çıktısında serbest metinle bu kararı atlama. Tam olarak iki yol vardır: gerçekten hiçbir JetWork capability/kurumsal kaynak gerekmiyorsa `answer_directly` ile nihai cevabı ver; araştırma, kurumsal bağlam çözümü veya teknik doğrulama gerekiyorsa `report_progress(kind=start)` ile çalışmayı başlat.',
+      'İlk model çıktısında serbest metinle bu kararı atlama. Tam olarak iki yol vardır: gerçekten hiçbir JetWork capability/kurumsal kaynak gerekmiyorsa `answer_directly` ile nihai cevabı ver; araştırma, kurumsal bağlam çözümü veya teknik doğrulama gerekiyorsa `report_progress(kind=start)` ile başla ve gerekiyorsa aynı çıktıda bağımsız ilk capability batchini ver.',
       'Açıklaması verilmemiş kısaltma, ürün/kod, class/method/message identifier, kurum süreci veya aktif iş bağlamında anlamı değişebilecek teknik terim `answer_directly` için uygun değildir. Böyle bir isteği genel sözlük listesine indirgeme; önce aktif kurumsal bağlamı JetWork capabilityleriyle çöz.',
       '[END JETWORK PUBLIC WORK GATE]',
     ].join('\n')
@@ -141,7 +142,10 @@ export const gateGeminiAgentToolsForPublicWork = <T extends { name?: unknown }>(
   const started = !reportProgressAvailable || hasCompletedPublicWorkStart(items)
   const visibleTools: T[] = started
     ? [...tools]
-    : tools.filter(tool => String(tool.name || '') === PUBLIC_WORK_PROGRESS_TOOL_NAME)
+    : tools.filter(tool => {
+        const name = String(tool.name || '')
+        return name === PUBLIC_WORK_PROGRESS_TOOL_NAME || name === PUBLIC_WORK_BATCH_TOOL_NAME
+      })
 
   return {
     version: PUBLIC_WORK_PROTOCOL_VERSION,
