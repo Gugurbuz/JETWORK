@@ -12,15 +12,17 @@ const coreIndexSource = readFileSync(
   'utf8',
 )
 
-describe('Controller V3 quota-independent web discovery', () => {
+describe('Controller V5 quota-independent web discovery', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('keeps both native and quota-independent web discovery model-visible behind a mechanical provider circuit', () => {
+  it('keeps quota-independent web discovery logically available behind progressive disclosure', () => {
     const surface = buildControllerCapabilitySurface()
-    expect(surface.toolNames).toContain(SEARCH_WEB_TOOL_NAME)
-    expect(surface.providerWebVisible).toBe(true)
+    expect(surface.logicalToolNames).toContain(SEARCH_WEB_TOOL_NAME)
+    expect(surface.toolNames).not.toContain(SEARCH_WEB_TOOL_NAME)
+    expect(surface.toolNames).toContain('discover_more_capabilities')
+    expect(surface.providerWebVisible).toBe(false)
 
     const schema = ASSISTANT_CONTEXT_TOOLS.find(tool => tool.name === SEARCH_WEB_TOOL_NAME)
     expect(schema).toBeTruthy()
