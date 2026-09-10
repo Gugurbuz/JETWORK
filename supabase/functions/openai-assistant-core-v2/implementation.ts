@@ -1393,6 +1393,28 @@ serve(async req => {
                 runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, error: 'Public progress message is empty.' }) })
                 continue
               }
+              if (sourceRefs.length) {
+                const verifiedRefs = new Set(sources.flatMap(source => [
+                  cleanString(source.canonicalKey, 500),
+                  cleanString(source.sourceId, 500),
+                  cleanString(source.url, 1_500),
+                ].filter(Boolean)))
+                const rejectedSourceRefs = sourceRefs.filter(ref => !verifiedRefs.has(ref))
+                if (rejectedSourceRefs.length) {
+                  runItems.push({
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify({
+                      ok: false,
+                      error: 'UNVERIFIED_PROGRESS_SOURCE_REF',
+                      rejectedSourceRefs,
+                      instruction: 'These refs are not present in the current turn verified source ledger. Treat candidate identifiers as observations and choose the next semantic action yourself.',
+                    }),
+                  })
+                  usage = addUsage(usage, { public_progress_unverified_source_ref_rejected: rejectedSourceRefs.length })
+                  continue
+                }
+              }
               commentarySequence += 1
               if (kind === 'start') publicWorkStartCompleted = true
               sendEvent(controller, encoder, 'commentary', { type: 'commentary', sequence: commentarySequence, kind, message: publicMessage, sourceRefs })
@@ -1518,10 +1540,12 @@ serve(async req => {
                   let observation: unknown = result.output
                   try { observation = JSON.parse(result.output) } catch { /* keep raw tool output */ }
                   const observationText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
-                  const emptyDiscovery = (
+                  const verifiedEvidence = resultHasVerifiedKnowledgeEvidence(result)
+                  const candidateOnly = (
                     action.capability === 'search_knowledge_catalog'
                     || action.capability === 'search_document'
-                  ) && (
+                  ) && !verifiedEvidence
+                  const emptyDiscovery = candidateOnly && (
                     /"resultCount"\s*:\s*0\b/.test(observationText)
                     || /"candidateSourceCount"\s*:\s*0\b/.test(observationText)
                   )
@@ -1529,6 +1553,8 @@ serve(async req => {
                     id: action.id,
                     capability: action.capability,
                     ok: true,
+                    verifiedEvidence,
+                    candidateOnly,
                     emptyDiscovery,
                     observation,
                     sourceRefs: result.sources.map(source => ({
@@ -1563,6 +1589,8 @@ serve(async req => {
                   mechanicalValidationOnly: true,
                   actionCount: validatedActions.length,
                   successfulActions: batchResults.filter(result => result.ok).length,
+                  verifiedEvidenceActions: batchResults.filter(result => result.ok && 'verifiedEvidence' in result && result.verifiedEvidence === true).length,
+                  candidateOnlyActions: batchResults.filter(result => result.ok && 'candidateOnly' in result && result.candidateOnly === true).length,
                 },
                 sourceRefs: [], status: batchResults.every(result => result.ok) ? 'completed' : 'failed',
                 durationMs: Math.round(performance.now() - batchStartedAt),
@@ -1580,7 +1608,7 @@ serve(async req => {
                   ok: batchResults.every(result => result.ok),
                   emptyDiscovery: batchResults.some(result => 'emptyDiscovery' in result && result.emptyDiscovery === true),
                   results: batchResults,
-                  instruction: 'Interpret these observations semantically yourself. If a candidate result exposes an identifier needed for exact evidence, choose the appropriate next capability in the next model round. Runtime did not select or rank the next action.',
+                  instruction: 'Interpret these observations semantically yourself. verifiedEvidence=false/candidateOnly=true means discovery only, even when a canonical identifier is present; do not present it as verified source evidence. If a material claim needs exact evidence and the candidate exposes the identifier required by an exact/detail capability, choose that capability yourself in the next dependency-level round. Runtime did not select or rank the next action.',
                 }),
               })
               continue
