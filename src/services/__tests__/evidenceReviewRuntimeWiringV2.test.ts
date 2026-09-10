@@ -7,11 +7,11 @@ import {
 import { isContextTool } from '../../../supabase/functions/_shared/context/contextTools.ts'
 
 describe('evidence review runtime wiring v2', () => {
-  it('keeps evidence review in the logical Controller surface behind progressive disclosure', () => {
+  it('keeps evidence review in the logical Controller surface behind semantic batching', () => {
     const surface = buildControllerCapabilitySurface([])
     expect(surface.logicalToolNames).toContain(REVIEW_EVIDENCE_COVERAGE_TOOL_NAME)
     expect(surface.toolNames).not.toContain(REVIEW_EVIDENCE_COVERAGE_TOOL_NAME)
-    expect(surface.toolNames).toContain('discover_more_capabilities')
+    expect(surface.toolNames).toContain('execute_capabilities')
     expect(surface.candidateIds).toEqual([])
     expect(isContextTool(REVIEW_EVIDENCE_COVERAGE_TOOL_NAME)).toBe(true)
   })
