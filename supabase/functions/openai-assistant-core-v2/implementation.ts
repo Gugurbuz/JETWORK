@@ -1081,6 +1081,7 @@ serve(async req => {
         let maxControllerRound = MAX_TOOL_ROUNDS
         let evidenceFinalSynthesisAttempted = false
         let evidenceFinalSynthesisPending = false
+        let verifiedSemanticBatchEvidenceSeen = false
         for (let round = 0; round <= maxControllerRound; round += 1) {
           const mustSynthesize = round === maxControllerRound
           const deterministicEnumeration = AGENTIC_CONTROLLER_ENABLED
@@ -1294,6 +1295,7 @@ serve(async req => {
               && AGENTIC_CONTROLLER_ENABLED
               && hasVerifiedKnowledgeSource
               && (!semanticArtifactRequired() || generatedArtifacts.size > 0)
+              && !verifiedSemanticBatchEvidenceSeen
               && !evidenceFinalSynthesisAttempted
             ) {
               evidenceFinalSynthesisAttempted = true
@@ -1579,6 +1581,11 @@ serve(async req => {
                   }
                 }
               }))
+
+              if (batchResults.some(result => result.ok && 'verifiedEvidence' in result && result.verifiedEvidence === true)) {
+                verifiedSemanticBatchEvidenceSeen = true
+                usage = addUsage(usage, { semantic_batch_verified_evidence_seen: 1 })
+              }
 
               await logToolRun(adminClient, {
                 conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
