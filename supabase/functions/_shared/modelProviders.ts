@@ -2,7 +2,8 @@ import {
   providerForModel as baseProviderForModel,
   type NormalizedModelResponse,
 } from './modelProvidersBase.ts'
-import { AGENT_CONTROLLER_INSTRUCTION } from './agentControllerPolicy.ts'
+import { AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION } from './agentControllerPolicy.ts'
+import { buildProviderProductCore } from './agent/providerProductCore.ts'
 import { extractGeminiRuntimeObservationInstruction } from './agent/controllerRuntimeObservation.ts'
 import {
   buildPublicWorkProtocolInstruction,
@@ -100,7 +101,8 @@ const mergeUsage = (
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   const runtimeObservation = extractGeminiRuntimeObservationInstruction(input.instructions)
   const terminalSynthesis = input.instructions.includes(TERMINAL_SYNTHESIS_MARKER)
-  const stableProductInstruction = String(input.stableInstructions || '').trim()
+  const rawStableProductInstruction = String(input.stableInstructions || '').trim()
+  const stableProductInstruction = buildProviderProductCore(rawStableProductInstruction)
   const providerWebRequested = input.allowProviderWeb ?? input.allowTools
   const publicWorkGate = gateGeminiAgentToolsForPublicWork(input.items, input.tools, providerWebRequested)
   const explicitFirstTurnDecision = Boolean(
@@ -122,15 +124,28 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   const effectiveAllowTools = input.allowTools && (
     visibleTools.length > 0 || publicWorkGate.providerWebEnabled
   )
+  const systemInstruction = [
+    stableProductInstruction,
+    AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION,
+    runtimeObservation,
+    publicWorkInstruction,
+  ].filter(Boolean).join('\n\n')
+  const toolSchemaCharacters = effectiveAllowTools ? JSON.stringify(visibleTools).length : 0
+  const itemCharacters = JSON.stringify(input.items || []).length
+  console.info('GEMINI_PROVIDER_PAYLOAD_BUDGET', JSON.stringify({
+    product_core_chars: stableProductInstruction.length,
+    controller_core_chars: AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION.length,
+    runtime_observation_chars: runtimeObservation.length,
+    public_work_chars: publicWorkInstruction.length,
+    system_instruction_chars: systemInstruction.length,
+    tool_schema_chars: toolSchemaCharacters,
+    item_chars: itemCharacters,
+  }))
+
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
-    systemInstruction: [
-      stableProductInstruction,
-      AGENT_CONTROLLER_INSTRUCTION,
-      runtimeObservation,
-      publicWorkInstruction,
-    ].filter(Boolean).join('\n\n'),
+    systemInstruction,
     items: input.items,
     tools: effectiveAllowTools ? visibleTools : [],
     allowTools: effectiveAllowTools,
@@ -209,6 +224,13 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       public_work_visible_tools: visibleTools.length,
       public_work_provider_web_enabled: publicWorkGate.providerWebEnabled ? 1 : 0,
       controller_first_turn_decision_required: explicitFirstTurnDecision ? 1 : 0,
+      provider_product_core_chars: stableProductInstruction.length,
+      provider_controller_core_chars: AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION.length,
+      provider_runtime_observation_chars: runtimeObservation.length,
+      provider_public_work_chars: publicWorkInstruction.length,
+      provider_system_instruction_chars: systemInstruction.length,
+      provider_tool_schema_chars: toolSchemaCharacters,
+      provider_item_chars: itemCharacters,
     }),
   }
 }
