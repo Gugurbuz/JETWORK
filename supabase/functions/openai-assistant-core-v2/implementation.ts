@@ -27,6 +27,7 @@ import { buildGeminiContextCachePolicy, clampLargeContextCharacters } from '../_
 import { compactPersistentConversationState } from '../_shared/persistentConversationState.ts'
 import { buildDeterministicEnumerationFinalization } from '../_shared/enumerationFinalizer.ts'
 import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
+import { resultHasVerifiedKnowledgeEvidence } from '../_shared/groundingGuard.ts'
 import {
   cleanProviderItemsForOpenAi,
   createGeminiProviderStateItem,
