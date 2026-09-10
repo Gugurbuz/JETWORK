@@ -51,16 +51,15 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
   {
     type: 'function',
     name: 'search_knowledge_catalog',
-    description: 'Search published JetWork global knowledge plus active-project knowledge. Returns ranked candidate evidence with canonical identifiers and provenance metadata; search candidates are not citation-ready exact records.',
+    description: 'Search published JetWork global knowledge plus active-project knowledge across all catalog object types. This primary semantic candidate search is intentionally type-unfiltered so short identifiers and product-family terms can match methods, messages, classes, documents and other Jetbase objects. Returns ranked candidate evidence with canonical identifiers and provenance metadata; search candidates are not citation-ready exact records.',
     strict: true,
     parameters: {
       type: 'object',
       properties: {
         query: { type: 'string', minLength: 2, maxLength: 300 },
-        objectTypes: nullableArray({ type: 'string', enum: objectTypes }),
         limit: nullableInteger(1, 12),
       },
-      required: ['query', 'objectTypes', 'limit'],
+      required: ['query', 'limit'],
       additionalProperties: false,
     },
   },
@@ -674,7 +673,7 @@ export async function executeAssistantTool(
   if (toolName === 'search_knowledge_catalog') {
     const query = cleanString(args.query, 300)
     if (query.length < 2) throw new Error('Knowledge search query is too short.')
-    return searchCatalog(client, workspaceId, query, args.objectTypes, clampLimit(args.limit, 6, 8))
+    return searchCatalog(client, workspaceId, query, null, clampLimit(args.limit, 6, 8))
   }
   if (toolName === 'list_knowledge_catalog') return listCatalog(client, workspaceId, args)
   if (toolName === 'list_class_inventory') return executeClassInventoryTool(client, workspaceId, args)
