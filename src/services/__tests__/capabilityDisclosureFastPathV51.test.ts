@@ -30,6 +30,6 @@ describe('V5.1 low-latency progressive disclosure fast path', () => {
     const instruction = capabilitySessionObservation(session).instruction
     expect(instruction).toContain('Capability catalog is lazy')
     expect(instruction).toContain('discover_more_capabilities')
-    expect(instruction).toContain('Runtime never makes the semantic choice')
+    expect(instruction).toContain('Runtime only validates name/schema/permission/budget')
   })
 })
