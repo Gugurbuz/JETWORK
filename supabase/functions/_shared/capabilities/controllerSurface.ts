@@ -153,7 +153,7 @@ export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
   type: 'function',
   name: EXECUTE_CAPABILITIES_TOOL_NAME,
   description: [
-    'Execute one or more model-authored JetWork capability calls through the mechanical runtime.',
+    'Execute one or more model-authored JetWork capability calls through the mechanical semantic action batching runtime.',
     'You choose every capability, argument and stop/re-plan decision. Runtime only validates the canonical name/schema, permission and budget.',
     'If you are unsure which capability or arguments fit the goal, call discover_more_capabilities with a semantic description of the capability you need; use index only for a broad catalog.',
     'Batch only independent actions whose arguments are already known. If one action needs an identifier produced by another, wait for that observation and continue in the next Controller round.',
@@ -493,7 +493,7 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   visibleToolNames: session.surface.toolNames,
   disclosure: session.lastDisclosure,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: 'Capability catalog is lazy. The Controller may answer directly, execute a known capability, or request a small semantic candidate set with discover_more_capabilities. Runtime never makes the semantic choice. Discovery is candidate-only; exact/detail evidence provenance must be preserved.',
+  instruction: 'Capability catalog is lazy. The active model remains the sole semantic Controller: it may answer directly, execute a known capability, or request a small semantic candidate set with discover_more_capabilities. Runtime only validates name/schema/permission/budget and executes; it never makes the semantic choice. Discovery is candidate-only; exact/detail evidence provenance must be preserved.',
 })
 
 // Keep registry construction eager so drift between the 33 logical entries and canonical runtime is visible in tests/logs.
