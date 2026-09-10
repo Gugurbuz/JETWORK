@@ -15,11 +15,12 @@ describe('V5 capability disclosure control-plane budget', () => {
     expect(coreSource).toContain('toolName !== DISCOVER_MORE_CAPABILITIES_TOOL_NAME && totalToolCalls >= MAX_TOOL_CALLS')
 
     const start = coreSource.indexOf('const runCapabilityDiscoveryTool = async')
-    const end = coreSource.indexOf('const runSkillTool', start) > start
-      ? coreSource.indexOf('const runSkillTool', start)
-      : coreSource.indexOf('const emitStatus', start)
-    const discoveryBody = coreSource.slice(start, end > start ? end : start + 7000)
+    const end = coreSource.indexOf('// Legacy preflight helpers remain available', start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const discoveryBody = coreSource.slice(start, end)
     expect(discoveryBody).not.toContain('totalToolCalls += 1')
+    expect(discoveryBody).not.toContain('totalToolCalls >= MAX_TOOL_CALLS')
   })
 
   it('does not spend a research round when the model is only navigating disclosure layers', () => {
