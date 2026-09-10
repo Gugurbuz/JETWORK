@@ -13,16 +13,16 @@ import {
 } from '../../../supabase/functions/_shared/capabilities/progressiveDisclosure.ts'
 import { toOllamaTools } from '../../../supabase/functions/_shared/ollamaProvider.ts'
 
-describe('Controller V5 progressive capability disclosure', () => {
+describe('Controller V5.3 semantic action batching with legacy disclosure compatibility', () => {
   it('keeps 33 logical capabilities while initial provider surface stays tiny', () => {
     const surface = buildControllerCapabilitySurface()
-    expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5-progressive-disclosure')
+    expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5.3-semantic-action-batch')
     expect(JETWORK_LOGICAL_CAPABILITY_NAMES).toHaveLength(33)
     expect(surface.logicalToolNames).toHaveLength(33)
     expect(surface.logicalToolNames).toEqual(JETWORK_LOGICAL_CAPABILITY_NAMES)
     expect(surface.tools.map(tool => tool.name)).toEqual([
       'report_progress',
-      'discover_more_capabilities',
+      'execute_capabilities',
       'request_large_context',
     ])
     expect(surface.providerWebVisible).toBe(false)
@@ -92,15 +92,15 @@ describe('Controller V5 progressive capability disclosure', () => {
     expect(session.surface.toolNames).not.toContain('get_message_detail')
   })
 
-  it('keeps semantic authority in the active controller model', async () => {
+  it('keeps semantic authority in the active controller model while legacy disclosure remains callable', async () => {
     const session = await startControllerCapabilitySession({ client: null, query: 'test' })
     const observation = capabilitySessionObservation(session)
     expect(observation.logicalCapabilityCount).toBe(33)
     expect(observation.instruction).toContain('sole semantic Controller')
-    expect(observation.instruction).toContain('query="index"')
-    expect(observation.instruction).toContain('query="guide:name1,name2"')
-    expect(observation.instruction).toContain('query="contract:name1,name2"')
-    expect(observation.instruction).toContain('canonical tool itself')
-    expect(observation.instruction).toContain('options, never mandatory next steps')
+    expect(observation.instruction).toContain('execute_capabilities')
+    expect(observation.instruction).toContain('actions=[{id, capability, argumentsJson}]')
+    expect(observation.instruction).toContain('Batch independent actions')
+    expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
+    expect(observation.instruction).toContain('never infers intent, selects a tool')
   })
 })
