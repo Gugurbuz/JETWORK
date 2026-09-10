@@ -94,7 +94,7 @@ describe('Gemini 3.8 G38-01..G38-17 release suite', () => {
   it('G38-17 behaviorally gates tool-backed work behind the model-authored public plan', () => {
     const tools = buildControllerCapabilitySurface().tools
     const before = gateGeminiAgentToolsForPublicWork([], tools, true)
-    expect(before.tools.map(tool => tool.name)).toEqual(['report_progress', 'execute_capabilities'])
+    expect(before.tools.map(tool => tool.name)).toEqual(['report_progress', 'discover_more_capabilities', 'execute_capabilities'])
     expect(before.providerWebEnabled).toBe(false)
 
     const planArgs = {
