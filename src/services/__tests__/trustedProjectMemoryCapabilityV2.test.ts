@@ -10,7 +10,7 @@ import { buildControllerCapabilitySurface } from '../../../supabase/functions/_s
 const RECORD_PROJECT_MEMORY_TOOL_NAME = 'record_project_memory'
 
 describe('trusted Project Memory capability v3 surface', () => {
-  it('is visible to the controller while authenticated provenance remains an executor concern', () => {
+  it('stays logically available to the controller while authenticated provenance remains an executor concern', () => {
     const tool = ASSISTANT_CONTEXT_TOOLS.find(item => item.name === RECORD_PROJECT_MEMORY_TOOL_NAME)
     expect(tool).toBeTruthy()
 
@@ -19,7 +19,9 @@ describe('trusted Project Memory capability v3 surface', () => {
     expect(memoryCapability?.metadata.requiresUserProvenance).toBe(true)
 
     const surface = buildControllerCapabilitySurface([])
-    expect(surface.toolNames).toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
+    expect(surface.logicalToolNames).toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
+    expect(surface.toolNames).not.toContain(RECORD_PROJECT_MEMORY_TOOL_NAME)
+    expect(surface.toolNames).toContain('discover_more_capabilities')
     expect(surface.candidateIds).toEqual([])
   })
 
