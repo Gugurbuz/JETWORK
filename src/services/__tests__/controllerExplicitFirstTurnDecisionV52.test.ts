@@ -37,7 +37,8 @@ describe('explicit first-turn Controller decision gate', () => {
       onText: () => {},
     })
 
-    expect(request.generation_config.tool_choice).toEqual({
+    const generationConfig = request.generation_config as Record<string, unknown>
+    expect(generationConfig.tool_choice).toEqual({
       allowed_tools: {
         mode: 'any',
         tools: ['report_progress', PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME],
@@ -64,7 +65,8 @@ describe('explicit first-turn Controller decision gate', () => {
       onText: () => {},
     })
 
-    expect(request.generation_config.tool_choice).toBe('validated')
+    const generationConfig = request.generation_config as Record<string, unknown>
+    expect(generationConfig.tool_choice).toBe('validated')
   })
 
   it('makes direct answer an explicit model decision and excludes ambiguous enterprise terms from that path', () => {
