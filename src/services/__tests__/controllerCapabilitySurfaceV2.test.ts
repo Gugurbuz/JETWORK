@@ -64,7 +64,7 @@ describe('controller capability surface v5', () => {
     expect(observation.discoveryMode).toBe('semantic_action_batch')
     expect(observation.instruction).toContain('Capability catalog is lazy')
     expect(observation.instruction).toContain('discover_more_capabilities')
-    expect(observation.instruction).toContain('Runtime never makes the semantic choice')
+    expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
     expect(observation.instruction).not.toContain('must verify')
     expect(observation.instruction).not.toContain('pendingCandidateKeys')
   })
