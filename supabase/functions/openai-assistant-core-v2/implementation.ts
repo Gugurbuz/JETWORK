@@ -1393,6 +1393,28 @@ serve(async req => {
                 runItems.push({ type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, error: 'Public progress message is empty.' }) })
                 continue
               }
+              if (sourceRefs.length) {
+                const verifiedRefs = new Set(sources.flatMap(source => [
+                  cleanString(source.canonicalKey, 500),
+                  cleanString(source.sourceId, 500),
+                  cleanString(source.url, 1_500),
+                ].filter(Boolean)))
+                const rejectedSourceRefs = sourceRefs.filter(ref => !verifiedRefs.has(ref))
+                if (rejectedSourceRefs.length) {
+                  runItems.push({
+                    type: 'function_call_output',
+                    call_id: callId,
+                    output: JSON.stringify({
+                      ok: false,
+                      error: 'UNVERIFIED_PROGRESS_SOURCE_REF',
+                      rejectedSourceRefs,
+                      instruction: 'These refs are not present in the current turn verified source ledger. Treat candidate identifiers as observations and choose the next semantic action yourself.',
+                    }),
+                  })
+                  usage = addUsage(usage, { public_progress_unverified_source_ref_rejected: rejectedSourceRefs.length })
+                  continue
+                }
+              }
               commentarySequence += 1
               if (kind === 'start') publicWorkStartCompleted = true
               sendEvent(controller, encoder, 'commentary', { type: 'commentary', sequence: commentarySequence, kind, message: publicMessage, sourceRefs })
