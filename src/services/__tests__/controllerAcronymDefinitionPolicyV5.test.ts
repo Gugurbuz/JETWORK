@@ -7,11 +7,12 @@ const policySource = readFileSync(
 )
 
 describe('Controller acronym definition policy V5', () => {
-  it('separates high-confidence standard expansion from verified enterprise usage', () => {
-    expect(policySource).toContain('literal açılımı doğrudan yazmıyorsa bunu otomatik olarak')
-    expect(policySource).toContain('yüksek güvenli standart sektör/genel açılımını biliyorsan açılımı cevabın başında ver')
-    expect(policySource).toContain('standart/sektörel model bilgisi olarak kurumsal evidence’dan ayır')
-    expect(policySource).toContain('Güven düşükse uygun ek araştırmayı seç ya da literal açılımın kurumsal kanıtta doğrulanmadığını açıkça söyle')
+  it('prefers semantic external verification when enterprise evidence does not contain a material literal expansion', () => {
+    expect(policySource).toContain('yalnız kullanım alanını veya ürün ailesini tarif etmek görevi tamamlamaz')
+    expect(policySource).toContain('model hafızasına veya aynı Jetbase kavramını tekrar tekrar broad aramaya güvenmek yerine')
+    expect(policySource).toContain('public web discovery yap')
+    expect(policySource).toContain('güncel/resmi/primary adayı URL Context ile incele')
+    expect(policySource).toContain('Hangi kaynağın yeterli olduğuna, dış doğrulamanın gerekli olup olmadığına')
   })
 
   it('does not hard-code the LRT acceptance answer or route', () => {
