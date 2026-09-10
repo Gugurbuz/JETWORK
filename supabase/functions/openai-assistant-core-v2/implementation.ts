@@ -88,6 +88,11 @@ const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQ
 const AGENTIC_CONTROLLER_ENABLED = String(Deno.env.get('ASSISTANT_AGENTIC_CONTROLLER') ?? 'true')
   .trim().toLocaleLowerCase('en-US') !== 'false'
 
+// Semantic truth/evidence sufficiency belongs to the Controller LLM. Runtime keeps
+// only mechanical provenance/persistence/security responsibilities and must not
+// replace a model answer via regex/identifier-based grounding adjudication.
+const RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED = false
+
 const isEngineEnabled = () => String(Deno.env.get('ASSISTANT_REASONING_ENGINE_V2') ?? 'true')
   .trim().toLocaleLowerCase('en-US') !== 'false'
 
@@ -1290,8 +1295,17 @@ serve(async req => {
               throw new Error('Required artifact executor did not produce a file.')
             }
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
-            const groundingCoverage = evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })
-            const groundingBlocked = shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })
+            const groundingCoverage = RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED
+              ? evaluateGroundedTechnicalClaims({ text: roundText, plan, sources, toolResults: [...toolResultCache.values()], currentUserText: message })
+              : {
+                  ok: true,
+                  verifiedKnowledgeEvidence: [...toolResultCache.values()].some(resultHasVerifiedKnowledgeEvidence),
+                  unsupportedIdentifiers: [],
+                  messageTextMismatches: [],
+                  unsupportedClaims: [],
+                }
+            const groundingBlocked = RUNTIME_SEMANTIC_GROUNDING_GATE_ENABLED
+              && shouldFailClosedGroundedAnswer({ plan, coverage: groundingCoverage })
             const mayRequestGroundingRepair = AGENTIC_CONTROLLER_ENABLED
               && groundingBlocked
               && !groundingRepairAttempted
