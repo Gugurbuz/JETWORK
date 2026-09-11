@@ -11,6 +11,8 @@ import {
   hasCompletedPublicWorkStart,
   PUBLIC_WORK_DIRECT_ANSWER_TOOL,
   PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
+  PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL,
+  PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME,
 } from './agent/publicWorkProtocol.ts'
 import {
   createGeminiProviderStateItem,
@@ -89,6 +91,7 @@ type GeminiRequestInput = {
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
   allowProviderWeb?: boolean
+  verifiedEvidenceAvailable?: boolean
   workMode?: 'fast' | 'balanced' | 'deep'
   maxOutputTokens: number
   onText: (text: string) => void
@@ -135,12 +138,22 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
           : tool
       ))
     : publicWorkGate.tools
+  const evidenceFinalizeVisible = Boolean(
+    input.verifiedEvidenceAvailable
+      && publicWorkGate.started
+      && !terminalSynthesis
+  )
   const visibleTools = explicitFirstTurnDecision
     ? [
         ...continuationTools,
         PUBLIC_WORK_DIRECT_ANSWER_TOOL as unknown as Record<string, unknown>,
       ]
-    : continuationTools
+    : evidenceFinalizeVisible
+      ? [
+          ...continuationTools,
+          PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL as unknown as Record<string, unknown>,
+        ]
+      : continuationTools
   const publicWorkInstruction = buildPublicWorkProtocolInstruction(
     input.items,
     publicWorkGate.reportProgressAvailable,
@@ -187,6 +200,59 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
 
   const response = await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
   let normalizedResponse = response
+
+  if (evidenceFinalizeVisible) {
+    const output = normalizedResponse.output || []
+    const finalizeCalls = output.filter(item => (
+      String(item.type || '') === 'function_call'
+      && String(item.name || '') === PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME
+    ))
+    const otherFunctionCalls = output.filter(item => (
+      String(item.type || '') === 'function_call'
+      && String(item.name || '') !== PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME
+    ))
+
+    if (finalizeCalls.length > 0 && otherFunctionCalls.length === 0) {
+      const finalCall = finalizeCalls[0] as Record<string, unknown>
+      let args: Record<string, unknown> = {}
+      try {
+        args = typeof finalCall.arguments === 'string'
+          ? JSON.parse(finalCall.arguments)
+          : (finalCall.arguments && typeof finalCall.arguments === 'object'
+              ? finalCall.arguments as Record<string, unknown>
+              : {})
+      } catch {
+        args = {}
+      }
+      const answer = String(args.answer || '').trim()
+      if (!answer) throw new Error('Gemini verified-evidence finalizer returned an empty answer.')
+      const interactionId = String(finalCall._gemini_interaction_id || normalizedResponse.id || '').trim()
+      input.onText(answer)
+      normalizedResponse = {
+        ...normalizedResponse,
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: answer, annotations: [] }],
+          ...(interactionId ? { _gemini_interaction_id: interactionId } : {}),
+        }],
+        usage: mergeUsage(normalizedResponse.usage, {
+          controller_verified_evidence_finalized: 1,
+        }),
+      }
+    } else if (finalizeCalls.length > 0 && otherFunctionCalls.length > 0) {
+      normalizedResponse = {
+        ...normalizedResponse,
+        output: output.filter(item => !(
+          String(item.type || '') === 'function_call'
+          && String(item.name || '') === PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME
+        )),
+        usage: mergeUsage(normalizedResponse.usage, {
+          controller_verified_evidence_finalize_conflict_dropped: finalizeCalls.length,
+        }),
+      }
+    }
+  }
 
   if (explicitFirstTurnDecision) {
     const output = response.output || []
@@ -248,6 +314,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       public_work_visible_tools: visibleTools.length,
       public_work_provider_web_enabled: publicWorkGate.providerWebEnabled ? 1 : 0,
       controller_first_turn_decision_required: explicitFirstTurnDecision ? 1 : 0,
+      controller_verified_evidence_finalize_visible: evidenceFinalizeVisible ? 1 : 0,
       provider_product_core_chars: stableProductInstruction.length,
       provider_controller_core_chars: AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION.length,
       provider_runtime_observation_chars: runtimeObservation.length,
