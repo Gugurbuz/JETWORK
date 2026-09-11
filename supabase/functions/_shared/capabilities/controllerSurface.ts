@@ -365,7 +365,6 @@ const basePhysicalTools = () => uniqueTools([
   REPORT_PROGRESS_TOOL,
   DISCOVER_MORE_CAPABILITIES_TOOL,
   buildExecuteCapabilitiesTool(),
-  REQUEST_OBSERVATION_CONTENT_TOOL,
   REQUEST_LARGE_CONTEXT_TOOL,
 ])
 
