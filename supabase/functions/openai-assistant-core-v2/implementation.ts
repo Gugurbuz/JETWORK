@@ -128,6 +128,28 @@ const stableJson = (value: unknown): string => {
   return JSON.stringify(value) ?? 'null'
 }
 
+const normalizeEvidenceKey = (value: unknown) => String(value ?? '')
+  .trim()
+  .toLocaleLowerCase('en-US')
+  .replace(/\s+/gu, '')
+
+const knowledgeToolCacheKey = (toolName: string, args: Record<string, unknown>): string => {
+  if (toolName === 'get_message_detail') {
+    const code = normalizeEvidenceKey(args.messageCode)
+    if (code) return `verified:message:${code.startsWith('message:') ? code.slice(8) : code}`
+  }
+  if (toolName === 'get_knowledge_object') {
+    const canonicalKey = normalizeEvidenceKey(args.canonicalKey)
+    if (canonicalKey.startsWith('message:')) return `verified:${canonicalKey}`
+    if (canonicalKey) return `exact:get_knowledge_object:${canonicalKey}`
+  }
+  if (toolName === 'get_document_content' || toolName === 'get_abap_source') {
+    const canonicalKey = normalizeEvidenceKey(args.canonicalKey)
+    if (canonicalKey) return `exact:${toolName}:${canonicalKey}`
+  }
+  return `${toolName}:${stableJson(args)}`
+}
+
 const addUsage = (
   accumulated: Record<string, number> | undefined,
   next: Record<string, number> | undefined,
