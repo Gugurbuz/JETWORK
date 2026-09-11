@@ -7,6 +7,12 @@ on:
       - optimize/jit-controller-context-v1
     paths:
       - 'scripts/run-agentic-cost-regression.ts'
+      - 'supabase/functions/openai-assistant-core-v2/**'
+      - 'supabase/functions/_shared/modelProviders.ts'
+      - 'supabase/functions/_shared/agent/publicWorkProtocol.ts'
+      - 'supabase/functions/_shared/agent/controllerPolicy.ts'
+      - 'supabase/functions/_shared/agent/controllerRuntimeObservation.ts'
+      - 'supabase/functions/_shared/capabilities/controllerSurface.ts'
       - '.github/workflows/pr278-agentic-cost-regression.yml'
 
 permissions:
