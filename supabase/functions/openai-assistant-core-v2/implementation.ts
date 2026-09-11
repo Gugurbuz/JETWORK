@@ -20,6 +20,7 @@ import {
   REPORT_PROGRESS_TOOL_NAME,
   REQUEST_LARGE_CONTEXT_TOOL_NAME,
   REQUEST_OBSERVATION_CONTENT_TOOL_NAME,
+  REQUEST_OBSERVATION_CONTENT_TOOL,
   startControllerCapabilitySession,
   type ControllerCapabilitySession,
 } from '../_shared/capabilities/controllerSurface.ts'
@@ -697,6 +698,7 @@ serve(async req => {
       const toolResultCache = new Map<string, AssistantToolExecution>()
       const observationContentStore = new Map<string, { toolName: string; output: string }>()
       let observationReadCalls = 0
+      let truncatedObservationAvailable = false
       const generatedArtifacts = new Map<string, NonNullable<AssistantToolExecution['artifacts']>[number]>()
       const captureGeneratedArtifacts = (result: AssistantToolExecution) => {
         for (const artifact of result.artifacts || []) {
@@ -1157,9 +1159,13 @@ serve(async req => {
               && (AGENTIC_CONTROLLER_ENABLED
                 ? capabilitySession?.surface.providerWebVisible === true
                 : plan.webMode !== 'none')
-            const agenticVisibleTools = !mustSynthesize && !forceEvidenceFinalSynthesis && AGENTIC_CONTROLLER_ENABLED
+            const baseAgenticVisibleTools = !mustSynthesize && !forceEvidenceFinalSynthesis && AGENTIC_CONTROLLER_ENABLED
               ? capabilitySession?.surface.tools || []
               : []
+            const agenticVisibleTools = truncatedObservationAvailable
+              && !baseAgenticVisibleTools.some(tool => tool.name === REQUEST_OBSERVATION_CONTENT_TOOL_NAME)
+              ? [...baseAgenticVisibleTools, REQUEST_OBSERVATION_CONTENT_TOOL]
+              : baseAgenticVisibleTools
             const hasExactCustomIdentifierInRequest = hasExactTechnicalIdentifier(message)
             const canLiveStreamProviderText = activeProvider === 'gemini'
               && totalToolCalls === 0
@@ -1551,6 +1557,7 @@ serve(async req => {
                   observationContentStore.set(observationRef, { toolName: action.capability, output: observationText })
                   const perActionPreviewBudget = Math.max(2_500, Math.floor(14_000 / Math.max(1, validatedActions.length)))
                   const observation = compactObservation(observationText, observationRef, perActionPreviewBudget)
+                  if (observation.truncated) truncatedObservationAvailable = true
                   const verifiedEvidence = resultHasVerifiedKnowledgeEvidence(result)
                   const candidateOnly = (
                     action.capability === 'search_knowledge_catalog'
@@ -1764,6 +1771,7 @@ serve(async req => {
               const directObservationText = typeof result.output === 'string' ? result.output : JSON.stringify(result.output)
               observationContentStore.set(directObservationRef, { toolName, output: directObservationText })
               const directObservation = compactObservation(directObservationText, directObservationRef)
+              if (directObservation.truncated) truncatedObservationAvailable = true
               usage = addUsage(usage, {
                 direct_observation_full_characters: directObservation.fullCharacters,
                 direct_observation_preview_characters: directObservation.previewCharacters,
