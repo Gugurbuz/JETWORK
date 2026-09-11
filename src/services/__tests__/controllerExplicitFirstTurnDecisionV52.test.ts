@@ -96,6 +96,8 @@ describe('explicit first-turn Controller decision gate', () => {
     expect(providerSource).toContain('controller_verified_evidence_finalized: 1')
     expect(providerSource).toContain('PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME')
     expect(providerSource).toContain('input.verifiedEvidenceAvailable')
+    expect(providerSource).toContain('publicWorkGate.started')
+    expect(providerSource).toContain('evidenceFinalizeVisible && input.verifiedEvidenceAvailable')
   })
 
   it('keeps enterprise-context preference semantic and generic rather than hard-coded to the acceptance term', () => {
