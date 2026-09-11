@@ -778,6 +778,14 @@ serve(async req => {
             knowledgeUsed = true
             sources = uniqueSources([...sources, ...result.sources.map(source => ({ ...source, sourceType: 'knowledge' as const }))])
             evidence.push(evidenceExcerpt(toolName, result))
+            for (const source of result.sources) {
+              const canonicalKey = normalizeEvidenceKey(source.canonicalKey)
+              if (!canonicalKey) continue
+              verifiedCanonicalEvidence.add(canonicalKey)
+              const capabilities = verifiedCanonicalCapabilities.get(canonicalKey) || new Set<string>()
+              capabilities.add(toolName)
+              verifiedCanonicalCapabilities.set(canonicalKey, capabilities)
+            }
           }
           await logToolRun(adminClient, {
             conversationId: conversation.id, turnId, workspaceId, ownerId: authData.user.id,
