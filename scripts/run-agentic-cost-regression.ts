@@ -24,10 +24,11 @@ type Scenario = {
   checks: Array<(answer: string, usage: Record<string, number>, sources: Array<Record<string, unknown>>) => string | null>
 }
 
+const normalized = (value: string) => value.normalize('NFKC').toLocaleUpperCase('en-US')
 const contains = (needle: string) => (answer: string) =>
-  answer.toLocaleLowerCase('tr-TR').includes(needle.toLocaleLowerCase('tr-TR')) ? null : `missing:${needle}`
+  normalized(answer).includes(normalized(needle)) ? null : `missing:${needle}`
 const notContains = (needle: string) => (answer: string) =>
-  answer.toLocaleLowerCase('tr-TR').includes(needle.toLocaleLowerCase('tr-TR')) ? `unexpected:${needle}` : null
+  normalized(answer).includes(normalized(needle)) ? `unexpected:${needle}` : null
 const regex = (pattern: RegExp) => (answer: string) => pattern.test(answer) ? null : `regex:${pattern.source}`
 const nonempty = (answer: string) => answer.trim() ? null : 'empty_response'
 const sourceCanonical = (canonicalKey: string) => (_answer: string, _usage: Record<string, number>, sources: Array<Record<string, unknown>>) =>
