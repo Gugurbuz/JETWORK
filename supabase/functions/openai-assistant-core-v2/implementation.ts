@@ -37,7 +37,6 @@ import { partitionVerifiedSourceRefs } from '../_shared/evidence/runtimeLedger.t
 import { compactObservation, readObservationContent } from '../_shared/agent/observationBudget.ts'
 import {
   cleanProviderItemsForOpenAi,
-  createGeminiProviderStateItem,
   DEFAULT_GEMINI_MODEL,
   GEMINI_MODELS,
   OPENAI_MODELS,
@@ -1333,8 +1332,11 @@ serve(async req => {
             if (!roundText.trim()) throw new Error(`${activeProvider} completed without a user-visible answer.`)
             const persistedTurnItems: Array<Record<string, unknown>> = [...baseItems, { role: 'assistant', content: roundText }]
             if (activeProvider === 'gemini' && latestGeminiInteractionId) {
-              persistedTurnItems.push(createGeminiProviderStateItem(latestGeminiInteractionId))
-              usage = addUsage(usage, { gemini_interaction_state_persisted: 1 })
+              // Provider interaction state is intentionally turn-scoped. JetWork
+              // persists compact recent/resolved conversation state instead of
+              // chaining the next user turn through the previous turn's full
+              // Gemini tool history.
+              usage = addUsage(usage, { gemini_interaction_state_turn_scoped: 1 })
             }
             const stateItems = compactConversationState(persistedTurnItems, plan)
             const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
