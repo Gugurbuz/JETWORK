@@ -547,34 +547,76 @@ const focusNeedles = (identifier: string) => {
   return [...needles]
 }
 
+const stripVerifiedAbapMessageIndex = (value: unknown) => String(value ?? '').replace(
+  /^\[VERIFIED_ABAP_MESSAGE_CODES\][\s\S]*?\[END_VERIFIED_ABAP_MESSAGE_CODES\]\r?\n?/u,
+  '',
+)
+
 const focusedSourceExcerpts = (value: unknown, identifiers: string[]) => {
-  const lines = String(value ?? '').split(/\r?\n/u)
-  const results: Array<{ identifier: string; excerpt: string }> = []
-  let totalCharacters = 0
+  const lines = stripVerifiedAbapMessageIndex(value).split(/\r?\n/u)
+  const identifierNeedles = identifiers.map(identifier => ({
+    identifier,
+    needles: focusNeedles(identifier),
+  }))
+  const candidates: Array<{ index: number; identifiers: string[] }> = []
 
-  for (const identifier of identifiers) {
-    const needles = focusNeedles(identifier)
-    const matched = new Set<number>()
-    for (let index = 0; index < lines.length; index += 1) {
-      const haystack = lines[index].toLocaleLowerCase('en-US')
-      if (needles.some(needle => needle && haystack.includes(needle))) matched.add(index)
-      if (matched.size >= 4) break
-    }
-    if (!matched.size) continue
+  for (let index = 0; index < lines.length; index += 1) {
+    const haystack = lines[index].toLocaleLowerCase('en-US')
+    const matchedIdentifiers = identifierNeedles
+      .filter(entry => entry.needles.some(needle => needle && haystack.includes(needle)))
+      .map(entry => entry.identifier)
+    if (matchedIdentifiers.length) candidates.push({ index, identifiers: matchedIdentifiers })
+  }
 
-    const selected = new Set<number>()
-    for (const index of matched) {
-      for (let cursor = Math.max(0, index - 4); cursor <= Math.min(lines.length - 1, index + 4); cursor += 1) {
-        selected.add(cursor)
+  candidates.sort((left, right) => (
+    right.identifiers.length - left.identifiers.length
+    || left.index - right.index
+  ))
+
+  const selectedIndexes = new Set<number>()
+  const coveredIdentifiers = new Set<string>()
+  const anchors: number[] = []
+
+  for (const candidate of candidates) {
+    if (anchors.length >= 3) break
+    const contributes = candidate.identifiers.some(identifier => !coveredIdentifiers.has(identifier))
+    if (!contributes && anchors.length > 0) continue
+
+    anchors.push(candidate.index)
+    for (let cursor = Math.max(0, candidate.index - 5); cursor <= Math.min(lines.length - 1, candidate.index + 5); cursor += 1) {
+      selectedIndexes.add(cursor)
+      const haystack = lines[cursor].toLocaleLowerCase('en-US')
+      for (const entry of identifierNeedles) {
+        if (entry.needles.some(needle => needle && haystack.includes(needle))) coveredIdentifiers.add(entry.identifier)
       }
     }
-    let excerpt = [...selected].sort((left, right) => left - right).map(index => lines[index]).join('\n').trim()
-    const remaining = Math.max(0, 12_000 - totalCharacters)
+    if (coveredIdentifiers.size >= identifiers.length) break
+  }
+
+  if (!selectedIndexes.size) return [] as Array<{ identifiers: string[]; excerpt: string }>
+
+  const sorted = [...selectedIndexes].sort((left, right) => left - right)
+  const groups: number[][] = []
+  for (const index of sorted) {
+    const current = groups[groups.length - 1]
+    if (!current || index > current[current.length - 1] + 1) groups.push([index])
+    else current.push(index)
+  }
+
+  const results: Array<{ identifiers: string[]; excerpt: string }> = []
+  let totalCharacters = 0
+  for (const group of groups.slice(0, 3)) {
+    const raw = group.map(index => lines[index]).join('\n').trim()
+    if (!raw) continue
+    const remaining = Math.max(0, 6_000 - totalCharacters)
     if (remaining <= 0) break
-    excerpt = truncateContent(excerpt, Math.min(remaining, 4_000))
-    if (!excerpt) continue
+    const excerpt = truncateContent(raw, Math.min(remaining, 3_000))
+    const lowered = excerpt.toLocaleLowerCase('en-US')
+    const matchedIdentifiers = identifierNeedles
+      .filter(entry => entry.needles.some(needle => needle && lowered.includes(needle)))
+      .map(entry => entry.identifier)
     totalCharacters += excerpt.length
-    results.push({ identifier, excerpt })
+    results.push({ identifiers: matchedIdentifiers, excerpt })
   }
 
   return results
@@ -614,20 +656,15 @@ async function getFocusedAbapSource(
   const lineIndex = verifiedSignals.abapMessageLinesByCode && typeof verifiedSignals.abapMessageLinesByCode === 'object'
     ? verifiedSignals.abapMessageLinesByCode as Record<string, unknown>
     : {}
-  const focusedMessageCodes = focusIdentifiers
-    .map(normalizedMessageCodeFromFocus)
-    .filter(Boolean)
+  const focusedContent = focusedEvidence.map(item => item.excerpt).join('\n\n')
+  const normalizedFocusedContent = normalizeLiteralEvidenceLine(focusedContent)
   const focusedLineIndex = Object.fromEntries(
-    Object.entries(lineIndex).filter(([code]) => (
-      !focusedMessageCodes.length || focusedMessageCodes.includes(code.toLocaleUpperCase('en-US'))
-    )),
+    Object.entries(lineIndex).filter(([, line]) => {
+      const normalizedLine = normalizeLiteralEvidenceLine(line)
+      return Boolean(normalizedLine && normalizedFocusedContent.includes(normalizedLine))
+    }),
   )
-  const allCodes = Array.isArray(verifiedSignals.abapMessageCodes)
-    ? verifiedSignals.abapMessageCodes.map(value => String(value))
-    : []
-  const focusedCodes = focusedMessageCodes.length
-    ? allCodes.filter(code => focusedMessageCodes.includes(code.toLocaleUpperCase('en-US')))
-    : allCodes
+  const focusedCodes = Object.keys(focusedLineIndex)
 
   const focusedRecord = {
     ...primary,
@@ -635,11 +672,11 @@ async function getFocusedAbapSource(
     focusedSource: true,
     verifiedSignals: {
       ...verifiedSignals,
-      abapMessageCodes: focusedCodes.length ? focusedCodes : allCodes,
-      abapMessageLinesByCode: Object.keys(focusedLineIndex).length ? focusedLineIndex : lineIndex,
+      abapMessageCodes: focusedCodes,
+      abapMessageLinesByCode: focusedLineIndex,
     },
     content: focusedEvidence.map(item => (
-      `[FOCUS ${item.identifier}]\n${item.excerpt}\n[END FOCUS ${item.identifier}]`
+      `[FOCUS ${item.identifiers.join(', ')}]\n${item.excerpt}\n[END FOCUS]`
     )).join('\n\n'),
   }
 
