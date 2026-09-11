@@ -1181,6 +1181,16 @@ serve(async req => {
           const providerRoundStartedAt = performance.now()
 
           const requestActiveProvider = async () => {
+            const verifiedEvidenceLedgerInstruction = verifiedCanonicalEvidence.size
+              ? `VERIFIED_EVIDENCE_LEDGER: ${JSON.stringify({
+                  canonicalRefs: [...verifiedCanonicalEvidence].slice(0, 16),
+                  capabilitiesByRef: Object.fromEntries(
+                    [...verifiedCanonicalCapabilities.entries()].slice(0, 16)
+                      .map(([key, capabilities]) => [key, [...capabilities].slice(0, 6)]),
+                  ),
+                  instruction: 'These refs are mechanically verified in the current turn. Decide yourself whether they close the user goal. Do not retrieve the same canonical evidence merely to reconfirm it. If no material evidence gap remains, finalize now; if a materially different evidence class is needed, choose it explicitly.',
+                })}`
+              : ''
             const forceEvidenceFinalSynthesis = evidenceFinalSynthesisPending
             const skillToolsEnabled = !mustSynthesize && !forceEvidenceFinalSynthesis
               && !AGENTIC_CONTROLLER_ENABLED
@@ -1221,6 +1231,7 @@ serve(async req => {
                 stableInstructions: String(prompt.prompt_text || ''),
                 instructions: [
                   synthesisInstruction,
+                  verifiedEvidenceLedgerInstruction,
                   finalInstruction,
                   forceEvidenceFinalSynthesis
                     ? 'EVIDENCE_FINAL_SYNTHESIS: Bu aynı Controller modelinin final cevap turudur. Yeni tool çağırma. JETWORK_TOOL_EVIDENCE içindeki doğrulanmış kaynakları ve konuşma hedefini birlikte kullan; kaynak hedefi yanıtlıyorsa genel sözlük anlamlarına geri dönme.'
@@ -1229,6 +1240,7 @@ serve(async req => {
                 items: runItems, tools,
                 allowTools: !forceEvidenceFinalSynthesis && (tools.length > 0 || providerWebEnabled || geminiNativeWebPlanned),
                 allowProviderWeb: !forceEvidenceFinalSynthesis && (providerWebEnabled || geminiNativeWebPlanned),
+                verifiedEvidenceAvailable: verifiedCanonicalEvidence.size > 0 || verifiedSemanticBatchEvidenceSeen,
                 workMode,
                 maxOutputTokens: MAX_OUTPUT_TOKENS,
                 onText: delta => {
