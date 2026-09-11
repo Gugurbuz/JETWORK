@@ -771,6 +771,7 @@ serve(async req => {
       const toolResultCache = new Map<string, AssistantToolExecution>()
       const toolResultInFlight = new Map<string, Promise<AssistantToolExecution>>()
       const verifiedCanonicalEvidence = new Set<string>()
+      const verifiedLiteralEvidenceLines = new Set<string>()
       const verifiedCanonicalCapabilities = new Map<string, Set<string>>()
       const observationContentStore = new Map<string, { toolName: string; output: string }>()
       let observationReadCalls = 0
@@ -838,6 +839,9 @@ serve(async req => {
             knowledgeUsed = true
             sources = uniqueSources([...sources, ...result.sources.map(source => ({ ...source, sourceType: 'knowledge' as const }))])
             evidence.push(evidenceExcerpt(toolName, result))
+            for (const line of literalEvidenceLinesFromOutput(result.output)) {
+              verifiedLiteralEvidenceLines.add(line)
+            }
             for (const source of result.sources) {
               const canonicalKey = normalizeEvidenceKey(source.canonicalKey)
               if (!canonicalKey) continue
