@@ -579,6 +579,68 @@ async function getExactObjects(
   }
 }
 
+const parseVerifiedRelatedRecords = (execution: AssistantToolExecution) => {
+  if (execution.summary?.citationReady !== true) return {
+    relations: [] as Array<Record<string, unknown>>,
+    objects: [] as Array<Record<string, unknown>>,
+  }
+  try {
+    const parsed = JSON.parse(execution.output)
+    const records = parsed?.records && typeof parsed.records === 'object'
+      ? parsed.records as Record<string, unknown>
+      : {}
+    return {
+      relations: Array.isArray(records.relations)
+        ? records.relations.filter((item: unknown) => item && typeof item === 'object') as Array<Record<string, unknown>>
+        : [],
+      objects: Array.isArray(records.objects)
+        ? records.objects.filter((item: unknown) => item && typeof item === 'object') as Array<Record<string, unknown>>
+        : [],
+    }
+  } catch {
+    return { relations: [], objects: [] }
+  }
+}
+
+async function getMessageDetailWithRelations(
+  client: any,
+  workspaceId: string,
+  canonicalKey: string,
+): Promise<AssistantToolExecution> {
+  const detail = await getExactObject(client, workspaceId, canonicalKey, ['message'], 'get_message_detail')
+  if (detail.summary?.citationReady !== true) return detail
+
+  try {
+    const related = await getRelatedObjects(client, workspaceId, {
+      canonicalKey,
+      relationTypes: null,
+      direction: 'both',
+      limit: 8,
+    })
+    const relationRecords = parseVerifiedRelatedRecords(related)
+    if (!relationRecords.relations.length && !relationRecords.objects.length) return detail
+
+    const records = parsedExactRecords(detail).map((record, index) => index === 0 ? {
+      ...record,
+      directRelations: relationRecords.relations.slice(0, 8),
+      relatedObjects: relationRecords.objects.slice(0, 8),
+    } : record)
+
+    return {
+      output: verifiedToolOutput('get_message_detail', records),
+      sources: uniqueSources([...detail.sources, ...related.sources]),
+      summary: {
+        ...detail.summary,
+        relationHintCount: relationRecords.relations.length,
+        relatedObjectHintCount: relationRecords.objects.length,
+        relationHintsIncluded: true,
+      },
+    }
+  } catch {
+    return detail
+  }
+}
+
 async function getRelatedObjects(
   client: any,
   workspaceId: string,
@@ -706,7 +768,7 @@ export async function executeAssistantTool(
   if (toolName === 'get_message_detail') {
     const canonicalKey = normalizeCanonicalKey(args.messageCode, 'message')
     if (!canonicalKey) throw new Error('messageCode is required.')
-    return getExactObject(client, workspaceId, canonicalKey, ['message'], toolName)
+    return getMessageDetailWithRelations(client, workspaceId, canonicalKey)
   }
   if (toolName === 'search_document') {
     const query = cleanString(args.query, 300)
