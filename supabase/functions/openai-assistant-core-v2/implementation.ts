@@ -100,7 +100,14 @@ const jsonResponse = (payload: unknown, status = 200) => new Response(JSON.strin
 })
 
 const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
-const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Unexpected assistant runtime error.'
+const errorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message || '').trim()
+    if (message) return message
+  }
+  return 'Unexpected assistant runtime error.'
+}
 
 const userFacingAssistantError = (error: unknown) => {
   const detail = errorMessage(error)
