@@ -37,6 +37,9 @@ const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSch
   if (['get_abap_source','get_message_detail','get_document_content','get_knowledge_object','get_knowledge_objects','get_related_objects'].includes(tool.name)) {
     tool.description = `${String(tool.description || '').trim()} Use this to deepen a known candidate when the remaining evidence gap requires exact/detail/source/relation evidence.`
   }
+  if (tool.name === 'get_message_detail') {
+    tool.description = `${String(tool.description || '').trim()} When available, the verified record also includes bounded directRelations/relatedObjects structural hints. Reuse those canonical hints instead of rediscovering the same linked objects with another broad search; relation hints do not mean the linked object's source content has been read.`
+  }
   return tool
 }
 
@@ -74,7 +77,7 @@ export const REQUEST_LARGE_CONTEXT_TOOL: RuntimeToolSchema = {
 export const REQUEST_OBSERVATION_CONTENT_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: REQUEST_OBSERVATION_CONTENT_TOOL_NAME,
-  description: 'Read a bounded slice from a previously truncated tool observation. The model chooses either a literal find query or an offset slice; runtime performs no semantic selection. Use only when the compact observation says truncated=true and the missing raw detail materially affects the answer.',
+  description: 'Read a bounded slice from a previously truncated tool observation. The model chooses either a literal find query or an offset slice; runtime performs no semantic selection. truncated=true alone is not a reason to read raw content: first use any structured verifiedSignals, directRelations, relatedObjects, canonical identifiers and excerpts already present in the compact preview. Read raw content only when a material claim still depends on detail that is genuinely absent from that structured preview.',
   strict: true,
   parameters: {
     type: 'object',
@@ -178,7 +181,7 @@ const FOUNDATIONAL_EVIDENCE_MENU = [
   '- get_knowledge_objects(canonicalKeys): read several known exact objects in one batch.',
   '- get_related_objects(canonicalKey, relationTypes, direction, limit): inspect structural CALLS, EMITS_MESSAGE, READS, WRITES and similar relations for a known object.',
   '- get_knowledge_evidence_pack(canonicalKey, hops, limit): read a bounded 1-2 hop evidence graph around one known object.',
-  '- get_message_detail(messageCode): read an exact CRM/ABAP message when its code is known.',
+  '- get_message_detail(messageCode): read an exact CRM/ABAP message when its code is known; when available it also returns bounded verified directRelations/relatedObjects hints so linked canonical objects do not need to be rediscovered.',
   '- get_abap_source(canonicalKey): read exact published ABAP source for a known class/method/function.',
   '- search_document(query, limit) / get_document_content(canonicalKey): discover then read exact published documents.',
   'Prefer the shortest sufficient evidence path. For “what does this object call/emit/read/write?” questions, structural relation evidence is usually more direct than repeated broad search. Do not call discovery if one of these known capabilities already fits.',
