@@ -35,7 +35,6 @@ describe('V5.3 semantic action batching', () => {
       'report_progress',
       'discover_more_capabilities',
       EXECUTE_CAPABILITIES_TOOL_NAME,
-      'request_observation_content',
       'request_large_context',
     ])
     expect(surface.toolNames).toContain('discover_more_capabilities')
@@ -45,9 +44,11 @@ describe('V5.3 semantic action batching', () => {
   it('exposes a compact model-readable menu while keeping canonical schemas runtime-side', () => {
     const tool = buildExecuteCapabilitiesTool()
     expect(tool.name).toBe(EXECUTE_CAPABILITIES_TOOL_NAME)
+    expect(tool.description).toContain('get_related_objects')
+    expect(tool.description).toContain('EMITS_MESSAGE')
     expect(tool.description).toContain('discover_more_capabilities')
     expect(tool.description).toContain('semantic action batching runtime')
-    expect(tool.description.length).toBeLessThan(1_600)
+    expect(tool.description.length).toBeLessThan(3_000)
     expect(tool.description).not.toContain('LRT')
     expect(tool.description).not.toContain('CHECK_LRTV3')
   })
