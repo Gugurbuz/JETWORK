@@ -12,6 +12,7 @@ import {
   compactCapabilityIndex,
 } from './progressiveDisclosure.ts'
 import { discoverIndexedCapabilities } from './indexedDiscovery.ts'
+import { discoverCapabilityCandidates } from './discovery.ts'
 import type { RuntimeToolSchema } from './registry.ts'
 
 export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5.3-semantic-action-batch'
@@ -169,14 +170,29 @@ const requiredArgumentNames = (tool: RuntimeToolSchema | null): string[] => {
   return Array.isArray(required) ? required.map(value => String(value)).filter(Boolean) : []
 }
 
+
+const FOUNDATIONAL_EVIDENCE_MENU = [
+  'Core evidence capabilities available directly through this batch gateway:',
+  '- search_knowledge_catalog(query, limit): find a canonical Jetbase object when its key is not yet known.',
+  '- get_knowledge_object(canonicalKey): read one known exact Jetbase object.',
+  '- get_knowledge_objects(canonicalKeys): read several known exact objects in one batch.',
+  '- get_related_objects(canonicalKey, relationTypes, direction, limit): inspect structural CALLS, EMITS_MESSAGE, READS, WRITES and similar relations for a known object.',
+  '- get_knowledge_evidence_pack(canonicalKey, hops, limit): read a bounded 1-2 hop evidence graph around one known object.',
+  '- get_message_detail(messageCode): read an exact CRM/ABAP message when its code is known.',
+  '- get_abap_source(canonicalKey): read exact published ABAP source for a known class/method/function.',
+  '- search_document(query, limit) / get_document_content(canonicalKey): discover then read exact published documents.',
+  'Prefer the shortest sufficient evidence path. For “what does this object call/emit/read/write?” questions, structural relation evidence is usually more direct than repeated broad search. Do not call discovery if one of these known capabilities already fits.',
+].join('\n')
+
 export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
   type: 'function',
   name: EXECUTE_CAPABILITIES_TOOL_NAME,
   description: [
     'Execute one or more model-authored JetWork capability calls through the mechanical semantic action batching runtime.',
     'You choose every capability, argument and stop/re-plan decision. Runtime only validates the canonical name/schema, permission and budget.',
-    'If you are unsure which capability or arguments fit the goal, call discover_more_capabilities with a semantic description of the capability you need; use index only for a broad catalog.',
-    'Batch only independent actions whose arguments are already known. If one action needs an identifier produced by another, wait for that observation and continue in the next Controller round.',
+    FOUNDATIONAL_EVIDENCE_MENU,
+    'If none of the core evidence capabilities fits, call discover_more_capabilities with a semantic description of the capability you need; use index only for a broad catalog.',
+    'Batch independent actions whose arguments are already known. If one action needs an identifier produced by another, wait for that observation and continue in the next Controller round.',
     'Discovery candidates are not verified evidence. Exact/detail results may be citation-ready; preserve that provenance distinction.',
   ].join('\n'),
   strict: true,
@@ -475,7 +491,7 @@ export async function discoverMoreForController(input: {
     excludeIds: input.session.seenCandidateIds,
   })
   const seenNames = new Set<string>()
-  const records = discovered.candidates.flatMap(candidate => {
+  let records = discovered.candidates.flatMap(candidate => {
     const name = String(candidate.toolName || '').trim()
     if (!name || seenNames.has(name) || !executionCapabilityNames.includes(name)) return []
     const entry = capabilityIndexEntry(name)
@@ -490,6 +506,33 @@ export async function discoverMoreForController(input: {
       title: candidate.title,
     }]
   }).slice(0, requestedLimit)
+
+  // The persisted capability index also contains procedural skill records. A
+  // model-authored tool need can therefore rank skills above executable tools.
+  // If the vector Top-K yields no executable capability, fall back to the same
+  // registry's lexical tool candidates rather than forcing another LLM round.
+  if (!records.length) {
+    const lexical = discoverCapabilityCandidates({
+      query,
+      topK: requestedLimit,
+      categories: ['knowledge', 'context', 'artifact'],
+    }).filter(candidate => candidate.kind === 'tool' && candidate.toolName)
+    records = lexical.flatMap(candidate => {
+      const name = String(candidate.toolName || '').trim()
+      if (!name || seenNames.has(name) || !executionCapabilityNames.includes(name)) return []
+      const entry = capabilityIndexEntry(name)
+      if (!entry) return []
+      seenNames.add(name)
+      return [{
+        name,
+        category: entry.category,
+        summary: entry.summary,
+        requiredArguments: requiredArgumentNames(getCanonicalCapabilityTool(name)),
+        score: candidate.score,
+        title: candidate.title,
+      }]
+    }).slice(0, requestedLimit)
+  }
 
   if (!records.length) {
     return {
