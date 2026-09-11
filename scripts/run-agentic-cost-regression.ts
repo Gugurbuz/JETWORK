@@ -131,6 +131,7 @@ type ParsedStream = {
   error: string | null
   provider: string | null
   model: string | null
+  usage: Record<string, number>
   sources: Array<Record<string, unknown>>
   firstTextMs: number | null
   totalMs: number
@@ -147,6 +148,7 @@ const readSse = async (response: Response, startedAt: number): Promise<ParsedStr
   let provider: string | null = null
   let responseModel: string | null = null
   let firstTextMs: number | null = null
+  let completedUsage: Record<string, number> = {}
   const sources: Array<Record<string, unknown>> = []
 
   const consume = (frame: string) => {
@@ -172,6 +174,13 @@ const readSse = async (response: Response, startedAt: number): Promise<ParsedStr
         completed = true
         provider = payload.provider ? String(payload.provider) : provider
         responseModel = payload.model ? String(payload.model) : responseModel
+        if (payload.usage && typeof payload.usage === 'object' && !Array.isArray(payload.usage)) {
+          completedUsage = Object.fromEntries(
+            Object.entries(payload.usage as Record<string, unknown>)
+              .map(([key, value]) => [key, Number(value)])
+              .filter(([, value]) => Number.isFinite(value)),
+          ) as Record<string, number>
+        }
       }
       if (type === 'error') error = String(payload.message || 'runtime error')
     } catch { /* ignore non-JSON frames */ }
@@ -194,26 +203,11 @@ const readSse = async (response: Response, startedAt: number): Promise<ParsedStr
     error,
     provider,
     model: responseModel,
+    usage: completedUsage,
     sources,
     firstTextMs,
     totalMs: Date.now() - startedAt,
   }
-}
-
-const loadTurn = async (messageId: string) => {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const { data, error } = await supabase
-      .from('assistant_turns')
-      .select('id,message_id,status,response_model,response_text,source_refs,created_at,completed_at,usage')
-      .eq('message_id', messageId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (error) throw new Error(`assistant_turns read failed: ${error.message}`)
-    if (data) return data as Record<string, any>
-    await new Promise(resolve => setTimeout(resolve, 200))
-  }
-  return null
 }
 
 const asNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0
@@ -275,15 +269,14 @@ try {
     }
 
     const stream = await readSse(response, startedAt)
-    const turn = await loadTurn(messageId)
-    const usage = (turn?.usage && typeof turn.usage === 'object') ? turn.usage as Record<string, number> : {}
-    const sources = Array.isArray(turn?.source_refs)
-      ? turn.source_refs as Array<Record<string, unknown>>
-      : stream.sources
-    const answer = String(turn?.response_text || stream.answer || '')
+    const usage = stream.usage
+    const sources = stream.sources
+    const answer = String(stream.answer || '')
     const failures = scenario.checks
       .map(check => check(answer, usage, sources))
       .filter((failure): failure is string => Boolean(failure))
+    if (stream.error) failures.push(`runtime_error:${stream.error}`)
+    if (!stream.completed) failures.push('stream_not_completed')
 
     const inputTokens = asNumber(usage.input_tokens)
     const cachedTokens = asNumber(usage.cached_tokens)
@@ -292,8 +285,8 @@ try {
       group: scenario.group,
       step: scenario.step,
       prompt: scenario.prompt,
-      status: turn?.status || (stream.completed ? 'completed' : 'unknown'),
-      model: turn?.response_model || stream.model,
+      status: stream.completed ? 'completed' : 'unknown',
+      model: stream.model,
       provider: stream.provider || 'gemini',
       firstTextMs: stream.firstTextMs,
       totalMs: stream.totalMs,
@@ -318,7 +311,7 @@ try {
         preview: asNumber(usage.semantic_action_batch_observation_preview_characters) + asNumber(usage.direct_observation_preview_characters),
         contentRead: asNumber(usage.observation_content_returned_characters),
       },
-      qualityPassed: failures.length === 0 && (turn?.status === 'completed' || stream.completed),
+      qualityPassed: failures.length === 0 && stream.completed,
       qualityFailures: failures,
       answerPreview: answer.slice(0, 900),
       sources: sources.map(source => ({
