@@ -440,6 +440,24 @@ const extractAbapMessageCodes = (value: unknown) => {
   return [...codes]
 }
 
+const extractAbapMessageLineIndex = (value: unknown) => {
+  const text = String(value ?? '')
+  const index: Record<string, string> = {}
+  for (const rawLine of text.split(/\r?\n/u)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    for (const match of line.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+      const number = String(match[1] || '').padStart(3, '0')
+      const messageClass = String(match[2] || '').toLocaleUpperCase('en-US')
+      if (!number || !messageClass) continue
+      const code = `${messageClass}-${number}`
+      if (!index[code]) index[code] = line.slice(0, 320)
+      if (Object.keys(index).length >= 80) return index
+    }
+  }
+  return index
+}
+
 const withVerifiedAbapMessageIndex = (value: unknown) => {
   const content = String(value ?? '')
   const codes = extractAbapMessageCodes(content)
@@ -465,6 +483,9 @@ async function getExactObject(
   const abapMessageCodes = ['class','method','function'].includes(String(row.object_type || ''))
     ? extractAbapMessageCodes(row.content)
     : []
+  const abapMessageLinesByCode = abapMessageCodes.length
+    ? extractAbapMessageLineIndex(row.content)
+    : {}
   const record = {
     scope: row.scope_type === 'project' ? 'project' : 'global',
     canonicalKey: row.canonical_key,
@@ -472,7 +493,7 @@ async function getExactObject(
     name: row.object_name,
     title: row.title,
     summary: row.summary,
-    verifiedSignals: abapMessageCodes.length ? { abapMessageCodes } : undefined,
+    verifiedSignals: abapMessageCodes.length ? { abapMessageCodes, abapMessageLinesByCode } : undefined,
     content: truncateContent(withVerifiedAbapMessageIndex(row.content), 48_000),
     versionNumber: row.version_number,
     sourceName: row.source_name,
