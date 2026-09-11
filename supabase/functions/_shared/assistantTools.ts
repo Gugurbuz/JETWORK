@@ -84,11 +84,18 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
   {
     type: 'function',
     name: 'get_abap_source',
-    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object.',
+    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. Optionally pass model-authored focusIdentifiers (message codes, technical identifiers, method/field names) to return verified literal source excerpts around those identifiers instead of sending a large full-source observation. Runtime only performs literal/canonical matching; it does not choose the focus.',
     strict: true,
     parameters: {
       type: 'object',
-      properties: { canonicalKey: { type: 'string', minLength: 3, maxLength: 320 } },
+      properties: {
+        canonicalKey: { type: 'string', minLength: 3, maxLength: 320 },
+        focusIdentifiers: {
+          type: ['array', 'null'],
+          items: { type: 'string', minLength: 2, maxLength: 160 },
+          maxItems: 6,
+        },
+      },
       required: ['canonicalKey'],
       additionalProperties: false,
     },
