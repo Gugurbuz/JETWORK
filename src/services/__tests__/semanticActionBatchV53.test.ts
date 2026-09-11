@@ -146,7 +146,9 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).toContain('UNVERIFIED_LITERAL_SOURCE_CODE_LINE:')
     expect(coreSource).toContain('literalEvidenceLinesFromOutput')
     expect(coreSource).toContain('literal_source_completion_repairs')
-    expect(coreSource).toContain('unique.length !== 1')
+    expect(coreSource).toContain('repairAttempt < 8')
+    expect(coreSource).toContain('answerLines.splice(rejectedIndex, 1)')
+    expect(coreSource).toContain('literal_source_completion_retry_attempts')
   })
 
   it('treats acronym expansion as a generic semantic completion requirement, not a product-specific route', () => {
