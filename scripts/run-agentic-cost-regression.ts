@@ -68,7 +68,7 @@ const scenarios: Scenario[] = [
     group: 'implementation_absent',
     step: 1,
     prompt: 'GET_SATILABILIR_LIMIT metodunun tam ABAP implementasyon kodunu ver',
-    checks: [contains('get_satilabilir_limit'), regex(/implementasyon kaynağı|tam implementasyon|mevcut değil|bulunmuyor/iu)],
+    checks: [contains('get_satilabilir_limit'), regex(/implementasyon kaynağı|tam implementasyon|mevcut değil|bulunmuyor|yer almamaktadır|yer almıyor/iu)],
   },
 ]
 
