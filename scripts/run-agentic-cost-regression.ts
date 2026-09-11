@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 // benchmark trigger: verified-evidence finalizer + canonical dedupe + literal provenance recovery
+// benchmark trigger: explicit post-evidence controller decision
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
