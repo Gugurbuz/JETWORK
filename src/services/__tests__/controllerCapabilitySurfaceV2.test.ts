@@ -17,7 +17,6 @@ describe('controller capability surface v5', () => {
       'report_progress',
       'discover_more_capabilities',
       'execute_capabilities',
-      'request_observation_content',
       'request_large_context',
     ])
     expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
