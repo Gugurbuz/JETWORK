@@ -1451,13 +1451,34 @@ serve(async req => {
               // Gemini tool history.
               usage = addUsage(usage, { gemini_interaction_state_turn_scoped: 1 })
             }
-            const stateItems = compactConversationState(persistedTurnItems, plan)
-            const { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
+            let completionResponseText = roundText
+            let stateItems = compactConversationState(persistedTurnItems, plan)
+            let { error: completionError } = await adminClient.rpc('complete_assistant_turn', {
               p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
               p_expected_revision: conversationRevision, p_state_items: stateItems,
-              p_response_text: roundText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
+              p_response_text: completionResponseText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
             })
+            if (completionError) {
+              const completionMessage = errorMessage(completionError)
+              const repaired = repairLiteralSourceLineFromVerifiedEvidence(
+                completionResponseText,
+                completionMessage,
+                verifiedLiteralEvidenceLines,
+              )
+              if (repaired && repaired !== completionResponseText) {
+                completionResponseText = repaired
+                usage = addUsage(usage, { literal_source_completion_repairs: 1 })
+                stateItems = compactConversationState([...baseItems, { role: 'assistant', content: completionResponseText }], plan)
+                const retry = await adminClient.rpc('complete_assistant_turn', {
+                  p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
+                  p_expected_revision: conversationRevision, p_state_items: stateItems,
+                  p_response_text: completionResponseText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
+                })
+                completionError = retry.error
+              }
+            }
             if (completionError) throw completionError
+            roundText = completionResponseText
             turnCompleted = true
             emitStatus('answering', 'Yanıt hazırlandı')
             await patchReasoningRun(adminClient, reasoningRunId, {
