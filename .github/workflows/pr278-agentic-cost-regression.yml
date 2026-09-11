@@ -9,6 +9,8 @@ on:
       - 'scripts/run-agentic-cost-regression.ts'
       - 'supabase/functions/openai-assistant-core-v2/**'
       - 'supabase/functions/_shared/modelProviders.ts'
+      - 'supabase/functions/_shared/assistantTools.ts'
+      - 'supabase/functions/_shared/agent/observationBudget.ts'
       - 'supabase/functions/_shared/agent/publicWorkProtocol.ts'
       - 'supabase/functions/_shared/agent/controllerPolicy.ts'
       - 'supabase/functions/_shared/agent/controllerRuntimeObservation.ts'
