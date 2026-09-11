@@ -121,6 +121,17 @@ describe('V5.3 semantic action batching', () => {
     expect(surfaceSource).toContain('exact/detail evidence provenance must be preserved')
   })
 
+  it('deduplicates exact canonical evidence mechanically without choosing semantic routes', () => {
+    expect(coreSource).toContain('const knowledgeToolCacheKey =')
+    expect(coreSource).toContain("toolName === 'get_message_detail'")
+    expect(coreSource).toContain("canonicalKey.startsWith('message:')")
+    expect(coreSource).toContain('canonical_evidence_cache_hits')
+    expect(coreSource).toContain('verifiedCanonicalEvidence')
+    expect(coreSource).toContain('VERIFIED_EVIDENCE_LEDGER')
+    expect(coreSource).not.toContain("if (message === '111')")
+    expect(coreSource).not.toContain("if (query === 'ZCRM_COST-111')")
+  })
+
   it('accepts the first post-verified-batch no-tool answer without a redundant evidence-only Gemini round', () => {
     expect(coreSource).toContain('let verifiedSemanticBatchEvidenceSeen = false')
     expect(coreSource).toContain('semantic_batch_verified_evidence_seen: 1')
