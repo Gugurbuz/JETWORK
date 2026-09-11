@@ -158,6 +158,50 @@ const knowledgeToolCacheKey = (toolName: string, args: Record<string, unknown>):
   return `${toolName}:${stableJson(args)}`
 }
 
+const normalizeLiteralEvidenceLine = (value: unknown) => String(value ?? '')
+  .trim()
+  .toLocaleLowerCase('en-US')
+  .replace(/\s+/gu, '')
+
+const literalEvidenceLinesFromOutput = (output: string): string[] => {
+  const values: string[] = []
+  const collect = (value: unknown, depth = 0) => {
+    if (depth > 6 || values.length > 4_000) return
+    if (typeof value === 'string') {
+      values.push(value)
+      return
+    }
+    if (Array.isArray(value)) {
+      value.slice(0, 500).forEach(item => collect(item, depth + 1))
+      return
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value as Record<string, unknown>).slice(0, 500).forEach(item => collect(item, depth + 1))
+    }
+  }
+  try { collect(JSON.parse(output)) } catch { collect(output) }
+  return [...new Set(values.flatMap(value => value.split(/\r?\n/u).map(line => line.trim()).filter(Boolean)))].slice(0, 8_000)
+}
+
+const repairLiteralSourceLineFromVerifiedEvidence = (
+  answer: string,
+  completionErrorMessage: string,
+  verifiedLines: ReadonlySet<string>,
+): string | null => {
+  const prefix = 'UNVERIFIED_LITERAL_SOURCE_CODE_LINE:'
+  if (!completionErrorMessage.startsWith(prefix)) return null
+  const rejected = completionErrorMessage.slice(prefix.length).trim()
+  if (!rejected) return null
+  const messageAnchor = rejected.match(/MESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/iu)?.[0] || ''
+  if (!messageAnchor) return null
+  const anchor = normalizeLiteralEvidenceLine(messageAnchor)
+  const candidates = [...verifiedLines].filter(line => normalizeLiteralEvidenceLine(line).includes(anchor))
+  const unique = [...new Map(candidates.map(line => [normalizeLiteralEvidenceLine(line), line])).values()]
+  if (unique.length !== 1) return null
+  const exactLine = unique[0]
+  return answer.includes(rejected) ? answer.replace(rejected, exactLine) : null
+}
+
 const addUsage = (
   accumulated: Record<string, number> | undefined,
   next: Record<string, number> | undefined,
