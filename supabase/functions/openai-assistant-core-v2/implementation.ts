@@ -761,9 +761,12 @@ serve(async req => {
 
       const runKnowledgeTool = async (toolName: string, args: Record<string, unknown>, callPrefix: string) => {
         if (totalToolCalls >= MAX_TOOL_CALLS) throw new Error('Assistant exceeded the safe tool-call limit.')
-        const cacheKey = `${toolName}:${stableJson(args)}`
+        const cacheKey = knowledgeToolCacheKey(toolName, args)
         const cached = toolResultCache.get(cacheKey)
-        if (cached) return cached
+        if (cached) {
+          usage = addUsage(usage, { canonical_evidence_cache_hits: 1 })
+          return cached
+        }
         totalToolCalls += 1
         const startedAt = performance.now()
         try {
