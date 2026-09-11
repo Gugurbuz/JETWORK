@@ -10,6 +10,7 @@ const observationBlocks = (value: string) => {
   add(source.match(/MULTIMODAL_OBSERVATION_CONTRACT:[^\n]*/u)?.[0])
   add(source.match(/Advisory intent:[^\n]*/u)?.[0])
   add(source.match(/Evidence verification:[^\n]*/u)?.[0])
+  add(source.match(/VERIFIED_EVIDENCE_LEDGER:[^\n]*/u)?.[0])
   add(source.match(/Web kanıtı kullanırsan[\s\S]*?(?=\n\n|$)/u)?.[0])
   add(source.match(/\[UNTRUSTED_EVIDENCE\][\s\S]*?\[END_UNTRUSTED_EVIDENCE\]/u)?.[0])
   add(source.match(/Mekanik runtime tur sınırına ulaşıldı[^\n]*/u)?.[0])
