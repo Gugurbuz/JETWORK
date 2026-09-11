@@ -18,6 +18,15 @@ describe('Agentic V2 verified knowledge evidence envelope', () => {
     expect(source).toContain('output: verifiedToolOutput(toolName, [record])')
   })
 
+  it('enriches exact message evidence with bounded direct relation hints without routing', () => {
+    expect(source).toContain('async function getMessageDetailWithRelations')
+    expect(source).toContain("direction: 'both'")
+    expect(source).toContain('limit: 8')
+    expect(source).toContain('directRelations: relationRecords.relations.slice(0, 8)')
+    expect(source).toContain('relatedObjects: relationRecords.objects.slice(0, 8)')
+    expect(source).toContain('relationHintsIncluded: true')
+  })
+
   it('uses the verified envelope for relation evidence', () => {
     expect(source).toContain("output: verifiedToolOutput('get_related_objects', { relations, objects })")
     expect(source).toContain('citationReady: true')
