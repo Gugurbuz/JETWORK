@@ -289,10 +289,7 @@ const requestStreamingInteraction = async (
   if (!['completed', 'requires_action'].includes(String(normalized.status || ''))) {
     throw new Error(`Gemini Interactions stream ended with status ${String(normalized.status || 'unknown')}.`)
   }
-  return withRequestPayloadUsage(
-    normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed),
-    body as Record<string, unknown>,
-  )
+  return normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed)
 }
 
 export async function requestGeminiInteractionsResponseGA(
@@ -341,5 +338,8 @@ export async function requestGeminiInteractionsResponseGA(
       }
     }
   }
-  return normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed)
+  return withRequestPayloadUsage(
+    normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed),
+    body as Record<string, unknown>,
+  )
 }
