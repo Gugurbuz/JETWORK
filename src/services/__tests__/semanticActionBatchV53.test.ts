@@ -53,6 +53,19 @@ describe('V5.3 semantic action batching', () => {
     expect(tool.description).not.toContain('CHECK_LRTV3')
   })
 
+  it('keeps ABAP source focusing model-authored and literal', () => {
+    expect(coreSource).not.toContain("if (messageCode === 'ZCRM_COST-111')")
+    expect(surfaceSource).toContain('focusIdentifiers')
+    const toolsSource = readFileSync(
+      new URL('../../../supabase/functions/_shared/assistantTools.ts', import.meta.url),
+      'utf8',
+    )
+    expect(toolsSource).toContain('focusedSourceExcerpts')
+    expect(toolsSource).toContain('normalizedMessageCodeFromFocus')
+    expect(toolsSource).toContain('focusedSource: true')
+    expect(toolsSource).toContain('args.focusIdentifiers')
+  })
+
   it('uses structured verified evidence before raw observation reads', () => {
     expect(surfaceSource).toContain('truncated=true alone is not a reason')
     expect(surfaceSource).toContain('structured verifiedSignals, directRelations, relatedObjects')
