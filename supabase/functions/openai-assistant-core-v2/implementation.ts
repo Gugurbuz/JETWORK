@@ -717,6 +717,7 @@ serve(async req => {
       const trace: TraceEntry[] = []
       const evidence: string[] = []
       const toolResultCache = new Map<string, AssistantToolExecution>()
+      const toolResultInFlight = new Map<string, Promise<AssistantToolExecution>>()
       const verifiedCanonicalEvidence = new Set<string>()
       const verifiedCanonicalCapabilities = new Map<string, Set<string>>()
       const observationContentStore = new Map<string, { toolName: string; output: string }>()
@@ -767,10 +768,17 @@ serve(async req => {
           usage = addUsage(usage, { canonical_evidence_cache_hits: 1 })
           return cached
         }
+        const inFlight = toolResultInFlight.get(cacheKey)
+        if (inFlight) {
+          usage = addUsage(usage, { canonical_evidence_inflight_hits: 1 })
+          return await inFlight
+        }
         totalToolCalls += 1
         const startedAt = performance.now()
+        const operation = withTimeout(executeAssistantTool(client, workspaceId, toolName, args), TOOL_TIMEOUT_MS, toolName)
+        toolResultInFlight.set(cacheKey, operation)
         try {
-          const result = await withTimeout(executeAssistantTool(client, workspaceId, toolName, args), TOOL_TIMEOUT_MS, toolName)
+          const result = await operation
           toolResultCache.set(cacheKey, result)
           captureGeneratedArtifacts(result)
           const verifiedKnowledgeEvidence = resultHasVerifiedKnowledgeEvidence(result)
@@ -803,6 +811,8 @@ serve(async req => {
             status: 'failed', durationMs: Math.round(performance.now() - startedAt), errorMessage: errorMessage(toolError),
           })
           throw toolError
+        } finally {
+          toolResultInFlight.delete(cacheKey)
         }
       }
 
