@@ -2,12 +2,28 @@ export const PUBLIC_WORK_PROGRESS_TOOL_NAME = 'report_progress'
 export const PUBLIC_WORK_BATCH_TOOL_NAME = 'execute_capabilities'
 export const PUBLIC_WORK_DISCOVERY_TOOL_NAME = 'discover_more_capabilities'
 export const PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME = 'answer_directly'
+export const PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME = 'finalize_with_evidence'
 export const PUBLIC_WORK_PROTOCOL_VERSION = 'public-work-protocol-v3-semantic-action-batch'
 
 export const PUBLIC_WORK_DIRECT_ANSWER_TOOL = {
   type: 'function',
   name: PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
   description: 'Structured first-turn decision for a response that truly needs no JetWork capability. Use only when the current request is clearly answerable without Jetbase, web, skills, files, actions or enterprise evidence. Do not use for an unexplained acronym, product/code, class/method/message identifier, organization-specific process/term, or any technical/enterprise question whose meaning may differ in the active work context; choose report_progress(kind=start) for those instead. Put only the final user-facing answer in answer.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      answer: { type: 'string', minLength: 1, maxLength: 24_000 },
+    },
+    required: ['answer'],
+    additionalProperties: false,
+  },
+} as const
+
+export const PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL = {
+  type: 'function',
+  name: PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME,
+  description: 'Model-authored completion for tool-backed work after mechanically verified evidence exists. Use only when you decide the user goal is answerable from the evidence already returned and no material evidence gap remains. Put the complete final user-facing answer in answer. Do not call this merely to publish a progress finding; if another capability is materially needed, call that capability instead. Runtime does not decide that the goal is complete; calling this tool is your semantic stop decision.',
   strict: true,
   parameters: {
     type: 'object',
