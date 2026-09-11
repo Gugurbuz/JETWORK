@@ -25,6 +25,7 @@ import {
   type ControllerCapabilitySession,
 } from '../_shared/capabilities/controllerSurface.ts'
 import { AGENT_CONTROLLER_VERSION } from '../_shared/agentControllerPolicy.ts'
+import { PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME } from '../_shared/agent/publicWorkProtocol.ts'
 import { CONTROLLER_CAPABILITY_SURFACE_VERSION } from '../_shared/capabilities/controllerSurface.ts'
 import { buildGeminiMediaSourceRef, geminiMediaKindForMime, isGeminiInlineMediaMime, MAX_GEMINI_ASSISTANT_REQUEST_BYTES } from '../_shared/geminiMultimodalContract.ts'
 import { buildGeminiContextCachePolicy, clampLargeContextCharacters } from '../_shared/geminiContextCachePolicy.ts'
@@ -1457,6 +1458,19 @@ serve(async req => {
             }
             let args: Record<string, unknown> = {}
             try { args = JSON.parse(String(call.arguments || '{}')) } catch { args = {} }
+            if (toolName === PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME) {
+              runItems.push({
+                type: 'function_call_output',
+                call_id: callId,
+                output: JSON.stringify({
+                  ok: false,
+                  error: 'VERIFIED_EVIDENCE_REQUIRED',
+                  message: 'finalize_with_evidence is available as a stable lifecycle tool, but it can complete the turn only after mechanically verified evidence exists. Decide whether another capability is needed.',
+                }),
+              })
+              usage = addUsage(usage, { controller_verified_evidence_finalize_rejected_no_evidence: 1 })
+              continue
+            }
             if (toolName === REPORT_PROGRESS_TOOL_NAME) {
               const kind = ['start', 'finding', 'plan_change', 'blocked'].includes(String(args.kind)) ? String(args.kind) : 'finding'
               const publicMessage = cleanString(args.message, 500)
