@@ -100,6 +100,14 @@ describe('explicit first-turn Controller decision gate', () => {
     expect(providerSource).toContain('evidenceFinalizeVisible && input.verifiedEvidenceAvailable')
   })
 
+  it('requires an explicit Controller decision after verified evidence without choosing the semantic branch', () => {
+    expect(providerSource).toContain('const verifiedEvidenceDecisionRequired = Boolean(')
+    expect(providerSource).toContain('controller_verified_evidence_decision_required')
+    expect(providerSource).toContain("filter(name => name !== 'report_progress')")
+    expect(providerSource).toContain('verifiedEvidenceDecisionFunctionNames.length')
+    expect(providerSource).toContain('PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME')
+  })
+
   it('keeps enterprise-context preference semantic and generic rather than hard-coded to the acceptance term', () => {
     expect(controllerPolicySource).toContain('açıklaması verilmemiş kısa kısaltma, ürün kodu veya teknik identifier')
     expect(controllerPolicySource).toContain('Jetbase/capability kanıtı bu ayrımı maddi olarak değiştirecekse')
