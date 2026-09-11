@@ -123,6 +123,20 @@ const normalizeUsageWithTiming = (
   },
 })
 
+const withRequestPayloadUsage = (
+  response: GeminiInteractionsNormalizedResponse,
+  body: Record<string, unknown>,
+) => ({
+  ...response,
+  usage: {
+    ...(response.usage || {}),
+    gemini_request_body_chars: JSON.stringify(body).length,
+    gemini_request_input_chars: JSON.stringify(body.input || []).length,
+    gemini_request_system_chars: String(body.system_instruction || '').length,
+    gemini_request_tools_chars: JSON.stringify(body.tools || []).length,
+  },
+})
+
 const terminalStreamError = (eventType: string, event: Record<string, unknown>) => {
   const error = event.error && typeof event.error === 'object' && !Array.isArray(event.error)
     ? event.error as Record<string, unknown>
@@ -275,7 +289,10 @@ const requestStreamingInteraction = async (
   if (!['completed', 'requires_action'].includes(String(normalized.status || ''))) {
     throw new Error(`Gemini Interactions stream ended with status ${String(normalized.status || 'unknown')}.`)
   }
-  return normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed)
+  return withRequestPayloadUsage(
+    normalizeUsageWithTiming(normalized, startedAt, firstTextAt, previousInteractionUsed),
+    body as Record<string, unknown>,
+  )
 }
 
 export async function requestGeminiInteractionsResponseGA(
@@ -305,7 +322,8 @@ export async function requestGeminiInteractionsResponseGA(
 
   const contentType = response.headers.get('content-type') || ''
   if (contentType.includes('text/event-stream')) {
-    return requestStreamingInteraction(response, input, startedAt, previousInteractionUsed)
+    const streamed = await requestStreamingInteraction(response, input, startedAt, previousInteractionUsed)
+    return withRequestPayloadUsage(streamed, body as Record<string, unknown>)
   }
 
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>
