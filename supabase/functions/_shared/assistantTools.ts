@@ -519,6 +519,8 @@ async function getExactObject(
   }
 }
 
+const normalizeFocusedLiteral = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase('en-US').replace(/\\s+/gu, '')
+
 const cleanFocusIdentifiers = (value: unknown) => [...new Set(
   (Array.isArray(value) ? value : [])
     .map(item => cleanString(item, 160))
@@ -657,10 +659,10 @@ async function getFocusedAbapSource(
     ? verifiedSignals.abapMessageLinesByCode as Record<string, unknown>
     : {}
   const focusedContent = focusedEvidence.map(item => item.excerpt).join('\n\n')
-  const normalizedFocusedContent = normalizeLiteralEvidenceLine(focusedContent)
+  const normalizedFocusedContent = normalizeFocusedLiteral(focusedContent)
   const focusedLineIndex = Object.fromEntries(
     Object.entries(lineIndex).filter(([, line]) => {
-      const normalizedLine = normalizeLiteralEvidenceLine(line)
+      const normalizedLine = normalizeFocusedLiteral(line)
       return Boolean(normalizedLine && normalizedFocusedContent.includes(normalizedLine))
     }),
   )
