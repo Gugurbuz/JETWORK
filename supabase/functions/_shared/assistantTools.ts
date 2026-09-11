@@ -96,7 +96,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
           maxItems: 6,
         },
       },
-      required: ['canonicalKey'],
+      required: ['canonicalKey', 'focusIdentifiers'],
       additionalProperties: false,
     },
   },
