@@ -519,6 +519,67 @@ async function getExactObject(
   }
 }
 
+const cleanFocusIdentifiers = (value: unknown) => [...new Set(
+  (Array.isArray(value) ? value : [])
+    .map(item => cleanString(item, 160))
+    .filter(item => item.length >= 2),
+)].slice(0, 6)
+
+const normalizedMessageCodeFromFocus = (value: string) => {
+  const candidate = value.replace(/^message:/i, '').trim().toLocaleUpperCase('en-US')
+  const match = candidate.match(/^([A-Z][A-Z0-9_]*)-(\d{2,4})$/u)
+  if (!match?.[1] || !match?.[2]) return ''
+  return `${match[1]}-${String(match[2]).padStart(3, '0')}`
+}
+
+const focusNeedles = (identifier: string) => {
+  const normalized = identifier.replace(/^message:/i, '').trim()
+  const needles = new Set<string>()
+  if (normalized) needles.add(normalized.toLocaleLowerCase('en-US'))
+  const messageCode = normalizedMessageCodeFromFocus(identifier)
+  if (messageCode) {
+    const [messageClass, number] = messageCode.split('-')
+    needles.add(`e${number}(${messageClass})`.toLocaleLowerCase('en-US'))
+    needles.add(`message e${number}(${messageClass})`.toLocaleLowerCase('en-US'))
+  }
+  const slashTail = normalized.split('/').pop()?.trim()
+  if (slashTail && slashTail !== normalized) needles.add(slashTail.toLocaleLowerCase('en-US'))
+  return [...needles]
+}
+
+const focusedSourceExcerpts = (value: unknown, identifiers: string[]) => {
+  const lines = String(value ?? '').split(/\r?\n/u)
+  const results: Array<{ identifier: string; excerpt: string }> = []
+  let totalCharacters = 0
+
+  for (const identifier of identifiers) {
+    const needles = focusNeedles(identifier)
+    const matched = new Set<number>()
+    for (let index = 0; index < lines.length; index += 1) {
+      const haystack = lines[index].toLocaleLowerCase('en-US')
+      if (needles.some(needle => needle && haystack.includes(needle))) matched.add(index)
+      if (matched.size >= 4) break
+    }
+    if (!matched.size) continue
+
+    const selected = new Set<number>()
+    for (const index of matched) {
+      for (let cursor = Math.max(0, index - 4); cursor <= Math.min(lines.length - 1, index + 4); cursor += 1) {
+        selected.add(cursor)
+      }
+    }
+    let excerpt = [...selected].sort((left, right) => left - right).map(index => lines[index]).join('\n').trim()
+    const remaining = Math.max(0, 12_000 - totalCharacters)
+    if (remaining <= 0) break
+    excerpt = truncateContent(excerpt, Math.min(remaining, 4_000))
+    if (!excerpt) continue
+    totalCharacters += excerpt.length
+    results.push({ identifier, excerpt })
+  }
+
+  return results
+}
+
 const parsedExactRecords = (execution: AssistantToolExecution) => {
   if (execution.summary?.citationReady !== true) return [] as Array<Record<string, unknown>>
   try {
@@ -528,6 +589,69 @@ const parsedExactRecords = (execution: AssistantToolExecution) => {
       : []
   } catch {
     return [] as Array<Record<string, unknown>>
+  }
+}
+
+async function getFocusedAbapSource(
+  client: any,
+  workspaceId: string,
+  canonicalKey: string,
+  rawFocusIdentifiers: unknown,
+): Promise<AssistantToolExecution> {
+  const focusIdentifiers = cleanFocusIdentifiers(rawFocusIdentifiers)
+  const exact = await getExactObject(client, workspaceId, canonicalKey, ['class','method','function'], 'get_abap_source')
+  if (!focusIdentifiers.length || exact.summary?.citationReady !== true) return exact
+
+  const records = parsedExactRecords(exact)
+  if (!records.length) return exact
+  const primary = records[0]
+  const focusedEvidence = focusedSourceExcerpts(primary.content, focusIdentifiers)
+  if (!focusedEvidence.length) return exact
+
+  const verifiedSignals = primary.verifiedSignals && typeof primary.verifiedSignals === 'object'
+    ? primary.verifiedSignals as Record<string, unknown>
+    : {}
+  const lineIndex = verifiedSignals.abapMessageLinesByCode && typeof verifiedSignals.abapMessageLinesByCode === 'object'
+    ? verifiedSignals.abapMessageLinesByCode as Record<string, unknown>
+    : {}
+  const focusedMessageCodes = focusIdentifiers
+    .map(normalizedMessageCodeFromFocus)
+    .filter(Boolean)
+  const focusedLineIndex = Object.fromEntries(
+    Object.entries(lineIndex).filter(([code]) => (
+      !focusedMessageCodes.length || focusedMessageCodes.includes(code.toLocaleUpperCase('en-US'))
+    )),
+  )
+  const allCodes = Array.isArray(verifiedSignals.abapMessageCodes)
+    ? verifiedSignals.abapMessageCodes.map(value => String(value))
+    : []
+  const focusedCodes = focusedMessageCodes.length
+    ? allCodes.filter(code => focusedMessageCodes.includes(code.toLocaleUpperCase('en-US')))
+    : allCodes
+
+  const focusedRecord = {
+    ...primary,
+    focusIdentifiers,
+    focusedSource: true,
+    verifiedSignals: {
+      ...verifiedSignals,
+      abapMessageCodes: focusedCodes.length ? focusedCodes : allCodes,
+      abapMessageLinesByCode: Object.keys(focusedLineIndex).length ? focusedLineIndex : lineIndex,
+    },
+    content: focusedEvidence.map(item => (
+      `[FOCUS ${item.identifier}]\n${item.excerpt}\n[END FOCUS ${item.identifier}]`
+    )).join('\n\n'),
+  }
+
+  return {
+    output: verifiedToolOutput('get_abap_source', [focusedRecord]),
+    sources: exact.sources,
+    summary: {
+      ...exact.summary,
+      focusedSource: true,
+      focusIdentifierCount: focusIdentifiers.length,
+      focusedEvidenceCount: focusedEvidence.length,
+    },
   }
 }
 
@@ -770,7 +894,7 @@ export async function executeAssistantTool(
   if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
-    return getExactObject(client, workspaceId, canonicalKey, ['class','method','function'], toolName)
+    return getFocusedAbapSource(client, workspaceId, canonicalKey, args.focusIdentifiers)
   }
   if (toolName === 'get_message_detail') {
     const canonicalKey = normalizeCanonicalKey(args.messageCode, 'message')
