@@ -139,8 +139,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       ))
     : publicWorkGate.tools
   const evidenceFinalizeVisible = Boolean(
-    input.verifiedEvidenceAvailable
-      && publicWorkGate.started
+    publicWorkGate.started
       && !terminalSynthesis
   )
   const visibleTools = explicitFirstTurnDecision
@@ -201,7 +200,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   const response = await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
   let normalizedResponse = response
 
-  if (evidenceFinalizeVisible) {
+  if (evidenceFinalizeVisible && input.verifiedEvidenceAvailable) {
     const output = normalizedResponse.output || []
     const finalizeCalls = output.filter(item => (
       String(item.type || '') === 'function_call'
