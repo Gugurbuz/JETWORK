@@ -53,6 +53,12 @@ describe('V5.3 semantic action batching', () => {
     expect(tool.description).not.toContain('CHECK_LRTV3')
   })
 
+  it('uses structured verified evidence before raw observation reads', () => {
+    expect(surfaceSource).toContain('truncated=true alone is not a reason')
+    expect(surfaceSource).toContain('structured verifiedSignals, directRelations, relatedObjects')
+    expect(surfaceSource).toContain('relation hints do not mean the linked object')
+  })
+
   it('validates exact names and canonical argument schemas mechanically', () => {
     const valid = parseAndValidateCapabilityInvocation(
       'search_knowledge_catalog',
