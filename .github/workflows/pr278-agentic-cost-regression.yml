@@ -1,0 +1,75 @@
+name: PR278 Agentic Cost Regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - optimize/jit-controller-context-v1
+    paths:
+      - 'scripts/run-agentic-cost-regression.ts'
+      - '.github/workflows/pr278-agentic-cost-regression.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr278-agentic-cost-regression
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+      E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      VITE_SUPABASE_URL: https://bpbbvjigostgrssnduhk.supabase.co
+      VITE_SUPABASE_ANON_KEY: sb_publishable_dzZaPjNDRK22UUwLXAiS4g_JerlvhHQ
+      ASSISTANT_COST_ENDPOINT: assistant-primary-agent-core-canary
+      ASSISTANT_COST_MODEL: gemini-3.8-flash
+      ASSISTANT_COST_OUTPUT: evaluation/results/pr278-agentic-cost-regression.json
+
+    steps:
+      - name: Require benchmark credentials
+        run: |
+          test -n "$E2E_USERNAME" || (echo "E2E_USERNAME is not configured" && exit 1)
+          test -n "$E2E_PASSWORD" || (echo "E2E_PASSWORD is not configured" && exit 1)
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run five-scenario canary cost regression
+        run: pnpm exec tsx scripts/run-agentic-cost-regression.ts
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if test -f evaluation/results/pr278-agentic-cost-regression.json; then
+            echo '## PR #278 Agentic Cost Regression' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat evaluation/results/pr278-agentic-cost-regression.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr278-agentic-cost-regression
+          path: evaluation/results/pr278-agentic-cost-regression.json
+          if-no-files-found: error
+          retention-days: 3
