@@ -178,6 +178,18 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     item_chars: itemCharacters,
   }))
 
+  const verifiedEvidenceDecisionRequired = Boolean(
+    input.verifiedEvidenceAvailable
+      && publicWorkGate.started
+      && !terminalSynthesis
+      && !publicWorkGate.providerWebEnabled
+  )
+  const verifiedEvidenceDecisionFunctionNames = verifiedEvidenceDecisionRequired
+    ? visibleTools
+        .map(tool => String(tool.name || '')).filter(Boolean)
+        .filter(name => name !== 'report_progress')
+    : []
+
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
@@ -189,7 +201,9 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     allowProviderWeb: publicWorkGate.providerWebEnabled,
     requiredFunctionNames: explicitFirstTurnDecision
       ? visibleTools.map(tool => String(tool.name || '')).filter(Boolean)
-      : undefined,
+      : verifiedEvidenceDecisionFunctionNames.length
+        ? verifiedEvidenceDecisionFunctionNames
+        : undefined,
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,
     onText: input.onText,
@@ -314,6 +328,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       public_work_provider_web_enabled: publicWorkGate.providerWebEnabled ? 1 : 0,
       controller_first_turn_decision_required: explicitFirstTurnDecision ? 1 : 0,
       controller_verified_evidence_finalize_visible: evidenceFinalizeVisible ? 1 : 0,
+      controller_verified_evidence_decision_required: verifiedEvidenceDecisionRequired ? 1 : 0,
       provider_product_core_chars: stableProductInstruction.length,
       provider_controller_core_chars: AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION.length,
       provider_runtime_observation_chars: runtimeObservation.length,
