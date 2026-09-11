@@ -84,7 +84,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
   {
     type: 'function',
     name: 'get_abap_source',
-    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. Optionally pass model-authored focusIdentifiers (message codes, technical identifiers, method/field names) to return verified literal source excerpts around those identifiers instead of sending a large full-source observation. Runtime only performs literal/canonical matching; it does not choose the focus.',
+    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. Pass focusIdentifiers as a model-authored array of message codes, technical identifiers, method/field names when focused source evidence is useful; pass null when no focus is needed. Focused mode returns verified literal source excerpts instead of a large full-source observation. Runtime only performs literal/canonical matching; it does not choose the focus.',
     strict: true,
     parameters: {
       type: 'object',
