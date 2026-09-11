@@ -141,6 +141,14 @@ describe('V5.3 semantic action batching', () => {
     expect(coreSource).toContain('&& !verifiedSemanticBatchEvidenceSeen')
   })
 
+  it('repairs only mechanically rejected literal source lines from verified evidence', () => {
+    expect(coreSource).toContain('repairLiteralSourceLineFromVerifiedEvidence')
+    expect(coreSource).toContain('UNVERIFIED_LITERAL_SOURCE_CODE_LINE:')
+    expect(coreSource).toContain('literalEvidenceLinesFromOutput')
+    expect(coreSource).toContain('literal_source_completion_repairs')
+    expect(coreSource).toContain('unique.length !== 1')
+  })
+
   it('treats acronym expansion as a generic semantic completion requirement, not a product-specific route', () => {
     expect(policySource).toContain('yalnız kullanım alanını veya ürün ailesini tarif etmek görevi tamamlamaz')
     expect(policySource).toContain('public web discovery yap')
