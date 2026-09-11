@@ -342,7 +342,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   endpoint,
   model,
-  candidateSha: 'af06783dee1600c6e2377d7a2a4922195cf90a01',
+  candidateSha: process.env.GITHUB_SHA || 'local',
   baseline: {
     inputTokens: 318515,
     cachedTokens: 40252,
