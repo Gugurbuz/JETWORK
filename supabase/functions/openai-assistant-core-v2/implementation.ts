@@ -192,14 +192,27 @@ const repairLiteralSourceLineFromVerifiedEvidence = (
   if (!completionErrorMessage.startsWith(prefix)) return null
   const rejected = completionErrorMessage.slice(prefix.length).trim()
   if (!rejected) return null
+
+  const rejectedNormalized = normalizeLiteralEvidenceLine(rejected)
+  const answerLines = answer.split(/\r?\n/u)
+  const rejectedIndex = answerLines.findIndex(line => normalizeLiteralEvidenceLine(line) === rejectedNormalized)
+  if (rejectedIndex < 0) return null
+
   const messageAnchor = rejected.match(/MESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/iu)?.[0] || ''
-  if (!messageAnchor) return null
-  const anchor = normalizeLiteralEvidenceLine(messageAnchor)
-  const candidates = [...verifiedLines].filter(line => normalizeLiteralEvidenceLine(line).includes(anchor))
-  const unique = [...new Map(candidates.map(line => [normalizeLiteralEvidenceLine(line), line])).values()]
-  if (unique.length !== 1) return null
-  const exactLine = unique[0]
-  return answer.includes(rejected) ? answer.replace(rejected, exactLine) : null
+  let exactLine = ''
+  if (messageAnchor) {
+    const anchor = normalizeLiteralEvidenceLine(messageAnchor)
+    const candidates = [...verifiedLines].filter(line => normalizeLiteralEvidenceLine(line).includes(anchor))
+    const unique = [...new Map(candidates.map(line => [normalizeLiteralEvidenceLine(line), line])).values()]
+    if (unique.length === 1) exactLine = unique[0]
+  }
+
+  const indent = answerLines[rejectedIndex].match(/^\s*/u)?.[0] || ''
+  if (exactLine) answerLines[rejectedIndex] = `${indent}${exactLine.trim()}`
+  else answerLines.splice(rejectedIndex, 1)
+
+  const repaired = answerLines.join('\n')
+  return repaired !== answer ? repaired : null
 }
 
 const addUsage = (
@@ -1458,24 +1471,26 @@ serve(async req => {
               p_expected_revision: conversationRevision, p_state_items: stateItems,
               p_response_text: completionResponseText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
             })
-            if (completionError) {
+            for (let repairAttempt = 0; completionError && repairAttempt < 8; repairAttempt += 1) {
               const completionMessage = errorMessage(completionError)
               const repaired = repairLiteralSourceLineFromVerifiedEvidence(
                 completionResponseText,
                 completionMessage,
                 verifiedLiteralEvidenceLines,
               )
-              if (repaired && repaired !== completionResponseText) {
-                completionResponseText = repaired
-                usage = addUsage(usage, { literal_source_completion_repairs: 1 })
-                stateItems = compactConversationState([...baseItems, { role: 'assistant', content: completionResponseText }], plan)
-                const retry = await adminClient.rpc('complete_assistant_turn', {
-                  p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
-                  p_expected_revision: conversationRevision, p_state_items: stateItems,
-                  p_response_text: completionResponseText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
-                })
-                completionError = retry.error
-              }
+              if (!repaired || repaired === completionResponseText) break
+              completionResponseText = repaired
+              usage = addUsage(usage, {
+                literal_source_completion_repairs: 1,
+                literal_source_completion_retry_attempts: 1,
+              })
+              stateItems = compactConversationState([...baseItems, { role: 'assistant', content: completionResponseText }], plan)
+              const retry = await adminClient.rpc('complete_assistant_turn', {
+                p_turn_id: turnId, p_conversation_id: conversation.id, p_lease_token: leaseToken,
+                p_expected_revision: conversationRevision, p_state_items: stateItems,
+                p_response_text: completionResponseText, p_source_refs: sources, p_usage: usage || {}, p_response_model: responseModel,
+              })
+              completionError = retry.error
             }
             if (completionError) throw completionError
             roundText = completionResponseText
