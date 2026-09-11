@@ -63,6 +63,23 @@ export const providerForModel = (model: string): AssistantProvider => (
       : baseProviderForModel(model)
 )
 
+const PUBLIC_WORK_PROGRESS_UPDATE_TOOL = {
+  type: 'function',
+  name: 'report_progress',
+  description: 'Optional user-visible update after work start. Use only for a material verified finding, a genuine plan change, or a real blocker; never for every tool round.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: ['finding', 'plan_change', 'blocked'] },
+      message: { type: 'string', minLength: 2, maxLength: 500 },
+      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 } },
+    },
+    required: ['kind', 'message', 'sourceRefs'],
+    additionalProperties: false,
+  },
+} as const
+
 type GeminiRequestInput = {
   apiKey: string
   model: string
@@ -111,12 +128,19 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       && !publicWorkGate.started
       && !terminalSynthesis
   )
+  const continuationTools = publicWorkGate.started
+    ? publicWorkGate.tools.map(tool => (
+        String(tool.name || '') === 'report_progress'
+          ? PUBLIC_WORK_PROGRESS_UPDATE_TOOL as unknown as typeof tool
+          : tool
+      ))
+    : publicWorkGate.tools
   const visibleTools = explicitFirstTurnDecision
     ? [
-        ...publicWorkGate.tools,
+        ...continuationTools,
         PUBLIC_WORK_DIRECT_ANSWER_TOOL as unknown as Record<string, unknown>,
       ]
-    : publicWorkGate.tools
+    : continuationTools
   const publicWorkInstruction = buildPublicWorkProtocolInstruction(
     input.items,
     publicWorkGate.reportProgressAvailable,
