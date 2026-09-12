@@ -140,7 +140,8 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain('capabilitySession?.surface.tools || []');
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
-    expect(runtimeSource).not.toContain('MAX_TOOL_CALLS')
+    expect(runtimeSource).not.toContain('TOOL_BUDGET_EXHAUSTED')
+    expect(runtimeSource).not.toContain('totalToolCalls >= MAX_TOOL_CALLS')
     expect(runtimeSource).toContain('FINAL_SYNTHESIS_RESERVE_MS')
     expect(runtimeSource).toContain('!runController.signal.aborted')
     expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5.3-semantic-action-batch'")
