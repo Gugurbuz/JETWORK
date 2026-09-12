@@ -1187,16 +1187,18 @@ serve(async req => {
           emitStatus('synthesizing', 'Kanıtlar ve doğrulama sonucu sentezleniyor...')
         }
 
-        let maxControllerRound = MAX_TOOL_ROUNDS
         let evidenceFinalSynthesisAttempted = false
         let evidenceFinalSynthesisPending = false
         let verifiedSemanticBatchEvidenceSeen = false
-        for (let round = 0; round <= maxControllerRound; round += 1) {
-          const mustSynthesize = round === maxControllerRound
+        for (let round = 0; !runController.signal.aborted; round += 1) {
+          const elapsedMs = performance.now() - runStartedAt
+          const remainingRunMs = Math.max(0, RUN_TIMEOUT_MS - elapsedMs)
+          const mustSynthesize = remainingRunMs <= FINAL_SYNTHESIS_RESERVE_MS
+          if (round === 6) usage = addUsage(usage, { controller_soft_round_window_exceeded: 1 })
           const deterministicEnumeration = AGENTIC_CONTROLLER_ENABLED
             ? null
             : buildDeterministicEnumerationFinalization(runItems, {
-                allowPartial: mustSynthesize || totalToolCalls >= MAX_TOOL_CALLS,
+                allowPartial: mustSynthesize,
               })
           if (deterministicEnumeration) {
             const deterministicText = deterministicEnumeration.text
@@ -1245,7 +1247,7 @@ serve(async req => {
           let roundTextStreamed = false
           let answerStreamingStatusEmitted = false
           const finalInstruction = mustSynthesize
-            ? 'Mekanik runtime tur sınırına ulaşıldı. Yeni araç çağrısı yapmadan mevcut observation ve kanıtlarla dürüst nihai yanıtı üret; eksik kalan noktaları açıkça belirt.'
+            ? 'Fiziksel run süresinin son güvenlik rezervine girildi. Bu semantic evidence limiti değildir; yeni araç çağrısı yapmadan şu ana kadarki observation ve kanıtlarla dürüst nihai yanıtı üret, erişilemeyen noktaları açıkça belirt.'
             : ''
           const providerRoundStartedAt = performance.now()
 
@@ -1427,7 +1429,6 @@ serve(async req => {
               evidenceFinalSynthesisPending = true
               const finalSynthesisItems = buildGeminiFinalSynthesisItems(runItems)
               runItems.splice(0, runItems.length, ...finalSynthesisItems)
-              if (round >= maxControllerRound) maxControllerRound += 1
               usage = addUsage(usage, { gemini_evidence_final_synthesis: 1 })
               emitStatus('synthesizing', 'Toplanan kaynaklar nihai yanıta dönüştürülüyor...')
               continue
@@ -1533,10 +1534,6 @@ serve(async req => {
           for (const call of functionCalls) {
             const toolName = cleanString(call.name, 120)
             const callId = cleanString(call.call_id, 200)
-            if (toolName !== DISCOVER_MORE_CAPABILITIES_TOOL_NAME && totalToolCalls >= MAX_TOOL_CALLS) {
-              runItems.push({ type: 'function_call_output', call_id: String(call.call_id || ''), output: JSON.stringify({ error: 'TOOL_BUDGET_EXHAUSTED' }) })
-              continue
-            }
             let args: Record<string, unknown> = {}
             try { args = JSON.parse(String(call.arguments || '{}')) } catch { args = {} }
             if (toolName === PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME) {
@@ -1672,20 +1669,6 @@ serve(async req => {
                     ok: false,
                     error: 'CAPABILITY_BATCH_VALIDATION_FAILED',
                     validationErrors,
-                  }),
-                })
-                continue
-              }
-
-              if (totalToolCalls + validatedActions.length > MAX_TOOL_CALLS) {
-                runItems.push({
-                  type: 'function_call_output',
-                  call_id: callId,
-                  output: JSON.stringify({
-                    contract: 'semantic_action_batch_v1',
-                    ok: false,
-                    error: 'TOOL_BUDGET_EXHAUSTED',
-                    remaining: Math.max(0, MAX_TOOL_CALLS - totalToolCalls),
                   }),
                 })
                 continue
