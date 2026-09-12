@@ -204,6 +204,7 @@ export const executeWindowedAbapSource = async (input: {
     focusIdentifiers: focuses,
     focusedSource: focuses.length > 0,
     sourcePagination: pagination,
+    focusPagination: focuses.length ? pagination : undefined,
     verifiedSignals: signals.codes.length
       ? { abapMessageCodes: signals.codes, abapMessageLinesByCode: signals.lines }
       : undefined,
@@ -238,6 +239,8 @@ export const executeWindowedAbapSource = async (input: {
       sourceTotalWindowCount: windows.length,
       sourceHasMore: hasMore,
       sourceNextCursor: nextCursor,
+      focusHasMore: focuses.length ? hasMore : false,
+      focusNextCursor: focuses.length ? nextCursor : null,
       sourceWindowSize: size,
       totalSourceCharacters: source.length,
     },
