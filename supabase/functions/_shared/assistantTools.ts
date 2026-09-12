@@ -782,50 +782,20 @@ const stripVerifiedAbapMessageIndex = (value: unknown) => String(value ?? '').re
   '',
 )
 
-const focusedSourceExcerpts = (value: unknown, identifiers: string[]) => {
+const focusedSourceWindows = (value: unknown, identifiers: string[]) => {
   const lines = stripVerifiedAbapMessageIndex(value).split(/\r?\n/u)
-  const identifierNeedles = identifiers.map(identifier => ({
-    identifier,
-    needles: focusNeedles(identifier),
-  }))
-  const candidates: Array<{ index: number; identifiers: string[] }> = []
+  const identifierNeedles = identifiers.map(identifier => ({ identifier, needles: focusNeedles(identifier) }))
+  const selected = new Set<number>()
 
   for (let index = 0; index < lines.length; index += 1) {
     const haystack = lines[index].toLocaleLowerCase('en-US')
-    const matchedIdentifiers = identifierNeedles
-      .filter(entry => entry.needles.some(needle => needle && haystack.includes(needle)))
-      .map(entry => entry.identifier)
-    if (matchedIdentifiers.length) candidates.push({ index, identifiers: matchedIdentifiers })
+    const matched = identifierNeedles.some(entry => entry.needles.some(needle => needle && haystack.includes(needle)))
+    if (!matched) continue
+    for (let cursor = Math.max(0, index - 5); cursor <= Math.min(lines.length - 1, index + 5); cursor += 1) selected.add(cursor)
   }
+  if (!selected.size) return [] as Array<{ identifiers: string[]; excerpt: string; startLine: number; endLine: number }>
 
-  candidates.sort((left, right) => (
-    right.identifiers.length - left.identifiers.length
-    || left.index - right.index
-  ))
-
-  const selectedIndexes = new Set<number>()
-  const coveredIdentifiers = new Set<string>()
-  const anchors: number[] = []
-
-  for (const candidate of candidates) {
-    if (anchors.length >= 3) break
-    const contributes = candidate.identifiers.some(identifier => !coveredIdentifiers.has(identifier))
-    if (!contributes && anchors.length > 0) continue
-
-    anchors.push(candidate.index)
-    for (let cursor = Math.max(0, candidate.index - 5); cursor <= Math.min(lines.length - 1, candidate.index + 5); cursor += 1) {
-      selectedIndexes.add(cursor)
-      const haystack = lines[cursor].toLocaleLowerCase('en-US')
-      for (const entry of identifierNeedles) {
-        if (entry.needles.some(needle => needle && haystack.includes(needle))) coveredIdentifiers.add(entry.identifier)
-      }
-    }
-    if (coveredIdentifiers.size >= identifiers.length) break
-  }
-
-  if (!selectedIndexes.size) return [] as Array<{ identifiers: string[]; excerpt: string }>
-
-  const sorted = [...selectedIndexes].sort((left, right) => left - right)
+  const sorted = [...selected].sort((left, right) => left - right)
   const groups: number[][] = []
   for (const index of sorted) {
     const current = groups[groups.length - 1]
@@ -833,23 +803,33 @@ const focusedSourceExcerpts = (value: unknown, identifiers: string[]) => {
     else current.push(index)
   }
 
-  const results: Array<{ identifiers: string[]; excerpt: string }> = []
-  let totalCharacters = 0
-  for (const group of groups.slice(0, 3)) {
-    const raw = group.map(index => lines[index]).join('\n').trim()
-    if (!raw) continue
-    const remaining = Math.max(0, 6_000 - totalCharacters)
-    if (remaining <= 0) break
-    const excerpt = truncateContent(raw, Math.min(remaining, 3_000))
-    const lowered = excerpt.toLocaleLowerCase('en-US')
-    const matchedIdentifiers = identifierNeedles
-      .filter(entry => entry.needles.some(needle => needle && lowered.includes(needle)))
-      .map(entry => entry.identifier)
-    totalCharacters += excerpt.length
-    results.push({ identifiers: matchedIdentifiers, excerpt })
+  const windows: Array<{ identifiers: string[]; excerpt: string; startLine: number; endLine: number }> = []
+  for (const group of groups) {
+    let chunk: string[] = []
+    let chunkStart = group[0] ?? 0
+    const flush = (endLine: number) => {
+      const excerpt = chunk.join('\n').trim()
+      if (!excerpt) return
+      const lowered = excerpt.toLocaleLowerCase('en-US')
+      const matchedIdentifiers = identifierNeedles
+        .filter(entry => entry.needles.some(needle => needle && lowered.includes(needle)))
+        .map(entry => entry.identifier)
+      windows.push({ identifiers: matchedIdentifiers, excerpt, startLine: chunkStart + 1, endLine: endLine + 1 })
+    }
+    for (const index of group) {
+      const next = lines[index]
+      const candidate = chunk.length ? `${chunk.join('\n')}\n${next}` : next
+      if (candidate.length > 2_400 && chunk.length) {
+        flush(index - 1)
+        chunk = [next]
+        chunkStart = index
+      } else {
+        chunk.push(next)
+      }
+    }
+    if (chunk.length) flush(group[group.length - 1] ?? chunkStart)
   }
-
-  return results
+  return windows
 }
 
 const parsedExactRecords = (execution: AssistantToolExecution) => {
