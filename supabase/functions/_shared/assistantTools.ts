@@ -1059,19 +1059,25 @@ async function getRelatedObjects(
 ): Promise<AssistantToolExecution> {
   const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
   const direction = ['outgoing','incoming','both'].includes(String(args.direction)) ? String(args.direction) : 'both'
-  const limit = clampLimit(args.limit, 12, 20)
+  const windowSize = clampLimit(args.limit, 12, 20)
+  const offset = decodeWindowCursor(args.cursor, 'rel')
   const safeRelations = Array.isArray(args.relationTypes)
     ? args.relationTypes.map(type => cleanString(type, 40).toUpperCase()).filter(type => (relationTypes as readonly string[]).includes(type))
     : null
-  const { data, error } = await client.rpc('get_related_knowledge_objects_v2', {
+  const { data, error } = await client.rpc('get_related_knowledge_objects_v3', {
     p_workspace_id: workspaceId,
     p_canonical_key: canonicalKey,
     p_relation_types: safeRelations?.length ? safeRelations : null,
     p_direction: direction,
-    p_limit: limit,
+    p_limit: windowSize + 1,
+    p_offset: offset,
   })
   throwIfError(error)
-  const rows = data || []
+  const fetchedRows = Array.isArray(data) ? data : []
+  const hasMore = fetchedRows.length > windowSize
+  const rows = fetchedRows.slice(0, windowSize)
+  const nextCursor = hasMore ? encodeWindowCursor('rel', offset + rows.length) : null
+  const previousCursor = offset > 0 ? encodeWindowCursor('rel', Math.max(0, offset - windowSize)) : null
   const relations = rows.map((row: Record<string, unknown>) => ({
     id: row.relation_id,
     scope: row.scope_type === 'project' ? 'project' : 'global',
@@ -1096,10 +1102,30 @@ async function getRelatedObjects(
     objectType: row.related_object_type ? String(row.related_object_type) : undefined,
     title: row.related_title ? String(row.related_title) : undefined,
   }] : []))
+  const pagination = {
+    cursor: args.cursor ? String(args.cursor) : null,
+    previousCursor,
+    nextCursor,
+    hasMore,
+    windowSize,
+    offset,
+    returnedRelations: relations.length,
+  }
   return {
-    output: verifiedToolOutput('get_related_objects', { relations, objects }),
+    output: verifiedToolOutput('get_related_objects', { relations, objects, pagination }),
     sources,
-    summary: { canonicalKey, relationCount: relations.length, objectCount: objects.length, direction, citationReady: true },
+    summary: {
+      canonicalKey,
+      relationCount: relations.length,
+      objectCount: objects.length,
+      direction,
+      citationReady: true,
+      cursor: pagination.cursor,
+      nextCursor,
+      hasMore,
+      windowSize,
+      offset,
+    },
   }
 }
 
@@ -1179,7 +1205,7 @@ export async function executeAssistantTool(
   if (toolName === 'get_message_detail') {
     const canonicalKey = normalizeCanonicalKey(args.messageCode, 'message')
     if (!canonicalKey) throw new Error('messageCode is required.')
-    return getMessageDetailWithRelations(client, workspaceId, canonicalKey)
+    return getMessageDetailWithRelations(client, workspaceId, canonicalKey, args.relationCursor, args.relationWindowSize)
   }
   if (toolName === 'search_document') {
     const query = cleanString(args.query, 300)
