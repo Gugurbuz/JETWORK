@@ -799,7 +799,6 @@ serve(async req => {
       const verifiedLiteralEvidenceLines = new Set<string>()
       const verifiedCanonicalCapabilities = new Map<string, Set<string>>()
       const observationContentStore = new Map<string, { toolName: string; output: string }>()
-      let observationReadCalls = 0
       let truncatedObservationAvailable = false
       const generatedArtifacts = new Map<string, NonNullable<AssistantToolExecution['artifacts']>[number]>()
       const captureGeneratedArtifacts = (result: AssistantToolExecution) => {
@@ -1828,7 +1827,6 @@ serve(async req => {
                 })
                 continue
               }
-              observationReadCalls += 1
               const read = readObservationContent({
                 output: stored.output,
                 mode: args.mode === 'find' ? 'find' : 'slice',
