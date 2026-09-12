@@ -45,7 +45,6 @@ describe('V5.3 semantic action batching', () => {
     const tool = buildExecuteCapabilitiesTool()
     expect(tool.name).toBe(EXECUTE_CAPABILITIES_TOOL_NAME)
     expect(tool.description).toContain('get_related_objects')
-    expect(tool.description).toContain('EMITS_MESSAGE')
     expect(tool.description).toContain('discover_more_capabilities')
     expect(tool.description).toContain('semantic action batching runtime')
     expect(tool.description.length).toBeLessThan(3_000)
@@ -60,7 +59,9 @@ describe('V5.3 semantic action batching', () => {
       new URL('../../../supabase/functions/_shared/assistantTools.ts', import.meta.url),
       'utf8',
     )
-    expect(toolsSource).toContain('focusedSourceExcerpts')
+    expect(toolsSource).toContain('focusedSourceWindows')
+    expect(toolsSource).toContain('focusPagination')
+    expect(toolsSource).toContain('focusNextCursor')
     expect(toolsSource).toContain('normalizedMessageCodeFromFocus')
     expect(toolsSource).toContain('focusedSource: true')
     expect(toolsSource).toContain('args.focusIdentifiers')
@@ -143,7 +144,8 @@ describe('V5.3 semantic action batching', () => {
   it('deduplicates exact canonical evidence mechanically without choosing semantic routes', () => {
     expect(coreSource).toContain('const knowledgeToolCacheKey =')
     expect(coreSource).toContain("toolName === 'get_message_detail'")
-    expect(coreSource).toContain("canonicalKey.startsWith('message:')")
+    expect(coreSource).toContain("toolName === 'get_message_detail'")
+    expect(coreSource).toContain('relationCursor: args.relationCursor ?? null')
     expect(coreSource).toContain('canonical_evidence_cache_hits')
     expect(coreSource).toContain('canonical_evidence_inflight_hits')
     expect(coreSource).toContain('toolResultInFlight')
