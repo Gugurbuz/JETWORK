@@ -142,16 +142,30 @@ const normalizeEvidenceKey = (value: unknown) => String(value ?? '')
 const knowledgeToolCacheKey = (toolName: string, args: Record<string, unknown>): string => {
   if (toolName === 'get_message_detail') {
     const code = normalizeEvidenceKey(args.messageCode)
-    if (code) return `verified:message:${code.startsWith('message:') ? code.slice(8) : code}`
+    if (code) {
+      return `verified:message:${code.startsWith('message:') ? code.slice(8) : code}:${stableJson({
+        relationCursor: args.relationCursor ?? null,
+        relationWindowSize: args.relationWindowSize ?? null,
+      })}`
+    }
   }
   if (toolName === 'get_knowledge_object') {
     const canonicalKey = normalizeEvidenceKey(args.canonicalKey)
-    if (canonicalKey.startsWith('message:')) return `verified:${canonicalKey}`
     if (canonicalKey) return `exact:get_knowledge_object:${canonicalKey}`
   }
-  if (toolName === 'get_document_content' || toolName === 'get_abap_source') {
+  if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeEvidenceKey(args.canonicalKey)
-    if (canonicalKey) return `exact:${toolName}:${canonicalKey}`
+    if (canonicalKey) {
+      return `exact:get_abap_source:${canonicalKey}:${stableJson({
+        focusIdentifiers: args.focusIdentifiers ?? null,
+        focusCursor: args.focusCursor ?? null,
+        focusWindowSize: args.focusWindowSize ?? null,
+      })}`
+    }
+  }
+  if (toolName === 'get_document_content') {
+    const canonicalKey = normalizeEvidenceKey(args.canonicalKey)
+    if (canonicalKey) return `exact:get_document_content:${canonicalKey}`
   }
   return `${toolName}:${stableJson(args)}`
 }
