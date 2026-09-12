@@ -11,6 +11,8 @@ import {
   capabilityIndexEntry,
   compactCapabilityIndex,
 } from './progressiveDisclosure.ts'
+import { discoverIndexedCapabilities } from './indexedDiscovery.ts'
+import { discoverCapabilityCandidates } from './discovery.ts'
 import type { RuntimeToolSchema } from './registry.ts'
 
 export const CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5.3-semantic-action-batch'
@@ -18,6 +20,7 @@ export const DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'
 export const EXECUTE_CAPABILITIES_TOOL_NAME = 'execute_capabilities'
 export const REPORT_PROGRESS_TOOL_NAME = 'report_progress'
 export const REQUEST_LARGE_CONTEXT_TOOL_NAME = 'request_large_context'
+export const REQUEST_OBSERVATION_CONTENT_TOOL_NAME = 'request_observation_content'
 export { REVIEW_EVIDENCE_COVERAGE_TOOL_NAME }
 
 const MAX_DISCLOSURE_SELECTION = 4
@@ -33,6 +36,9 @@ const withControllerRetrievalContract = (raw: RuntimeToolSchema): RuntimeToolSch
   }
   if (['get_abap_source','get_message_detail','get_document_content','get_knowledge_object','get_knowledge_objects','get_related_objects'].includes(tool.name)) {
     tool.description = `${String(tool.description || '').trim()} Use this to deepen a known candidate when the remaining evidence gap requires exact/detail/source/relation evidence.`
+  }
+  if (tool.name === 'get_message_detail') {
+    tool.description = `${String(tool.description || '').trim()} When available, the verified record also includes bounded directRelations/relatedObjects structural hints. Reuse those canonical hints instead of rediscovering the same linked objects with another broad search; relation hints do not mean the linked object's source content has been read.`
   }
   return tool
 }
@@ -64,6 +70,26 @@ export const REQUEST_LARGE_CONTEXT_TOOL: RuntimeToolSchema = {
       targetCharacters: { type: ['integer', 'null'], minimum: 36_000, maximum: 240_000 },
     },
     required: ['reason', 'targetCharacters'],
+    additionalProperties: false,
+  },
+}
+
+export const REQUEST_OBSERVATION_CONTENT_TOOL: RuntimeToolSchema = {
+  type: 'function',
+  name: REQUEST_OBSERVATION_CONTENT_TOOL_NAME,
+  description: 'Read one transport window from a previously truncated tool observation. This is cursor-continuable, not a total evidence cap: use cursor=null for the first slice, then reuse nextCursor/previousCursor as needed. The model chooses find/slice and whether another window is materially needed; runtime performs no semantic selection. truncated=true alone is not a reason to read raw content: first use structured verifiedSignals, directRelations, relatedObjects, canonical identifiers and excerpts already present in the compact preview.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      observationRef: { type: 'string', minLength: 4, maxLength: 200 },
+      mode: { type: 'string', enum: ['find', 'slice'] },
+      query: { type: ['string', 'null'], maxLength: 500 },
+      cursor: { type: ['string', 'null'], maxLength: 120 },
+      offset: { type: ['integer', 'null'], minimum: 0 },
+      maxChars: { type: ['integer', 'null'], minimum: 500, maximum: 12_000 },
+    },
+    required: ['observationRef', 'mode', 'query', 'cursor', 'offset', 'maxChars'],
     additionalProperties: false,
   },
 }
@@ -100,13 +126,13 @@ export const REPORT_PROGRESS_TOOL: RuntimeToolSchema = {
 export const DISCOVER_MORE_CAPABILITIES_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: DISCOVER_MORE_CAPABILITIES_TOOL_NAME,
-  description: 'Progressively inspect JetWork capabilities without giving semantic authority to runtime. Normal low-latency path: use query="index" once to load Layer-1 capability names and purpose summaries, choose up to four exact names yourself, then use query="activate:name1,name2" to receive their Layer-2 usage guides and mechanically activate their exact canonical schemas together for the next model round. Legacy query="guide:name1,name2" then query="contract:name1,name2" remains compatibility-only. Runtime validates exact names and disclosure order only; it never chooses capabilities for you.',
+  description: 'Discover a small semantic candidate set of JetWork capabilities for a model-authored need. Pass a natural-language capability need; runtime returns ranked candidates with purpose and required argument names but never selects or executes one. Use index or activate:<names> only when you explicitly need the broader catalog or an exact full contract.',
   strict: true,
   parameters: {
     type: 'object',
     properties: {
       query: { type: 'string', minLength: 2, maxLength: 2_000 },
-      limit: { type: ['integer', 'null'], minimum: 1, maximum: 4 },
+      limit: { type: ['integer', 'null'], minimum: 1, maximum: 8 },
     },
     required: ['query', 'limit'],
     additionalProperties: false,
@@ -148,25 +174,30 @@ const requiredArgumentNames = (tool: RuntimeToolSchema | null): string[] => {
   return Array.isArray(required) ? required.map(value => String(value)).filter(Boolean) : []
 }
 
-const compactExecutionMenu = () => executionCapabilityNames.map(name => {
-  const entry = capabilityIndexEntry(name)
-  const required = requiredArgumentNames(getCanonicalCapabilityTool(name))
-  const signature = required.length ? `${name}(${required.join(', ')})` : `${name}()`
-  return `${signature} — ${entry?.summary || 'JetWork capability'}`
-}).join('\n')
+
+const FOUNDATIONAL_EVIDENCE_MENU = [
+  'Core evidence capabilities available directly through this batch gateway:',
+  '- search_knowledge_catalog(query, limit): find a canonical Jetbase object when its key is not yet known.',
+  '- get_knowledge_object(canonicalKey): read one known exact Jetbase object.',
+  '- get_knowledge_objects(canonicalKeys): read several known exact objects in one batch.',
+  '- get_related_objects(canonicalKey, relationTypes, direction, limit, cursor): inspect one relation window. Start cursor=null; use nextCursor when more graph evidence is needed.',
+  '- get_knowledge_evidence_pack(canonicalKey, hops, limit): read a bounded 1-2 hop evidence graph around one known object.',
+  '- get_message_detail(messageCode, relationCursor, relationWindowSize): read the exact message plus one direct relation-hint window. Start relationCursor=null; continue with relationNextCursor when needed.',
+  '- get_abap_source(canonicalKey, focusIdentifiers, focusCursor, focusWindowSize): read one exact ABAP source window. Start focusCursor=null. If focusPagination.hasMore=true, pass focusPagination.nextCursor to read another window. focusWindowSize only controls one transfer window.',
+  '- search_document(query, limit) / get_document_content(canonicalKey): discover then read exact published documents.',
+  'Prefer the shortest sufficient evidence path. For “what does this object call/emit/read/write?” questions, structural relation evidence is usually more direct than repeated broad search. Do not call discovery if one of these known capabilities already fits.',
+].join('\n')
 
 export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
   type: 'function',
   name: EXECUTE_CAPABILITIES_TOOL_NAME,
   description: [
-    'Execute a model-authored batch of JetWork capabilities through one mechanical runtime boundary.',
-    'The active Controller model is the sole semantic authority: it chooses every capability name, every argument and whether more work is needed.',
-    'Runtime only validates exact capability names and canonical argument contracts, enforces permissions/budgets, executes the requested actions, preserves provenance and returns observations.',
-    'Batch only actions whose arguments are fully known from the current observation and that do not depend on another action in this same batch. If an action needs an identifier or value produced by another action, wait for the next Controller round.',
-    'Candidate discovery and verified evidence are different provenance states. A search result may expose a useful canonical identifier while remaining citationReady=false; that identifier is an observation for your next semantic decision, not verified source evidence by itself. If a material factual claim needs source-level support and an exact/detail capability can open the selected candidate, use the next dependency-level round to request that exact evidence.',
-    'Use one action for a single capability; use multiple actions to avoid needless model round-trips when they are independently justified.',
-    'Compact capability menu (required argument names only):',
-    compactExecutionMenu(),
+    'Execute one or more model-authored JetWork capability calls through the mechanical semantic action batching runtime.',
+    'You choose every capability, argument and stop/re-plan decision. Runtime only validates canonical name/schema, permission, one-transfer window and physical deadline.',
+    FOUNDATIONAL_EVIDENCE_MENU,
+    'If none of the core evidence capabilities fits, call discover_more_capabilities with a semantic description of the capability you need; use index only for a broad catalog.',
+    'Batch independent actions whose arguments are already known. A four-action batch is only one concurrency window, not a turn-wide capability limit; issue another batch whenever the task still needs more work. If one action needs an identifier produced by another, wait for that observation and continue in the next Controller round.',
+    'Discovery candidates are not verified evidence. Exact/detail results may be citation-ready; preserve that provenance distinction.',
   ].join('\n'),
   strict: true,
   parameters: {
@@ -180,7 +211,7 @@ export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
           type: 'object',
           properties: {
             id: { type: 'string', minLength: 1, maxLength: 80 },
-            capability: { type: 'string', enum: executionCapabilityNames },
+            capability: { type: 'string', minLength: 2, maxLength: 120 },
             argumentsJson: { type: 'string', minLength: 2, maxLength: 12_000 },
           },
           required: ['id', 'capability', 'argumentsJson'],
@@ -320,6 +351,7 @@ type CapabilityDisclosure =
   | { layer: 'guide'; records: Array<{ name: string; category: string; summary: string; guide: string }> }
   | { layer: 'contract'; records: Array<{ name: string; activated: true }> }
   | { layer: 'activated'; records: Array<{ name: string; category: string; summary: string; guide: string; activated: true }> }
+  | { layer: 'semantic'; records: Array<{ name: string; category: string; summary: string; requiredArguments: string[]; score: number; title: string }> }
   | { layer: 'error'; records: []; message: string }
 
 export interface ControllerCapabilitySession {
@@ -335,6 +367,7 @@ export interface ControllerCapabilitySession {
 
 const basePhysicalTools = () => uniqueTools([
   REPORT_PROGRESS_TOOL,
+  DISCOVER_MORE_CAPABILITIES_TOOL,
   buildExecuteCapabilitiesTool(),
   REQUEST_LARGE_CONTEXT_TOOL,
 ])
@@ -390,7 +423,7 @@ export async function discoverMoreForController(input: {
   session: ControllerCapabilitySession
 }): Promise<ControllerCapabilitySession> {
   const query = String(input.query || '').trim()
-  const requestedLimit = Math.max(1, Math.min(Number(input.limit || MAX_DISCLOSURE_SELECTION), MAX_DISCLOSURE_SELECTION))
+  const requestedLimit = Math.max(1, Math.min(Number(input.limit || 6), 8))
 
   if (query.toLocaleLowerCase('en-US') === 'index') {
     return {
@@ -453,13 +486,70 @@ export async function discoverMoreForController(input: {
     }
   }
 
+  const discovered = await discoverIndexedCapabilities({
+    client: input.client,
+    geminiApiKey: input.geminiApiKey,
+    query,
+    topK: requestedLimit,
+    excludeIds: input.session.seenCandidateIds,
+  })
+  const seenNames = new Set<string>()
+  let records = discovered.candidates.flatMap(candidate => {
+    const name = String(candidate.toolName || '').trim()
+    if (!name || seenNames.has(name) || !executionCapabilityNames.includes(name)) return []
+    const entry = capabilityIndexEntry(name)
+    if (!entry) return []
+    seenNames.add(name)
+    return [{
+      name,
+      category: entry.category,
+      summary: entry.summary,
+      requiredArguments: requiredArgumentNames(getCanonicalCapabilityTool(name)),
+      score: candidate.score,
+      title: candidate.title,
+    }]
+  }).slice(0, requestedLimit)
+
+  // The persisted capability index also contains procedural skill records. A
+  // model-authored tool need can therefore rank skills above executable tools.
+  // If the vector Top-K yields no executable capability, fall back to the same
+  // registry's lexical tool candidates rather than forcing another LLM round.
+  if (!records.length) {
+    const lexical = discoverCapabilityCandidates({
+      query,
+      topK: requestedLimit,
+      categories: ['knowledge', 'context', 'artifact'],
+    }).filter(candidate => candidate.kind === 'tool' && candidate.toolName)
+    records = lexical.flatMap(candidate => {
+      const name = String(candidate.toolName || '').trim()
+      if (!name || seenNames.has(name) || !executionCapabilityNames.includes(name)) return []
+      const entry = capabilityIndexEntry(name)
+      if (!entry) return []
+      seenNames.add(name)
+      return [{
+        name,
+        category: entry.category,
+        summary: entry.summary,
+        requiredArguments: requiredArgumentNames(getCanonicalCapabilityTool(name)),
+        score: candidate.score,
+        title: candidate.title,
+      }]
+    }).slice(0, requestedLimit)
+  }
+
+  if (!records.length) {
+    return {
+      ...input.session,
+      fallbackReason: discovered.fallbackReason || 'semantic_discovery_empty',
+      lastDisclosure: { layer: 'error', records: [], message: 'No relevant executable capability candidate was found for that model-authored need. Rephrase the capability need or use index for the broad catalog.' },
+    }
+  }
+
   return {
     ...input.session,
-    lastDisclosure: {
-      layer: 'error',
-      records: [],
-      message: 'Use a progressive disclosure command: index, activate:<exact capability names>, or the legacy guide:<names> / contract:<names> sequence.',
-    },
+    fallbackReason: discovered.fallbackReason,
+    seenCandidateIds: [...new Set([...input.session.seenCandidateIds, ...discovered.candidates.map(candidate => candidate.id)])],
+    lastDisclosure: { layer: 'semantic', records },
   }
 }
 
@@ -467,14 +557,10 @@ export const capabilitySessionObservation = (session: ControllerCapabilitySessio
   version: session.version,
   disclosureVersion: CAPABILITY_DISCLOSURE_VERSION,
   discoveryMode: session.discoveryMode,
-  candidates: [],
   visibleToolNames: session.surface.toolNames,
-  logicalCapabilityCount: session.surface.logicalToolNames.length,
-  guidedToolNames: session.guidedToolNames,
-  activatedToolNames: session.activatedToolNames,
   disclosure: session.lastDisclosure,
   providerWebVisible: session.surface.providerWebVisible,
-  instruction: `JetWork V5.3 uses semantic action batching. The active model remains the sole semantic Controller. Compact logical capability names: ${executionCapabilityNames.join(', ')}. If no external capability is needed, answer directly. For substantive work, report_progress(start) must precede execute_capabilities; both may be emitted in the same model response in that order. execute_capabilities expects actions=[{id, capability, argumentsJson}], where argumentsJson is one JSON object for the chosen capability. Choose every capability and argument yourself. Batch independent actions whose arguments are already known. When an action depends on a value discovered by a previous action, wait for the observation and use the next model round. Treat citationReady=false / verifiedEvidence=false discovery results as candidates, not verified source evidence; a canonical key in a candidate is an identifier you may choose to deepen, not proof by itself. Runtime only validates name/schema/permission/budget and executes; it never infers intent, selects a tool, rewrites a query, chooses a source, or decides when to stop. Legacy progressive-disclosure helpers remain implementation compatibility only and are not part of the normal physical surface.`,
+  instruction: 'Capability catalog is lazy. The active model remains the sole semantic Controller: it may answer directly, execute a known capability, or request a small semantic candidate set with discover_more_capabilities. Runtime only validates name/schema/permission/budget and executes; it never makes the semantic choice. Discovery is candidate-only; exact/detail evidence provenance must be preserved.',
 })
 
 // Keep registry construction eager so drift between the 33 logical entries and canonical runtime is visible in tests/logs.

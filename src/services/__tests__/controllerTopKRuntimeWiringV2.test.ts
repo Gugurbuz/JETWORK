@@ -10,21 +10,22 @@ const surfaceSource = readFileSync(
   'utf8',
 )
 
-describe('Agent Controller V5.3 semantic batch runtime wiring', () => {
-  it('keeps the existing session boundary while removing semantic Top-K and initial full-schema exposure', () => {
+describe('Agent Controller V5.3 JIT semantic discovery runtime wiring', () => {
+  it('keeps the existing session boundary while making Top-K model-authored and lazy', () => {
     expect(coreSource).toContain('startControllerCapabilitySession({')
     expect(coreSource).toContain('capabilitySession?.surface.tools || []')
-    expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
+    expect(surfaceSource).toContain('discoverIndexedCapabilities')
     expect(surfaceSource).toContain("discoveryMode: 'semantic_action_batch'")
     expect(surfaceSource).toContain('surfaceWithActivated')
     expect(surfaceSource).toContain('logicalToolNames')
   })
 
-  it('uses the existing mechanical discover-more boundary for index, guide and contract activation', () => {
+  it('uses the discover-more boundary for semantic candidates plus optional index/guide/contract activation', () => {
     expect(surfaceSource).toContain("DISCOVER_MORE_CAPABILITIES_TOOL_NAME = 'discover_more_capabilities'")
-    expect(surfaceSource).toContain('query="index"')
-    expect(surfaceSource).toContain('query="guide:name1,name2"')
-    expect(surfaceSource).toContain('query="contract:name1,name2"')
+    expect(surfaceSource).toContain("query.toLocaleLowerCase('en-US') === 'index'")
+    expect(surfaceSource).toContain("query.match(/^guide")
+    expect(surfaceSource).toContain("query.match(/^contract")
+    expect(surfaceSource).toContain("layer: 'semantic'")
     expect(surfaceSource).toContain('guidedToolNames')
     expect(surfaceSource).toContain('activatedToolNames')
   })

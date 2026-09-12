@@ -51,7 +51,9 @@ describe('Gemini 3.8 G38-01..G38-17 release suite', () => {
     const changed = await buildGeminiContextCachePolicy({ ...base, promptVersionId: 'v13' })
     expect(first.cacheKey).toBe(same.cacheKey)
     expect(first.cacheKey).not.toBe(changed.cacheKey)
-    expect(first.eligible).toBe(true)
+    expect(first.stablePrefixCharacters).toBeLessThan(base.stablePrompt.length)
+    expect(first.estimatedStableTokens).toBeLessThan(4_096)
+    expect(first.eligible).toBe(false)
     expect(clampLargeContextCharacters(999_999)).toBe(240_000)
   })
 
@@ -94,7 +96,7 @@ describe('Gemini 3.8 G38-01..G38-17 release suite', () => {
   it('G38-17 behaviorally gates tool-backed work behind the model-authored public plan', () => {
     const tools = buildControllerCapabilitySurface().tools
     const before = gateGeminiAgentToolsForPublicWork([], tools, true)
-    expect(before.tools.map(tool => tool.name)).toEqual(['report_progress', 'execute_capabilities'])
+    expect(before.tools.map(tool => tool.name)).toEqual(['report_progress', 'discover_more_capabilities', 'execute_capabilities'])
     expect(before.providerWebEnabled).toBe(false)
 
     const planArgs = {

@@ -4,6 +4,8 @@ import {
   buildPublicWorkProtocolInstruction,
   PUBLIC_WORK_DIRECT_ANSWER_TOOL,
   PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
+  PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL,
+  PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME,
 } from '../../../supabase/functions/_shared/agent/publicWorkProtocol.ts'
 import { buildGeminiInteractionsRequest } from '../../../supabase/functions/_shared/geminiInteractionsRuntimeV3.ts'
 
@@ -85,6 +87,25 @@ describe('explicit first-turn Controller decision gate', () => {
     expect(providerSource).toContain('controller_direct_answer_decision: 1')
     expect(providerSource).toContain('input.onText(answer)')
     expect(providerSource).toContain('explicit first-turn decision gate returned no function decision')
+  })
+
+  it('exposes verified-evidence finalization as a model-authored stop decision', () => {
+    expect(PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME).toBe('finalize_with_evidence')
+    expect(PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL.description).toContain('Runtime does not decide that the goal is complete')
+    expect(providerSource).toContain('evidenceFinalizeVisible')
+    expect(providerSource).toContain('controller_verified_evidence_finalized: 1')
+    expect(providerSource).toContain('PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME')
+    expect(providerSource).toContain('input.verifiedEvidenceAvailable')
+    expect(providerSource).toContain('publicWorkGate.started')
+    expect(providerSource).toContain('evidenceFinalizeVisible && input.verifiedEvidenceAvailable')
+  })
+
+  it('requires an explicit Controller decision after verified evidence without choosing the semantic branch', () => {
+    expect(providerSource).toContain('const verifiedEvidenceDecisionRequired = Boolean(')
+    expect(providerSource).toContain('controller_verified_evidence_decision_required')
+    expect(providerSource).toContain("filter(name => name !== 'report_progress')")
+    expect(providerSource).toContain('verifiedEvidenceDecisionFunctionNames.length')
+    expect(providerSource).toContain('PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME')
   })
 
   it('keeps enterprise-context preference semantic and generic rather than hard-coded to the acceptance term', () => {

@@ -84,12 +84,20 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
   {
     type: 'function',
     name: 'get_abap_source',
-    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object.',
+    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. focusIdentifiers is model-authored; pass null when no focus is needed. Focused mode is cursor-paged: pass focusCursor=null for the first window, then reuse nextCursor until hasMore=false only when more source materially helps. focusWindowSize controls transfer size, not total accessible evidence. Runtime only performs literal/canonical matching; it does not choose the focus.',
     strict: true,
     parameters: {
       type: 'object',
-      properties: { canonicalKey: { type: 'string', minLength: 3, maxLength: 320 } },
-      required: ['canonicalKey'],
+      properties: {
+        canonicalKey: { type: 'string', minLength: 3, maxLength: 320 },
+        focusIdentifiers: {
+          type: ['array', 'null'],
+          items: { type: 'string', minLength: 2, maxLength: 160 },
+        },
+        focusCursor: nullableString(120),
+        focusWindowSize: nullableInteger(1, 3),
+      },
+      required: ['canonicalKey', 'focusIdentifiers', 'focusCursor', 'focusWindowSize'],
       additionalProperties: false,
     },
   },
@@ -100,8 +108,12 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
     strict: true,
     parameters: {
       type: 'object',
-      properties: { messageCode: { type: 'string', minLength: 2, maxLength: 100 } },
-      required: ['messageCode'],
+      properties: {
+        messageCode: { type: 'string', minLength: 2, maxLength: 100 },
+        relationCursor: nullableString(120),
+        relationWindowSize: nullableInteger(1, 8),
+      },
+      required: ['messageCode', 'relationCursor', 'relationWindowSize'],
       additionalProperties: false,
     },
   },
@@ -176,8 +188,9 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
         relationTypes: nullableArray({ type: 'string', enum: relationTypes }),
         direction: { type: 'string', enum: ['outgoing', 'incoming', 'both'] },
         limit: nullableInteger(1, 20),
+        cursor: nullableString(120),
       },
-      required: ['canonicalKey', 'relationTypes', 'direction', 'limit'],
+      required: ['canonicalKey', 'relationTypes', 'direction', 'limit', 'cursor'],
       additionalProperties: false,
     },
   },
@@ -206,6 +219,17 @@ const clampLimit = (value: unknown, fallback: number, maximum: number) => {
   if (!Number.isFinite(parsed)) return fallback
   return Math.max(1, Math.min(Math.trunc(parsed), maximum))
 }
+const encodeWindowCursor = (prefix: string, offset: number) =>
+  `${prefix}:${Math.max(0, Math.trunc(offset))}`
+const decodeWindowCursor = (value: unknown, prefix: string) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return 0
+  const prefixToken = `${prefix}:`
+  if (!raw.startsWith(prefixToken)) return 0
+  const parsed = Number(raw.slice(prefixToken.length))
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0
+}
+
 const truncateContent = (value: unknown, maxLength = 8_000) => {
   const content = String(value ?? '')
   return content.length <= maxLength ? content : `${content.slice(0, maxLength)}\n[İçerik güvenli uzunluk sınırında kesildi.]`
@@ -440,6 +464,24 @@ const extractAbapMessageCodes = (value: unknown) => {
   return [...codes]
 }
 
+const extractAbapMessageLineIndex = (value: unknown) => {
+  const text = String(value ?? '')
+  const index: Record<string, string> = {}
+  for (const rawLine of text.split(/\r?\n/u)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    for (const match of line.matchAll(/\bMESSAGE\s+[A-Z]?(\d{2,4})\(([A-Z][A-Z0-9_]*)\)/gi)) {
+      const number = String(match[1] || '').padStart(3, '0')
+      const messageClass = String(match[2] || '').toLocaleUpperCase('en-US')
+      if (!number || !messageClass) continue
+      const code = `${messageClass}-${number}`
+      if (!index[code]) index[code] = line.slice(0, 320)
+      if (Object.keys(index).length >= 80) return index
+    }
+  }
+  return index
+}
+
 const withVerifiedAbapMessageIndex = (value: unknown) => {
   const content = String(value ?? '')
   const codes = extractAbapMessageCodes(content)
@@ -465,6 +507,9 @@ async function getExactObject(
   const abapMessageCodes = ['class','method','function'].includes(String(row.object_type || ''))
     ? extractAbapMessageCodes(row.content)
     : []
+  const abapMessageLinesByCode = abapMessageCodes.length
+    ? extractAbapMessageLineIndex(row.content)
+    : {}
   const record = {
     scope: row.scope_type === 'project' ? 'project' : 'global',
     canonicalKey: row.canonical_key,
@@ -472,7 +517,7 @@ async function getExactObject(
     name: row.object_name,
     title: row.title,
     summary: row.summary,
-    verifiedSignals: abapMessageCodes.length ? { abapMessageCodes } : undefined,
+    verifiedSignals: abapMessageCodes.length ? { abapMessageCodes, abapMessageLinesByCode } : undefined,
     content: truncateContent(withVerifiedAbapMessageIndex(row.content), 48_000),
     versionNumber: row.version_number,
     sourceName: row.source_name,
@@ -491,6 +536,91 @@ async function getExactObject(
   }
 }
 
+const normalizeFocusedLiteral = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase('en-US').replace(/\\s+/gu, '')
+
+const cleanFocusIdentifiers = (value: unknown) => [...new Set(
+  (Array.isArray(value) ? value : [])
+    .map(item => cleanString(item, 160))
+    .filter(item => item.length >= 2),
+)]
+
+const normalizedMessageCodeFromFocus = (value: string) => {
+  const candidate = value.replace(/^message:/i, '').trim().toLocaleUpperCase('en-US')
+  const match = candidate.match(/^([A-Z][A-Z0-9_]*)-(\d{2,4})$/u)
+  if (!match?.[1] || !match?.[2]) return ''
+  return `${match[1]}-${String(match[2]).padStart(3, '0')}`
+}
+
+const focusNeedles = (identifier: string) => {
+  const normalized = identifier.replace(/^message:/i, '').trim()
+  const needles = new Set<string>()
+  if (normalized) needles.add(normalized.toLocaleLowerCase('en-US'))
+  const messageCode = normalizedMessageCodeFromFocus(identifier)
+  if (messageCode) {
+    const [messageClass, number] = messageCode.split('-')
+    needles.add(`e${number}(${messageClass})`.toLocaleLowerCase('en-US'))
+    needles.add(`message e${number}(${messageClass})`.toLocaleLowerCase('en-US'))
+  }
+  const slashTail = normalized.split('/').pop()?.trim()
+  if (slashTail && slashTail !== normalized) needles.add(slashTail.toLocaleLowerCase('en-US'))
+  return [...needles]
+}
+
+const stripVerifiedAbapMessageIndex = (value: unknown) => String(value ?? '').replace(
+  /^\[VERIFIED_ABAP_MESSAGE_CODES\][\s\S]*?\[END_VERIFIED_ABAP_MESSAGE_CODES\]\r?\n?/u,
+  '',
+)
+
+const focusedSourceWindows = (value: unknown, identifiers: string[]) => {
+  const lines = stripVerifiedAbapMessageIndex(value).split(/\r?\n/u)
+  const identifierNeedles = identifiers.map(identifier => ({ identifier, needles: focusNeedles(identifier) }))
+  const selected = new Set<number>()
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const haystack = lines[index].toLocaleLowerCase('en-US')
+    const matched = identifierNeedles.some(entry => entry.needles.some(needle => needle && haystack.includes(needle)))
+    if (!matched) continue
+    for (let cursor = Math.max(0, index - 5); cursor <= Math.min(lines.length - 1, index + 5); cursor += 1) selected.add(cursor)
+  }
+  if (!selected.size) return [] as Array<{ identifiers: string[]; excerpt: string; startLine: number; endLine: number }>
+
+  const sorted = [...selected].sort((left, right) => left - right)
+  const groups: number[][] = []
+  for (const index of sorted) {
+    const current = groups[groups.length - 1]
+    if (!current || index > current[current.length - 1] + 1) groups.push([index])
+    else current.push(index)
+  }
+
+  const windows: Array<{ identifiers: string[]; excerpt: string; startLine: number; endLine: number }> = []
+  for (const group of groups) {
+    let chunk: string[] = []
+    let chunkStart = group[0] ?? 0
+    const flush = (endLine: number) => {
+      const excerpt = chunk.join('\n').trim()
+      if (!excerpt) return
+      const lowered = excerpt.toLocaleLowerCase('en-US')
+      const matchedIdentifiers = identifierNeedles
+        .filter(entry => entry.needles.some(needle => needle && lowered.includes(needle)))
+        .map(entry => entry.identifier)
+      windows.push({ identifiers: matchedIdentifiers, excerpt, startLine: chunkStart + 1, endLine: endLine + 1 })
+    }
+    for (const index of group) {
+      const next = lines[index]
+      const candidate = chunk.length ? `${chunk.join('\n')}\n${next}` : next
+      if (candidate.length > 2_400 && chunk.length) {
+        flush(index - 1)
+        chunk = [next]
+        chunkStart = index
+      } else {
+        chunk.push(next)
+      }
+    }
+    if (chunk.length) flush(group[group.length - 1] ?? chunkStart)
+  }
+  return windows
+}
+
 const parsedExactRecords = (execution: AssistantToolExecution) => {
   if (execution.summary?.citationReady !== true) return [] as Array<Record<string, unknown>>
   try {
@@ -500,6 +630,87 @@ const parsedExactRecords = (execution: AssistantToolExecution) => {
       : []
   } catch {
     return [] as Array<Record<string, unknown>>
+  }
+}
+
+async function getFocusedAbapSource(
+  client: any,
+  workspaceId: string,
+  canonicalKey: string,
+  rawFocusIdentifiers: unknown,
+  rawFocusCursor: unknown,
+  rawFocusWindowSize: unknown,
+): Promise<AssistantToolExecution> {
+  const focusIdentifiers = cleanFocusIdentifiers(rawFocusIdentifiers)
+  const exact = await getExactObject(client, workspaceId, canonicalKey, ['class','method','function'], 'get_abap_source')
+  if (!focusIdentifiers.length || exact.summary?.citationReady !== true) return exact
+
+  const records = parsedExactRecords(exact)
+  if (!records.length) return exact
+  const primary = records[0]
+  const allWindows = focusedSourceWindows(primary.content, focusIdentifiers)
+  if (!allWindows.length) return exact
+
+  const offset = Math.min(decodeWindowCursor(rawFocusCursor, 'focus'), allWindows.length)
+  const windowSize = clampLimit(rawFocusWindowSize, 3, 3)
+  const focusedEvidence = allWindows.slice(offset, offset + windowSize)
+  const hasMore = offset + focusedEvidence.length < allWindows.length
+  const nextCursor = hasMore ? encodeWindowCursor('focus', offset + focusedEvidence.length) : null
+  const previousCursor = offset > 0 ? encodeWindowCursor('focus', Math.max(0, offset - windowSize)) : null
+
+  const verifiedSignals = primary.verifiedSignals && typeof primary.verifiedSignals === 'object'
+    ? primary.verifiedSignals as Record<string, unknown>
+    : {}
+  const lineIndex = verifiedSignals.abapMessageLinesByCode && typeof verifiedSignals.abapMessageLinesByCode === 'object'
+    ? verifiedSignals.abapMessageLinesByCode as Record<string, unknown>
+    : {}
+  const focusedContent = focusedEvidence.map(item => item.excerpt).join('\n\n')
+  const normalizedFocusedContent = normalizeFocusedLiteral(focusedContent)
+  const focusedLineIndex = Object.fromEntries(
+    Object.entries(lineIndex).filter(([, line]) => {
+      const normalizedLine = normalizeFocusedLiteral(line)
+      return Boolean(normalizedLine && normalizedFocusedContent.includes(normalizedLine))
+    }),
+  )
+  const pagination = {
+    cursor: rawFocusCursor ? String(rawFocusCursor) : null,
+    previousCursor,
+    nextCursor,
+    hasMore,
+    windowSize,
+    returnedWindows: focusedEvidence.length,
+    totalWindows: allWindows.length,
+    offset,
+  }
+
+  const focusedRecord = {
+    ...primary,
+    focusIdentifiers,
+    focusedSource: true,
+    focusPagination: pagination,
+    verifiedSignals: {
+      ...verifiedSignals,
+      abapMessageCodes: Object.keys(focusedLineIndex),
+      abapMessageLinesByCode: focusedLineIndex,
+    },
+    content: focusedEvidence.map(item => (
+      `[FOCUS ${item.identifiers.join(', ')} | lines ${item.startLine}-${item.endLine}]\n${item.excerpt}\n[END FOCUS]`
+    )).join('\n\n'),
+  }
+
+  return {
+    output: verifiedToolOutput('get_abap_source', [focusedRecord]),
+    sources: exact.sources,
+    summary: {
+      ...exact.summary,
+      focusedSource: true,
+      focusIdentifierCount: focusIdentifiers.length,
+      focusedEvidenceCount: focusedEvidence.length,
+      focusedTotalWindowCount: allWindows.length,
+      focusHasMore: hasMore,
+      focusNextCursor: nextCursor,
+      focusWindowSize: windowSize,
+    },
   }
 }
 
@@ -558,6 +769,78 @@ async function getExactObjects(
   }
 }
 
+const parseVerifiedRelatedRecords = (execution: AssistantToolExecution) => {
+  if (execution.summary?.citationReady !== true) return {
+    relations: [] as Array<Record<string, unknown>>,
+    objects: [] as Array<Record<string, unknown>>,
+    pagination: null as Record<string, unknown> | null,
+  }
+  try {
+    const parsed = JSON.parse(execution.output)
+    const records = parsed?.records && typeof parsed.records === 'object'
+      ? parsed.records as Record<string, unknown>
+      : {}
+    return {
+      relations: Array.isArray(records.relations)
+        ? records.relations.filter((item: unknown) => item && typeof item === 'object') as Array<Record<string, unknown>>
+        : [],
+      objects: Array.isArray(records.objects)
+        ? records.objects.filter((item: unknown) => item && typeof item === 'object') as Array<Record<string, unknown>>
+        : [],
+      pagination: records.pagination && typeof records.pagination === 'object'
+        ? records.pagination as Record<string, unknown>
+        : null,
+    }
+  } catch {
+    return { relations: [], objects: [], pagination: null }
+  }
+}
+
+async function getMessageDetailWithRelations(
+  client: any,
+  workspaceId: string,
+  canonicalKey: string,
+  rawRelationCursor: unknown,
+  rawRelationWindowSize: unknown,
+): Promise<AssistantToolExecution> {
+  const detail = await getExactObject(client, workspaceId, canonicalKey, ['message'], 'get_message_detail')
+  if (detail.summary?.citationReady !== true) return detail
+
+  try {
+    const related = await getRelatedObjects(client, workspaceId, {
+      canonicalKey,
+      relationTypes: null,
+      direction: 'both',
+      limit: clampLimit(rawRelationWindowSize, 8, 8),
+      cursor: rawRelationCursor,
+    })
+    const relationRecords = parseVerifiedRelatedRecords(related)
+    if (!relationRecords.relations.length && !relationRecords.objects.length) return detail
+
+    const records = parsedExactRecords(detail).map((record, index) => index === 0 ? {
+      ...record,
+      directRelations: relationRecords.relations,
+      relatedObjects: relationRecords.objects,
+      relationPagination: relationRecords.pagination,
+    } : record)
+
+    return {
+      output: verifiedToolOutput('get_message_detail', records),
+      sources: uniqueSources([...detail.sources, ...related.sources]),
+      summary: {
+        ...detail.summary,
+        relationHintCount: relationRecords.relations.length,
+        relatedObjectHintCount: relationRecords.objects.length,
+        relationHintsIncluded: true,
+        relationHasMore: relationRecords.pagination?.hasMore === true,
+        relationNextCursor: relationRecords.pagination?.nextCursor || null,
+      },
+    }
+  } catch {
+    return detail
+  }
+}
+
 async function getRelatedObjects(
   client: any,
   workspaceId: string,
@@ -565,19 +848,25 @@ async function getRelatedObjects(
 ): Promise<AssistantToolExecution> {
   const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
   const direction = ['outgoing','incoming','both'].includes(String(args.direction)) ? String(args.direction) : 'both'
-  const limit = clampLimit(args.limit, 12, 20)
+  const windowSize = clampLimit(args.limit, 12, 20)
+  const offset = decodeWindowCursor(args.cursor, 'rel')
   const safeRelations = Array.isArray(args.relationTypes)
     ? args.relationTypes.map(type => cleanString(type, 40).toUpperCase()).filter(type => (relationTypes as readonly string[]).includes(type))
     : null
-  const { data, error } = await client.rpc('get_related_knowledge_objects_v2', {
+  const { data, error } = await client.rpc('get_related_knowledge_objects_v3', {
     p_workspace_id: workspaceId,
     p_canonical_key: canonicalKey,
     p_relation_types: safeRelations?.length ? safeRelations : null,
     p_direction: direction,
-    p_limit: limit,
+    p_limit: windowSize + 1,
+    p_offset: offset,
   })
   throwIfError(error)
-  const rows = data || []
+  const fetchedRows = Array.isArray(data) ? data : []
+  const hasMore = fetchedRows.length > windowSize
+  const rows = fetchedRows.slice(0, windowSize)
+  const nextCursor = hasMore ? encodeWindowCursor('rel', offset + rows.length) : null
+  const previousCursor = offset > 0 ? encodeWindowCursor('rel', Math.max(0, offset - windowSize)) : null
   const relations = rows.map((row: Record<string, unknown>) => ({
     id: row.relation_id,
     scope: row.scope_type === 'project' ? 'project' : 'global',
@@ -602,10 +891,30 @@ async function getRelatedObjects(
     objectType: row.related_object_type ? String(row.related_object_type) : undefined,
     title: row.related_title ? String(row.related_title) : undefined,
   }] : []))
+  const pagination = {
+    cursor: args.cursor ? String(args.cursor) : null,
+    previousCursor,
+    nextCursor,
+    hasMore,
+    windowSize,
+    offset,
+    returnedRelations: relations.length,
+  }
   return {
-    output: verifiedToolOutput('get_related_objects', { relations, objects }),
+    output: verifiedToolOutput('get_related_objects', { relations, objects, pagination }),
     sources,
-    summary: { canonicalKey, relationCount: relations.length, objectCount: objects.length, direction, citationReady: true },
+    summary: {
+      canonicalKey,
+      relationCount: relations.length,
+      objectCount: objects.length,
+      direction,
+      citationReady: true,
+      cursor: pagination.cursor,
+      nextCursor,
+      hasMore,
+      windowSize,
+      offset,
+    },
   }
 }
 
@@ -680,12 +989,12 @@ export async function executeAssistantTool(
   if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
-    return getExactObject(client, workspaceId, canonicalKey, ['class','method','function'], toolName)
+    return getFocusedAbapSource(client, workspaceId, canonicalKey, args.focusIdentifiers, args.focusCursor, args.focusWindowSize)
   }
   if (toolName === 'get_message_detail') {
     const canonicalKey = normalizeCanonicalKey(args.messageCode, 'message')
     if (!canonicalKey) throw new Error('messageCode is required.')
-    return getExactObject(client, workspaceId, canonicalKey, ['message'], toolName)
+    return getMessageDetailWithRelations(client, workspaceId, canonicalKey, args.relationCursor, args.relationWindowSize)
   }
   if (toolName === 'search_document') {
     const query = cleanString(args.query, 300)
