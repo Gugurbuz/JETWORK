@@ -1842,19 +1842,12 @@ serve(async req => {
                 })
                 continue
               }
-              if (observationReadCalls >= 6) {
-                runItems.push({
-                  type: 'function_call_output',
-                  call_id: callId,
-                  output: JSON.stringify({ contract: 'controller_observation_content_v1', ok: false, error: 'OBSERVATION_READ_BUDGET_EXHAUSTED', observationRef }),
-                })
-                continue
-              }
               observationReadCalls += 1
               const read = readObservationContent({
                 output: stored.output,
                 mode: args.mode === 'find' ? 'find' : 'slice',
                 query: args.query === null ? null : cleanString(args.query, 500),
+                cursor: args.cursor === null ? null : cleanString(args.cursor, 120),
                 offset: args.offset === null ? null : Number(args.offset || 0),
                 maxChars: args.maxChars === null ? null : Number(args.maxChars || 6_000),
               })
