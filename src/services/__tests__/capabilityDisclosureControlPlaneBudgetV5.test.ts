@@ -7,19 +7,21 @@ const coreSource = readFileSync(
 )
 
 describe('V5 capability disclosure latency budget', () => {
-  it('keeps disclosure separate from substantive tool calls but caps navigation tightly', () => {
-    expect(coreSource).toContain("MAX_CAPABILITY_DISCLOSURE_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_CAPABILITY_DISCLOSURE_CALLS', 3, 1, 6)")
+  it('keeps disclosure measurable without imposing a turn-wide semantic ceiling', () => {
     expect(coreSource).toContain('let capabilityDisclosureCalls = 0')
     expect(coreSource).toContain('capabilityDisclosureCalls += 1')
     expect(coreSource).toContain('capability_disclosure_control_calls: 1')
-    expect(coreSource).toContain('toolName !== DISCOVER_MORE_CAPABILITIES_TOOL_NAME && totalToolCalls >= MAX_TOOL_CALLS')
+    expect(coreSource).not.toContain('MAX_CAPABILITY_DISCLOSURE_CALLS')
+    expect(coreSource).not.toContain('TOOL_BUDGET_EXHAUSTED')
   })
 
-  it('never grants disclosure-only rounds extra model calls beyond the normal controller budget', () => {
-    expect(coreSource).toContain('let maxControllerRound = MAX_TOOL_ROUNDS')
-    expect(coreSource).not.toContain('let disclosureControlRounds = 0')
-    expect(coreSource).not.toContain('maxControllerRound = Math.min(MAX_TOOL_ROUNDS + MAX_CAPABILITY_DISCLOSURE_CALLS')
-    expect(coreSource).not.toContain('capability_disclosure_control_rounds: 1')
+  it('bounds physical runtime time instead of semantic controller depth', () => {
+    expect(coreSource).not.toContain('MAX_TOOL_ROUNDS')
+    expect(coreSource).not.toContain('maxControllerRound')
+    expect(coreSource).toContain('for (let round = 0; !runController.signal.aborted; round += 1)')
+    expect(coreSource).toContain('remainingRunMs')
+    expect(coreSource).toContain('FINAL_SYNTHESIS_RESERVE_MS')
+    expect(coreSource).toContain('Fiziksel run süresinin son güvenlik rezervine girildi')
   })
 
   it('keeps the latency boundary mechanical rather than semantic', () => {
