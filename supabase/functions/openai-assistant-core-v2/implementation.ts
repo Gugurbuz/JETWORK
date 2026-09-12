@@ -826,7 +826,6 @@ serve(async req => {
       }
 
       const runKnowledgeTool = async (toolName: string, args: Record<string, unknown>, callPrefix: string) => {
-        if (totalToolCalls >= MAX_TOOL_CALLS) throw new Error('Assistant exceeded the safe tool-call limit.')
         const cacheKey = knowledgeToolCacheKey(toolName, args)
         const cached = toolResultCache.get(cacheKey)
         if (cached) {
@@ -923,7 +922,6 @@ serve(async req => {
 
       const runCapabilityDiscoveryTool = async (args: Record<string, unknown>) => {
         if (!AGENTIC_CONTROLLER_ENABLED || !capabilitySession) throw new Error('Capability discovery session is unavailable.')
-        if (capabilityDisclosureCalls >= MAX_CAPABILITY_DISCLOSURE_CALLS) throw new Error('Assistant exceeded the safe capability-disclosure limit.')
         const query = cleanString(args.query, 2_000)
         if (query.length < 2) throw new Error('discover_more_capabilities requires a semantic query.')
         capabilityDisclosureCalls += 1
@@ -977,11 +975,9 @@ serve(async req => {
         const inspected = new Set<string>()
         const related = new Set<string>()
         for (const query of queries.map(item => item.trim()).filter(Boolean).slice(0, queryLimit)) {
-          if (totalToolCalls >= MAX_TOOL_CALLS) break
           const result = await runKnowledgeTool('search_knowledge_catalog', { query, objectTypes: null, limit: 8 }, `${phase}:search`)
           const records = parseToolRecords(result.output)
           for (const record of records.slice(0, detailLimit)) {
-            if (totalToolCalls >= MAX_TOOL_CALLS) break
             const canonicalKey = String(record.canonicalKey || '')
             if (!canonicalKey || inspected.has(canonicalKey)) continue
             inspected.add(canonicalKey)
@@ -990,7 +986,6 @@ serve(async req => {
           }
           if (relationshipLimit > 0) {
             for (const record of records.slice(0, relationshipLimit)) {
-              if (totalToolCalls >= MAX_TOOL_CALLS) break
               const canonicalKey = String(record.canonicalKey || '')
               if (!canonicalKey || related.has(canonicalKey)) continue
               related.add(canonicalKey)
@@ -1006,10 +1001,6 @@ serve(async req => {
         const required = plan.webMode === 'required'
         if (!openAiApiKey) {
           if (required) throw new Error('Required web research is unavailable because OPENAI_API_KEY is not configured.')
-          return false
-        }
-        if (totalToolCalls >= MAX_TOOL_CALLS) {
-          if (required) throw new Error('Required web research could not run because the safe tool-call budget was exhausted.')
           return false
         }
         totalToolCalls += 1
