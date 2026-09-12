@@ -193,10 +193,10 @@ export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
   name: EXECUTE_CAPABILITIES_TOOL_NAME,
   description: [
     'Execute one or more model-authored JetWork capability calls through the mechanical semantic action batching runtime.',
-    'You choose every capability, argument and stop/re-plan decision. Runtime only validates the canonical name/schema, permission and budget.',
+    'You choose every capability, argument and stop/re-plan decision. Runtime only validates canonical name/schema, permission, one-transfer window and physical deadline.',
     FOUNDATIONAL_EVIDENCE_MENU,
     'If none of the core evidence capabilities fits, call discover_more_capabilities with a semantic description of the capability you need; use index only for a broad catalog.',
-    'Batch independent actions whose arguments are already known. If one action needs an identifier produced by another, wait for that observation and continue in the next Controller round.',
+    'Batch independent actions whose arguments are already known. A four-action batch is only one concurrency window, not a turn-wide capability limit; issue another batch whenever the task still needs more work. If one action needs an identifier produced by another, wait for that observation and continue in the next Controller round.',
     'Discovery candidates are not verified evidence. Exact/detail results may be citation-ready; preserve that provenance distinction.',
   ].join('\n'),
   strict: true,
