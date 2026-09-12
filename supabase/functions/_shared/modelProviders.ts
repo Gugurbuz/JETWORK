@@ -3,6 +3,7 @@ import {
   type NormalizedModelResponse,
 } from './modelProvidersBase.ts'
 import { AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION } from './agentControllerPolicy.ts'
+import { LITERAL_SOURCE_COMPLETION_POLICY } from './agent/literalSourceCompletionPolicy.ts'
 import { buildProviderProductCore } from './agent/providerProductCore.ts'
 import { extractGeminiRuntimeObservationInstruction } from './agent/controllerRuntimeObservation.ts'
 import {
@@ -163,6 +164,7 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   const systemInstruction = [
     stableProductInstruction,
     AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION,
+    LITERAL_SOURCE_COMPLETION_POLICY,
     runtimeObservation,
     publicWorkInstruction,
   ].filter(Boolean).join('\n\n')
