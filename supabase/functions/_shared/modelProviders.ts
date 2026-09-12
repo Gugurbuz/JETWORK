@@ -1,9 +1,11 @@
 import {
   providerForModel as baseProviderForModel,
+  verifiedToolEvidenceForAnswerability,
   type NormalizedModelResponse,
 } from './modelProvidersBase.ts'
 import { AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION } from './agentControllerPolicy.ts'
 import { LITERAL_SOURCE_COMPLETION_POLICY } from './agent/literalSourceCompletionPolicy.ts'
+import { sanitizeNovelCustomIdentifierClaims } from './providerAnswerabilityGuard.ts'
 import { buildProviderProductCore } from './agent/providerProductCore.ts'
 import { extractGeminiRuntimeObservationInstruction } from './agent/controllerRuntimeObservation.ts'
 import {
@@ -104,6 +106,44 @@ const mergeUsage = (
   current: Record<string, number> | undefined,
   extra: Record<string, number>,
 ): Record<string, number> => ({ ...(current || {}), ...extra })
+
+const latestUserText = (items: Array<Record<string, unknown>>) => {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (String(item.role || '') !== 'user') continue
+    const content = item.content
+    if (typeof content === 'string') return content
+    if (Array.isArray(content)) {
+      return content.map(part => (
+        typeof part === 'string'
+          ? part
+          : part && typeof part === 'object' && typeof (part as Record<string, unknown>).text === 'string'
+            ? String((part as Record<string, unknown>).text)
+            : ''
+      )).filter(Boolean).join('\n')
+    }
+  }
+  return ''
+}
+
+const verifiedAnswerabilityContext = (items: Array<Record<string, unknown>>) => [
+  latestUserText(items),
+  verifiedToolEvidenceForAnswerability(items),
+].filter(Boolean).join('\n')
+
+const assistantMessageOutput = (
+  response: NormalizedModelResponse,
+  text: string,
+): Array<Record<string, unknown>> => {
+  const existing = (response.output || []).find(item => String(item.type || '') === 'message') as Record<string, unknown> | undefined
+  const interactionId = String(existing?._gemini_interaction_id || response.id || '').trim()
+  return [{
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'output_text', text, annotations: [] }],
+    ...(interactionId ? { _gemini_interaction_id: interactionId } : {}),
+  }]
+}
 
 /**
  * Controller V4 provider boundary.
