@@ -219,6 +219,228 @@ const clampLimit = (value: unknown, fallback: number, maximum: number) => {
   if (!Number.isFinite(parsed)) return fallback
   return Math.max(1, Math.min(Math.trunc(parsed), maximum))
 }
+const encodeWindowCursor = (prefix: string, offset: number) => `${prefix}:${Math.max(0, Math.trunc(offset))}`
+const decodeWindowCursor = (value: unknown, prefix: string) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return 0
+  const match = raw.match(new RegExp(`^${prefix}:(\\d+)import { CLASS_INVENTORY_TOOL, executeClassInventoryTool } from './classInventoryTool.ts'
+import { isExecutionTool, type AssistantGeneratedFileRef } from './executionTools.ts'
+import { executeSpreadsheetAssistantTool } from './spreadsheetAssistantTool.ts'
+import { isArtifactExecutionTool } from './artifactExecutionTools.ts'
+import { executeArtifactAssistantTool } from './artifactAssistantTool.ts'
+import {
+  ASSISTANT_CONTEXT_TOOLS,
+  executeContextTool,
+  isContextTool,
+} from './context/contextTools.ts'
+
+export { ASSISTANT_CONTEXT_TOOLS }
+
+export interface AssistantSourceRef {
+  sourceId?: string
+  sourceName: string
+  canonicalKey?: string
+  objectType?: string
+  title?: string
+}
+
+export interface AssistantToolExecution {
+  output: string
+  sources: AssistantSourceRef[]
+  summary: Record<string, unknown>
+  artifacts?: AssistantGeneratedFileRef[]
+}
+
+const objectTypes = [
+  'class','method','function','message','table','document','business_rule','interface',
+  'system','component','service','api','database','queue','job','screen','decision','requirement','unknown',
+] as const
+
+const relationTypes = [
+  'CONTAINS','CALLS','READS','WRITES','EMITS_MESSAGE','EXTENDS','IMPLEMENTS','DOCUMENTS',
+  'DEPENDS_ON','CONNECTS_TO','EXPOSES','CONSUMES','PRODUCES','USES','OWNS','TRIGGERS','RELATES_TO',
+] as const
+
+const MAX_BATCH_EXACT_OBJECTS = 6
+const nullableArray = (items: Record<string, unknown>) => ({ type: ['array', 'null'], items })
+const nullableInteger = (minimum: number, maximum: number) => ({ type: ['integer', 'null'], minimum, maximum })
+const nullableString = (maxLength: number) => ({ type: ['string', 'null'], maxLength })
+
+/**
+ * Controller V3 knowledge surface.
+ *
+ * Descriptions explain capability/result contracts only. They intentionally do
+ * not prescribe a retrieval sequence, mandatory follow-up tool or semantic route.
+ */
+export const ASSISTANT_KNOWLEDGE_TOOLS = [
+  {
+    type: 'function',
+    name: 'search_knowledge_catalog',
+    description: 'Search published JetWork global knowledge plus active-project knowledge across all catalog object types. This primary semantic candidate search is intentionally type-unfiltered so short identifiers and product-family terms can match methods, messages, classes, documents and other Jetbase objects. Returns ranked candidate evidence with canonical identifiers and provenance metadata; search candidates are not citation-ready exact records.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 2, maxLength: 300 },
+        limit: nullableInteger(1, 12),
+      },
+      required: ['query', 'limit'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_knowledge_catalog',
+    description: 'Enumerate published knowledge objects by object type and/or name/canonical prefix. Returns a verified page, total count and nextCursor when another page exists.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        objectType: { type: ['string', 'null'], enum: [...objectTypes, null] },
+        prefix: nullableString(160),
+        cursor: nullableString(320),
+        limit: { type: 'integer', minimum: 1, maximum: 25 },
+      },
+      required: ['objectType', 'prefix', 'cursor', 'limit'],
+      additionalProperties: false,
+    },
+  },
+  CLASS_INVENTORY_TOOL,
+  {
+    type: 'function',
+    name: 'get_abap_source',
+    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. focusIdentifiers is model-authored; pass null when no focus is needed. Focused mode is cursor-paged: pass focusCursor=null for the first window, then reuse nextCursor until hasMore=false only when more source materially helps. focusWindowSize controls transfer size, not total accessible evidence. Runtime only performs literal/canonical matching; it does not choose the focus.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        canonicalKey: { type: 'string', minLength: 3, maxLength: 320 },
+        focusIdentifiers: {
+          type: ['array', 'null'],
+          items: { type: 'string', minLength: 2, maxLength: 160 },
+        },
+        focusCursor: nullableString(120),
+        focusWindowSize: nullableInteger(1, 3),
+      },
+      required: ['canonicalKey', 'focusIdentifiers', 'focusCursor', 'focusWindowSize'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_message_detail',
+    description: 'Get the current published CRM or ABAP message detail for one message identifier.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        messageCode: { type: 'string', minLength: 2, maxLength: 100 },
+        relationCursor: nullableString(120),
+        relationWindowSize: nullableInteger(1, 8),
+      },
+      required: ['messageCode', 'relationCursor', 'relationWindowSize'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'search_document',
+    description: 'Search published project and JetWork global documents and business rules. Returns candidate evidence and canonical identifiers.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 2, maxLength: 300 },
+        limit: nullableInteger(1, 10),
+      },
+      required: ['query', 'limit'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_document_content',
+    description: 'Read the current published document or business rule by canonical key, preferring the active project over global knowledge.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: { canonicalKey: { type: 'string', minLength: 3, maxLength: 320 } },
+      required: ['canonicalKey'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_knowledge_object',
+    description: 'Read the current published exact record for one catalog object by canonical key.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: { canonicalKey: { type: 'string', minLength: 3, maxLength: 320 } },
+      required: ['canonicalKey'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_knowledge_objects',
+    description: 'Read a bounded set of published exact catalog records by canonical key in one call. It does not search or choose the keys.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        canonicalKeys: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MAX_BATCH_EXACT_OBJECTS,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 3, maxLength: 320 },
+        },
+      },
+      required: ['canonicalKeys'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_related_objects',
+    description: 'Get published relation rows and related objects for one canonical catalog object.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        canonicalKey: { type: 'string', minLength: 3, maxLength: 320 },
+        relationTypes: nullableArray({ type: 'string', enum: relationTypes }),
+        direction: { type: 'string', enum: ['outgoing', 'incoming', 'both'] },
+        limit: nullableInteger(1, 20),
+        cursor: nullableString(120),
+      },
+      required: ['canonicalKey', 'relationTypes', 'direction', 'limit', 'cursor'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_knowledge_evidence_pack',
+    description: 'Read a bounded 1-2 hop published Jetbase evidence subgraph for one canonical object. Returns relation provenance, relation-derived claims, literal-evidence verification and open review signals. This capability only reads evidence; it does not plan, route or decide the next action.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        canonicalKey: { type: 'string', minLength: 3, maxLength: 320 },
+        hops: { type: 'integer', minimum: 1, maximum: 2 },
+        limit: { type: 'integer', minimum: 1, maximum: 40 },
+      },
+      required: ['canonicalKey', 'hops', 'limit'],
+      additionalProperties: false,
+    },
+  },
+] as const
+
+const cleanString = (value: unknown, maxLength: number) => String(value ?? '').trim().slice(0, maxLength)
+, 'u'))
+  return match?.[1] ? Math.max(0, Number(match[1]) || 0) : 0
+}
 const truncateContent = (value: unknown, maxLength = 8_000) => {
   const content = String(value ?? '')
   return content.length <= maxLength ? content : `${content.slice(0, maxLength)}\n[İçerik güvenli uzunluk sınırında kesildi.]`
@@ -531,7 +753,7 @@ const cleanFocusIdentifiers = (value: unknown) => [...new Set(
   (Array.isArray(value) ? value : [])
     .map(item => cleanString(item, 160))
     .filter(item => item.length >= 2),
-)].slice(0, 6)
+)]
 
 const normalizedMessageCodeFromFocus = (value: string) => {
   const candidate = value.replace(/^message:/i, '').trim().toLocaleUpperCase('en-US')
