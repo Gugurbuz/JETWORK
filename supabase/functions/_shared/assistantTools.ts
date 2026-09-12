@@ -84,7 +84,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
   {
     type: 'function',
     name: 'get_abap_source',
-    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. Pass focusIdentifiers as a model-authored array of message codes, technical identifiers, method/field names when focused source evidence is useful; pass null when no focus is needed. Focused mode returns verified literal source excerpts instead of a large full-source observation. Runtime only performs literal/canonical matching; it does not choose the focus.',
+    description: 'Get the current published source/detail for one ABAP class, method, or function. Project knowledge overrides a matching global object. focusIdentifiers is model-authored; pass null when no focus is needed. Focused mode is cursor-paged: pass focusCursor=null for the first window, then reuse nextCursor until hasMore=false only when more source materially helps. focusWindowSize controls transfer size, not total accessible evidence. Runtime only performs literal/canonical matching; it does not choose the focus.',
     strict: true,
     parameters: {
       type: 'object',
@@ -93,10 +93,11 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
         focusIdentifiers: {
           type: ['array', 'null'],
           items: { type: 'string', minLength: 2, maxLength: 160 },
-          maxItems: 6,
         },
+        focusCursor: nullableString(120),
+        focusWindowSize: nullableInteger(1, 3),
       },
-      required: ['canonicalKey', 'focusIdentifiers'],
+      required: ['canonicalKey', 'focusIdentifiers', 'focusCursor', 'focusWindowSize'],
       additionalProperties: false,
     },
   },
@@ -107,8 +108,12 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
     strict: true,
     parameters: {
       type: 'object',
-      properties: { messageCode: { type: 'string', minLength: 2, maxLength: 100 } },
-      required: ['messageCode'],
+      properties: {
+        messageCode: { type: 'string', minLength: 2, maxLength: 100 },
+        relationCursor: nullableString(120),
+        relationWindowSize: nullableInteger(1, 8),
+      },
+      required: ['messageCode', 'relationCursor', 'relationWindowSize'],
       additionalProperties: false,
     },
   },
@@ -183,8 +188,9 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
         relationTypes: nullableArray({ type: 'string', enum: relationTypes }),
         direction: { type: 'string', enum: ['outgoing', 'incoming', 'both'] },
         limit: nullableInteger(1, 20),
+        cursor: nullableString(120),
       },
-      required: ['canonicalKey', 'relationTypes', 'direction', 'limit'],
+      required: ['canonicalKey', 'relationTypes', 'direction', 'limit', 'cursor'],
       additionalProperties: false,
     },
   },
