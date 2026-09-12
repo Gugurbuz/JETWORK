@@ -14,7 +14,7 @@ const LITE_MODEL = 'gemini-3.5-flash-lite'
 const FLASH_MODEL = 'gemini-3.5-flash'
 const PRO_MODEL = 'gemini-3.1-pro-preview'
 const BASE_CORE_SLUG = 'openai-assistant-core-v2-base'
-const ROUTER_VERSION = 'auto-cascade-v2'
+const ROUTER_VERSION = 'auto-cascade-v3'
 const MAX_ROUTER_CONTEXT_MESSAGES = 6
 const MAX_ROUTER_CONTEXT_CHARS = 3_000
 const MAX_ROUTER_MESSAGE_CHARS = 2_500
@@ -180,6 +180,34 @@ const analyzeComplexity = (message: string, attachments: any[]): ComplexityProfi
   return { floor, allowFlash, allowPro, reasons }
 }
 
+const deterministicPolicyDecision = (profile: ComplexityProfile): AutoRouteDecision | null => {
+  if (profile.floor === 'lite' && !profile.allowFlash) {
+    return {
+      routedModel: LITE_MODEL,
+      tier: 'lite',
+      classifierModels: [],
+      classifierDecisions: ['DETERMINISTIC_LITE'],
+      reasons: [...profile.reasons, 'deterministic_lite_policy'],
+      deterministicFloor: 'lite',
+      usage: [],
+    }
+  }
+
+  if (profile.floor === 'flash' && !profile.allowPro) {
+    return {
+      routedModel: FLASH_MODEL,
+      tier: 'flash',
+      classifierModels: [],
+      classifierDecisions: ['DETERMINISTIC_FLASH'],
+      reasons: [...profile.reasons, 'deterministic_flash_policy'],
+      deterministicFloor: 'flash',
+      usage: [],
+    }
+  }
+
+  return null
+}
+
 const loadCompactContext = async (
   supabaseUrl: string,
   anonKey: string,
@@ -246,8 +274,9 @@ const routeAuto = async (input: {
   message: string
   context: string
   attachments: any[]
+  profile: ComplexityProfile
 }) : Promise<AutoRouteDecision> => {
-  const profile = analyzeComplexity(input.message, input.attachments)
+  const profile = input.profile
   const commonPrompt = [
     `Current user request:\n${cleanString(input.message, MAX_ROUTER_MESSAGE_CHARS)}`,
     input.context ? `Recent conversation context (continuity only, not evidence):\n${input.context}` : '',
@@ -524,9 +553,15 @@ serve(async req => {
   let decision: AutoRouteDecision | null = null
 
   if (requestedModel === AUTO_MODEL) {
-    if (!geminiApiKey) return jsonResponse({ error: 'GEMINI_API_KEY is required for Auto model routing.', code: 'AUTO_ROUTER_UNAVAILABLE' }, 503)
-    const context = await loadCompactContext(supabaseUrl, anonKey, authorization, workspaceId, messageId)
-    decision = await routeAuto({ geminiApiKey, message, context, attachments })
+    const profile = analyzeComplexity(message, attachments)
+    decision = deterministicPolicyDecision(profile)
+
+    if (!decision) {
+      if (!geminiApiKey) return jsonResponse({ error: 'GEMINI_API_KEY is required for Auto model routing.', code: 'AUTO_ROUTER_UNAVAILABLE' }, 503)
+      const context = await loadCompactContext(supabaseUrl, anonKey, authorization, workspaceId, messageId)
+      decision = await routeAuto({ geminiApiKey, message, context, attachments, profile })
+    }
+
     forwardedBody = { ...body, model: decision.routedModel }
     console.info('AUTO_MODEL_CASCADE_ROUTE', JSON.stringify({
       version: ROUTER_VERSION,
