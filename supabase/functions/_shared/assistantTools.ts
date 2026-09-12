@@ -984,6 +984,7 @@ const parseVerifiedRelatedRecords = (execution: AssistantToolExecution) => {
   if (execution.summary?.citationReady !== true) return {
     relations: [] as Array<Record<string, unknown>>,
     objects: [] as Array<Record<string, unknown>>,
+    pagination: null as Record<string, unknown> | null,
   }
   try {
     const parsed = JSON.parse(execution.output)
@@ -997,9 +998,12 @@ const parseVerifiedRelatedRecords = (execution: AssistantToolExecution) => {
       objects: Array.isArray(records.objects)
         ? records.objects.filter((item: unknown) => item && typeof item === 'object') as Array<Record<string, unknown>>
         : [],
+      pagination: records.pagination && typeof records.pagination === 'object'
+        ? records.pagination as Record<string, unknown>
+        : null,
     }
   } catch {
-    return { relations: [], objects: [] }
+    return { relations: [], objects: [], pagination: null }
   }
 }
 
@@ -1007,6 +1011,8 @@ async function getMessageDetailWithRelations(
   client: any,
   workspaceId: string,
   canonicalKey: string,
+  rawRelationCursor: unknown,
+  rawRelationWindowSize: unknown,
 ): Promise<AssistantToolExecution> {
   const detail = await getExactObject(client, workspaceId, canonicalKey, ['message'], 'get_message_detail')
   if (detail.summary?.citationReady !== true) return detail
@@ -1016,15 +1022,17 @@ async function getMessageDetailWithRelations(
       canonicalKey,
       relationTypes: null,
       direction: 'both',
-      limit: 8,
+      limit: clampLimit(rawRelationWindowSize, 8, 8),
+      cursor: rawRelationCursor,
     })
     const relationRecords = parseVerifiedRelatedRecords(related)
     if (!relationRecords.relations.length && !relationRecords.objects.length) return detail
 
     const records = parsedExactRecords(detail).map((record, index) => index === 0 ? {
       ...record,
-      directRelations: relationRecords.relations.slice(0, 8),
-      relatedObjects: relationRecords.objects.slice(0, 8),
+      directRelations: relationRecords.relations,
+      relatedObjects: relationRecords.objects,
+      relationPagination: relationRecords.pagination,
     } : record)
 
     return {
@@ -1035,6 +1043,8 @@ async function getMessageDetailWithRelations(
         relationHintCount: relationRecords.relations.length,
         relatedObjectHintCount: relationRecords.objects.length,
         relationHintsIncluded: true,
+        relationHasMore: relationRecords.pagination?.hasMore === true,
+        relationNextCursor: relationRecords.pagination?.nextCursor || null,
       },
     }
   } catch {
