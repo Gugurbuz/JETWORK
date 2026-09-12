@@ -235,6 +235,11 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
         .filter(name => name !== 'report_progress')
     : []
 
+  let bufferedVerifiedText = ''
+  const providerOnText = input.verifiedEvidenceAvailable
+    ? (delta: string) => { bufferedVerifiedText += delta }
+    : input.onText
+
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
@@ -251,13 +256,30 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
         : undefined,
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,
-    onText: input.onText,
+    onText: providerOnText,
     onStepEvent: input.onStepEvent,
     signal: input.signal,
   }
 
   const response = await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
   let normalizedResponse = response
+  const responseHasFunctionCall = (response.output || []).some(item => String(item.type || '') === 'function_call')
+  if (input.verifiedEvidenceAvailable && bufferedVerifiedText.trim() && !responseHasFunctionCall) {
+    const sanitized = sanitizeNovelCustomIdentifierClaims(
+      bufferedVerifiedText,
+      verifiedAnswerabilityContext(input.items),
+    )
+    const safeText = String(sanitized.text || '').trim()
+    if (!safeText) throw new Error('Gemini verified-evidence answer was fully removed by literal-source provenance guard.')
+    input.onText(safeText)
+    normalizedResponse = {
+      ...normalizedResponse,
+      output: assistantMessageOutput(normalizedResponse, safeText),
+      usage: mergeUsage(normalizedResponse.usage, {
+        verified_answerability_sanitized_segments: sanitized.removedSegments,
+      }),
+    }
+  }
 
   if (evidenceFinalizeVisible && input.verifiedEvidenceAvailable) {
     const output = normalizedResponse.output || []
@@ -284,18 +306,19 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       }
       const answer = String(args.answer || '').trim()
       if (!answer) throw new Error('Gemini verified-evidence finalizer returned an empty answer.')
-      const interactionId = String(finalCall._gemini_interaction_id || normalizedResponse.id || '').trim()
-      input.onText(answer)
+      const sanitized = sanitizeNovelCustomIdentifierClaims(
+        answer,
+        verifiedAnswerabilityContext(input.items),
+      )
+      const safeAnswer = String(sanitized.text || '').trim()
+      if (!safeAnswer) throw new Error('Gemini verified-evidence finalizer was fully removed by literal-source provenance guard.')
+      input.onText(safeAnswer)
       normalizedResponse = {
         ...normalizedResponse,
-        output: [{
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: answer, annotations: [] }],
-          ...(interactionId ? { _gemini_interaction_id: interactionId } : {}),
-        }],
+        output: assistantMessageOutput(normalizedResponse, safeAnswer),
         usage: mergeUsage(normalizedResponse.usage, {
           controller_verified_evidence_finalized: 1,
+          verified_answerability_sanitized_segments: sanitized.removedSegments,
         }),
       }
     } else if (finalizeCalls.length > 0 && otherFunctionCalls.length > 0) {
