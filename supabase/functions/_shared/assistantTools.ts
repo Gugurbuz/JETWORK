@@ -849,6 +849,8 @@ async function getFocusedAbapSource(
   workspaceId: string,
   canonicalKey: string,
   rawFocusIdentifiers: unknown,
+  rawFocusCursor: unknown,
+  rawFocusWindowSize: unknown,
 ): Promise<AssistantToolExecution> {
   const focusIdentifiers = cleanFocusIdentifiers(rawFocusIdentifiers)
   const exact = await getExactObject(client, workspaceId, canonicalKey, ['class','method','function'], 'get_abap_source')
@@ -857,8 +859,15 @@ async function getFocusedAbapSource(
   const records = parsedExactRecords(exact)
   if (!records.length) return exact
   const primary = records[0]
-  const focusedEvidence = focusedSourceExcerpts(primary.content, focusIdentifiers)
-  if (!focusedEvidence.length) return exact
+  const allWindows = focusedSourceWindows(primary.content, focusIdentifiers)
+  if (!allWindows.length) return exact
+
+  const offset = Math.min(decodeWindowCursor(rawFocusCursor, 'focus'), allWindows.length)
+  const windowSize = clampLimit(rawFocusWindowSize, 3, 3)
+  const focusedEvidence = allWindows.slice(offset, offset + windowSize)
+  const hasMore = offset + focusedEvidence.length < allWindows.length
+  const nextCursor = hasMore ? encodeWindowCursor('focus', offset + focusedEvidence.length) : null
+  const previousCursor = offset > 0 ? encodeWindowCursor('focus', Math.max(0, offset - windowSize)) : null
 
   const verifiedSignals = primary.verifiedSignals && typeof primary.verifiedSignals === 'object'
     ? primary.verifiedSignals as Record<string, unknown>
@@ -874,19 +883,29 @@ async function getFocusedAbapSource(
       return Boolean(normalizedLine && normalizedFocusedContent.includes(normalizedLine))
     }),
   )
-  const focusedCodes = Object.keys(focusedLineIndex)
+  const pagination = {
+    cursor: rawFocusCursor ? String(rawFocusCursor) : null,
+    previousCursor,
+    nextCursor,
+    hasMore,
+    windowSize,
+    returnedWindows: focusedEvidence.length,
+    totalWindows: allWindows.length,
+    offset,
+  }
 
   const focusedRecord = {
     ...primary,
     focusIdentifiers,
     focusedSource: true,
+    focusPagination: pagination,
     verifiedSignals: {
       ...verifiedSignals,
-      abapMessageCodes: focusedCodes,
+      abapMessageCodes: Object.keys(focusedLineIndex),
       abapMessageLinesByCode: focusedLineIndex,
     },
     content: focusedEvidence.map(item => (
-      `[FOCUS ${item.identifiers.join(', ')}]\n${item.excerpt}\n[END FOCUS]`
+      `[FOCUS ${item.identifiers.join(', ')} | lines ${item.startLine}-${item.endLine}]\n${item.excerpt}\n[END FOCUS]`
     )).join('\n\n'),
   }
 
@@ -898,6 +917,10 @@ async function getFocusedAbapSource(
       focusedSource: true,
       focusIdentifierCount: focusIdentifiers.length,
       focusedEvidenceCount: focusedEvidence.length,
+      focusedTotalWindowCount: allWindows.length,
+      focusHasMore: hasMore,
+      focusNextCursor: nextCursor,
+      focusWindowSize: windowSize,
     },
   }
 }
@@ -1141,7 +1164,7 @@ export async function executeAssistantTool(
   if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
     if (!canonicalKey) throw new Error('canonicalKey is required.')
-    return getFocusedAbapSource(client, workspaceId, canonicalKey, args.focusIdentifiers)
+    return getFocusedAbapSource(client, workspaceId, canonicalKey, args.focusIdentifiers, args.focusCursor, args.focusWindowSize)
   }
   if (toolName === 'get_message_detail') {
     const canonicalKey = normalizeCanonicalKey(args.messageCode, 'message')
