@@ -80,11 +80,9 @@ const boundedIntegerEnv = (name: string, fallback: number, minimum: number, maxi
   return Math.max(minimum, Math.min(Math.trunc(parsed), maximum))
 }
 
-const MAX_TOOL_ROUNDS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_ROUNDS', 6, 1, 8)
-const MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24, 4, 40)
-const MAX_CAPABILITY_DISCLOSURE_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_CAPABILITY_DISCLOSURE_CALLS', 3, 1, 6)
 const TOOL_TIMEOUT_MS = boundedIntegerEnv('ASSISTANT_TOOL_TIMEOUT_MS', 12_000, 1_000, 30_000)
 const RUN_TIMEOUT_MS = boundedIntegerEnv('ASSISTANT_V2_RUN_TIMEOUT_MS', 145_000, 30_000, 150_000)
+const FINAL_SYNTHESIS_RESERVE_MS = boundedIntegerEnv('ASSISTANT_V2_FINAL_SYNTHESIS_RESERVE_MS', 8_000, 2_000, 30_000)
 const MAX_OUTPUT_TOKENS = boundedIntegerEnv('ASSISTANT_MAX_OUTPUT_TOKENS', 12_000, 512, 24_000)
 const USER_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_USER_REQUESTS_PER_MINUTE', 6, 1, 60)
 const WORKSPACE_REQUESTS_PER_MINUTE = boundedIntegerEnv('ASSISTANT_WORKSPACE_REQUESTS_PER_MINUTE', 30, 1, 240)
@@ -802,6 +800,7 @@ serve(async req => {
       let planForArtifactCompletion: ReasoningPlan | null = null
       let turnCompleted = false
       const runController = new AbortController()
+      const runStartedAt = performance.now()
       const runTimeout = setTimeout(() => runController.abort(new DOMException('Assistant run timed out.', 'TimeoutError')), RUN_TIMEOUT_MS)
       const streamHeartbeat = setInterval(() => {
         try {
