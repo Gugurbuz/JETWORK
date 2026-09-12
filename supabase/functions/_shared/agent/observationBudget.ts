@@ -101,11 +101,17 @@ export const readObservationContent = (input: {
   output: string
   mode: 'slice' | 'find'
   query?: string | null
+  cursor?: string | null
   offset?: number | null
   maxChars?: number | null
 }) => {
   const output = String(input.output ?? '')
   const maxChars = Math.max(500, Math.min(Math.trunc(Number(input.maxChars) || 6_000), OBSERVATION_READ_MAX_CHARS))
+  const cursorOffset = (() => {
+    const raw = String(input.cursor || '').trim()
+    const match = raw.match(/^obs:(\d+)$/u)
+    return match?.[1] ? Math.max(0, Number(match[1]) || 0) : null
+  })()
 
   if (input.mode === 'find') {
     const query = String(input.query || '').trim()
@@ -114,6 +120,8 @@ export const readObservationContent = (input: {
     if (index < 0) return { ok: true, mode: 'find' as const, query, found: false, fullCharacters: output.length, text: '' }
     const start = Math.max(0, index - Math.floor(maxChars * 0.25))
     const text = output.slice(start, start + maxChars)
+    const hasMoreBefore = start > 0
+    const hasMoreAfter = start + text.length < output.length
     return {
       ok: true,
       mode: 'find' as const,
@@ -122,21 +130,30 @@ export const readObservationContent = (input: {
       matchOffset: index,
       returnedOffset: start,
       fullCharacters: output.length,
-      hasMoreBefore: start > 0,
-      hasMoreAfter: start + text.length < output.length,
+      hasMoreBefore,
+      hasMoreAfter,
+      previousCursor: hasMoreBefore ? `obs:${Math.max(0, start - maxChars)}` : null,
+      nextCursor: hasMoreAfter ? `obs:${start + text.length}` : null,
+      windowCharacters: maxChars,
       text,
     }
   }
 
-  const offset = Math.max(0, Math.min(Math.trunc(Number(input.offset) || 0), output.length))
+  const requestedOffset = cursorOffset ?? Math.trunc(Number(input.offset) || 0)
+  const offset = Math.max(0, Math.min(requestedOffset, output.length))
   const text = output.slice(offset, offset + maxChars)
+  const hasMoreBefore = offset > 0
+  const hasMoreAfter = offset + text.length < output.length
   return {
     ok: true,
     mode: 'slice' as const,
     returnedOffset: offset,
     fullCharacters: output.length,
-    hasMoreBefore: offset > 0,
-    hasMoreAfter: offset + text.length < output.length,
+    hasMoreBefore,
+    hasMoreAfter,
+    previousCursor: hasMoreBefore ? `obs:${Math.max(0, offset - maxChars)}` : null,
+    nextCursor: hasMoreAfter ? `obs:${offset + text.length}` : null,
+    windowCharacters: maxChars,
     text,
   }
 }
