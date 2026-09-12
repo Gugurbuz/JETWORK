@@ -7,7 +7,7 @@ type WindowedToolResult = {
     objectType?: string
     title?: string
   }>
-  summary?: Record<string, unknown>
+  summary: Record<string, unknown>
 }
 
 const clean = (value: unknown, max: number) => String(value ?? '').trim().slice(0, max)
