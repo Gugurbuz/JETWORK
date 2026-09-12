@@ -183,7 +183,7 @@ const FOUNDATIONAL_EVIDENCE_MENU = [
   '- get_related_objects(canonicalKey, relationTypes, direction, limit): inspect structural CALLS, EMITS_MESSAGE, READS, WRITES and similar relations for a known object.',
   '- get_knowledge_evidence_pack(canonicalKey, hops, limit): read a bounded 1-2 hop evidence graph around one known object.',
   '- get_message_detail(messageCode): read an exact CRM/ABAP message when its code is known; when available it also returns bounded verified directRelations/relatedObjects hints so linked canonical objects do not need to be rediscovered.',
-  '- get_abap_source(canonicalKey, focusIdentifiers): read exact published ABAP source for a known class/method/function. focusIdentifiers is nullable: pass a model-chosen identifier array when the unresolved claim names a message code, technical identifier, method or field; otherwise pass null. Focused mode returns a small literal source excerpt instead of forcing a later raw-source read.',
+  '- get_abap_source(canonicalKey, focusIdentifiers, focusCursor, focusWindowSize): read one exact ABAP source window. Start focusCursor=null. If focusPagination.hasMore=true, pass focusPagination.nextCursor to read another window. focusWindowSize only controls one transfer window.',
   '- search_document(query, limit) / get_document_content(canonicalKey): discover then read exact published documents.',
   'Prefer the shortest sufficient evidence path. For “what does this object call/emit/read/write?” questions, structural relation evidence is usually more direct than repeated broad search. Do not call discovery if one of these known capabilities already fits.',
 ].join('\n')
