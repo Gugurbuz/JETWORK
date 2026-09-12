@@ -4,7 +4,7 @@ import {
   ASSISTANT_KNOWLEDGE_TOOLS,
   executeAssistantTool,
   type AssistantToolExecution,
-} from '../_shared/assistantTools.ts'
+} from '../_shared/assistantToolsWindowed.ts'
 import {
   ASSISTANT_SKILL_TOOLS,
   executeSkillTool,
