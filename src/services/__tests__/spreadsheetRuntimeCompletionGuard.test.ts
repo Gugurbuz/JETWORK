@@ -13,9 +13,12 @@ const executionToolsSource = readFileSync(
 )
 
 describe('Semantic artifact runtime completion guard', () => {
-  it('keeps enough mechanical tool budget for inspect and execution workflows', () => {
-    expect(coreSource).toMatch(/ASSISTANT_V2_MAX_TOOL_ROUNDS', 6, 1, 8/)
-    expect(coreSource).toMatch(/ASSISTANT_V2_MAX_TOOL_CALLS', 24, 4, 40/)
+  it('keeps artifact workflows bounded by physical runtime time rather than semantic call counts', () => {
+    expect(coreSource).not.toContain('ASSISTANT_V2_MAX_TOOL_ROUNDS')
+    expect(coreSource).not.toContain('ASSISTANT_V2_MAX_TOOL_CALLS')
+    expect(coreSource).toContain('RUN_TIMEOUT_MS')
+    expect(coreSource).toContain('FINAL_SYNTHESIS_RESERVE_MS')
+    expect(coreSource).toContain('!runController.signal.aborted')
   })
 
   it('does not accept a final response while the semantic artifact contract is still pending', () => {
