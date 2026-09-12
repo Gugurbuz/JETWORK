@@ -898,7 +898,6 @@ serve(async req => {
       }
 
       const runSkillTool = async (toolName: string, args: Record<string, unknown>, callPrefix: string) => {
-        if (totalToolCalls >= MAX_TOOL_CALLS) throw new Error('Assistant exceeded the safe tool-call limit.')
         const cacheKey = `${toolName}:${stableJson(args)}`
         const cached = skillToolResultCache.get(cacheKey)
         if (cached) return cached
@@ -1145,11 +1144,11 @@ serve(async req => {
           const shouldUseConditionalWeb = plan.webMode === 'if_internal_insufficient'
             && (verification.verdict !== 'sufficient' || !evidence.length)
           const followWeb = verification.followUpWebQueries.slice(0, 2)
-          if (followKnowledge.length && totalToolCalls < MAX_TOOL_CALLS) {
+          if (followKnowledge.length) {
             emitStatus('searching_knowledge', 'Doğrulama için ek kurumsal kanıt aranıyor...')
             await collectKnowledge(followKnowledge, { ...plan, complexity: 'medium' }, 'followup')
           }
-          if ((shouldUseConditionalWeb || followWeb.length) && openAiApiKey && totalToolCalls < MAX_TOOL_CALLS) {
+          if ((shouldUseConditionalWeb || followWeb.length) && openAiApiKey) {
             emitStatus('searching_web', 'Eksik kanıt için dış kaynak doğrulaması yapılıyor...')
             await collectWeb((followWeb.length ? followWeb : [plan.goal]).join('\n'), plan, 'followup')
           }
@@ -1449,7 +1448,7 @@ serve(async req => {
             }
             evidenceFinalSynthesisPending = false
             if (semanticArtifactRequired() && generatedArtifacts.size === 0) {
-              if (!mustSynthesize && totalToolCalls < MAX_TOOL_CALLS) {
+              if (!mustSynthesize) {
                 runItems.push({
                   role: 'developer',
                   content: 'SEMANTIC_ARTIFACT_REQUIRED: Kullanıcı talebinin teslim biçimi gerçek artifact gerektiriyor. Uygun artifact capability/executorunu çağır. Executor artifact döndürmeden dosya tamamlandı deme.',
