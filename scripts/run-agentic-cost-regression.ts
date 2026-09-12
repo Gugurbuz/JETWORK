@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+// benchmark trigger: literal-source provenance completion v2
 // benchmark trigger: verified-evidence finalizer + canonical dedupe + literal provenance recovery
 // benchmark trigger: explicit post-evidence controller decision
 // benchmark trigger: direct relation hints and structured evidence reuse
