@@ -77,7 +77,7 @@ export const REQUEST_LARGE_CONTEXT_TOOL: RuntimeToolSchema = {
 export const REQUEST_OBSERVATION_CONTENT_TOOL: RuntimeToolSchema = {
   type: 'function',
   name: REQUEST_OBSERVATION_CONTENT_TOOL_NAME,
-  description: 'Read a bounded slice from a previously truncated tool observation. The model chooses either a literal find query or an offset slice; runtime performs no semantic selection. truncated=true alone is not a reason to read raw content: first use any structured verifiedSignals, directRelations, relatedObjects, canonical identifiers and excerpts already present in the compact preview. Read raw content only when a material claim still depends on detail that is genuinely absent from that structured preview.',
+  description: 'Read one transport window from a previously truncated tool observation. This is cursor-continuable, not a total evidence cap: use cursor=null for the first slice, then reuse nextCursor/previousCursor as needed. The model chooses find/slice and whether another window is materially needed; runtime performs no semantic selection. truncated=true alone is not a reason to read raw content: first use structured verifiedSignals, directRelations, relatedObjects, canonical identifiers and excerpts already present in the compact preview.',
   strict: true,
   parameters: {
     type: 'object',
@@ -85,10 +85,11 @@ export const REQUEST_OBSERVATION_CONTENT_TOOL: RuntimeToolSchema = {
       observationRef: { type: 'string', minLength: 4, maxLength: 200 },
       mode: { type: 'string', enum: ['find', 'slice'] },
       query: { type: ['string', 'null'], maxLength: 500 },
+      cursor: { type: ['string', 'null'], maxLength: 120 },
       offset: { type: ['integer', 'null'], minimum: 0 },
       maxChars: { type: ['integer', 'null'], minimum: 500, maximum: 12_000 },
     },
-    required: ['observationRef', 'mode', 'query', 'offset', 'maxChars'],
+    required: ['observationRef', 'mode', 'query', 'cursor', 'offset', 'maxChars'],
     additionalProperties: false,
   },
 }
