@@ -161,10 +161,13 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   const effectiveAllowTools = input.allowTools && (
     visibleTools.length > 0 || publicWorkGate.providerWebEnabled
   )
+  const literalSourceCompletionPolicy = (
+    publicWorkGate.started || input.verifiedEvidenceAvailable
+  ) ? LITERAL_SOURCE_COMPLETION_POLICY : ''
   const systemInstruction = [
     stableProductInstruction,
     AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION,
-    LITERAL_SOURCE_COMPLETION_POLICY,
+    literalSourceCompletionPolicy,
     runtimeObservation,
     publicWorkInstruction,
   ].filter(Boolean).join('\n\n')
