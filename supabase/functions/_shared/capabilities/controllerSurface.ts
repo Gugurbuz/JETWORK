@@ -340,7 +340,12 @@ export const parseAndValidateCapabilityInvocation = (
     parsed as Record<string, unknown>,
     tool.parameters,
   )
-  const schemaError = validateSchemaValue(normalizedArgs, tool.parameters, '
+  const schemaError = validateSchemaValue(normalizedArgs, tool.parameters, '$')
+  if (schemaError) return { ok: false, error: `${name}: ${schemaError}` }
+  return { ok: true, tool, args: normalizedArgs }
+}
+
+export interface ControllerCapabilitySurface {
   version: typeof CONTROLLER_CAPABILITY_SURFACE_VERSION
   tools: RuntimeToolSchema[]
   providerWebVisible: boolean
