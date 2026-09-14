@@ -1,3 +1,4 @@
+// benchmark trigger: high-level Jetbase hosted-retrieval exact acceptance
 import { createClient } from '@supabase/supabase-js'
 // benchmark trigger: literal-source provenance completion v2
 // benchmark trigger: verified-evidence finalizer + canonical dedupe + literal provenance recovery
