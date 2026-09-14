@@ -36,6 +36,7 @@ import { hasExactTechnicalIdentifier } from '../_shared/technicalIdentifier.ts'
 import { resultHasVerifiedKnowledgeEvidence } from '../_shared/groundingGuard.ts'
 import { partitionVerifiedSourceRefs } from '../_shared/evidence/runtimeLedger.ts'
 import { compactObservation, readObservationContent } from '../_shared/agent/observationBudget.ts'
+import { windowJetbaseEvidence } from '../_shared/jetbaseEvidenceWindow.ts'
 import {
   cleanProviderItemsForOpenAi,
   DEFAULT_GEMINI_MODEL,
@@ -853,6 +854,7 @@ serve(async req => {
         totalToolCalls += 1
         const startedAt = performance.now()
         const operation = withTimeout(executeAssistantTool(client, workspaceId, toolName, args), TOOL_TIMEOUT_MS, toolName)
+          .then(result => toolName === 'retrieve_jetbase_evidence' ? windowJetbaseEvidence(result, args) : result)
         toolResultInFlight.set(cacheKey, operation)
         try {
           const result = await operation
