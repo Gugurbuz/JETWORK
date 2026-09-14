@@ -6,12 +6,13 @@ describe('Agent Controller V5 explicit source requests', () => {
   it('keeps every registered logical capability available behind the semantic batch gateway', () => {
     const surface = buildControllerCapabilitySurface()
     expect(surface.version).toBe('controller-capability-surface-v5.3-semantic-action-batch')
+    expect(surface.logicalToolNames).toContain('retrieve_jetbase_evidence')
     expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
     expect(surface.logicalToolNames).toContain('get_knowledge_object')
     expect(surface.logicalToolNames).toContain('report_progress')
     expect(surface.toolNames[0]).toBe('report_progress')
     expect(surface.toolNames).toContain('execute_capabilities')
-    expect(surface.logicalToolNames).toHaveLength(33)
+    expect(surface.logicalToolNames).toHaveLength(34)
   })
 
   it('requires an actual source attempt before an absence or access claim', () => {
