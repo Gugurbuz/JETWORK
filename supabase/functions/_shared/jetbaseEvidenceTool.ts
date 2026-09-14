@@ -240,9 +240,14 @@ export const executeRetrieveJetbaseEvidence = async (input: {
     : 'both'
   const candidateWindowSize = clamp(input.args.candidateWindowSize, 4, 8)
   const sourceWindowSize = clamp(input.args.sourceWindowSize, 2, 3)
-  const terms = unique([query, ...focusIdentifiers])
+  const queryAnchors = unique([
+    ...extractExactTechnicalIdentifiers(query, 20),
+    ...numericAnchors(query),
+  ])
+  const effectiveFocusIdentifiers = focusIdentifiers.length ? focusIdentifiers : queryAnchors
+  const terms = unique([query, ...effectiveFocusIdentifiers])
 
-  const queryVariants = retrievalQueries(query, focusIdentifiers)
+  const queryVariants = retrievalQueries(query, effectiveFocusIdentifiers)
   const searchResults = await Promise.all(queryVariants.map(searchQuery =>
     input.search(input.client, input.workspaceId, 'search_knowledge_catalog', {
       query: searchQuery,
@@ -329,7 +334,7 @@ export const executeRetrieveJetbaseEvidence = async (input: {
           client: input.client,
           workspaceId: input.workspaceId,
           canonicalKey,
-          focusIdentifiers,
+          focusIdentifiers: effectiveFocusIdentifiers,
           sourceCursor: null,
           windowSize: sourceWindowSize,
         })
@@ -378,6 +383,7 @@ export const executeRetrieveJetbaseEvidence = async (input: {
       queryVariants,
       modelAuthoredEvidenceKinds: evidenceKinds,
       modelAuthoredFocusIdentifiers: focusIdentifiers,
+      retrievalFocusIdentifiers: effectiveFocusIdentifiers,
       modelAuthoredRelationTypes: relationTypes,
       relationDirection: direction,
     },
