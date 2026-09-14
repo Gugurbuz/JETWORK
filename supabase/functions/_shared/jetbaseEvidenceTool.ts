@@ -18,10 +18,8 @@ export const RETRIEVE_JETBASE_EVIDENCE_TOOL = {
     properties: {
       query: { type: 'string', minLength: 2, maxLength: 1_200 },
       evidenceKinds: {
-        type: 'array',
-        minItems: 1,
-        uniqueItems: true,
-        items: { type: 'string', enum: ['exact', 'relations', 'source', 'document'] },
+        type: ['array', 'null'],
+        items: { type: 'string', minLength: 1, maxLength: 80 },
       },
       focusIdentifiers: {
         type: ['array', 'null'],
@@ -29,15 +27,9 @@ export const RETRIEVE_JETBASE_EVIDENCE_TOOL = {
       },
       relationTypes: {
         type: ['array', 'null'],
-        items: {
-          type: 'string',
-          enum: [
-            'CONTAINS','CALLS','READS','WRITES','EMITS_MESSAGE','EXTENDS','IMPLEMENTS','DOCUMENTS',
-            'DEPENDS_ON','CONNECTS_TO','EXPOSES','CONSUMES','PRODUCES','USES','OWNS','TRIGGERS','RELATES_TO',
-          ],
-        },
+        items: { type: 'string', minLength: 1, maxLength: 80 },
       },
-      relationDirection: { type: 'string', enum: ['outgoing', 'incoming', 'both'] },
+      relationDirection: { type: ['string', 'null'], maxLength: 40 },
       candidateWindowSize: { type: ['integer', 'null'], minimum: 1 },
       sourceWindowSize: { type: ['integer', 'null'], minimum: 1 },
     },
@@ -213,13 +205,14 @@ export const executeRetrieveJetbaseEvidence = async (input: {
   const query = clean(input.args.query, 1_200)
   if (query.length < 2) throw new Error('query is required.')
 
-  const evidenceKinds = unique(
-    (Array.isArray(input.args.evidenceKinds)
-      ? input.args.evidenceKinds
-      : ['exact','relations','source','document'])
-      .map(value => clean(value, 40))
+  const requestedEvidenceKinds = unique(
+    (Array.isArray(input.args.evidenceKinds) ? input.args.evidenceKinds : [])
+      .map(value => clean(value, 40).toLocaleLowerCase('en-US'))
       .filter(value => ['exact','relations','source','document'].includes(value)),
   )
+  const evidenceKinds = requestedEvidenceKinds.length
+    ? requestedEvidenceKinds
+    : ['exact','relations','source','document']
   const focusIdentifiers = unique(
     (Array.isArray(input.args.focusIdentifiers) ? input.args.focusIdentifiers : [])
       .map(value => clean(value, 180))
