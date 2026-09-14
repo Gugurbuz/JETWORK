@@ -11,7 +11,7 @@ export const RETRIEVE_JETBASE_EVIDENCE_TOOL = {
     'Retrieve a compact verified Jetbase evidence pack for one model-authored factual need.',
     'This is the default high-level Jetbase retrieval capability: it can combine ranked hybrid candidate search, exact-object verification, direct graph relations, related exact records and focused ABAP source windows inside one tool execution.',
     'You decide the semantic query, evidenceKinds, focusIdentifiers and relationTypes. Runtime does not decide what claim you need; it only performs retrieval/ranking/deduplication/provenance mechanics.',
-    'Use primitive search/get/relation/source capabilities only when this evidence pack leaves a material gap or when you explicitly need low-level/exhaustive traversal.',
+    'Results are transport-windowed. Start with cursor=null; when the returned evidenceWindow hasMore=true, reuse nextCursor only if a material gap remains. Primitive search/get/relation/source capabilities remain available for precise low-level or exhaustive traversal.',
   ].join(' '),
   strict: true,
   parameters: {
@@ -33,6 +33,7 @@ export const RETRIEVE_JETBASE_EVIDENCE_TOOL = {
       relationDirection: { type: ['string', 'null'], maxLength: 40 },
       candidateWindowSize: { type: ['integer', 'null'], minimum: 1 },
       sourceWindowSize: { type: ['integer', 'null'], minimum: 1 },
+      cursor: { type: ['string', 'null'], maxLength: 120 },
     },
     required: ['query'],
     additionalProperties: false,
