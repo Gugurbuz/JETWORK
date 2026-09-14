@@ -95,7 +95,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
           items: { type: 'string', minLength: 2, maxLength: 160 },
         },
         focusCursor: nullableString(120),
-        focusWindowSize: nullableInteger(1, 3),
+        focusWindowSize: { type: ['integer', 'null'], minimum: 1 },
       },
       required: ['canonicalKey', 'focusIdentifiers', 'focusCursor', 'focusWindowSize'],
       additionalProperties: false,
@@ -111,7 +111,7 @@ export const ASSISTANT_KNOWLEDGE_TOOLS = [
       properties: {
         messageCode: { type: 'string', minLength: 2, maxLength: 100 },
         relationCursor: nullableString(120),
-        relationWindowSize: nullableInteger(1, 8),
+        relationWindowSize: { type: ['integer', 'null'], minimum: 1 },
       },
       required: ['messageCode', 'relationCursor', 'relationWindowSize'],
       additionalProperties: false,
