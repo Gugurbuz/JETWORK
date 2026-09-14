@@ -10,11 +10,15 @@ on:
       - 'supabase/functions/openai-assistant-core-v2/**'
       - 'supabase/functions/_shared/modelProviders.ts'
       - 'supabase/functions/_shared/assistantTools.ts'
+      - 'supabase/functions/_shared/assistantToolsWindowed.ts'
+      - 'supabase/functions/_shared/jetbaseEvidenceTool.ts'
+      - 'supabase/functions/_shared/abapSourceWindowTool.ts'
       - 'supabase/functions/_shared/agent/observationBudget.ts'
       - 'supabase/functions/_shared/agent/publicWorkProtocol.ts'
       - 'supabase/functions/_shared/agent/controllerPolicy.ts'
       - 'supabase/functions/_shared/agent/controllerRuntimeObservation.ts'
       - 'supabase/functions/_shared/capabilities/controllerSurface.ts'
+      - 'supabase/functions/_shared/capabilities/progressiveDisclosure.ts'
       - '.github/workflows/pr278-agentic-cost-regression.yml'
 
 permissions:
