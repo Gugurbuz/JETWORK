@@ -1,12 +1,20 @@
 import {
-  ASSISTANT_KNOWLEDGE_TOOLS,
+  ASSISTANT_KNOWLEDGE_TOOLS as BASE_ASSISTANT_KNOWLEDGE_TOOLS,
   executeAssistantTool as baseExecuteAssistantTool,
   type AssistantSourceRef,
   type AssistantToolExecution,
 } from './assistantTools.ts'
 import { executeWindowedAbapSource } from './abapSourceWindowTool.ts'
+import {
+  RETRIEVE_JETBASE_EVIDENCE_TOOL,
+  RETRIEVE_JETBASE_EVIDENCE_TOOL_NAME,
+  executeRetrieveJetbaseEvidence,
+} from './jetbaseEvidenceTool.ts'
 
-export { ASSISTANT_KNOWLEDGE_TOOLS }
+export const ASSISTANT_KNOWLEDGE_TOOLS = [
+  RETRIEVE_JETBASE_EVIDENCE_TOOL,
+  ...BASE_ASSISTANT_KNOWLEDGE_TOOLS,
+] as const
 export type { AssistantSourceRef, AssistantToolExecution }
 
 const normalizeCanonicalKey = (value: unknown) =>
@@ -21,6 +29,16 @@ export async function executeAssistantTool(
   const args = rawArguments && typeof rawArguments === 'object'
     ? rawArguments as Record<string, unknown>
     : {}
+
+  if (toolName === RETRIEVE_JETBASE_EVIDENCE_TOOL_NAME) {
+    return executeRetrieveJetbaseEvidence({
+      client,
+      workspaceId,
+      args,
+      search: (innerClient, innerWorkspaceId, innerToolName, innerArgs) =>
+        baseExecuteAssistantTool(innerClient, innerWorkspaceId, innerToolName, innerArgs),
+    })
+  }
 
   if (toolName === 'get_abap_source') {
     const canonicalKey = normalizeCanonicalKey(args.canonicalKey)
