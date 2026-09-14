@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 // benchmark trigger: explicit post-evidence controller decision
 // benchmark trigger: direct relation hints and structured evidence reuse
 // benchmark trigger: focused ABAP source acceptance
+// benchmark trigger: query-only anchored high-level Jetbase retrieval
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
@@ -73,7 +74,7 @@ const scenarios: Scenario[] = [
     group: 'implementation_absent',
     step: 1,
     prompt: 'GET_SATILABILIR_LIMIT metodunun tam ABAP implementasyon kodunu ver',
-    checks: [contains('get_satilabilir_limit'), regex(/implementasyon kaynağı|tam implementasyon|mevcut değil|bulunmuyor|yer almamaktadır|yer almıyor/iu)],
+    checks: [contains('get_satilabilir_limit'), regex(/implementasyon kaynağı|tam implementasyon|mevcut değil|bulunmuyor|bulunmamaktadır|yer almamaktadır|yer almıyor/iu)],
   },
 ]
 
