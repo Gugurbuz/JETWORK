@@ -1,4 +1,4 @@
-import { ASSISTANT_KNOWLEDGE_TOOLS } from '../assistantTools.ts'
+import { ASSISTANT_KNOWLEDGE_TOOLS } from '../assistantToolsWindowed.ts'
 import { ASSISTANT_SKILL_TOOLS } from '../skillTools.ts'
 import {
   ASSISTANT_CONTEXT_TOOLS,
@@ -176,16 +176,12 @@ const requiredArgumentNames = (tool: RuntimeToolSchema | null): string[] => {
 
 
 const FOUNDATIONAL_EVIDENCE_MENU = [
-  'Core evidence capabilities available directly through this batch gateway:',
-  '- search_knowledge_catalog(query, limit): find a canonical Jetbase object when its key is not yet known.',
-  '- get_knowledge_object(canonicalKey): read one known exact Jetbase object.',
-  '- get_knowledge_objects(canonicalKeys): read several known exact objects in one batch.',
-  '- get_related_objects(canonicalKey, relationTypes, direction, limit, cursor): inspect one relation window. Start cursor=null; use nextCursor when more graph evidence is needed.',
-  '- get_knowledge_evidence_pack(canonicalKey, hops, limit): read a bounded 1-2 hop evidence graph around one known object.',
-  '- get_message_detail(messageCode, relationCursor, relationWindowSize): read the exact message plus one direct relation-hint window. Start relationCursor=null; continue with relationNextCursor when needed.',
-  '- get_abap_source(canonicalKey, focusIdentifiers, focusCursor, focusWindowSize): read one exact ABAP source window. Start focusCursor=null. If focusPagination.hasMore=true, pass focusPagination.nextCursor to read another window. focusWindowSize only controls one transfer window.',
-  '- search_document(query, limit) / get_document_content(canonicalKey): discover then read exact published documents.',
-  'Prefer the shortest sufficient evidence path. For “what does this object call/emit/read/write?” questions, structural relation evidence is usually more direct than repeated broad search. Do not call discovery if one of these known capabilities already fits.',
+  'Core Jetbase evidence capability:',
+  '- retrieve_jetbase_evidence(query, evidenceKinds, focusIdentifiers, relationTypes, relationDirection, candidateWindowSize, sourceWindowSize): default high-level retrieval for normal Jetbase factual questions. It combines hybrid search, exact verification, direct graph evidence, related exact records and focused source windows in one runtime execution while preserving candidate-vs-verified provenance.',
+  'Use this first when the semantic need can be expressed as one evidence request. You choose what evidence is needed; runtime only performs retrieval/ranking/deduplication/provenance mechanics.',
+  'Primitive Jetbase capabilities remain available for a material gap, explicit exhaustive traversal, enumeration, or a precise low-level follow-up: search_knowledge_catalog, get_knowledge_object(s), get_related_objects, get_message_detail, get_abap_source, search_document, get_document_content.',
+  'Do not manually reproduce search → exact → relation → source as separate Controller rounds when one retrieve_jetbase_evidence call can satisfy the same need.',
+
 ].join('\n')
 
 export const buildExecuteCapabilitiesTool = (): RuntimeToolSchema => ({
