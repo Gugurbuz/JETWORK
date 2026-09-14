@@ -1,5 +1,6 @@
 import type { AssistantSourceRef, AssistantToolExecution } from './assistantTools.ts'
 import { executeWindowedAbapSource } from './abapSourceWindowTool.ts'
+import { extractExactTechnicalIdentifiers } from './technicalIdentifier.ts'
 
 export const RETRIEVE_JETBASE_EVIDENCE_TOOL_NAME = 'retrieve_jetbase_evidence'
 
@@ -46,6 +47,19 @@ const clamp = (value: unknown, fallback: number, maximum: number) => {
   return Math.max(1, Math.min(Math.trunc(parsed), maximum))
 }
 const unique = <T>(values: T[]) => [...new Set(values)]
+const numericAnchors = (value: string) => unique(
+  [...value.matchAll(/(?<![\p{L}\p{N}_])(\d{2,4})(?![\p{L}\p{N}_])/gu)]
+    .map(match => String(match[1] || '').trim())
+    .filter(Boolean),
+)
+
+const retrievalQueries = (query: string, focusIdentifiers: string[]) => unique([
+  query,
+  ...extractExactTechnicalIdentifiers(query, 20),
+  ...numericAnchors(query),
+  ...focusIdentifiers,
+]).filter(value => value.length >= 2)
+
 const uniqueSources = (sources: AssistantSourceRef[]) => {
   const seen = new Set<string>()
   return sources.filter(source => {
@@ -228,11 +242,26 @@ export const executeRetrieveJetbaseEvidence = async (input: {
   const sourceWindowSize = clamp(input.args.sourceWindowSize, 2, 3)
   const terms = unique([query, ...focusIdentifiers])
 
-  const searchResult = await input.search(input.client, input.workspaceId, 'search_knowledge_catalog', {
-    query,
-    limit: candidateWindowSize,
-  })
-  const rankedCandidates = parseRecords(searchResult.output).map(candidateRecord)
+  const queryVariants = retrievalQueries(query, focusIdentifiers)
+  const searchResults = await Promise.all(queryVariants.map(searchQuery =>
+    input.search(input.client, input.workspaceId, 'search_knowledge_catalog', {
+      query: searchQuery,
+      limit: candidateWindowSize,
+    }).catch(() => null)
+  ))
+  const candidateMap = new Map<string, ReturnType<typeof candidateRecord>>()
+  for (const result of searchResults.filter(Boolean) as AssistantToolExecution[]) {
+    for (const record of parseRecords(result.output).map(candidateRecord)) {
+      const key = record.canonicalKey || `${record.objectType}:${record.name}`
+      const existing = candidateMap.get(key)
+      if (!existing || record.score > existing.score) candidateMap.set(key, record)
+    }
+  }
+  const rankedCandidates = [...candidateMap.values()]
+    .sort((left, right) => right.score - left.score || right.lexicalScore - left.lexicalScore)
+    .slice(0, candidateWindowSize)
+  const semanticVectorEnabled = (searchResults.filter(Boolean) as AssistantToolExecution[])
+    .some(result => result.summary?.semanticVectorEnabled === true)
 
   const canonicalKeys = unique([
     ...exactCanonicalCandidates(focusIdentifiers),
@@ -345,7 +374,8 @@ export const executeRetrieveJetbaseEvidence = async (input: {
       relationCount: compactRelations.length,
       relatedExactCount: relatedExacts.length,
       sourceWindowCount: sourceWindows.length,
-      semanticVectorEnabled: searchResult.summary?.semanticVectorEnabled === true,
+      semanticVectorEnabled,
+      queryVariants,
       modelAuthoredEvidenceKinds: evidenceKinds,
       modelAuthoredFocusIdentifiers: focusIdentifiers,
       modelAuthoredRelationTypes: relationTypes,
@@ -372,7 +402,7 @@ export const executeRetrieveJetbaseEvidence = async (input: {
       relatedExactCount: relatedExacts.length,
       sourceWindowCount: sourceWindows.length,
       retrievalEngine: 'jetbase-evidence-pack-v1',
-      internalSearchCalls: 1,
+      internalSearchCalls: queryVariants.length,
       internalExactReads: exactResolved.length + relatedResolved.length,
       internalRelationReads: evidenceKinds.includes('relations') || evidenceKinds.includes('source') ? exactResolved.length : 0,
       internalSourceReads: sourceWindows.length,
