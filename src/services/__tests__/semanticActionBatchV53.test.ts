@@ -55,17 +55,20 @@ describe('V5.3 semantic action batching', () => {
 
   it('keeps ABAP source focusing model-authored and literal', () => {
     expect(coreSource).not.toContain("if (messageCode === 'ZCRM_COST-111')")
-    expect(surfaceSource).toContain('focusIdentifiers')
     const toolsSource = readFileSync(
-      new URL('../../../supabase/functions/_shared/assistantTools.ts', import.meta.url),
+      new URL('../../../supabase/functions/_shared/assistantToolsWindowed.ts', import.meta.url),
       'utf8',
     )
-    expect(toolsSource).toContain('focusedSourceWindows')
-    expect(toolsSource).toContain('focusPagination')
-    expect(toolsSource).toContain('focusNextCursor')
-    expect(toolsSource).toContain('normalizedMessageCodeFromFocus')
-    expect(toolsSource).toContain('focusedSource: true')
-    expect(toolsSource).toContain('args.focusIdentifiers')
+    const sourceWindowTool = readFileSync(
+      new URL('../../../supabase/functions/_shared/abapSourceWindowTool.ts', import.meta.url),
+      'utf8',
+    )
+    expect(toolsSource).toContain('focusIdentifiers: args.focusIdentifiers')
+    expect(sourceWindowTool).toContain('focusIdentifiers')
+    expect(sourceWindowTool).toContain('sourcePagination')
+    expect(sourceWindowTool).toContain('sourceNextCursor')
+    expect(sourceWindowTool).toContain('normalizeMessageFocus')
+    expect(sourceWindowTool).toContain('focusedSource: focuses.length > 0')
   })
 
   it('uses structured verified evidence before raw observation reads', () => {
