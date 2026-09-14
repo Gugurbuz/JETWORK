@@ -21,15 +21,7 @@ describe('high-level Jetbase evidence retrieval', () => {
 
     const invocation = parseAndValidateCapabilityInvocation(
       RETRIEVE_JETBASE_EVIDENCE_TOOL_NAME,
-      JSON.stringify({
-        query: 'CHECK_ZTKS hangi mesajları üretiyor?',
-        evidenceKinds: ['exact', 'relations'],
-        focusIdentifiers: ['CHECK_ZTKS'],
-        relationTypes: ['EMITS_MESSAGE'],
-        relationDirection: 'both',
-        candidateWindowSize: 4,
-        sourceWindowSize: 2,
-      }),
+      JSON.stringify({ query: 'CHECK_ZTKS hangi mesajları üretiyor?' }),
     )
     expect(invocation.ok).toBe(true)
   })
@@ -104,12 +96,6 @@ describe('high-level Jetbase evidence retrieval', () => {
       workspaceId: 'workspace-1',
       args: {
         query: 'CHECK_DEMO ZCRM_COST-111 ABAP',
-        evidenceKinds: ['exact', 'relations', 'source'],
-        focusIdentifiers: ['CHECK_DEMO', 'ZCRM_COST-111'],
-        relationTypes: ['EMITS_MESSAGE'],
-        relationDirection: 'both',
-        candidateWindowSize: 4,
-        sourceWindowSize: 2,
       },
       search: async () => ({
         output: JSON.stringify({
@@ -139,6 +125,7 @@ describe('high-level Jetbase evidence retrieval', () => {
     expect(payload.records.relations[0].relationType).toBe('EMITS_MESSAGE')
     expect(payload.records.relatedExact.some((record: { canonicalKey?: string }) => record.canonicalKey === messageRow.canonical_key)).toBe(true)
     expect(payload.records.source[0].content).toContain('MESSAGE e111(zcrm_cost)')
+    expect(payload.records.retrieval.retrievalFocusIdentifiers).toContain('ZCRM_COST-111')
     expect(result.summary.retrievalEngine).toBe('jetbase-evidence-pack-v1')
     expect(rpcCalls).toContain('get_related_knowledge_objects_v2')
     expect(rpcCalls.filter(name => name === 'get_knowledge_object_v2').length).toBeGreaterThanOrEqual(2)
