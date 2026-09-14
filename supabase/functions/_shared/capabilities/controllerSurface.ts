@@ -177,8 +177,8 @@ const requiredArgumentNames = (tool: RuntimeToolSchema | null): string[] => {
 
 const FOUNDATIONAL_EVIDENCE_MENU = [
   'Core Jetbase evidence capability:',
-  '- retrieve_jetbase_evidence(query, evidenceKinds, focusIdentifiers, relationTypes, relationDirection, candidateWindowSize, sourceWindowSize): default high-level retrieval for normal Jetbase factual questions. It combines hybrid search, exact verification, direct graph evidence, related exact records and focused source windows in one runtime execution while preserving candidate-vs-verified provenance.',
-  'Use this first when the semantic need can be expressed as one evidence request. You choose what evidence is needed; runtime only performs retrieval/ranking/deduplication/provenance mechanics.',
+  '- retrieve_jetbase_evidence(query, optional hints): default high-level retrieval for normal Jetbase factual questions. `query` alone is sufficient. It combines hybrid search, exact verification, direct graph evidence, related exact records and focused source windows in one runtime execution while preserving candidate-vs-verified provenance.',
+  'Use this first when the semantic need can be expressed as one evidence request. Prefer a simple query-only call unless optional focus/relation hints materially improve precision. Runtime only performs retrieval/ranking/deduplication/provenance mechanics.',
   'Primitive Jetbase capabilities remain available for a material gap, explicit exhaustive traversal, enumeration, or a precise low-level follow-up: search_knowledge_catalog, get_knowledge_object(s), get_related_objects, get_message_detail, get_abap_source, search_document, get_document_content.',
   'Do not manually reproduce search → exact → relation → source as separate Controller rounds when one retrieve_jetbase_evidence call can satisfy the same need.',
 
