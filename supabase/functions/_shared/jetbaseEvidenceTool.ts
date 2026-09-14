@@ -38,13 +38,10 @@ export const RETRIEVE_JETBASE_EVIDENCE_TOOL = {
         },
       },
       relationDirection: { type: 'string', enum: ['outgoing', 'incoming', 'both'] },
-      candidateWindowSize: { type: ['integer', 'null'], minimum: 1, maximum: 8 },
-      sourceWindowSize: { type: ['integer', 'null'], minimum: 1, maximum: 3 },
+      candidateWindowSize: { type: ['integer', 'null'], minimum: 1 },
+      sourceWindowSize: { type: ['integer', 'null'], minimum: 1 },
     },
-    required: [
-      'query','evidenceKinds','focusIdentifiers','relationTypes','relationDirection',
-      'candidateWindowSize','sourceWindowSize',
-    ],
+    required: ['query'],
     additionalProperties: false,
   },
 } as const
@@ -217,7 +214,9 @@ export const executeRetrieveJetbaseEvidence = async (input: {
   if (query.length < 2) throw new Error('query is required.')
 
   const evidenceKinds = unique(
-    (Array.isArray(input.args.evidenceKinds) ? input.args.evidenceKinds : [])
+    (Array.isArray(input.args.evidenceKinds)
+      ? input.args.evidenceKinds
+      : ['exact','relations','source','document'])
       .map(value => clean(value, 40))
       .filter(value => ['exact','relations','source','document'].includes(value)),
   )
