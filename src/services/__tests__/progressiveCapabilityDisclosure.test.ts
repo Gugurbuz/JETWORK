@@ -14,11 +14,11 @@ import {
 import { toOllamaTools } from '../../../supabase/functions/_shared/ollamaProvider.ts'
 
 describe('Controller V5.3 semantic action batching with legacy disclosure compatibility', () => {
-  it('keeps 33 logical capabilities while initial provider surface stays tiny', () => {
+  it('keeps 34 logical capabilities while initial provider surface stays tiny', () => {
     const surface = buildControllerCapabilitySurface()
     expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5.3-semantic-action-batch')
-    expect(JETWORK_LOGICAL_CAPABILITY_NAMES).toHaveLength(33)
-    expect(surface.logicalToolNames).toHaveLength(33)
+    expect(JETWORK_LOGICAL_CAPABILITY_NAMES).toHaveLength(34)
+    expect(surface.logicalToolNames).toHaveLength(34)
     expect(surface.logicalToolNames).toEqual(JETWORK_LOGICAL_CAPABILITY_NAMES)
     expect(surface.tools.map(tool => tool.name)).toEqual([
       'report_progress',
@@ -38,7 +38,7 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
   })
 
   it('gives every logical capability a meaningful Layer-1 summary and Layer-2 guide', () => {
-    expect(JETWORK_CAPABILITY_INDEX).toHaveLength(33)
+    expect(JETWORK_CAPABILITY_INDEX).toHaveLength(34)
     for (const capability of JETWORK_CAPABILITY_INDEX) {
       expect(capability.summary.length).toBeGreaterThanOrEqual(90)
       expect(capability.guide.length).toBeGreaterThanOrEqual(80)
@@ -48,6 +48,7 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
   it('does not expose exact canonical schemas before Layer 3 activation', () => {
     const surface = buildControllerCapabilitySurface()
     expect(surface.tools.some(tool => tool.name === 'search_knowledge_catalog')).toBe(false)
+    expect(getCanonicalCapabilityTool('retrieve_jetbase_evidence')?.parameters).toBeTruthy()
     expect(surface.tools.some(tool => tool.name === 'create_document_file')).toBe(false)
     expect(getCanonicalCapabilityTool('search_knowledge_catalog')?.parameters).toBeTruthy()
     expect(getCanonicalCapabilityTool('create_document_file')?.parameters).toBeTruthy()
