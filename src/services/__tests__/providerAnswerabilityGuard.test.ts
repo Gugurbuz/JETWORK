@@ -103,6 +103,28 @@ describe('provider answerability guard', () => {
     expect(result.removedSegments).toBeGreaterThanOrEqual(2)
   })
 
+  it('removes invented source comments from fenced code when verified evidence does not contain them', () => {
+    const result = sanitizeNovelCustomIdentifierClaims(
+      [
+        'Kaynak özeti:',
+        '```abap',
+        '" muhtemel alternatif çağrı',
+        'ENDIF.',
+        '```',
+      ].join('\n'),
+      [
+        'ABAP kaynak kodunu ver',
+        'VERIFIED_KNOWLEDGE_EVIDENCE',
+        'MESSAGE e111(zcrm_cost).',
+      ].join('\n'),
+    )
+
+    expect(result.text).not.toContain('muhtemel alternatif çağrı')
+    expect(result.text).not.toContain('ENDIF.')
+    expect(result.text).toContain('literal kod satırları gösterilmedi')
+    expect(result.removedSegments).toBeGreaterThanOrEqual(2)
+  })
+
   it('keeps a fenced literal source line when it exists in verified evidence', () => {
     const line = 'MESSAGE e111(zcrm_cost).'
     const result = sanitizeNovelCustomIdentifierClaims(

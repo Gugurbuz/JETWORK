@@ -105,7 +105,7 @@ describe('Live runtime status and grounding regression', () => {
     );
 
     expect(providerSource).toContain('requestGeminiInteractionsResponseGA')
-    expect(providerSource).toContain('AGENT_CONTROLLER_INSTRUCTION')
+    expect(providerSource).toContain('AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION')
     expect(providerSource).toContain('gateGeminiAgentToolsForPublicWork')
     expect(providerSource).toContain('publicWorkInstruction')
     expect(providerSource).not.toContain('requestBaseWithEnterpriseEvidenceReplan')
@@ -140,7 +140,10 @@ describe('Live runtime status and grounding regression', () => {
     expect(runtimeSource).toContain('capabilitySession?.surface.tools || []');
     expect(runtimeSource).toContain('capabilitySession?.surface.providerWebVisible === true');
     expect(runtimeSource).not.toContain("AGENTIC_CONTROLLER_ENABLED || plan.webMode !== 'none'");
-    expect(runtimeSource).toContain("MAX_TOOL_CALLS = boundedIntegerEnv('ASSISTANT_V2_MAX_TOOL_CALLS', 24");
+    expect(runtimeSource).not.toContain('TOOL_BUDGET_EXHAUSTED')
+    expect(runtimeSource).not.toContain('totalToolCalls >= MAX_TOOL_CALLS')
+    expect(runtimeSource).toContain('FINAL_SYNTHESIS_RESERVE_MS')
+    expect(runtimeSource).toContain('!runController.signal.aborted')
     expect(surfaceSource).toContain("CONTROLLER_CAPABILITY_SURFACE_VERSION = 'controller-capability-surface-v5.3-semantic-action-batch'")
     expect(surfaceSource).toContain('surfaceWithActivated')
     expect(surfaceSource).toContain('providerWebVisible: false')
@@ -151,8 +154,8 @@ describe('Live runtime status and grounding regression', () => {
     expect(surfaceSource).toContain('activatedToolNames')
     expect(disclosureSource).toContain('JETWORK_CAPABILITY_INDEX')
     expect(surfaceSource).not.toContain('invoke_capability')
-    expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
-    expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
+    expect(surfaceSource).not.toContain('mandatoryCapability')
+    expect(surfaceSource).toContain('discoverIndexedCapabilities')
     expect(surfaceSource).not.toContain('CONTROLLER_TOOL_GUIDANCE')
   });
 

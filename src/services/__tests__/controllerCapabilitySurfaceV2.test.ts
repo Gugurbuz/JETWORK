@@ -15,9 +15,11 @@ describe('controller capability surface v5', () => {
     expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5.3-semantic-action-batch')
     expect(surface.toolNames).toEqual([
       'report_progress',
+      'discover_more_capabilities',
       'execute_capabilities',
       'request_large_context',
     ])
+    expect(surface.logicalToolNames).toContain('retrieve_jetbase_evidence')
     expect(surface.logicalToolNames).toContain('search_knowledge_catalog')
     expect(surface.logicalToolNames).toContain('get_knowledge_object')
     expect(surface.logicalToolNames).toContain('get_related_objects')
@@ -25,7 +27,7 @@ describe('controller capability surface v5', () => {
     expect(surface.logicalToolNames).toContain('load_skills')
     expect(surface.logicalToolNames).toContain('list_capabilities')
     expect(surface.logicalToolNames).toContain('review_evidence_coverage')
-    expect(surface.logicalToolNames).toHaveLength(33)
+    expect(surface.logicalToolNames).toHaveLength(34)
     expect(surface.logicalToolNames).not.toContain(DISCOVER_MORE_CAPABILITIES_TOOL_NAME)
     expect(surface.providerWebVisible).toBe(false)
     expect(surface.candidateIds).toEqual([])
@@ -33,6 +35,7 @@ describe('controller capability surface v5', () => {
   })
 
   it('retains exact canonical retrieval contracts behind Layer 3', () => {
+    expect(String(getCanonicalCapabilityTool('retrieve_jetbase_evidence')?.description)).toContain('default high-level Jetbase retrieval capability')
     expect(String(getCanonicalCapabilityTool('search_knowledge_catalog')?.description)).toContain('ranked candidate discovery')
     expect(String(getCanonicalCapabilityTool('search_knowledge_catalog')?.description)).toContain('jointly meaningful user terms together')
     expect(String(getCanonicalCapabilityTool('search_knowledge_catalog')?.description)).toContain('zero-result candidate search is an observation')
@@ -61,11 +64,8 @@ describe('controller capability surface v5', () => {
     })
 
     expect(observation.discoveryMode).toBe('semantic_action_batch')
-    expect(observation.logicalCapabilityCount).toBe(33)
-    expect(observation.instruction).toContain('sole semantic Controller')
-    expect(observation.instruction).toContain('execute_capabilities')
-    expect(observation.instruction).toContain('actions=[{id, capability, argumentsJson}]')
-    expect(observation.instruction).toContain('Batch independent actions')
+    expect(observation.instruction).toContain('Capability catalog is lazy')
+    expect(observation.instruction).toContain('discover_more_capabilities')
     expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
     expect(observation.instruction).not.toContain('must verify')
     expect(observation.instruction).not.toContain('pendingCandidateKeys')
@@ -74,10 +74,11 @@ describe('controller capability surface v5', () => {
   it('contains no runtime-authored semantic mandatory-next-tool protocol', () => {
     const source = readFileSync(new URL('../../../supabase/functions/_shared/capabilities/controllerSurface.ts', import.meta.url), 'utf8')
     expect(source).not.toContain('CONTROLLER_TOOL_GUIDANCE')
-    expect(source).not.toContain('discoverIndexedCapabilities')
+    expect(source).toContain('discoverIndexedCapabilities')
     expect(source).not.toContain('pendingCandidateKeys')
     expect(source).not.toContain('next knowledge call MUST')
     expect(source).toContain('semantic action batching')
+    expect(source).toContain("layer: 'semantic'")
     expect(source).toContain('semantic Controller')
   })
 })

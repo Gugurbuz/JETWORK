@@ -1,3 +1,6 @@
+import { AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION } from './agentControllerPolicy.ts'
+import { buildProviderProductCore } from './agent/providerProductCore.ts'
+
 export const GEMINI_CONTEXT_CACHE_CONTRACT_VERSION = 'gemini38-native-implicit-v1'
 export const GEMINI_IMPLICIT_CACHE_MIN_TOKENS = 4096
 export const GEMINI_LARGE_CONTEXT_DEFAULT_CHARACTERS = 120_000
@@ -19,7 +22,11 @@ export async function buildGeminiContextCachePolicy(input: {
   controllerVersion: string
   capabilityManifestVersion: string
 }) {
-  const stablePrefixCharacters = String(input.stablePrompt || '').length
+  const stableProviderPrefix = [
+    buildProviderProductCore(String(input.stablePrompt || '')),
+    AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION,
+  ].filter(Boolean).join('\n\n')
+  const stablePrefixCharacters = stableProviderPrefix.length
   const estimatedStableTokens = estimateGeminiTokens(stablePrefixCharacters)
   const keyMaterial = JSON.stringify({
     contract: GEMINI_CONTEXT_CACHE_CONTRACT_VERSION,
@@ -29,7 +36,7 @@ export async function buildGeminiContextCachePolicy(input: {
     model: input.model,
     controllerVersion: input.controllerVersion,
     capabilityManifestVersion: input.capabilityManifestVersion,
-    stablePromptHash: await sha256Text(String(input.stablePrompt || '')),
+    stablePromptHash: await sha256Text(stableProviderPrefix),
   })
   return {
     contractVersion: GEMINI_CONTEXT_CACHE_CONTRACT_VERSION,

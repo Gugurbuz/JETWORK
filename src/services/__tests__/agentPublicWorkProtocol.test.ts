@@ -43,7 +43,7 @@ describe('Agent public work protocol', () => {
     const before = gateGeminiAgentToolsForPublicWork([], tools, true)
     expect(before.started).toBe(false)
     expect(before.providerWebEnabled).toBe(false)
-    expect(before.tools.map(tool => tool.name)).toEqual(['report_progress', 'execute_capabilities'])
+    expect(before.tools.map(tool => tool.name)).toEqual(['report_progress', 'discover_more_capabilities', 'execute_capabilities'])
 
     const after = gateGeminiAgentToolsForPublicWork(startTrace, tools, true)
     expect(after.started).toBe(true)

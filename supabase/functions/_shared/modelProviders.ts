@@ -1,8 +1,12 @@
 import {
   providerForModel as baseProviderForModel,
+  verifiedToolEvidenceForAnswerability,
   type NormalizedModelResponse,
 } from './modelProvidersBase.ts'
-import { AGENT_CONTROLLER_INSTRUCTION } from './agentControllerPolicy.ts'
+import { AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION } from './agentControllerPolicy.ts'
+import { LITERAL_SOURCE_COMPLETION_POLICY } from './agent/literalSourceCompletionPolicy.ts'
+import { sanitizeNovelCustomIdentifierClaims } from './providerAnswerabilityGuard.ts'
+import { buildProviderProductCore } from './agent/providerProductCore.ts'
 import { extractGeminiRuntimeObservationInstruction } from './agent/controllerRuntimeObservation.ts'
 import {
   buildPublicWorkProtocolInstruction,
@@ -10,6 +14,8 @@ import {
   hasCompletedPublicWorkStart,
   PUBLIC_WORK_DIRECT_ANSWER_TOOL,
   PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
+  PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL,
+  PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME,
 } from './agent/publicWorkProtocol.ts'
 import {
   createGeminiProviderStateItem,
@@ -62,6 +68,23 @@ export const providerForModel = (model: string): AssistantProvider => (
       : baseProviderForModel(model)
 )
 
+const PUBLIC_WORK_PROGRESS_UPDATE_TOOL = {
+  type: 'function',
+  name: 'report_progress',
+  description: 'Optional user-visible update after work start. Use only for a material verified finding, a genuine plan change, or a real blocker; never for every tool round.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: ['finding', 'plan_change', 'blocked'] },
+      message: { type: 'string', minLength: 2, maxLength: 500 },
+      sourceRefs: { type: ['array', 'null'], items: { type: 'string', maxLength: 500 } },
+    },
+    required: ['kind', 'message', 'sourceRefs'],
+    additionalProperties: false,
+  },
+} as const
+
 type GeminiRequestInput = {
   apiKey: string
   model: string
@@ -71,6 +94,7 @@ type GeminiRequestInput = {
   tools: ReadonlyArray<Record<string, unknown>>
   allowTools: boolean
   allowProviderWeb?: boolean
+  verifiedEvidenceAvailable?: boolean
   workMode?: 'fast' | 'balanced' | 'deep'
   maxOutputTokens: number
   onText: (text: string) => void
@@ -82,6 +106,44 @@ const mergeUsage = (
   current: Record<string, number> | undefined,
   extra: Record<string, number>,
 ): Record<string, number> => ({ ...(current || {}), ...extra })
+
+const latestUserText = (items: Array<Record<string, unknown>>) => {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (String(item.role || '') !== 'user') continue
+    const content = item.content
+    if (typeof content === 'string') return content
+    if (Array.isArray(content)) {
+      return content.map(part => (
+        typeof part === 'string'
+          ? part
+          : part && typeof part === 'object' && typeof (part as Record<string, unknown>).text === 'string'
+            ? String((part as Record<string, unknown>).text)
+            : ''
+      )).filter(Boolean).join('\n')
+    }
+  }
+  return ''
+}
+
+const verifiedAnswerabilityContext = (items: Array<Record<string, unknown>>) => [
+  latestUserText(items),
+  verifiedToolEvidenceForAnswerability(items),
+].filter(Boolean).join('\n')
+
+const assistantMessageOutput = (
+  response: NormalizedModelResponse,
+  text: string,
+): Array<Record<string, unknown>> => {
+  const existing = (response.output || []).find(item => String(item.type || '') === 'message') as Record<string, unknown> | undefined
+  const interactionId = String(existing?._gemini_interaction_id || response.id || '').trim()
+  return [{
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'output_text', text, annotations: [] }],
+    ...(interactionId ? { _gemini_interaction_id: interactionId } : {}),
+  }]
+}
 
 /**
  * Controller V4 provider boundary.
@@ -100,7 +162,8 @@ const mergeUsage = (
 export async function requestGeminiResponse(input: GeminiRequestInput): Promise<NormalizedModelResponse> {
   const runtimeObservation = extractGeminiRuntimeObservationInstruction(input.instructions)
   const terminalSynthesis = input.instructions.includes(TERMINAL_SYNTHESIS_MARKER)
-  const stableProductInstruction = String(input.stableInstructions || '').trim()
+  const rawStableProductInstruction = String(input.stableInstructions || '').trim()
+  const stableProductInstruction = buildProviderProductCore(rawStableProductInstruction)
   const providerWebRequested = input.allowProviderWeb ?? input.allowTools
   const publicWorkGate = gateGeminiAgentToolsForPublicWork(input.items, input.tools, providerWebRequested)
   const explicitFirstTurnDecision = Boolean(
@@ -109,12 +172,28 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       && !publicWorkGate.started
       && !terminalSynthesis
   )
+  const continuationTools = publicWorkGate.started
+    ? publicWorkGate.tools.map(tool => (
+        String(tool.name || '') === 'report_progress'
+          ? PUBLIC_WORK_PROGRESS_UPDATE_TOOL as unknown as typeof tool
+          : tool
+      ))
+    : publicWorkGate.tools
+  const evidenceFinalizeVisible = Boolean(
+    publicWorkGate.started
+      && !terminalSynthesis
+  )
   const visibleTools = explicitFirstTurnDecision
     ? [
-        ...publicWorkGate.tools,
+        ...continuationTools,
         PUBLIC_WORK_DIRECT_ANSWER_TOOL as unknown as Record<string, unknown>,
       ]
-    : publicWorkGate.tools
+    : evidenceFinalizeVisible
+      ? [
+          ...continuationTools,
+          PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL as unknown as Record<string, unknown>,
+        ]
+      : continuationTools
   const publicWorkInstruction = buildPublicWorkProtocolInstruction(
     input.items,
     publicWorkGate.reportProgressAvailable,
@@ -122,15 +201,49 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
   const effectiveAllowTools = input.allowTools && (
     visibleTools.length > 0 || publicWorkGate.providerWebEnabled
   )
+  const literalSourceCompletionPolicy = (
+    publicWorkGate.started || input.verifiedEvidenceAvailable
+  ) ? LITERAL_SOURCE_COMPLETION_POLICY : ''
+  const systemInstruction = [
+    stableProductInstruction,
+    AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION,
+    literalSourceCompletionPolicy,
+    runtimeObservation,
+    publicWorkInstruction,
+  ].filter(Boolean).join('\n\n')
+  const toolSchemaCharacters = effectiveAllowTools ? JSON.stringify(visibleTools).length : 0
+  const itemCharacters = JSON.stringify(input.items || []).length
+  console.info('GEMINI_PROVIDER_PAYLOAD_BUDGET', JSON.stringify({
+    product_core_chars: stableProductInstruction.length,
+    controller_core_chars: AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION.length,
+    runtime_observation_chars: runtimeObservation.length,
+    public_work_chars: publicWorkInstruction.length,
+    system_instruction_chars: systemInstruction.length,
+    tool_schema_chars: toolSchemaCharacters,
+    item_chars: itemCharacters,
+  }))
+
+  const verifiedEvidenceDecisionRequired = Boolean(
+    input.verifiedEvidenceAvailable
+      && publicWorkGate.started
+      && !terminalSynthesis
+      && !publicWorkGate.providerWebEnabled
+  )
+  const verifiedEvidenceDecisionFunctionNames = verifiedEvidenceDecisionRequired
+    ? visibleTools
+        .map(tool => String(tool.name || '')).filter(Boolean)
+        .filter(name => name !== 'report_progress')
+    : []
+
+  let bufferedVerifiedText = ''
+  const providerOnText = input.verifiedEvidenceAvailable
+    ? (delta: string) => { bufferedVerifiedText += delta }
+    : input.onText
+
   const interactionInput: GeminiInteractionsRequest = {
     apiKey: input.apiKey,
     model: PUBLIC_GEMINI_MODEL,
-    systemInstruction: [
-      stableProductInstruction,
-      AGENT_CONTROLLER_INSTRUCTION,
-      runtimeObservation,
-      publicWorkInstruction,
-    ].filter(Boolean).join('\n\n'),
+    systemInstruction,
     items: input.items,
     tools: effectiveAllowTools ? visibleTools : [],
     allowTools: effectiveAllowTools,
@@ -138,16 +251,89 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
     allowProviderWeb: publicWorkGate.providerWebEnabled,
     requiredFunctionNames: explicitFirstTurnDecision
       ? visibleTools.map(tool => String(tool.name || '')).filter(Boolean)
-      : undefined,
+      : verifiedEvidenceDecisionFunctionNames.length
+        ? verifiedEvidenceDecisionFunctionNames
+        : undefined,
     workMode: input.workMode,
     maxOutputTokens: input.maxOutputTokens,
-    onText: input.onText,
+    onText: providerOnText,
     onStepEvent: input.onStepEvent,
     signal: input.signal,
   }
 
   const response = await requestGeminiInteractionsResponseGA(interactionInput) as NormalizedModelResponse
   let normalizedResponse = response
+  const responseHasFunctionCall = (response.output || []).some(item => String(item.type || '') === 'function_call')
+  if (input.verifiedEvidenceAvailable && bufferedVerifiedText.trim() && !responseHasFunctionCall) {
+    const sanitized = sanitizeNovelCustomIdentifierClaims(
+      bufferedVerifiedText,
+      verifiedAnswerabilityContext(input.items),
+    )
+    const safeText = String(sanitized.text || '').trim()
+    if (!safeText) throw new Error('Gemini verified-evidence answer was fully removed by literal-source provenance guard.')
+    input.onText(safeText)
+    normalizedResponse = {
+      ...normalizedResponse,
+      output: assistantMessageOutput(normalizedResponse, safeText),
+      usage: mergeUsage(normalizedResponse.usage, {
+        verified_answerability_sanitized_segments: sanitized.removedSegments,
+      }),
+    }
+  }
+
+  if (evidenceFinalizeVisible && input.verifiedEvidenceAvailable) {
+    const output = normalizedResponse.output || []
+    const finalizeCalls = output.filter(item => (
+      String(item.type || '') === 'function_call'
+      && String(item.name || '') === PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME
+    ))
+    const otherFunctionCalls = output.filter(item => (
+      String(item.type || '') === 'function_call'
+      && String(item.name || '') !== PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME
+    ))
+
+    if (finalizeCalls.length > 0 && otherFunctionCalls.length === 0) {
+      const finalCall = finalizeCalls[0] as Record<string, unknown>
+      let args: Record<string, unknown> = {}
+      try {
+        args = typeof finalCall.arguments === 'string'
+          ? JSON.parse(finalCall.arguments)
+          : (finalCall.arguments && typeof finalCall.arguments === 'object'
+              ? finalCall.arguments as Record<string, unknown>
+              : {})
+      } catch {
+        args = {}
+      }
+      const answer = String(args.answer || '').trim()
+      if (!answer) throw new Error('Gemini verified-evidence finalizer returned an empty answer.')
+      const sanitized = sanitizeNovelCustomIdentifierClaims(
+        answer,
+        verifiedAnswerabilityContext(input.items),
+      )
+      const safeAnswer = String(sanitized.text || '').trim()
+      if (!safeAnswer) throw new Error('Gemini verified-evidence finalizer was fully removed by literal-source provenance guard.')
+      input.onText(safeAnswer)
+      normalizedResponse = {
+        ...normalizedResponse,
+        output: assistantMessageOutput(normalizedResponse, safeAnswer),
+        usage: mergeUsage(normalizedResponse.usage, {
+          controller_verified_evidence_finalized: 1,
+          verified_answerability_sanitized_segments: sanitized.removedSegments,
+        }),
+      }
+    } else if (finalizeCalls.length > 0 && otherFunctionCalls.length > 0) {
+      normalizedResponse = {
+        ...normalizedResponse,
+        output: output.filter(item => !(
+          String(item.type || '') === 'function_call'
+          && String(item.name || '') === PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME
+        )),
+        usage: mergeUsage(normalizedResponse.usage, {
+          controller_verified_evidence_finalize_conflict_dropped: finalizeCalls.length,
+        }),
+      }
+    }
+  }
 
   if (explicitFirstTurnDecision) {
     const output = response.output || []
@@ -209,6 +395,15 @@ export async function requestGeminiResponse(input: GeminiRequestInput): Promise<
       public_work_visible_tools: visibleTools.length,
       public_work_provider_web_enabled: publicWorkGate.providerWebEnabled ? 1 : 0,
       controller_first_turn_decision_required: explicitFirstTurnDecision ? 1 : 0,
+      controller_verified_evidence_finalize_visible: evidenceFinalizeVisible ? 1 : 0,
+      controller_verified_evidence_decision_required: verifiedEvidenceDecisionRequired ? 1 : 0,
+      provider_product_core_chars: stableProductInstruction.length,
+      provider_controller_core_chars: AGENT_CONTROLLER_PROVIDER_CORE_INSTRUCTION.length,
+      provider_runtime_observation_chars: runtimeObservation.length,
+      provider_public_work_chars: publicWorkInstruction.length,
+      provider_system_instruction_chars: systemInstruction.length,
+      provider_tool_schema_chars: toolSchemaCharacters,
+      provider_item_chars: itemCharacters,
     }),
   }
 }

@@ -42,7 +42,8 @@ describe('JetWork skill runtime wiring', () => {
     expect(providerSource).toContain('const effectiveAllowTools = input.allowTools && (publicWorkGate.tools.length > 0 || providerWebEnabled)')
     expect(providerSource).toContain('effectiveAllowTools && providerWebEnabled ? PROVIDER_WEB_CAPABILITY_MARKER')
     expect(implementationSource).toContain('allowProviderWeb: !forceEvidenceFinalSynthesis && (providerWebEnabled || geminiNativeWebPlanned)')
-    expect(implementationSource).toContain('const agenticVisibleTools = !mustSynthesize && !forceEvidenceFinalSynthesis && AGENTIC_CONTROLLER_ENABLED')
+    expect(implementationSource).toContain('const baseAgenticVisibleTools = !mustSynthesize && !forceEvidenceFinalSynthesis && AGENTIC_CONTROLLER_ENABLED')
+    expect(implementationSource).toContain('truncatedObservationAvailable')
     expect(providerSource).not.toContain('emptyMessageDetailLookup')
   })
 

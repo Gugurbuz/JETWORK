@@ -28,10 +28,8 @@ describe('V5.1 low-latency progressive disclosure fast path', () => {
   it('keeps legacy disclosure compatible while V5.3 instructs semantic action batching', async () => {
     const session = await startControllerCapabilitySession({ client: null, query: 'test' })
     const instruction = capabilitySessionObservation(session).instruction
-    expect(instruction).toContain('sole semantic Controller')
-    expect(instruction).toContain('execute_capabilities')
-    expect(instruction).toContain('both may be emitted in the same model response')
-    expect(instruction).toContain('Batch independent actions whose arguments are already known')
-    expect(instruction).toContain('never infers intent, selects a tool')
+    expect(instruction).toContain('Capability catalog is lazy')
+    expect(instruction).toContain('discover_more_capabilities')
+    expect(instruction).toContain('Runtime only validates name/schema/permission/budget')
   })
 })

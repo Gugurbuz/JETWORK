@@ -59,7 +59,7 @@ const sanitizeLiteralCodeBlocksAgainstVerifiedEvidence = (
 
     for (const rawLine of String(rawBody || '').split(/\r?\n/)) {
       const trimmed = rawLine.trim()
-      if (!trimmed || /^\s*["*]/.test(trimmed)) {
+      if (!trimmed) {
         kept.push(rawLine)
         continue
       }
@@ -76,7 +76,7 @@ const sanitizeLiteralCodeBlocksAgainstVerifiedEvidence = (
     }
 
     if (!removedFromBlock) return _full
-    const substantive = kept.some(line => line.trim() && !/^\s*["*]/.test(line.trim()))
+    const substantive = kept.some(line => line.trim())
     if (!substantive) {
       return 'Doğrulanmış kaynakta birebir karşılığı olmayan literal kod satırları gösterilmedi.'
     }

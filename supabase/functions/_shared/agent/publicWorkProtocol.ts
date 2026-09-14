@@ -1,12 +1,29 @@
 export const PUBLIC_WORK_PROGRESS_TOOL_NAME = 'report_progress'
 export const PUBLIC_WORK_BATCH_TOOL_NAME = 'execute_capabilities'
+export const PUBLIC_WORK_DISCOVERY_TOOL_NAME = 'discover_more_capabilities'
 export const PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME = 'answer_directly'
+export const PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME = 'finalize_with_evidence'
 export const PUBLIC_WORK_PROTOCOL_VERSION = 'public-work-protocol-v3-semantic-action-batch'
 
 export const PUBLIC_WORK_DIRECT_ANSWER_TOOL = {
   type: 'function',
   name: PUBLIC_WORK_DIRECT_ANSWER_TOOL_NAME,
   description: 'Structured first-turn decision for a response that truly needs no JetWork capability. Use only when the current request is clearly answerable without Jetbase, web, skills, files, actions or enterprise evidence. Do not use for an unexplained acronym, product/code, class/method/message identifier, organization-specific process/term, or any technical/enterprise question whose meaning may differ in the active work context; choose report_progress(kind=start) for those instead. Put only the final user-facing answer in answer.',
+  strict: true,
+  parameters: {
+    type: 'object',
+    properties: {
+      answer: { type: 'string', minLength: 1, maxLength: 24_000 },
+    },
+    required: ['answer'],
+    additionalProperties: false,
+  },
+} as const
+
+export const PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL = {
+  type: 'function',
+  name: PUBLIC_WORK_EVIDENCE_FINALIZE_TOOL_NAME,
+  description: 'Model-authored completion for tool-backed work after mechanically verified evidence exists. Use only when you decide the user goal is answerable from the evidence already returned and no material evidence gap remains. Put the complete final user-facing answer in answer. Do not call this merely to publish a progress finding; if another capability is materially needed, call that capability instead. Runtime does not decide that the goal is complete; calling this tool is your semantic stop decision.',
   strict: true,
   parameters: {
     type: 'object',
@@ -110,7 +127,7 @@ export const buildPublicWorkProtocolInstruction = (
   if (!started) {
     return [
       '[JETWORK PUBLIC WORK GATE]',
-      'Bir tool, kurumsal kaynak, web, skill veya artifact kullanmaya karar verirsen ilk function call `report_progress(kind=start)` olmalıdır. İlk aksiyonların argümanları kullanıcı isteğinden zaten biliniyorsa aynı model çıktısında hemen ardından `execute_capabilities` çağrısını da verebilirsin; böylece yalnız lifecycle için ayrı LLM turu yaratma.',
+      'Bir tool, kurumsal kaynak, web, skill veya artifact kullanmaya karar verirsen ilk function call `report_progress(kind=start)` olmalıdır. İlk capability veya argümanlar zaten biliniyorsa aynı model çıktısında hemen ardından `execute_capabilities` çağrısını verebilirsin. Hangi capability gerektiği belirsizse aynı çıktıda `discover_more_capabilities` ile küçük semantic aday seti isteyebilirsin; lifecycle için ayrı LLM turu yaratma.',
       '`start` çağrısında `resolvedGoal` alanına ham kullanıcı cümlesini tekrar etmek yerine aktif sistem/çalışma/konuşma bağlamıyla çözdüğün gerçek hedefi yaz; `planSteps` alanına 2-6 maddelik gerçek çalışma planını koy; `evidenceGaps` yalnız başlangıçta açık olan önemli belirsizlikleri içersin.',
       'Public `message` kısa ve doğal olmalı: ne anladığını ve neyi kontrol edeceğini kullanıcıya anlat. "Bilgi bankası sorgulanıyor", tool adı, provider telemetrysi veya gizli reasoning yazma.',
       'İlk model çıktısında serbest metinle bu kararı atlama. Tam olarak iki yol vardır: gerçekten hiçbir JetWork capability/kurumsal kaynak gerekmiyorsa `answer_directly` ile nihai cevabı ver; araştırma, kurumsal bağlam çözümü veya teknik doğrulama gerekiyorsa `report_progress(kind=start)` ile başla ve gerekiyorsa aynı çıktıda bağımsız ilk capability batchini ver.',
@@ -148,7 +165,7 @@ export const gateGeminiAgentToolsForPublicWork = <T extends { name?: unknown }>(
     ? [...tools]
     : tools.filter(tool => {
         const name = String(tool.name || '')
-        return name === PUBLIC_WORK_PROGRESS_TOOL_NAME || name === PUBLIC_WORK_BATCH_TOOL_NAME
+        return name === PUBLIC_WORK_PROGRESS_TOOL_NAME || name === PUBLIC_WORK_BATCH_TOOL_NAME || name === PUBLIC_WORK_DISCOVERY_TOOL_NAME
       })
 
   return {

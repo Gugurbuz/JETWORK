@@ -13,5 +13,7 @@ describe('ABAP canonical message evidence formatting', () => {
     expect(toolsSource).toContain("toLocaleUpperCase('en-US')")
     expect(toolsSource).toContain('codes.add(`${messageClass}-${number}`)')
     expect(toolsSource).toContain('[VERIFIED_ABAP_MESSAGE_CODES]')
+    expect(toolsSource).toContain('extractAbapMessageLineIndex')
+    expect(toolsSource).toContain('abapMessageLinesByCode')
   })
 })

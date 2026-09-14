@@ -66,7 +66,7 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(providerSource).not.toContain('extractSemanticPlanFromItems')
   })
 
-  it('preserves 33 logical options while exposing only the mechanical semantic batch gateway', () => {
+  it('preserves 33 logical options while exposing lazy model-authored semantic discovery', () => {
     expect(surfaceSource).toContain("discoveryMode: 'semantic_action_batch'")
     expect(surfaceSource).toContain('logicalToolNames')
     expect(surfaceSource).toContain('buildExecuteCapabilitiesTool')
@@ -78,8 +78,8 @@ describe('Agentic semantic authority leak regressions', () => {
     expect(surfaceSource).toContain("query.match(/^contract")
     expect(disclosureSource).toContain('JETWORK_CAPABILITY_INDEX')
     expect(surfaceSource).not.toContain('invoke_capability')
-    expect(surfaceSource).not.toContain('discoverIndexedCapabilities')
-    expect(surfaceSource).not.toContain('TOP_K_DEFAULT')
+    expect(surfaceSource).toContain('discoverIndexedCapabilities')
+    expect(surfaceSource).not.toContain('mandatoryCapability')
   })
 
   it('keeps provider-native tool primitives available in transport code without making them the V5 semantic web path', () => {

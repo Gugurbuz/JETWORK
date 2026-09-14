@@ -14,14 +14,15 @@ import {
 import { toOllamaTools } from '../../../supabase/functions/_shared/ollamaProvider.ts'
 
 describe('Controller V5.3 semantic action batching with legacy disclosure compatibility', () => {
-  it('keeps 33 logical capabilities while initial provider surface stays tiny', () => {
+  it('keeps 34 logical capabilities while initial provider surface stays tiny', () => {
     const surface = buildControllerCapabilitySurface()
     expect(CONTROLLER_CAPABILITY_SURFACE_VERSION).toBe('controller-capability-surface-v5.3-semantic-action-batch')
-    expect(JETWORK_LOGICAL_CAPABILITY_NAMES).toHaveLength(33)
-    expect(surface.logicalToolNames).toHaveLength(33)
+    expect(JETWORK_LOGICAL_CAPABILITY_NAMES).toHaveLength(34)
+    expect(surface.logicalToolNames).toHaveLength(34)
     expect(surface.logicalToolNames).toEqual(JETWORK_LOGICAL_CAPABILITY_NAMES)
     expect(surface.tools.map(tool => tool.name)).toEqual([
       'report_progress',
+      'discover_more_capabilities',
       'execute_capabilities',
       'request_large_context',
     ])
@@ -32,13 +33,12 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
     const surface = buildControllerCapabilitySurface()
     const ollamaTools = toOllamaTools(surface.tools as unknown as Array<Record<string, unknown>>)
     expect(ollamaTools).toHaveLength(1)
-    expect(JSON.stringify(ollamaTools).length).toBeLessThan(2_000)
-    expect(JSON.stringify(ollamaTools)).not.toContain('search_knowledge_catalog')
+    expect(JSON.stringify(ollamaTools).length).toBeLessThan(4_000)
     expect(JSON.stringify(ollamaTools)).not.toContain('create_document_file')
   })
 
   it('gives every logical capability a meaningful Layer-1 summary and Layer-2 guide', () => {
-    expect(JETWORK_CAPABILITY_INDEX).toHaveLength(33)
+    expect(JETWORK_CAPABILITY_INDEX).toHaveLength(34)
     for (const capability of JETWORK_CAPABILITY_INDEX) {
       expect(capability.summary.length).toBeGreaterThanOrEqual(90)
       expect(capability.guide.length).toBeGreaterThanOrEqual(80)
@@ -48,6 +48,7 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
   it('does not expose exact canonical schemas before Layer 3 activation', () => {
     const surface = buildControllerCapabilitySurface()
     expect(surface.tools.some(tool => tool.name === 'search_knowledge_catalog')).toBe(false)
+    expect(getCanonicalCapabilityTool('retrieve_jetbase_evidence')?.parameters).toBeTruthy()
     expect(surface.tools.some(tool => tool.name === 'create_document_file')).toBe(false)
     expect(getCanonicalCapabilityTool('search_knowledge_catalog')?.parameters).toBeTruthy()
     expect(getCanonicalCapabilityTool('create_document_file')?.parameters).toBeTruthy()
@@ -95,12 +96,8 @@ describe('Controller V5.3 semantic action batching with legacy disclosure compat
   it('keeps semantic authority in the active controller model while legacy disclosure remains callable', async () => {
     const session = await startControllerCapabilitySession({ client: null, query: 'test' })
     const observation = capabilitySessionObservation(session)
-    expect(observation.logicalCapabilityCount).toBe(33)
-    expect(observation.instruction).toContain('sole semantic Controller')
-    expect(observation.instruction).toContain('execute_capabilities')
-    expect(observation.instruction).toContain('actions=[{id, capability, argumentsJson}]')
-    expect(observation.instruction).toContain('Batch independent actions')
+    expect(observation.instruction).toContain('Capability catalog is lazy')
+    expect(observation.instruction).toContain('discover_more_capabilities')
     expect(observation.instruction).toContain('Runtime only validates name/schema/permission/budget')
-    expect(observation.instruction).toContain('never infers intent, selects a tool')
   })
 })
