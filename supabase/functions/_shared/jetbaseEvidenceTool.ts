@@ -325,6 +325,17 @@ export const executeRetrieveJetbaseEvidence = async (input: {
       .filter(item => ['class','method','function'].includes(clean(item.record.objectType, 80)))
       .map(item => clean(item.record.canonicalKey, 320)),
   ]).filter(Boolean)
+  const sourceFocusIdentifiers = unique([
+    ...effectiveFocusIdentifiers,
+    ...exactResolved.flatMap(item => [
+      clean(item.record.canonicalKey, 320),
+      clean(item.record.name, 240),
+    ]),
+    ...relatedResolved.flatMap(item => [
+      clean(item.record.canonicalKey, 320),
+      clean(item.record.name, 240),
+    ]),
+  ]).filter(Boolean)
 
   const sourceWindows: Array<Record<string, unknown>> = []
   if (evidenceKinds.includes('source')) {
@@ -334,7 +345,7 @@ export const executeRetrieveJetbaseEvidence = async (input: {
           client: input.client,
           workspaceId: input.workspaceId,
           canonicalKey,
-          focusIdentifiers: effectiveFocusIdentifiers,
+          focusIdentifiers: sourceFocusIdentifiers,
           sourceCursor: null,
           windowSize: sourceWindowSize,
         })
@@ -383,7 +394,7 @@ export const executeRetrieveJetbaseEvidence = async (input: {
       queryVariants,
       modelAuthoredEvidenceKinds: evidenceKinds,
       modelAuthoredFocusIdentifiers: focusIdentifiers,
-      retrievalFocusIdentifiers: effectiveFocusIdentifiers,
+      retrievalFocusIdentifiers: sourceFocusIdentifiers,
       modelAuthoredRelationTypes: relationTypes,
       relationDirection: direction,
     },
