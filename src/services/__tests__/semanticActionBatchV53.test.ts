@@ -38,12 +38,13 @@ describe('V5.3 semantic action batching', () => {
       'request_large_context',
     ])
     expect(surface.toolNames).toContain('discover_more_capabilities')
-    expect(surface.logicalToolNames).toHaveLength(33)
+    expect(surface.logicalToolNames).toHaveLength(34)
   })
 
   it('exposes a compact model-readable menu while keeping canonical schemas runtime-side', () => {
     const tool = buildExecuteCapabilitiesTool()
     expect(tool.name).toBe(EXECUTE_CAPABILITIES_TOOL_NAME)
+    expect(tool.description).toContain('retrieve_jetbase_evidence')
     expect(tool.description).toContain('get_related_objects')
     expect(tool.description).toContain('discover_more_capabilities')
     expect(tool.description).toContain('semantic action batching runtime')
